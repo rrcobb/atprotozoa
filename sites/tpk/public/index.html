@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TPK — dungeon crawler party roller</title>
+    <meta
+      name="description"
+      content="Roll a party of four: Strength/Intelligence/Agility, a race, a class, and a wacky backstory grown from a branching story tree. A survival meter tells you the odds. They are not great."
+    />
+    <meta property="og:title" content="TPK — dungeon crawler party roller" />
+    <meta
+      property="og:description"
+      content="Four adventurers, three stats each, a race, a class, and a backstory grown by walking a branching tree. Odds are, they're not gonna make it."
+    />
+    <meta property="og:image" content="https://tpk.bisks.net/og.png" />
+    <meta property="og:url" content="https://tpk.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="TPK — dungeon crawler party roller" />
+    <meta
+      name="twitter:description"
+      content="Four adventurers, three stats each, a race, a class, and a backstory grown by walking a branching tree. Odds are, they're not gonna make it."
+    />
+    <meta name="twitter:image" content="https://tpk.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #0c0a08;
+        --bg2: #17120c;
+        --stone: #1d1712;
+        --stone-edge: #352a1e;
+        --ink: #e9ddc6;
+        --dim: #a89679;
+        --torch: #e08a2e;
+        --torch-hot: #ffb454;
+        --blood: #b23a3a;
+        --blood-hot: #e0553f;
+        --good: #6fae5c;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        min-height: 100vh;
+        background:
+          radial-gradient(900px 500px at 15% -10%, #2a1c0e 0%, transparent 60%),
+          radial-gradient(900px 500px at 90% 0%, #1b0f0f 0%, transparent 55%),
+          var(--bg);
+        color: var(--ink);
+        font-family: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+        line-height: 1.5;
+        padding: 32px 16px 80px;
+      }
+      a { color: var(--torch-hot); }
+      .wrap { max-width: 880px; margin: 0 auto; }
+
+      header { text-align: center; margin-bottom: 28px; }
+      h1 {
+        font-size: clamp(2.4rem, 8vw, 3.6rem);
+        letter-spacing: 0.08em;
+        margin: 0 0 6px;
+        color: var(--torch-hot);
+        text-shadow: 0 0 24px rgba(224, 138, 46, 0.35);
+      }
+      .tag { color: var(--dim); margin: 0 0 4px; }
+      .credit { color: var(--dim); font-size: 0.85rem; opacity: 0.8; }
+      .credit a { color: var(--dim); text-decoration: underline; }
+
+      .shared-banner {
+        display: none;
+        text-align: center;
+        background: var(--stone);
+        border: 1px solid var(--stone-edge);
+        border-radius: 10px;
+        padding: 10px 14px;
+        margin: 0 0 20px;
+        color: var(--dim);
+        font-size: 0.9rem;
+      }
+      .shared-banner.show { display: block; }
+      .shared-banner button {
+        margin-left: 8px;
+      }
+
+      .controls { text-align: center; margin: 0 0 28px; }
+      button {
+        font-family: inherit;
+        cursor: pointer;
+        border-radius: 8px;
+      }
+      #rollBtn {
+        font-size: 1.15rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        padding: 14px 30px;
+        background: linear-gradient(180deg, var(--torch-hot), var(--torch));
+        color: #23140a;
+        border: 1px solid #7a4413;
+        box-shadow: 0 6px 0 #6b3a10, 0 8px 18px rgba(0,0,0,0.45);
+      }
+      #rollBtn:active { transform: translateY(4px); box-shadow: 0 2px 0 #6b3a10; }
+
+      .meter {
+        background: var(--stone);
+        border: 1px solid var(--stone-edge);
+        border-radius: 14px;
+        padding: 18px 20px;
+        margin: 0 0 28px;
+        display: none;
+      }
+      .meter.show { display: block; }
+      .meter-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 8px;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .meter-label { color: var(--dim); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; }
+      .meter-pct { font-size: 1.5rem; font-weight: 700; }
+      .meter-bar {
+        height: 14px;
+        border-radius: 999px;
+        background: #2a1414;
+        border: 1px solid #401d1d;
+        overflow: hidden;
+      }
+      .meter-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--blood), var(--blood-hot));
+        width: 0%;
+        transition: width 0.5s ease;
+      }
+      .meter-verdict { margin-top: 10px; color: var(--ink); font-style: italic; }
+
+      .party {
+        display: none;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-bottom: 28px;
+      }
+      .party.show { display: grid; }
+      @media (max-width: 620px) {
+        .party { grid-template-columns: 1fr; }
+      }
+
+      .card {
+        background: var(--stone);
+        border: 1px solid var(--stone-edge);
+        border-radius: 12px;
+        padding: 16px 18px;
+        position: relative;
+      }
+      .card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: 12px;
+        pointer-events: none;
+        box-shadow: inset 0 0 30px rgba(0,0,0,0.35);
+      }
+      .card h2 {
+        margin: 0 0 2px;
+        font-size: 1.15rem;
+        color: var(--torch-hot);
+      }
+      .card .subtitle {
+        color: var(--dim);
+        font-size: 0.85rem;
+        margin: 0 0 12px;
+      }
+      .stats {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+      }
+      .stat {
+        background: #120e0a;
+        border: 1px solid var(--stone-edge);
+        border-radius: 8px;
+        padding: 6px 10px;
+        text-align: center;
+        min-width: 64px;
+      }
+      .stat .k { font-size: 0.7rem; color: var(--dim); letter-spacing: 0.06em; }
+      .stat .v { font-size: 1.2rem; font-weight: 700; }
+      .stat .m { font-size: 0.7rem; color: var(--dim); }
+      .backstory {
+        font-size: 0.92rem;
+        color: var(--ink);
+        opacity: 0.92;
+      }
+
+      .share-row {
+        display: none;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: center;
+        margin-top: 4px;
+      }
+      .share-row.show { display: flex; }
+      .share-row a, .share-row button {
+        font-size: 0.9rem;
+        padding: 9px 14px;
+        background: var(--bg2);
+        border: 1px solid var(--stone-edge);
+        color: var(--ink);
+        text-decoration: none;
+      }
+      .share-row a:hover, .share-row button:hover { border-color: var(--torch); color: var(--torch-hot); }
+
+      footer {
+        text-align: center;
+        margin-top: 44px;
+        color: var(--dim);
+        font-size: 0.8rem;
+      }
+      footer a { color: var(--dim); text-decoration: underline; }
+
+      #shareCanvas { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>TPK</h1>
+        <p class="tag">a dungeon crawler party roller</p>
+        <p class="credit">asked for by <a href="https://bsky.app/profile/catblanketflower.yuwakisa.com" target="_blank" rel="noopener">@catblanketflower.yuwakisa.com</a> · odds are, they're not gonna make it</p>
+      </header>
+
+      <div class="shared-banner" id="sharedBanner">
+        you're looking at someone else's party. <button id="rollFreshBtn">roll your own</button>
+      </div>
+
+      <div class="controls">
+        <button id="rollBtn">roll a party</button>
+      </div>
+
+      <div class="meter" id="meter">
+        <div class="meter-top">
+          <span class="meter-label">party survival odds</span>
+          <span class="meter-pct" id="meterPct">—</span>
+        </div>
+        <div class="meter-bar"><div class="meter-fill" id="meterFill"></div></div>
+        <p class="meter-verdict" id="meterVerdict"></p>
+      </div>
+
+      <div class="party" id="party"></div>
+
+      <div class="share-row" id="shareRow">
+        <a id="shareBluesky" href="#" target="_blank" rel="noopener">share on bluesky</a>
+        <button id="shareImage">share card</button>
+        <button id="copyLink">copy link</button>
+      </div>
+
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+      <footer>
+        part of the <a href="https://bisks.net/">atprotozoa</a> constellation ·
+        built by <a href="https://buildthis.bisks.net/">@buildthis.bisks.net</a>
+      </footer>
+    </div>
+
+    <script src="/tree.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>
