@@ -15,15 +15,17 @@ before acting on it.
 
 ## A. No blockers — buildable today
 
-**1. Write the ten missing lexicons.** (`pds-and-lexicons.md`)
-Sites already write ~11 `net.bisks.*` namespaces; only `steamtags` has an actual
-schema. Copy that as a template. Catches the class of bug `padmoot` and
+**1. Write the missing lexicons.** (`pds-and-lexicons.md`) **Done, 2026-08-16.**
+All 20 sites that write `net.bisks.*` records now ship a real schema, copied
+from the steamtags template. Catches the class of bug `padmoot` and
 `paintmoot` both shipped independently (atproto records take integers, not
 floats).
 
-**2. Publish the lexicons.** (`pds-and-lexicons.md`)
-Serve them all under one path + add a `_lexicon.bisks.net` DNS record so NSIDs
-resolve. One worker route, one DNS entry.
+**2. Publish the lexicons.** (`pds-and-lexicons.md`) **Half done, 2026-08-16.**
+All 32 schemas are now served under one path, `bisks.net/lexicons/`
+(`audit/build-lexicons.mjs --apply`). Still open: the `_lexicon.bisks.net` DNS
+TXT record so NSIDs actually resolve — needs a human with Cloudflare dashboard
+access, not something the builder can do from the repo.
 
 **3. Aggregate views via `listReposByCollection`.** (`pds-and-lexicons.md`)
 Find every repo holding `net.bisks.steamtags.rating` etc. Turns eleven isolated

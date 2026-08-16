@@ -1,0 +1,138 @@
+{
+  "lexicon": 1,
+  "id": "net.bisks.war.state",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "One player's WAR game state and lifetime score, a single record per player written via putRecord to the fixed rkey 'self' and overwritten in place after every flip. Fields the client sets to a JSON null (current, lastResult when there's an in-progress game, and card.suit for jokers) are modeled here as simply absent — this lexicon has no null type, so a strict validator will reject the literal nulls the client actually writes; see the war lexicon README note in the site's notes for detail. Written and read by war (https://war.bisks.net).",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": ["wins", "losses", "draws", "gamesPlayed", "updatedAt"],
+        "properties": {
+          "wins": { "type": "integer", "description": "Lifetime games won." },
+          "losses": { "type": "integer", "description": "Lifetime games lost." },
+          "draws": { "type": "integer", "description": "Lifetime games drawn (only possible under the 'round-cap' rule, on an exact tie)." },
+          "gamesPlayed": { "type": "integer", "description": "Lifetime games completed (wins + losses + draws)." },
+          "current": {
+            "type": "ref",
+            "ref": "#gameInProgress",
+            "description": "The in-progress game, if any. The client writes JSON null here between games (see the note on 'main' about the lack of a null type) — treat this field's absence or nullness the same way: no game in progress."
+          },
+          "lastResult": {
+            "type": "ref",
+            "ref": "#result",
+            "description": "The outcome of the most recently completed game, kept for display after 'current' clears. The client writes JSON null here at the start of a new game (see the note on 'main')."
+          },
+          "asks": {
+            "type": "array",
+            "maxLength": 5,
+            "items": { "type": "ref", "ref": "#ask" },
+            "description": "The player's own log of times they tagged @buildthis.bisks.net asking for a rule change or build revert, most recent first, capped at the 5 most recent."
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "When this record was last written, as an ISO 8601 datetime."
+          }
+        }
+      }
+    },
+    "gameInProgress": {
+      "type": "object",
+      "required": ["rules", "player", "computer", "round", "log", "startedAt"],
+      "properties": {
+        "rules": { "type": "ref", "ref": "net.bisks.war.ruleset#ruleValues", "description": "The five rule knobs this game is being played under, fixed for the life of the game." },
+        "player": { "type": "array", "maxLength": 54, "items": { "type": "ref", "ref": "#card" }, "description": "The player's deck, top card first. Cards move between this, the computer's deck, and the pot as rounds are played." },
+        "computer": { "type": "array", "maxLength": 54, "items": { "type": "ref", "ref": "#card" }, "description": "The computer's deck, top card first." },
+        "round": { "type": "integer", "description": "Number of rounds (flips, including any chained wars) played so far in this game." },
+        "log": {
+          "type": "array",
+          "maxLength": 30,
+          "items": { "type": "string", "maxLength": 400, "maxGraphemes": 200 },
+          "description": "Human-readable event lines for the most recent rounds, most recent first, capped at 30 lines so the record doesn't grow unbounded across a long game."
+        },
+        "final": {
+          "type": "ref",
+          "ref": "#lastFlip",
+          "description": "The two cards last flipped face-up. The client writes JSON null here before the first flip of a new game (see the note on 'main')."
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When this game began, as an ISO 8601 datetime."
+        }
+      }
+    },
+    "card": {
+      "type": "object",
+      "required": ["rank", "label"],
+      "properties": {
+        "rank": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 15,
+          "description": "Card rank: 2-10 face value, 11=J, 12=Q, 13=K, 14=A, 15=joker (only present when the jokers rule is on)."
+        },
+        "suit": {
+          "type": "string",
+          "knownValues": ["♠", "♥", "♦", "♣"],
+          "description": "Suit symbol (♠ ♥ ♦ ♣). The client writes JSON null here for joker cards (rank 15), which have no suit — see the note on 'main' about the lack of a null type; treat this field's absence the same way."
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 16,
+          "maxGraphemes": 4,
+          "description": "Display label for the card, e.g. 'K♠' or '🃏' for a joker."
+        }
+      }
+    },
+    "lastFlip": {
+      "type": "object",
+      "required": ["player", "computer"],
+      "properties": {
+        "player": { "type": "ref", "ref": "#card", "description": "The player's card in the last flip." },
+        "computer": { "type": "ref", "ref": "#card", "description": "The computer's card in the last flip." }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["winner", "reason", "playerCards", "computerCards", "rounds", "rules", "at"],
+      "properties": {
+        "winner": { "type": "string", "knownValues": ["player", "computer", "draw"], "description": "Who won the completed game." },
+        "reason": {
+          "type": "string",
+          "knownValues": ["war-bust", "out-of-cards", "round-cap", "round-cap-tie"],
+          "description": "Why the game ended: a side couldn't cover a war under the 'concede' rule ('war-bust'), a side ran out of cards ('out-of-cards'), the round cap was hit with a clear leader ('round-cap'), or the round cap was hit exactly tied ('round-cap-tie')."
+        },
+        "playerCards": { "type": "integer", "description": "Cards the player held at game end." },
+        "computerCards": { "type": "integer", "description": "Cards the computer held at game end." },
+        "rounds": { "type": "integer", "description": "Total rounds played in the game." },
+        "rules": { "type": "ref", "ref": "net.bisks.war.ruleset#ruleValues", "description": "The rule knobs this completed game was played under." },
+        "at": { "type": "string", "format": "datetime", "description": "When the game ended, as an ISO 8601 datetime." }
+      }
+    },
+    "ask": {
+      "type": "object",
+      "required": ["kind", "text", "at"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "knownValues": ["proposal", "revert-build"],
+          "description": "What sort of ask this was: 'proposal' (a house-rule change suggestion) or 'revert-build' (a request to roll war.bisks.net back to a prior deploy)."
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 2000,
+          "maxGraphemes": 500,
+          "description": "The text of the ask, as posted (minus the leading @buildthis.bisks.net mention). Rule proposals are capped client-side at 220 characters; revert-build asks can run longer since they embed a build id and note."
+        },
+        "at": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the ask was logged, as an ISO 8601 datetime."
+        }
+      }
+    }
+  }
+}

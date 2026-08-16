@@ -1,0 +1,86 @@
+{
+  "lexicon": 1,
+  "id": "net.bisks.padmoot.pattern",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A 16-step drum/synth pattern from padmoot's beat pad. atproto records are DAG-CBOR under the hood and have no float type, so every value that lives in-memory as a 0..1-ish float (swing, and each track's volume/tone) is scaled to a 0-100 integer by Math.round(x * 100) right before writing (see public/index.html's encodePatternForPds) and divided back by 100 on read — this lexicon models all of those as integers, and this was deliberately double-checked since padmoot previously shipped a float-typed field here. \"save\" (com.atproto.repo.putRecord, keyed by the pattern's existing rkey) updates a pattern the signed-in user already owns; \"save as new\"/remixing someone else's pattern uses com.atproto.repo.createRecord with a server/PDS-generated rkey instead. Written and read by padmoot (https://padmoot.bisks.net).",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["title", "bpm", "swing", "layout", "tracks", "createdAt"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 480,
+            "maxGraphemes": 120,
+            "description": "The pattern's name, as typed into the title field. Client-truncated to 120 UTF-16 code units (public/index.html's normalizePattern); defaults to \"untitled beat\" if empty."
+          },
+          "bpm": {
+            "type": "integer",
+            "minimum": 40,
+            "maximum": 220,
+            "description": "Tempo in beats per minute. Clamped client-side to 40-220 (public/index.html's clampNum calls), rounded to the nearest whole number before writing."
+          },
+          "swing": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 60,
+            "description": "Swing amount applied to every other 16th-note step, stored as an integer 0-60. In-memory this is a 0-0.6 fraction (0% to 60% swing); it is multiplied by 100 and rounded before writing, and divided by 100 on read. This is the float-vs-integer field padmoot got bitten by before — it must stay an integer."
+          },
+          "layout": {
+            "type": "string",
+            "enum": ["mpc", "launchpad", "tr909"],
+            "description": "Which pad-surface layout the pattern was authored/is displayed with. Defaults to \"mpc\" if missing or unrecognized on read."
+          },
+          "tracks": {
+            "type": "array",
+            "maxLength": 24,
+            "description": "The pattern's instrument tracks. Client-truncated to 24 entries on read (public/index.html's normalizePattern); a fresh pattern starts with 8 default tracks, one per DEFAULT_TRACK_VOICES entry (lib/sequencer.js).",
+            "items": { "type": "ref", "ref": "#track" }
+          },
+          "remixOf": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "Optional at-uri of the pattern record this one was saved as a remix/copy of — set when saving a copy of someone else's loaded pattern, or carried forward from an imported JSON export that already had one. Absent for patterns that aren't remixes."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "When this record was last written (created or updated) to the PDS, as an ISO 8601 datetime. Re-set on every save, including updates to an existing pattern."
+          }
+        }
+      }
+    },
+    "track": {
+      "type": "object",
+      "required": ["voice", "steps", "volume", "tone"],
+      "properties": {
+        "voice": {
+          "type": "string",
+          "enum": ["kick", "snare", "hatClosed", "hatOpen", "clap", "tomLow", "tomHigh", "rim", "cowbell", "clave", "crash", "stab"],
+          "description": "Which synthesized drum/synth voice this track plays (lib/audio.js's VOICES). Defaults to \"kick\" on read if the value isn't one of these."
+        },
+        "steps": {
+          "type": "array",
+          "minLength": 16,
+          "maxLength": 16,
+          "description": "The track's 16-step pattern grid — one boolean per 16th note, true where the voice fires on that step (STEPS in lib/sequencer.js is fixed at 16).",
+          "items": { "type": "boolean" }
+        },
+        "volume": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Per-track volume, stored as an integer 0-100. In-memory this is a 0-1 fraction (clamped there on read, default 0.85); multiplied by 100 and rounded before writing, divided by 100 after reading. Kept as an integer for the same DAG-CBOR reason as the pattern's swing field."
+        },
+        "tone": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Per-track tone/pitch parameter (most relevant to the \"stab\" voice, which maps it onto a musical scale), stored as an integer 0-100. In-memory this is a 0-1 fraction (clamped there on read, default 0.5); multiplied by 100 and rounded before writing, divided by 100 after reading."
+        }
+      }
+    }
+  }
+}

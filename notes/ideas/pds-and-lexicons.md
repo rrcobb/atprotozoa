@@ -1,38 +1,29 @@
 # Should there be a PDS? Should the lexicons be real?
 
 Two questions that arrived together but have pretty different answers. Short
-version: **the lexicon work is real, cheap, and already half-done. Self-hosting a
-PDS is mostly a separate hobby that doesn't unlock much here.**
+version: **the lexicon work is real, cheap, and now mostly done — see
+"Current state" below. Self-hosting a PDS is mostly a separate hobby that
+doesn't unlock much here.**
 
-## Current state (checked 2026-07-31)
+## Current state (checked 2026-08-16)
 
-**Lexicons.** Sites already write ~11 custom namespaces under `net.bisks.*`:
+**Lexicons.** Tier 1 (write down every schema) and half of Tier 2 (publish
+them in one place) are done. 20 sites now write 32 `net.bisks.*` record
+types, and every one of them ships a real lexicon JSON at its own
+`sites/<name>/public/lexicons/<nsid>.json` — not just steamtags anymore.
+`audit/build-lexicons.mjs --apply` mirrors all of them into
+`apex/public/lexicons/`, so **https://bisks.net/lexicons/** is one page
+listing every namespace, its description, and the site that owns it (linked
+from the apex "about the zoo" section). Re-run that script after adding or
+changing a lexicon; it's the same pattern as `build-gallery.mjs` for the
+site cards.
 
-| namespace | site |
-| --- | --- |
-| `net.bisks.steamtags.rating` | steamtags |
-| `net.bisks.quadrants.position` | quadrants |
-| `net.bisks.keytags.set` | keytags |
-| `net.bisks.docmoot.snapshot` | docmoot |
-| `net.bisks.war.state` / `.ruleset` | war |
-| `net.bisks.postwith.profile` / `.response` / `.meeting` / `.feedback` | postwith |
-| `net.bisks.verdict.judgment` | verdict |
-| `net.bisks.paintmoot.mark` / `.board` | paintmoot |
-| `net.bisks.padmoot.pattern` | padmoot |
-| `net.bisks.alicemeetsbob.crush` / `.pubkey` | alice-meets-bob |
-
-**Exactly one of these is written down as a schema:** `steamtags` has a real
-lexicon JSON, in the repo *and* served at `/lexicons/`. It's good — typed,
-constrained, documented, `key: "any"` with the appid as rkey so re-rating
-overwrites in place. Whoever wrote it understood the format.
-
-The other ten are implicit: a shape that exists only in whatever JS happened to
-call `createRecord`. Nothing validates them, nothing documents them, nothing
-stops the next edit from silently changing the shape.
-
-**Resolution is not wired up.** There's no `_lexicon.bisks.net` TXT record, so
-even the steamtags schema isn't resolvable by the mechanism the ecosystem uses to
-find schemas by NSID. It's a file on a website, not a published lexicon.
+**Resolution is still not wired up.** There's no `_lexicon.bisks.net` TXT
+record, so a schema still isn't resolvable by NSID the way the ecosystem
+expects — `bisks.net/lexicons/<nsid>.json` is a documented, fetchable file,
+not a published lexicon in the formal sense. That DNS record needs dashboard
+access the builder doesn't have; someone with Cloudflare access needs to add
+it by hand. The rest of Tier 2 (the aggregation page) no longer blocks on it.
 
 **Rob's PDS** is `calocybe.us-west.host.bsky.network` — a standard Bluesky-hosted
 one. The handle `bisks.net` is already domain-based, so identity is self-owned in
@@ -42,9 +33,9 @@ the way that matters.
 
 This is the cheap win. Three tiers, increasing effort:
 
-**Tier 1 — write the ten missing schemas.** Copy the steamtags one as the
-template. Pure documentation of what the sites already do. The payoff isn't
-theoretical:
+**Tier 1 — write the missing schemas. Done.** Every site with a `net.bisks.*`
+namespace now ships a real lexicon JSON, copied from the steamtags template.
+The payoff wasn't theoretical:
 
 - `padmoot` and `paintmoot` *both* independently shipped the float bug (atproto
   records take integers, not floats) and both needed a user to report it. A
@@ -52,10 +43,12 @@ theoretical:
 - It gives the builder a reference for the next site that wants to persist
   something, instead of re-deriving the rules each time.
 
-**Tier 2 — publish them.** Serve every schema under one path (`bisks.net/lexicons/…`)
-and add the `_lexicon` DNS record so NSIDs actually resolve. Then `net.bisks.*`
-is a real namespace other people can read, validate against, and build on.
-Cheap: one worker route, one DNS record.
+**Tier 2 — publish them. Half done.** Every schema is now served under one
+path, `bisks.net/lexicons/…` (`audit/build-lexicons.mjs --apply` mirrors them
+from each site into `apex/public/lexicons/`). The `_lexicon` DNS TXT record
+that would make NSIDs actually resolve is still missing — that needs
+Cloudflare dashboard access the builder doesn't have. Until then `net.bisks.*`
+is documented and fetchable, not a formally resolvable namespace.
 
 **Tier 3 — use `listReposByCollection`.** This is the fun part and the reason to
 bother. It finds every repo on the network holding records in a given collection.
@@ -116,8 +109,9 @@ self-hosting actually helps.
 
 ## Suggested order
 
-1. Write the ten missing lexicon schemas (template already exists).
-2. Serve them all at one path + add the `_lexicon` DNS record.
+1. ~~Write the missing lexicon schemas.~~ Done (2026-08-16).
+2. ~~Serve them all at one path~~ (`bisks.net/lexicons/`, done 2026-08-16) +
+   add the `_lexicon` DNS record — still needs a human with dashboard access.
 3. Build one aggregate view off `listReposByCollection` — steamtags is the
    obvious first, since the crowdsourced version is what was originally asked
    for.
