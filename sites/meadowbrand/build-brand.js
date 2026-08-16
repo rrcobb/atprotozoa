@@ -1,8 +1,14 @@
 // Bakes fromthewestmeadow.com's "brand" analysis into public/data/brand.json
-// — the only data this static site ever serves. Re-run by hand to refresh it
-// as they keep posting:
+// and public/data/posts.json — the only data this static site ever serves.
+// Re-run by hand to refresh it as they keep posting:
 //
 //   node build-brand.js
+//
+// posts.json is the raw post text (newest first) behind the "just the
+// posts" tab — asked for 2026-08-16 ("have a whole separate tab for just
+// my post content"), split out from the aggregate word-cloud/stats view so
+// there's somewhere to actually read what they wrote, not just numbers
+// about it.
 //
 // Pulls their whole repo as one com.atproto.sync.getRepo CAR download off
 // their own PDS — same "cars instead of looping on the read endpoint" swap
@@ -393,6 +399,15 @@ async function main() {
   const voice = analyzePosts(posts);
   const colors = brandPalette(did);
 
+  // Raw post text for the "just the posts" tab — newest first, skipping
+  // blank/link-only posts. Unlike `voice` (aggregate stats only) this keeps
+  // the actual words, since that's the ask: a place to read the posts
+  // themselves, separate from the record-collection stats.
+  const postsOut = posts
+    .filter((p) => p.text && p.text.trim())
+    .map((p) => ({ text: p.text, createdAt: p.createdAt || null, isReply: !!p.isReply }))
+    .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+
   // A handful of "pillars" — the shapes this account's repo actually takes,
   // ranked by record count, each with a one-line stat. Only included if the
   // account has records of that shape at all.
@@ -484,6 +499,13 @@ async function main() {
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, JSON.stringify(out, null, 2));
   console.error(`wrote ${outPath} (${totalRecords} records analyzed, ${voice.count} posts)`);
+
+  const postsOutPath = path.join(__dirname, "public", "data", "posts.json");
+  fs.writeFileSync(
+    postsOutPath,
+    JSON.stringify({ handle: profile.handle, generatedAt: out.generatedAt, count: postsOut.length, posts: postsOut }, null, 2),
+  );
+  console.error(`wrote ${postsOutPath} (${postsOut.length} posts)`);
 }
 
 main().catch((err) => {

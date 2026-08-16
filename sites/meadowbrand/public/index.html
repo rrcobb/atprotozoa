@@ -50,6 +50,36 @@
   nav.top a { color: var(--dim); text-decoration: none; }
   nav.top a:hover { color: var(--fg); }
 
+  .tabs { display: flex; gap: 0.4rem; margin-bottom: 1.8rem; border-bottom: 1px solid var(--border); }
+  .tab-btn {
+    font: inherit; font-size: 0.85rem; font-weight: 700; color: var(--muted); background: none; border: none;
+    padding: 0.6rem 0.2rem 0.7rem; margin-right: 1rem; cursor: pointer; border-bottom: 2px solid transparent;
+  }
+  .tab-btn:hover { color: var(--dim); }
+  .tab-btn.active { color: var(--fg); border-bottom-color: var(--s1); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .posts-toolbar { display: flex; gap: 0.5rem; margin-bottom: 1.2rem; }
+  .posts-toolbar input[type="search"] {
+    flex: 1; font: inherit; font-size: 0.85rem; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.55rem 0.75rem;
+  }
+  .posts-toolbar label {
+    display: flex; align-items: center; gap: 0.35rem; font-size: 0.78rem; color: var(--dim); white-space: nowrap;
+  }
+  .posts-count { color: var(--muted); font-size: 0.76rem; margin-bottom: 1rem; }
+  .post-list { display: flex; flex-direction: column; gap: 0.55rem; }
+  .post-item { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.85rem; }
+  .post-item .meta { display: flex; gap: 0.5rem; align-items: center; font-size: 0.68rem; color: var(--muted); margin-bottom: 0.35rem; }
+  .post-item .reply-badge { border: 1px solid var(--border); border-radius: 999px; padding: 0.05rem 0.5rem; }
+  .post-item .text { font-size: 0.86rem; color: var(--fg); white-space: pre-wrap; word-break: break-word; }
+  .post-list-more { text-align: center; padding: 1rem 0; }
+  .post-list-more button {
+    font: inherit; font-size: 0.8rem; background: var(--card2); border: 1px solid var(--border); color: var(--fg);
+    border-radius: 8px; padding: 0.55rem 1rem; cursor: pointer;
+  }
+
   .hero { display: flex; gap: 1.1rem; align-items: center; margin-bottom: 1.4rem; }
   .hero img { width: 76px; height: 76px; border-radius: 50%; border: 1px solid var(--border); background: var(--card); flex: none; }
   .hero .name { font-size: 1.5rem; font-weight: 700; margin: 0 0 0.15rem; }
@@ -129,8 +159,21 @@
     <a href="https://westmeadow.bisks.net">everything they've built →</a>
   </nav>
 
-  <div id="app">
-    <p class="empty-note">loading the brand report…</p>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="records" type="button">brand report</button>
+    <button class="tab-btn" data-tab="posts" type="button">just the posts</button>
+  </div>
+
+  <div id="tab-records" class="tab-panel active">
+    <div id="app">
+      <p class="empty-note">loading the brand report…</p>
+    </div>
+  </div>
+
+  <div id="tab-posts" class="tab-panel">
+    <div id="posts-app">
+      <p class="empty-note">loading posts…</p>
+    </div>
   </div>
 
   <footer>
@@ -314,6 +357,97 @@ async function main() {
 }
 
 main();
+
+// ---- "just the posts" tab ----
+// Separate from the brand-report tab (the aggregate stats above) so
+// there's somewhere to actually read the posts, not just numbers derived
+// from them. Renders in batches since there are thousands of them.
+
+let postsData = null;
+let postsFiltered = [];
+let postsRendered = 0;
+let postsTabInitialized = false;
+const POSTS_BATCH = 100;
+
+function fmtDate(iso) {
+  return iso ? iso.slice(0, 10) : "";
+}
+
+function renderPostsShell() {
+  const postsApp = document.getElementById("posts-app");
+  postsApp.innerHTML = `
+    <p class="lede">every post this account has written to atproto, read straight off the same CAR file — newest first, no aggregation.</p>
+    <div class="posts-toolbar">
+      <input type="search" id="posts-search" placeholder="search post text…" />
+      <label><input type="checkbox" id="posts-hide-replies" /> hide replies</label>
+    </div>
+    <div class="posts-count" id="posts-count"></div>
+    <div class="post-list" id="posts-list"></div>
+    <div class="post-list-more" id="posts-more" style="display:none"><button type="button" id="posts-load-more">load more</button></div>
+  `;
+  document.getElementById("posts-search").addEventListener("input", applyPostsFilter);
+  document.getElementById("posts-hide-replies").addEventListener("change", applyPostsFilter);
+  document.getElementById("posts-load-more").addEventListener("click", renderPostsBatch);
+}
+
+function renderPostsBatch() {
+  const list = document.getElementById("posts-list");
+  const more = document.getElementById("posts-more");
+  const batch = postsFiltered.slice(postsRendered, postsRendered + POSTS_BATCH);
+  list.insertAdjacentHTML(
+    "beforeend",
+    batch
+      .map(
+        (p) => `<div class="post-item">
+          <div class="meta">${fmtDate(p.createdAt)}${p.isReply ? '<span class="reply-badge">reply</span>' : ""}</div>
+          <div class="text">${esc(p.text)}</div>
+        </div>`,
+      )
+      .join(""),
+  );
+  postsRendered += batch.length;
+  more.style.display = postsRendered < postsFiltered.length ? "block" : "none";
+}
+
+function applyPostsFilter() {
+  const q = document.getElementById("posts-search").value.trim().toLowerCase();
+  const hideReplies = document.getElementById("posts-hide-replies").checked;
+  postsFiltered = postsData.posts.filter((p) => {
+    if (hideReplies && p.isReply) return false;
+    if (q && !p.text.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  postsRendered = 0;
+  document.getElementById("posts-list").innerHTML = "";
+  document.getElementById("posts-count").textContent = postsFiltered.length === postsData.posts.length
+    ? `${fmt(postsFiltered.length)} posts`
+    : `${fmt(postsFiltered.length)} of ${fmt(postsData.posts.length)} posts`;
+  renderPostsBatch();
+}
+
+async function initPostsTab() {
+  const postsApp = document.getElementById("posts-app");
+  try {
+    postsData = await (await fetch("./data/posts.json")).json();
+  } catch (err) {
+    postsApp.innerHTML = `<p class="empty-note">couldn't load posts (${esc(err.message)}).</p>`;
+    return;
+  }
+  renderPostsShell();
+  applyPostsFilter();
+}
+
+function activateTab(name) {
+  document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+  document.getElementById("tab-records").classList.toggle("active", name === "records");
+  document.getElementById("tab-posts").classList.toggle("active", name === "posts");
+  if (name === "posts" && !postsTabInitialized) {
+    postsTabInitialized = true;
+    initPostsTab();
+  }
+}
+
+document.querySelectorAll(".tab-btn").forEach((b) => b.addEventListener("click", () => activateTab(b.dataset.tab)));
 </script>
 </body>
 </html>
