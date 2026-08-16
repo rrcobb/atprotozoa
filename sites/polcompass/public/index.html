@@ -118,13 +118,34 @@
 
     <script type="module">
       import { makePlotSvg, drawAnchor, eventToNorm } from "/lib/plot.js";
-      import { encodeCompass } from "/lib/compass.js";
+      import { encodeCompass, decodeCompass } from "/lib/compass.js";
 
       const $ = (s) => document.querySelector(s);
       const svg = makePlotSvg();
       $("#preview-square").appendChild(svg);
 
       let anchors = [];
+
+      // remixing an existing chart: /?remix=<encoded> prefills the form from
+      // that chart so tweaking it just means editing fields, not retyping
+      // everything — the remix becomes its own new link on create, the
+      // original this was remixed from is untouched.
+      const remixParam = new URLSearchParams(location.search).get("remix");
+      let remixNotice = "";
+      if (remixParam) {
+        try {
+          const remixed = decodeCompass(remixParam);
+          $("#f-title").value = remixed.title;
+          $("#f-top").value = remixed.top;
+          $("#f-bottom").value = remixed.bottom;
+          $("#f-left").value = remixed.left;
+          $("#f-right").value = remixed.right;
+          anchors = remixed.anchors.map((a) => ({ ...a }));
+          remixNotice = "started from a remixed chart — edit anything, then create to get your own link.";
+        } catch {
+          remixNotice = "couldn't read that chart to remix — starting fresh.";
+        }
+      }
 
       function labels() {
         return {
@@ -185,6 +206,11 @@
       });
       renderAnchors();
 
+      if (remixNotice) {
+        $("#create-status").textContent = remixNotice;
+        $("#create-status").className = remixParam ? "status ok" : "status err";
+      }
+
       function chartUrl(cfg) {
         return `/c/${encodeCompass(cfg)}/`;
       }
@@ -193,6 +219,11 @@
         const charts = JSON.parse(localStorage.getItem("polcompass:charts") || "[]");
         charts.unshift({ title: cfg.title, left: cfg.left, right: cfg.right, bottom: cfg.bottom, top: cfg.top, url, createdAt: Date.now() });
         localStorage.setItem("polcompass:charts", JSON.stringify(charts.slice(0, 50)));
+      }
+
+      function forgetChart(url) {
+        const charts = JSON.parse(localStorage.getItem("polcompass:charts") || "[]").filter((c) => c.url !== url);
+        localStorage.setItem("polcompass:charts", JSON.stringify(charts));
       }
 
       $("#btn-create").addEventListener("click", () => {
@@ -220,12 +251,21 @@
         list.innerHTML = charts
           .map(
             (c) => `
-            <a class="chart-card" href="${c.url}">
-              <div class="chart-title">${esc(c.title)}</div>
-              <div class="chart-meta">${esc(c.left)} ↔ ${esc(c.right)} · ${esc(c.bottom)} ↔ ${esc(c.top)}</div>
-            </a>`,
+            <div class="chart-card-row">
+              <a class="chart-card" href="${c.url}">
+                <div class="chart-title">${esc(c.title)}</div>
+                <div class="chart-meta">${esc(c.left)} ↔ ${esc(c.right)} · ${esc(c.bottom)} ↔ ${esc(c.top)}</div>
+              </a>
+              <button class="secondary chart-card-remove" type="button" data-url="${esc(c.url)}" title="forget this chart (link keeps working, just removes it from this list)">forget</button>
+            </div>`,
           )
           .join("");
+        list.querySelectorAll(".chart-card-remove").forEach((btn) =>
+          btn.addEventListener("click", () => {
+            forgetChart(btn.dataset.url);
+            loadCharts();
+          }),
+        );
       }
       function esc(s) {
         return String(s)
