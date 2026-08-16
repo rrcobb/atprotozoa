@@ -126,6 +126,7 @@ function renderCreel() {
 function renderAll() {
   renderTally();
   renderCreel();
+  if (state.pond) updateShareLink();
 }
 
 async function onCast() {
@@ -348,7 +349,6 @@ async function onGo() {
     els.dock.style.display = "block";
     renderYou();
     renderAll();
-    updateShareLink();
   } catch (e) {
     els.startErr.textContent = e && e.message ? e.message : "couldn't cast off — try again.";
   } finally {
@@ -360,7 +360,5 @@ els.goBtn.addEventListener("click", onGo);
 els.handle.addEventListener("keydown", (e) => {
   if (e.key === "Enter") onGo();
 });
-els.castBtn.addEventListener("click", () => {
-  onCast().then(updateShareLink);
-});
+els.castBtn.addEventListener("click", onCast);
 els.shareImg.addEventListener("click", onShareImg);
