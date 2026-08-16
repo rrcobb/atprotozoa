@@ -10,6 +10,14 @@
 // there's somewhere to actually read what they wrote, not just numbers
 // about it.
 //
+// brand.json's `brandStatement`/`descriptors`/`voice.topTopics`/
+// `voice.topBigrams` fields are the content-only brand read — asked for
+// again the same day ("Analyze my posts content to determine my brand"),
+// after the first pass's headline turned out to be about record *shape*
+// (78% topchicken orders) rather than what's actually written. Those fields
+// are scored purely off post text; the collection/pillar breakdown below
+// them is unchanged and still whole-repo.
+//
 // Pulls their whole repo as one com.atproto.sync.getRepo CAR download off
 // their own PDS — same "cars instead of looping on the read endpoint" swap
 // @bisks.net asked for elsewhere (sites/ceemilarity, sites/ngmi, ...) — and
@@ -181,13 +189,18 @@ const STOPWORDS = new Set(
 );
 
 const URL_RE = /https?:\/\/\S+/g;
+// Bare domains written without a protocol (e.g. "open.spotify.com/track/xyz",
+// "fromthewestmeadow.com") — common enough in posts that skipping them left
+// "com"/"net"/"app" dominating the bigram signature (they tokenize into
+// separate words since the word regex splits on the dot).
+const BARE_DOMAIN_RE = /\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|io|app|dev|gg|xyz|co|me|fm|link|social|bsky\.app|bisks\.net)\b\S*/gi;
 const WORD_RE = /[\p{L}\p{N}]+(?:['’][\p{L}]+)*/gu;
 const HASHTAG_RE = /#[\p{L}\p{N}_]+/gu;
 const EMOJI_RE = /\p{Extended_Pictographic}/gu;
 const MENTION_RE = /@[a-zA-Z0-9.\-]+/g;
 
 function stripLinksAndMentions(text) {
-  return text.replace(URL_RE, " ").replace(MENTION_RE, " ");
+  return text.replace(URL_RE, " ").replace(BARE_DOMAIN_RE, " ").replace(MENTION_RE, " ");
 }
 
 function topN(counter, n) {
@@ -195,6 +208,76 @@ function topN(counter, n) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, n)
     .map(([k, v]) => ({ key: k, count: v }));
+}
+
+// A brand determined from what's actually WRITTEN in the posts — asked for
+// 2026-08-16 ("Analyze my posts content to determine my brand") after the
+// first pass's headline stat ("78% topchicken sell orders") turned out to be
+// about record *shape*, not content. This is a plain keyword→category map
+// scored against post words (no model, no Workers AI — just counting), so
+// it's the same "read the CAR, count things" house style as the rest of the
+// file, just aimed at content instead of record types.
+const TOPIC_CATEGORIES = {
+  "tech & compute": "computer computers code coding software python code notebook gpu gpus cuda compute cluster server servers cloud dataset datasets model models training train inference kaggle huggingface github repo repository script scripts api database sql linux docker workstation llm ml ai algorithm algorithms research paper papers".split(" "),
+  "atproto & bluesky": "bluesky atproto pds lexicon lexicons feed feeds firehose jetstream skeet post posts thread threads mutual mutuals handle handles bsky appview".split(" "),
+  "art & making": "art draw drawing drew paint painting design designing music song songs album sound sounds photo photos photography build building built craft".split(" "),
+  "games & play": "game games gaming play played playing player players level boss quest console steam nintendo xbox playstation topchicken chicken trade trading trader contender contenders round rounds".split(" "),
+  "feelings & venting": "sad hurt hurts hurting angry mad frustrated tired exhausted anxious anxiety stressed stress crying cry ugh fuck fucking shit damn ridiculous annoying annoyed hate love happy excited miss missing lonely".split(" "),
+  "food & body": "food eat eating ate hungry coffee tea drink drinking cooking cooked recipe meal snack sleep sleeping sleepy nap body".split(" "),
+  "news & politics": "news politics political government election vote voting president policy war protest news article report".split(" "),
+  "work & productivity": "work working job project projects deadline meeting email task tasks todo productivity company boss client freelance".split(" "),
+};
+
+function scoreTopics(wordCounts) {
+  const scores = new Map();
+  for (const [category, keywords] of Object.entries(TOPIC_CATEGORIES)) {
+    let score = 0;
+    for (const kw of keywords) score += wordCounts.get(kw) || 0;
+    if (score > 0) scores.set(category, score);
+  }
+  return topN(scores, 5);
+}
+
+// One or two sentences synthesized from the post-only signal (voice
+// descriptors + topic scores + top words) — the "brand" the ask actually
+// wanted, kept separate from the record-collection breakdown below it.
+function brandStatement(handle, voice, descriptors, topics, topWords) {
+  if (!voice.count) return `${handle} hasn't posted enough for a brand to show up in the text yet.`;
+  const topTopic = topics[0];
+  const secondTopic = topics[1];
+  const topicPhrase = topTopic
+    ? secondTopic
+      ? `${topTopic.key} energy with a side of ${secondTopic.key}`
+      : `${topTopic.key} energy`
+    : "no single obsession — a broad, hard-to-pin-down mix";
+  const words = topWords.slice(0, 5).map((w) => w.key).join(", ");
+  const tone = descriptors.slice(0, 3).join(", ");
+  return `Read from ${fmtNum(voice.count)} real posts (not the record stats), this account's brand is ${topicPhrase} — ${tone}, leaning on words like ${words || "not much recurring vocabulary"}.`;
+}
+
+function fmtNum(n) {
+  return n.toLocaleString("en-US");
+}
+
+// Adjacent word pairs (post-scoped, so "gpu cluster" never bridges two
+// different posts) — a sharper vocabulary signature than single top words,
+// since post content skews toward short noun phrases rather than one-word
+// obsessions.
+function bigramsFromPosts(posts) {
+  const counts = new Map();
+  for (const p of posts) {
+    const stripped = stripLinksAndMentions(p.text || "");
+    const words = (stripped.match(WORD_RE) || [])
+      .map((w) => w.toLowerCase().replace(/[’‘]/g, "'"))
+      .filter((w) => !/^\d+$/.test(w));
+    for (let i = 0; i < words.length - 1; i++) {
+      const a = words[i], b = words[i + 1];
+      if (STOPWORDS.has(a) || STOPWORDS.has(b) || a.length < 3 || b.length < 3) continue;
+      const key = `${a} ${b}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  return topN(counts, 10).filter((b) => b.count > 1);
 }
 
 function analyzePosts(posts) {
@@ -257,6 +340,8 @@ function analyzePosts(posts) {
     topWords: topN(wordCounts, 14),
     topEmoji: topN(emojiCounts, 8),
     topHashtags: topN(hashtagCounts, 8),
+    topTopics: scoreTopics(wordCounts),
+    topBigrams: bigramsFromPosts(posts),
     byHour,
     byWeekday,
     earliest: earliest ? earliest.toISOString() : null,
@@ -288,6 +373,32 @@ function hslToHex(h, s, l) {
   const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
   const toHex = (x) => Math.round(255 * x).toString(16).padStart(2, "0");
   return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
+}
+
+// Same rules as the client-side copy in public/index.html's
+// VOICE_DESCRIPTOR_RULES — duplicated here (not imported) because this file
+// needs it at build time to write brandStatement into brand.json, and the
+// page needs its own copy to redraw the descriptor chips without a rebuild.
+const VOICE_DESCRIPTOR_RULES = [
+  (v) => v.avgWords < 10 && "terse",
+  (v) => v.avgWords >= 20 && "verbose",
+  (v) => v.replyPct >= 35 && "chatty",
+  (v) => v.replyPct < 12 && "declarative",
+  (v) => v.questionPct >= 6 && "curious",
+  (v) => v.exclaimPct >= 5 && "emphatic",
+  (v) => v.emojiPerPost >= 0.4 && "expressive",
+  (v) => v.emojiPerPost < 0.08 && "plain-text",
+  (v) => v.postsPerDay >= 5 && "prolific",
+  (v) => v.postsPerDay < 0.5 && "sparing",
+];
+
+function voiceDescriptors(voice) {
+  const out = [];
+  for (const rule of VOICE_DESCRIPTOR_RULES) {
+    const r = rule(voice);
+    if (r) out.push(r);
+  }
+  return out.length ? out.slice(0, 6) : ["quiet"];
 }
 
 function brandPalette(did) {
@@ -398,6 +509,8 @@ async function main() {
 
   const voice = analyzePosts(posts);
   const colors = brandPalette(did);
+  const descriptors = voiceDescriptors(voice);
+  const statement = brandStatement(profile.handle, voice, descriptors, voice.topTopics, voice.topWords);
 
   // Raw post text for the "just the posts" tab — newest first, skipping
   // blank/link-only posts. Unlike `voice` (aggregate stats only) this keeps
@@ -493,6 +606,8 @@ async function main() {
     voice,
     colors,
     pillars: pillarCandidates,
+    descriptors,
+    brandStatement: statement,
   };
 
   const outPath = path.join(__dirname, "public", "data", "brand.json");

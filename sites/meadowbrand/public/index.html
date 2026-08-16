@@ -249,9 +249,8 @@ function renderHourChart(byHour) {
 
 function shareText(d) {
   const url = "https://meadowbrand.bisks.net/";
-  const top = d.pillars[0];
-  const text = `my atprotozoa brand report, read straight off my CAR file: ${top ? top.title : "a lot of records"} (${fmt(top ? top.count : d.totals.totalRecords)}), ${fmt(d.totals.totalRecords)} records total.\n\n${url}`;
-  return text.length <= 300 ? text : `my atprotozoa brand report, read off my CAR file.\n\n${url}`;
+  const text = `${d.brandStatement || "my atprotozoa brand report, read off my posts and my CAR file."}\n\n${url}`;
+  return text.length <= 300 ? text : `my atprotozoa brand report, read off my posts and my CAR file.\n\n${url}`;
 }
 
 async function main() {
@@ -266,7 +265,7 @@ async function main() {
 
   const top = d.pillars[0];
   const topPct = top ? (top.count / d.totals.totalRecords) * 100 : 0;
-  const descriptors = voiceDescriptors(d.voice);
+  const descriptors = d.descriptors && d.descriptors.length ? d.descriptors : voiceDescriptors(d.voice);
 
   const pillarsHtml = d.pillars
     .map((p) => {
@@ -278,6 +277,15 @@ async function main() {
   const wordsHtml = d.voice.topWords.length
     ? `<div class="tagcloud">${d.voice.topWords.map((w) => `<span class="tag"><b>${esc(w.key)}</b> ×${w.count}</span>`).join("")}</div>`
     : `<p class="empty-note">not enough post text to find a vocabulary signature.</p>`;
+
+  const topicsHtml = (d.voice.topTopics || []).length
+    ? `<div class="tagcloud">${d.voice.topTopics.map((t) => `<span class="tag"><b>${esc(t.key)}</b> ×${t.count}</span>`).join("")}</div>`
+    : "";
+
+  const bigramsHtml = (d.voice.topBigrams || []).length
+    ? `<p class="lede" style="margin:0.8rem 0 0.3rem;font-size:0.8rem;">phrases that show up more than once:</p>
+       <div class="tagcloud">${d.voice.topBigrams.map((b) => `<span class="tag"><b>${esc(b.key)}</b> ×${b.count}</span>`).join("")}</div>`
+    : "";
 
   const emojiHtml = d.voice.topEmoji.length
     ? `<div class="emoji-row">${d.voice.topEmoji.map((e) => `<div class="emoji-item">${esc(e.key)}<span class="count">×${e.count}</span></div>`).join("")}</div>`
@@ -307,8 +315,25 @@ async function main() {
       <div class="swatch" style="background:${d.colors.secondary}"><span class="hex">${d.colors.secondary}</span></div>
       <div class="swatch" style="background:${d.colors.accent}"><span class="hex">${d.colors.accent}</span></div>
     </div>
-    <p class="lede">a brand palette derived from the account's own DID — the same three colors, every time, for no reason except that it's theirs. everything below is read straight off <b>${fmt(d.totals.totalRecords)}</b> records in one <code>com.atproto.sync.getRepo</code> download (${(d.repoBytes / 1048576).toFixed(1)} MB).</p>
+    <p class="lede">a brand palette derived from the account's own DID — the same three colors, every time, for no reason except that it's theirs.</p>
     <p class="updated">generated ${genDate}</p>
+
+    <h2>your brand, from your posts</h2>
+    <p class="lede" style="margin-bottom:1rem;">${esc(d.brandStatement || "not enough post text to read a brand.")}</p>
+    <div class="descriptors">${descriptors.map((w) => `<span class="descriptor">${esc(w)}</span>`).join("")}</div>
+    ${topicsHtml}
+    ${bigramsHtml}
+
+    <h2>vocabulary signature</h2>
+    ${wordsHtml}
+
+    <h2>recurring emoji</h2>
+    ${emojiHtml}
+
+    <h2>posting rhythm by hour (UTC)</h2>
+    ${renderHourChart(d.voice.byHour)}
+
+    <p class="lede" style="margin-top:2rem;">the section above is read from post <b>content</b> only. everything below is a different question — not what they write about, but what <b>shape</b> their repo takes — read straight off <b>${fmt(d.totals.totalRecords)}</b> records in one <code>com.atproto.sync.getRepo</code> download (${(d.repoBytes / 1048576).toFixed(1)} MB).</p>
 
     <div class="headline">
       <div class="pct">${topPct.toFixed(0)}%</div>
@@ -329,23 +354,13 @@ async function main() {
     <h2>the pillars</h2>
     ${pillarsHtml}
 
-    <h2>voice</h2>
-    <div class="descriptors">${descriptors.map((w) => `<span class="descriptor">${esc(w)}</span>`).join("")}</div>
+    <h2>voice stats</h2>
     <div class="voice-stats">
       <div class="stat"><div class="n">${d.voice.avgWords.toFixed(1)}</div><div class="l">words / post</div></div>
       <div class="stat"><div class="n">${d.voice.replyPct.toFixed(0)}%</div><div class="l">replies</div></div>
       <div class="stat"><div class="n">${d.voice.questionPct.toFixed(0)}%</div><div class="l">end in ?</div></div>
       <div class="stat"><div class="n">${d.voice.postsPerDay.toFixed(1)}</div><div class="l">posts / day</div></div>
     </div>
-
-    <h2>vocabulary signature</h2>
-    ${wordsHtml}
-
-    <h2>recurring emoji</h2>
-    ${emojiHtml}
-
-    <h2>posting rhythm by hour (UTC)</h2>
-    ${renderHourChart(d.voice.byHour)}
 
     ${topchickenHtml}
 
