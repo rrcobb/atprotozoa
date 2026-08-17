@@ -1,0 +1,47 @@
+{
+  "lexicon": 1,
+  "id": "net.bisks.kolpelor.trade",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "One side of a two-party pelor trade. Per @antiali.as's verse: \"Δύο φίλοι θέλοντες ἀλλάσσειν θῆρας, ἄμφω σφραγίζουσι δέλτον κοινήν· οὐδεὶς γὰρ μόνος κλέπτει, ἀλλ' ἡ συμφωνία δεσμεῖ ἀμφοτέρους. οὕτω πιστὸν τὸ δῶρον, ὡς ὅρκος θεῶν.\" (Two friends wishing to exchange beasts both seal a joint tablet; no one steals alone, but the agreement binds both — the gift is as trustworthy as an oath of the gods.) A trade is never a single write: the proposer writes this record to their own repo naming what they offer and what they want; the recipient, if they agree, writes their own matching record — same rkey, opposite offer/want, `with` pointing back at the proposer — to *their* own repo. Neither client ever writes to the other player's repo (can't; OAuth only grants a player their own create/update). Each client independently detects the seal by reading both records off both public PDSes (see public/lib/trades.js's isSealed) and only then applies the swap locally — so the trade is real exactly when, and only when, both tablets exist and agree. Read publicly and without auth by any player scanning their moots' repos for offers `with` them (public/app.js's Trading counter panel).",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": ["with", "status", "offer", "want", "createdAt"],
+        "properties": {
+          "with": { "type": "string", "format": "did", "description": "DID of the other party to this trade — who this record's author is proposing to (or has agreed to) trade with." },
+          "status": {
+            "type": "string",
+            "knownValues": ["proposed", "accepted", "cancelled"],
+            "description": "\"proposed\": the author's opening offer, written first. \"accepted\": the counterparty's own record confirming the swap (or the original proposer's record, updated once they've observed the counterparty's acceptance and applied the swap locally). \"cancelled\": the author withdrew before the other side accepted."
+          },
+          "offer": { "ref": "#peloraSnapshot", "type": "ref", "description": "The pelor this record's author is giving up." },
+          "want": { "ref": "#peloraSnapshot", "type": "ref", "description": "The pelor this record's author is asking for in return, identified primarily by its `did`." },
+          "note": { "type": "string", "maxLength": 200, "description": "Optional free-text note from the proposer, shown to the recipient." },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    },
+    "peloraSnapshot": {
+      "type": "object",
+      "description": "A self-contained snapshot of one pelor at the moment a trade record was written — same shape as net.bisks.kolpelor.roster's party entries.",
+      "required": ["did", "handle", "type", "species", "rarity", "hp", "atk", "def", "spd"],
+      "properties": {
+        "did": { "type": "string", "format": "did", "description": "DID of the Bluesky account this pelor was originally bound from — its identity persists across trades." },
+        "handle": { "type": "string" },
+        "avatar": { "type": "string", "format": "uri" },
+        "type": { "type": "string" },
+        "species": { "type": "string" },
+        "rarity": { "type": "string" },
+        "hp": { "type": "integer" },
+        "atk": { "type": "integer" },
+        "def": { "type": "integer" },
+        "spd": { "type": "integer" },
+        "evoStage": { "type": "integer" },
+        "wins": { "type": "integer" },
+        "equipped": { "type": "string" }
+      }
+    }
+  }
+}

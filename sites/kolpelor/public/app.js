@@ -4,7 +4,7 @@ import {
   getBestiary, getParty, getRecord, recordResult, setAristos, addToBestiary,
   addToParty, removeFromParty, releaseFromBestiary, isBound, attemptBind, replaceState, MAX_PARTY,
   getGold, addGold, getGearInventory, addGear, equipGear, unequipGear, canDig, markDug, registerVictory,
-  sellGear, canBeg, begAlms,
+  sellGear, canBeg, begAlms, applyTradeSwap,
 } from "./lib/roster.js";
 import { ready, resolveRound } from "./lib/battle.js";
 import { dig, gearMeta, gearSellValue, effectiveStats } from "./lib/treasure.js";
@@ -13,6 +13,10 @@ import { login, getSession, clearSession, completeLoginIfCallback } from "./lib/
 import { getMyRoster, saveRoster, getPublicRoster } from "./lib/records.js";
 import { subscribeRiver, dismissWorldPelor, CONDITIONS } from "./lib/river.js";
 import { citizenOracle } from "./lib/oracle.js";
+import {
+  proposeTrade, acceptTrade, markTradeAccepted, getTradeRecord, listTrades, isSealed,
+  getSentTrades, addSentTrade, markSentTradeApplied, isIncomingHandled, markIncomingHandled,
+} from "./lib/trades.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -53,6 +57,21 @@ const els = {
   tracksBtn: $("tracksBtn"),
   tracksStatus: $("tracksStatus"),
   tracksGrid: $("tracksGrid"),
+
+  tradeStatus: $("tradeStatus"),
+  tradeScanBtn: $("tradeScanBtn"),
+  tradeCheckBtn: $("tradeCheckBtn"),
+  tradePartnerGrid: $("tradePartnerGrid"),
+  tradeIncomingGrid: $("tradeIncomingGrid"),
+  tradeIncomingEmpty: $("tradeIncomingEmpty"),
+  tradeModal: $("tradeModal"),
+  tradePartnerHandle: $("tradePartnerHandle"),
+  tradeWantGrid: $("tradeWantGrid"),
+  tradeOfferGrid: $("tradeOfferGrid"),
+  tradeProposeBtn: $("tradeProposeBtn"),
+  tradeCancelModalBtn: $("tradeCancelModalBtn"),
+  tradeModalStatus: $("tradeModalStatus"),
+  closeTrade: $("closeTrade"),
 
   partyCount: $("partyCount"),
   partySlots: $("partySlots"),
@@ -126,6 +145,11 @@ let battle = null; // { playerTeam, oppTeam, pIdx, oIdx, over, mode: 'gym'|'pvp'
 let lastPushedRegion = null; // last region.id written to the PDS, so we don't spam putRecord on every re-render
 const tracksCache = new Map(); // regionId -> [{did, handle, avatar, roster}] of moots last seen there this session
 let currentWorldPelor = null; // river.js's live World Pelor, if the firehose has surged
+let tradePartnerCache = []; // [{did, handle, avatar, roster}] of moots with a bound party, from the last trade scan
+let tradeIncomingCache = []; // [{author, tradeId, value}] pending offers `with` me, from the last trade scan
+let tradeModalPartner = null;
+let tradeModalWant = null; // pelor snapshot from the partner's roster, selected in the trade modal
+let tradeModalOfferDid = null; // did of my own bestiary pelor selected to offer
 
 function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, (c) => ({
@@ -324,6 +348,8 @@ async function startGame(rawHandle) {
     regionPool = cluster.pool.map((p) => peloraFor(p, cluster.pool));
     regionByDid = new Map(regionPool.map((m) => [m.did, m]));
     tracksCache.clear(); // last trainer's moot pool no longer applies
+    tradePartnerCache = [];
+    tradeIncomingCache = [];
     lastPushedRegion = null;
 
     if (session && session.did === trainer.did) {
@@ -428,7 +454,7 @@ function renderRegion() {
   const region = REGIONS.find((r) => r.id === selectedRegionId) || REGIONS[0];
   els.regionFlavor.innerHTML = `<span class="greek">${escapeHtml(region.verse)}</span>${escapeHtml(region.blurb)}`;
   els.cityExtra.classList.toggle("hidden", !region.isHub);
-  if (region.isHub) { renderReleaseGrid(); renderMerchant(); updateBegButton(); }
+  if (region.isHub) { renderReleaseGrid(); renderMerchant(); updateBegButton(); renderTradePartners(); renderTradeIncoming(); }
   renderDig(region);
 
   if (!regionPool.length) {
@@ -589,6 +615,295 @@ function challengeTrack(handle) {
   els.opponentInput.value = handle;
   scoutRival(handle);
 }
+
+// ---------- Ἀλλαγή θηρῶν (trading): two-party swaps sealed on both PDSes ----------
+// Per @antiali.as's verse: "Δύο φίλοι θέλοντες ἀλλάσσειν θῆρας, ἄμφω
+// σφραγίζουσι δέλτον κοινήν· οὐδεὶς γὰρ μόνος κλέπτει, ἀλλ' ἡ συμφωνία δεσμεῖ
+// ἀμφοτέρους. οὕτω πιστὸν τὸ δῶρον, ὡς ὅρκος θεῶν." (Two friends wishing to
+// exchange beasts both seal a joint tablet; no one steals alone, agreement
+// binds both — the gift is trustworthy as an oath of the gods.) Neither
+// client can write to the other player's repo, so a trade is two independent
+// writes matched by a shared rkey — see lib/trades.js's isSealed for the only
+// thing that makes a swap "real." Requires sign-in on both sides (writing a
+// trade record needs a PDS session), same as roster sync.
+
+// A moot's public roster party entry (or an incoming trade's offer/want) only
+// carries `rarity`'s id, not its label/color — decorate it the same way
+// hydrateFromRemote does before handing it to mcardHTML.
+function decoratePelorSnapshot(p) {
+  const rm = rarityMeta(p.rarity);
+  return { ...p, rarityLabel: rm.label, rarityColor: rm.color };
+}
+
+function snapshotFromPelor(p) {
+  return {
+    did: p.did,
+    handle: p.handle,
+    avatar: p.avatar || undefined,
+    type: p.type,
+    species: p.species,
+    rarity: p.rarity,
+    hp: p.stats.hp,
+    atk: p.stats.atk,
+    def: p.stats.def,
+    spd: p.stats.spd,
+    evoStage: typeof p.evoStage === "number" ? p.evoStage : undefined,
+    wins: p.wins || undefined,
+    equipped: p.equipped || undefined,
+  };
+}
+
+// Scans the trainer's SimCluster pool for moots with a public roster (to
+// propose trades to) and for their own trade records addressed `with` me (to
+// find offers waiting on me) — one pass, same batching as tracks scanning.
+async function scanTradeCity() {
+  if (!trainer) return;
+  els.tradeScanBtn.disabled = true;
+  els.tradeScanBtn.textContent = "scanning your moots' repos...";
+  setStatus(els.tradeStatus, "");
+  try {
+    const candidates = trainer.pool.slice(0, TRACKS_SCAN_LIMIT);
+    const partners = [];
+    const incoming = [];
+    for (let i = 0; i < candidates.length; i += TRACKS_CONCURRENCY) {
+      const batch = candidates.slice(i, i + TRACKS_CONCURRENCY);
+      const [rosters, tradeLists] = await Promise.all([
+        Promise.all(batch.map((p) => getPublicRoster(p.did))),
+        Promise.all(batch.map((p) => listTrades(p.did))),
+      ]);
+      rosters.forEach((roster, j) => {
+        if (roster && Array.isArray(roster.party) && roster.party.length && batch[j].did !== trainer.did) {
+          partners.push({ ...batch[j], roster });
+        }
+      });
+      tradeLists.forEach((records, j) => {
+        const author = batch[j];
+        for (const r of records) {
+          const v = r.value;
+          if (v && v.with === trainer.did && v.status === "proposed" && !isIncomingHandled(trainer.did, author.did, r.rkey)) {
+            incoming.push({ author, tradeId: r.rkey, value: v });
+          }
+        }
+      });
+    }
+    tradePartnerCache = partners;
+    tradeIncomingCache = incoming;
+    renderTradePartners();
+    renderTradeIncoming();
+    setStatus(els.tradeStatus, partners.length ? "" : "no moot with a bound party found yet — ask a friend to sign in and bind a pelor.");
+  } catch (err) {
+    setStatus(els.tradeStatus, "couldn't scan for trades: " + err.message, true);
+  } finally {
+    els.tradeScanBtn.disabled = false;
+    els.tradeScanBtn.textContent = "Find moots to trade with";
+  }
+}
+els.tradeScanBtn.addEventListener("click", scanTradeCity);
+
+function renderTradePartners() {
+  els.tradePartnerGrid.innerHTML = tradePartnerCache.map((t) => `
+    <div class="track-card" data-did="${t.did}">
+      ${avatarImg(t.avatar, "avatar", "\u{1F43E}")}
+      <div class="species">@${escapeHtml(t.handle)}</div>
+      <div class="handle">${t.roster.party.length} bound</div>
+      <div class="track-actions">
+        <button type="button" class="btn small trade-open-btn" data-did="${t.did}">Propose trade</button>
+      </div>
+    </div>
+  `).join("");
+  els.tradePartnerGrid.querySelectorAll(".trade-open-btn").forEach((btn) => {
+    btn.addEventListener("click", () => openTradeModal(tradePartnerCache.find((t) => t.did === btn.dataset.did)));
+  });
+}
+
+function openTradeModal(partner) {
+  if (!partner) return;
+  if (!session || !trainer || session.did !== trainer.did) {
+    setStatus(els.tradeStatus, "sign in to propose a trade — it has to write to your own PDS.", true);
+    return;
+  }
+  const mine = Object.values(getBestiary(trainer.did));
+  if (!mine.length) {
+    setStatus(els.tradeStatus, "bind a pelor of your own before proposing a trade.", true);
+    return;
+  }
+  tradeModalPartner = partner;
+  tradeModalWant = null;
+  tradeModalOfferDid = null;
+  els.tradePartnerHandle.textContent = "@" + partner.handle;
+
+  els.tradeWantGrid.innerHTML = partner.roster.party.map((p) => `
+    <div class="mcard" data-did="${p.did}">${mcardHTML(decoratePelorSnapshot(p), false)}</div>
+  `).join("");
+  els.tradeWantGrid.querySelectorAll(".mcard").forEach((card) => {
+    card.addEventListener("click", () => {
+      tradeModalWant = partner.roster.party.find((p) => p.did === card.dataset.did);
+      els.tradeWantGrid.querySelectorAll(".mcard").forEach((c) => c.classList.toggle("selected", c === card));
+      els.tradeProposeBtn.disabled = !(tradeModalWant && tradeModalOfferDid);
+    });
+  });
+
+  els.tradeOfferGrid.innerHTML = mine.map((m) => `
+    <div class="mcard" data-did="${m.did}">${mcardHTML(m, true)}</div>
+  `).join("");
+  els.tradeOfferGrid.querySelectorAll(".mcard").forEach((card) => {
+    card.addEventListener("click", () => {
+      tradeModalOfferDid = card.dataset.did;
+      els.tradeOfferGrid.querySelectorAll(".mcard").forEach((c) => c.classList.toggle("selected", c === card));
+      els.tradeProposeBtn.disabled = !(tradeModalWant && tradeModalOfferDid);
+    });
+  });
+
+  setStatus(els.tradeModalStatus, "");
+  els.tradeProposeBtn.disabled = true;
+  els.tradeModal.classList.remove("hidden");
+}
+
+function closeTradeModal() {
+  els.tradeModal.classList.add("hidden");
+  tradeModalPartner = null;
+  tradeModalWant = null;
+  tradeModalOfferDid = null;
+}
+els.closeTrade.addEventListener("click", closeTradeModal);
+els.tradeCancelModalBtn.addEventListener("click", closeTradeModal);
+
+els.tradeProposeBtn.addEventListener("click", async () => {
+  if (!tradeModalWant || !tradeModalOfferDid || !tradeModalPartner) return;
+  const mine = getBestiary(trainer.did)[tradeModalOfferDid];
+  if (!mine) return;
+  els.tradeProposeBtn.disabled = true;
+  setStatus(els.tradeModalStatus, "sealing the tablet to your PDS...");
+  try {
+    const offerSnapshot = snapshotFromPelor(mine);
+    const wantSnapshot = { ...tradeModalWant };
+    const { tradeId, record } = await proposeTrade(session, {
+      withDid: tradeModalPartner.did, offer: offerSnapshot, want: wantSnapshot,
+    });
+    addSentTrade(trainer.did, {
+      tradeId, withDid: tradeModalPartner.did, withHandle: tradeModalPartner.handle,
+      offer: offerSnapshot, want: wantSnapshot, createdAt: record.createdAt, applied: false,
+    });
+    setStatus(
+      els.tradeModalStatus,
+      `sealed — offering your ${mine.species} for @${tradeModalPartner.handle}'s ${tradeModalWant.species}. They'll see it next time they check the trading counter.`,
+      false,
+    );
+    setTimeout(closeTradeModal, 2200);
+  } catch (err) {
+    setStatus(els.tradeModalStatus, "couldn't propose: " + err.message, true);
+    els.tradeProposeBtn.disabled = false;
+  }
+});
+
+function renderTradeIncoming() {
+  els.tradeIncomingEmpty.classList.toggle("hidden", tradeIncomingCache.length > 0);
+  els.tradeIncomingGrid.innerHTML = tradeIncomingCache.map((t, i) => `
+    <div class="trade-card" data-idx="${i}">
+      <div class="tlabel">@${escapeHtml(t.author.handle)} offers</div>
+      <div class="swap-row">
+        ${avatarImg(t.value.offer.avatar, "mini", typeMeta(t.value.offer.type).emoji)}
+        <span class="arrow">→</span>
+        ${avatarImg(t.value.want.avatar, "mini", typeMeta(t.value.want.type).emoji)}
+      </div>
+      <div class="tspecies">their ${escapeHtml(t.value.offer.species)} for your ${escapeHtml(t.value.want.species)}</div>
+      <div class="trade-actions">
+        <button type="button" class="btn small trade-accept-btn" data-idx="${i}">Accept</button>
+        <button type="button" class="btn ghost small trade-decline-btn" data-idx="${i}">Decline</button>
+      </div>
+    </div>
+  `).join("");
+  els.tradeIncomingGrid.querySelectorAll(".trade-accept-btn").forEach((btn) => {
+    btn.addEventListener("click", () => acceptIncomingTrade(Number(btn.dataset.idx)));
+  });
+  els.tradeIncomingGrid.querySelectorAll(".trade-decline-btn").forEach((btn) => {
+    btn.addEventListener("click", () => declineIncomingTrade(Number(btn.dataset.idx)));
+  });
+}
+
+async function acceptIncomingTrade(idx) {
+  const t = tradeIncomingCache[idx];
+  if (!t) return;
+  if (!session || !trainer || session.did !== trainer.did) {
+    setStatus(els.tradeStatus, "sign in to accept a trade — it has to write to your own PDS.", true);
+    return;
+  }
+  const mine = getBestiary(trainer.did)[t.value.want.did];
+  if (!mine) {
+    setStatus(els.tradeStatus, "you no longer have the pelor they're asking for.", true);
+    return;
+  }
+  setStatus(els.tradeStatus, "sealing your side of the tablet...");
+  try {
+    const myOffer = snapshotFromPelor(mine);
+    await acceptTrade(session, { tradeId: t.tradeId, proposerDid: t.author.did, myOffer, myWant: t.value.offer });
+    applyTradeSwap(trainer.did, mine.did, t.value.offer);
+    markIncomingHandled(trainer.did, t.author.did, t.tradeId);
+    tradeIncomingCache.splice(idx, 1);
+    renderTradeIncoming();
+    renderParty();
+    renderRegion();
+    updateTrainerBar();
+    pushRoster(trainer.did);
+    setStatus(els.tradeStatus, `traded! ${t.value.offer.species} joins your bestiary — ἀλλήλοις χρηστοὶ ἔστε.`, false);
+  } catch (err) {
+    setStatus(els.tradeStatus, "couldn't accept: " + err.message, true);
+  }
+}
+
+function declineIncomingTrade(idx) {
+  const t = tradeIncomingCache[idx];
+  if (!t || !trainer) return;
+  markIncomingHandled(trainer.did, t.author.did, t.tradeId);
+  tradeIncomingCache.splice(idx, 1);
+  renderTradeIncoming();
+}
+
+// "Check my sent trades" — poll each trade I've proposed for the
+// counterparty's own sealed acceptance record, and apply the swap the moment
+// isSealed() is true. This is how the proposer's own client ever finds out;
+// nothing pushes it to them.
+async function checkSentTrades() {
+  if (!trainer) return;
+  const sent = getSentTrades(trainer.did).filter((t) => !t.applied);
+  if (!sent.length) {
+    setStatus(els.tradeStatus, "no outstanding trades you've proposed.", false);
+    return;
+  }
+  els.tradeCheckBtn.disabled = true;
+  setStatus(els.tradeStatus, "checking your moots' PDSes for a response...");
+  try {
+    let anyApplied = false;
+    for (const t of sent) {
+      const theirs = await getTradeRecord(t.withDid, t.tradeId);
+      if (!isSealed({ offer: t.offer, want: t.want }, theirs)) continue;
+      applyTradeSwap(trainer.did, t.offer.did, theirs.offer);
+      markSentTradeApplied(trainer.did, t.tradeId);
+      anyApplied = true;
+      if (session && session.did === trainer.did) {
+        try {
+          await markTradeAccepted(session, t.tradeId, {
+            with: t.withDid, status: "proposed", offer: t.offer, want: t.want, createdAt: t.createdAt,
+          });
+        } catch {} // cosmetic — the swap already applied either way
+      }
+    }
+    if (anyApplied) {
+      renderParty();
+      renderRegion();
+      updateTrainerBar();
+      pushRoster(trainer.did);
+      setStatus(els.tradeStatus, "a trade you proposed was accepted — your bestiary just updated!", false);
+    } else {
+      setStatus(els.tradeStatus, "no responses yet — check back later.", false);
+    }
+  } catch (err) {
+    setStatus(els.tradeStatus, "couldn't check: " + err.message, true);
+  } finally {
+    els.tradeCheckBtn.disabled = false;
+  }
+}
+els.tradeCheckBtn.addEventListener("click", checkSentTrades);
 
 function renderReleaseGrid() {
   if (!trainer) return;

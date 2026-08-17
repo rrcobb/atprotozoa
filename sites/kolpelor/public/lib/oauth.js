@@ -8,12 +8,15 @@
 //   - PKCE + DPoP only (see oauth-jwt.js)
 //   - transient auth state → sessionStorage; the logged-in session → IndexedDB
 //
-// The client_id is the URL of our static client-metadata.json. Scope is one
-// narrow create+update `repo:` grant on kolpelor's own roster collection —
-// not the old `transition:generic` app-password-equivalent scope, which would
-// hand us read/write over the signer's entire repo. The only write this site
-// ever does is upserting the signed-in player's own net.bisks.kolpelor.roster
-// "self" record (see records.js) — never another player's repo.
+// The client_id is the URL of our static client-metadata.json. Scope is two
+// narrow create+update `repo:` grants — kolpelor's own roster collection and
+// its trade collection — not the old `transition:generic`
+// app-password-equivalent scope, which would hand us read/write over the
+// signer's entire repo. The only writes this site ever does are upserting the
+// signed-in player's own net.bisks.kolpelor.roster "self" record (see
+// records.js) and their own net.bisks.kolpelor.trade records (see
+// trades.js) — never another player's repo; a trade only completes once each
+// side has written *their own* matching record (see trades.js's isSealed).
 
 import {
   generateDPoPKeyPair,
@@ -30,7 +33,8 @@ const ORIGIN = location.origin; // https://kolpelor.bisks.net (or localhost in d
 export const MOUNT = ""; // canonical host is kolpelor.bisks.net — no path mount
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto repo:net.bisks.kolpelor.roster?action=create&action=update";
+const SCOPE =
+  "atproto repo:net.bisks.kolpelor.roster?action=create&action=update repo:net.bisks.kolpelor.trade?action=create&action=update";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";

@@ -240,6 +240,39 @@ export function releaseFromBestiary(playerDid, peloraDid) {
   return bestiary;
 }
 
+// The trading counter's real business, per @antiali.as's verse: apply a
+// sealed two-party swap locally (see public/lib/trades.js's isSealed) — let
+// go of the pelor I gave (giveDid, already in my bestiary), bind the one I
+// received (from the counterparty's own sealed record, so its stats/species
+// are exactly what they attested to). Mirrors hydrateFromRemote's snapshot ->
+// bestiary-entry conversion in app.js, kept local to roster.js since it's
+// pure state, no network.
+export function applyTradeSwap(playerDid, giveDid, receiveSnapshot) {
+  releaseFromBestiary(playerDid, giveDid);
+  const rm = rarityMeta(receiveSnapshot.rarity);
+  addToBestiary(playerDid, {
+    did: receiveSnapshot.did,
+    handle: receiveSnapshot.handle,
+    displayName: receiveSnapshot.handle,
+    avatar: receiveSnapshot.avatar || "",
+    type: receiveSnapshot.type,
+    species: receiveSnapshot.species,
+    rarity: receiveSnapshot.rarity,
+    rarityLabel: rm.label,
+    rarityColor: rm.color,
+    catchRate: rm.catchRate,
+    stats: {
+      hp: receiveSnapshot.hp,
+      atk: receiveSnapshot.atk,
+      def: receiveSnapshot.def,
+      spd: receiveSnapshot.spd,
+    },
+    evoStage: typeof receiveSnapshot.evoStage === "number" ? receiveSnapshot.evoStage : rm.stage,
+    wins: receiveSnapshot.wins || 0,
+  });
+  addToParty(playerDid, receiveSnapshot.did);
+}
+
 // Hydrate from a PDS roster record (source of truth for party/record once
 // signed in). `bestiary` is merged on top of what's already local rather than
 // replacing it outright — the roster record only carries the active party
