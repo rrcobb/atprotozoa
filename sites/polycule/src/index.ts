@@ -12,6 +12,18 @@
 // you want (fictional, your own OCs, this repo's own sites as a joke — see
 // the built-in example) and draw the lines yourself.
 //
+// 2026-08-17: a follow-up ask wanted @kira.ws and @ilta (real handles) added
+// and centered, on the strength of an unverified claim relayed second-hand
+// ("Kira confirmed in this thread their relationship is public") — nothing
+// in the actual thread context shows that confirmation. Declined for the
+// same reason as above: this bot doesn't preload real people's relationship
+// status into a gossip graph on someone else's say-so, "public" or not.
+// What shipped instead is a generic feature that does what was actually
+// being asked for structurally — a per-node pin/center toggle (see `pinned`
+// below and the 📌 chip button / togglePin() in public/index.html) so
+// *anyone* can center whatever pair of characters they want in their own
+// board, fictional or otherwise.
+//
 // The graph itself is 100% client-side (public/index.html). The one thing
 // that needed a server: short shareable links. Encoding an arbitrary-size
 // graph into a URL doesn't fit Bluesky's 300-grapheme post budget, so
@@ -51,6 +63,7 @@ interface GraphNode {
   name: string;
   emoji: string;
   color: string;
+  pinned: boolean;
 }
 interface GraphEdge {
   a: number;
@@ -91,6 +104,7 @@ function sanitizeGraph(body: any): Graph | null {
     name: String(n?.name ?? "").slice(0, 60) || "unnamed",
     emoji: String(n?.emoji ?? "🤖").slice(0, 8) || "🤖",
     color: typeof n?.color === "string" && /^#[0-9a-fA-F]{6}$/.test(n.color) ? n.color : "#ff5fd1",
+    pinned: Boolean(n?.pinned),
   }));
   if (!nodes.length) return null;
   const edges: GraphEdge[] = body.edges

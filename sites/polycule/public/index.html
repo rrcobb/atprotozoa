@@ -93,6 +93,8 @@
   .node-emoji { font-size: 20px; text-anchor: middle; pointer-events: none; dominant-baseline: central; }
   .node-circle { cursor: grab; stroke: rgba(0,0,0,0.35); stroke-width: 1.5; }
   .node-circle:active { cursor: grabbing; }
+  .node-circle.pinned { stroke: var(--teal); stroke-width: 3; }
+  .node-pin { font-size: 11px; text-anchor: middle; pointer-events: none; }
   .edge-line { fill: none; }
   .edge-label {
     font-size: 10px; font-family: inherit; text-anchor: middle; pointer-events: none;
@@ -105,11 +107,15 @@
     font-size: 0.78rem;
   }
   .chip .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; flex-shrink: 0; }
+  .chip.pinned { border-color: var(--teal); }
   .chip button {
     background: none; border: none; color: var(--dim); padding: 0 0.2rem; font-size: 0.85rem;
     font-weight: 700; cursor: pointer; border-radius: 50%; line-height: 1;
   }
   .chip button:hover { color: var(--danger); }
+  .chip button.pin { color: var(--dim); font-size: 0.8rem; }
+  .chip button.pin:hover { color: var(--teal); }
+  .chip button.pin.on { color: var(--teal); }
 
   .rel-list { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.7rem; }
   .rel-row {
@@ -165,7 +171,7 @@
       <input id="charEmoji" type="text" placeholder="🤖" maxlength="4" autocomplete="off" />
       <button type="submit">add</button>
     </form>
-    <p class="hint">emoji is optional — leave it blank and one gets picked for you.</p>
+    <p class="hint">emoji is optional — leave it blank and one gets picked for you. Click 📌 on a chip to pin that character toward the center of the graph — pin two and they'll gravitate together.</p>
     <div id="castChips" class="chips"></div>
   </section>
 
@@ -334,9 +340,15 @@ function addNode(name, emoji, color) {
   state.nodes.push({
     id, name: name.slice(0, 60), emoji: emoji || DEFAULT_EMOJIS[state.nodes.length % DEFAULT_EMOJIS.length],
     color: color || COLORS[state.nodes.length % COLORS.length],
-    x: 400 + Math.cos(angle) * r, y: 280 + Math.sin(angle) * r, vx: 0, vy: 0,
+    x: 400 + Math.cos(angle) * r, y: 280 + Math.sin(angle) * r, vx: 0, vy: 0, pinned: false,
   });
   return id;
+}
+function togglePin(id) {
+  const n = state.nodes.find((n) => n.id === id);
+  if (!n) return;
+  n.pinned = !n.pinned;
+  reheat();
 }
 function addEdge(a, b, type, note) {
   state.edges.push({ id: "e" + nextId++, a, b, type: relByKey[type] ? type : "dating", note: (note || "").slice(0, 140) });
@@ -359,7 +371,7 @@ function loadGraph(graph, { fromWire } = {}) {
     ids.push(id);
     state.nodes.push({
       id, name: n.name, emoji: n.emoji || "🤖", color: n.color || COLORS[i % COLORS.length],
-      x: 400 + Math.cos(angle) * 140, y: 280 + Math.sin(angle) * 140, vx: 0, vy: 0,
+      x: 400 + Math.cos(angle) * 140, y: 280 + Math.sin(angle) * 140, vx: 0, vy: 0, pinned: Boolean(n.pinned),
     });
   });
   (graph.edges || []).forEach((e) => {
@@ -372,7 +384,7 @@ function toWireGraph() {
   const idxOf = new Map(state.nodes.map((n, i) => [n.id, i]));
   return {
     title: els.titleInput.value.trim().slice(0, 80),
-    nodes: state.nodes.map((n) => ({ name: n.name, emoji: n.emoji, color: n.color })),
+    nodes: state.nodes.map((n) => ({ name: n.name, emoji: n.emoji, color: n.color, pinned: n.pinned })),
     edges: state.edges
       .filter((e) => idxOf.has(e.a) && idxOf.has(e.b))
       .map((e) => ({ a: idxOf.get(e.a), b: idxOf.get(e.b), type: e.type, note: e.note })),
@@ -407,12 +419,22 @@ function refreshChips() {
   els.castChips.innerHTML = "";
   state.nodes.forEach((n) => {
     const chip = document.createElement("span");
-    chip.className = "chip";
+    chip.className = "chip" + (n.pinned ? " pinned" : "");
     const dot = document.createElement("span");
     dot.className = "dot";
     dot.style.background = n.color;
     const label = document.createElement("span");
     label.textContent = n.emoji + " " + n.name;
+    const pin = document.createElement("button");
+    pin.type = "button";
+    pin.className = "pin" + (n.pinned ? " on" : "");
+    pin.title = (n.pinned ? "unpin " : "pin ") + n.name + " from the center";
+    pin.textContent = "📌";
+    pin.addEventListener("click", () => {
+      togglePin(n.id);
+      rebuild();
+      save();
+    });
     const del = document.createElement("button");
     del.type = "button";
     del.title = "remove " + n.name;
@@ -422,7 +444,7 @@ function refreshChips() {
       rebuild();
       save();
     });
-    chip.append(dot, label, del);
+    chip.append(dot, label, pin, del);
     els.castChips.appendChild(chip);
   });
 }
@@ -483,14 +505,16 @@ function rebuildGraphDom() {
 
   state.nodes.forEach((n) => {
     const g = svgEl("g", {});
-    const circle = svgEl("circle", { class: "node-circle", r: 24, fill: n.color });
+    const circle = svgEl("circle", { class: "node-circle" + (n.pinned ? " pinned" : ""), r: 24, fill: n.color });
     const emoji = svgEl("text", { class: "node-emoji" });
     emoji.textContent = n.emoji;
     const label = svgEl("text", { class: "node-label", y: 40 });
     label.textContent = n.name.length > 16 ? n.name.slice(0, 15) + "…" : n.name;
-    g.append(circle, emoji, label);
+    const pinMark = svgEl("text", { class: "node-pin", y: -28 });
+    pinMark.textContent = n.pinned ? "📌" : "";
+    g.append(circle, emoji, label, pinMark);
     els.nodesLayer.appendChild(g);
-    nodeEls.set(n.id, { g, circle, emoji, label });
+    nodeEls.set(n.id, { g, circle, emoji, label, pinMark });
     attachDrag(g, n);
   });
 
@@ -560,7 +584,7 @@ function attachDrag(g, node) {
 
 // ---- force simulation -----------------------------------------------------
 const W = 800, H = 560;
-const REPULSION = 14000, SPRING_LEN = 130, SPRING_K = 0.02, DAMPING = 0.82, CENTER_K = 0.015;
+const REPULSION = 14000, SPRING_LEN = 130, SPRING_K = 0.02, DAMPING = 0.82, CENTER_K = 0.015, CENTER_K_PINNED = 0.09;
 const ALPHA_DECAY = 0.992, ALPHA_MIN = 0.012;
 let alpha = 1, rafId = null;
 
@@ -586,8 +610,9 @@ function tick() {
       fx += (dx / d) * force;
       fy += (dy / d) * force;
     }
-    fx += (W / 2 - ni.x) * CENTER_K;
-    fy += (H / 2 - ni.y) * CENTER_K;
+    const centerK = ni.pinned ? CENTER_K_PINNED : CENTER_K;
+    fx += (W / 2 - ni.x) * centerK;
+    fy += (H / 2 - ni.y) * centerK;
     ni._fx = fx;
     ni._fy = fy;
   }
