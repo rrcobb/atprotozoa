@@ -64,7 +64,10 @@ async function resolveHandleForDid(did) {
   return did;
 }
 
-async function resolvePds(did) {
+// Exported so records.js can resolve a moot's PDS to read their public
+// roster record (net.bisks.kolpelor.roster) — same lookup login already does
+// for the signed-in player, just without an auth step after it.
+export async function resolvePds(did) {
   try {
     if (did.startsWith("did:plc:")) {
       const r = await fetch(`${PLC_DIR}/${did}`);

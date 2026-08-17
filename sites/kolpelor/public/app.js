@@ -7,7 +7,7 @@ import {
 import { ready, resolveRound } from "./lib/battle.js";
 import { LADDER } from "./lib/trainers.js";
 import { login, getSession, clearSession, completeLoginIfCallback } from "./lib/oauth.js";
-import { getMyRoster, saveRoster } from "./lib/records.js";
+import { getMyRoster, saveRoster, getPublicRoster } from "./lib/records.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -35,6 +35,10 @@ const els = {
   cityExtra: $("cityExtra"),
   releaseGrid: $("releaseGrid"),
   releaseEmpty: $("releaseEmpty"),
+
+  tracksBtn: $("tracksBtn"),
+  tracksStatus: $("tracksStatus"),
+  tracksGrid: $("tracksGrid"),
 
   partyCount: $("partyCount"),
   partySlots: $("partySlots"),
@@ -97,6 +101,8 @@ let currentEncounter = null; // { pelor, hp, maxHp }
 let currentGymIdx = -1;
 let rival = null; // { did, handle, team: [pelor...] }
 let battle = null; // { playerTeam, oppTeam, pIdx, oIdx, over, mode: 'gym'|'pvp', meta }
+let lastPushedRegion = null; // last region.id written to the PDS, so we don't spam putRecord on every re-render
+const tracksCache = new Map(); // regionId -> [{did, handle, avatar, roster}] of moots last seen there this session
 
 function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, (c) => ({
@@ -145,6 +151,7 @@ function rosterRecordFromLocal(trainerDid) {
     losses: rec.losses || 0,
     ladderRank: rec.ladderRank || 0,
     aristos: !!rec.aristos,
+    region: selectedRegionId,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -254,6 +261,8 @@ async function startGame(rawHandle) {
     trainer = { did: cluster.did, handle: cluster.handle, self: cluster.self, pool: cluster.pool };
     regionPool = cluster.pool.map((p) => peloraFor(p, cluster.pool));
     regionByDid = new Map(regionPool.map((m) => [m.did, m]));
+    tracksCache.clear(); // last trainer's moot pool no longer applies
+    lastPushedRegion = null;
 
     if (session && session.did === trainer.did) {
       setStatus(els.status, "loading your roster from your PDS...");
@@ -272,6 +281,7 @@ async function startGame(rawHandle) {
 
     renderRegionRow();
     renderRegion();
+    renderTracks();
     renderParty();
     renderLadder();
   } catch (err) {
@@ -338,6 +348,11 @@ function renderRegionRow() {
       selectedRegionId = card.dataset.region;
       renderRegionRow();
       renderRegion();
+      renderTracks();
+      if (session && trainer && session.did === trainer.did && selectedRegionId !== lastPushedRegion) {
+        lastPushedRegion = selectedRegionId;
+        pushRoster(trainer.did);
+      }
     });
   });
 }
@@ -366,6 +381,101 @@ function renderRegion() {
   els.regionGrid.querySelectorAll(".mcard").forEach((card) => {
     card.addEventListener("click", () => openEncounter(regionByDid.get(card.dataset.did)));
   });
+}
+
+// ---------- Ἴχνη (tracks): moots' PDS-recorded positions on the map ----------
+// Per @antiali.as's reply-thread verse: "whichever friends you follow, you see
+// their tracks on the map — and meeting them in the field, you bring gifts or
+// start a battle." A moot's position is just their own roster record's
+// `region` field (see net.bisks.kolpelor.roster.json), written whenever they
+// switch Wilds regions signed in — so scanning is nothing but public reads of
+// records moots already chose to publish, not real-time presence.
+
+const TRACKS_SCAN_LIMIT = 40; // bound the public-record fan-out — pool can run to 120 moots
+const TRACKS_CONCURRENCY = 6;
+
+async function scanTracksForRegion(regionId) {
+  const candidates = trainer.pool.slice(0, TRACKS_SCAN_LIMIT);
+  const found = [];
+  for (let i = 0; i < candidates.length; i += TRACKS_CONCURRENCY) {
+    const batch = candidates.slice(i, i + TRACKS_CONCURRENCY);
+    const rosters = await Promise.all(batch.map((p) => getPublicRoster(p.did)));
+    rosters.forEach((roster, j) => {
+      if (roster && roster.region === regionId) found.push({ ...batch[j], roster });
+    });
+  }
+  return found;
+}
+
+function renderTracks() {
+  if (!trainer) return;
+  const region = REGIONS.find((r) => r.id === selectedRegionId) || REGIONS[0];
+  const cached = tracksCache.get(region.id);
+
+  if (!cached) {
+    els.tracksGrid.innerHTML = "";
+    setStatus(els.tracksStatus, "");
+    els.tracksBtn.classList.remove("hidden");
+    els.tracksBtn.disabled = false;
+    els.tracksBtn.textContent = `Look for moots' tracks in ${region.name}`;
+    return;
+  }
+
+  els.tracksBtn.classList.add("hidden");
+  if (!cached.length) {
+    setStatus(els.tracksStatus, `no tracks in ${region.name} — no moot of yours has wandered here signed in yet.`);
+    els.tracksGrid.innerHTML = "";
+    return;
+  }
+  setStatus(els.tracksStatus, "");
+  els.tracksGrid.innerHTML = cached.map((t) => `
+    <div class="track-card">
+      ${avatarImg(t.avatar, "avatar", "\u{1F43E}")}
+      <div class="species">@${escapeHtml(t.handle)}</div>
+      <div class="handle">${(t.roster.party || []).length} bound · ${t.roster.wins || 0}W-${t.roster.losses || 0}L${t.roster.aristos ? " · ἀριστεύε" : ""}</div>
+      <div class="track-actions">
+        <button type="button" class="btn ghost small gift-btn" data-handle="${escapeHtml(t.handle)}">Gift</button>
+        <button type="button" class="btn small battle-btn" data-handle="${escapeHtml(t.handle)}">Battle</button>
+      </div>
+    </div>
+  `).join("");
+  els.tracksGrid.querySelectorAll(".gift-btn").forEach((btn) => {
+    btn.addEventListener("click", () => sendGift(btn.dataset.handle, region));
+  });
+  els.tracksGrid.querySelectorAll(".battle-btn").forEach((btn) => {
+    btn.addEventListener("click", () => challengeTrack(btn.dataset.handle));
+  });
+}
+
+els.tracksBtn.addEventListener("click", async () => {
+  if (!trainer) return;
+  const region = REGIONS.find((r) => r.id === selectedRegionId) || REGIONS[0];
+  els.tracksBtn.disabled = true;
+  els.tracksBtn.textContent = "scanning your moots' repos...";
+  try {
+    const found = await scanTracksForRegion(region.id);
+    tracksCache.set(region.id, found);
+    renderTracks();
+  } catch (err) {
+    setStatus(els.tracksStatus, "couldn't scan for tracks: " + err.message, true);
+    els.tracksBtn.disabled = false;
+    els.tracksBtn.textContent = `Look for moots' tracks in ${region.name}`;
+  }
+});
+
+// "meeting them in the field, you bring gifts" — no write access to a moot's
+// own repo, so a gift is a real Bluesky post naming them, not a silent record.
+function sendGift(handle, region) {
+  const text = `Spotted @${handle} wandering ${region.name} in kolpelor and left them a κολπόσφαιρα as a gift 🎁 https://kolpelor.bisks.net/`;
+  window.open("https://bsky.app/intent/compose?text=" + encodeURIComponent(text), "_blank", "noopener");
+}
+
+// "or start a battle" — reuses the Rivals tab's live-SimCluster scout so a
+// track's team is exactly as fresh as a manually-scouted rival's.
+function challengeTrack(handle) {
+  switchTab("rivals");
+  els.opponentInput.value = handle;
+  scoutRival(handle);
 }
 
 function renderReleaseGrid() {
@@ -446,7 +556,7 @@ els.throwBtn.addEventListener("click", () => {
   if (result.success) {
     addToBestiary(trainer.did, pelor);
     addToParty(trainer.did, pelor.did);
-    setStatus(els.catchLog, `Bound! ${pelor.species} answers φιλία${getParty(trainer.did).includes(pelor.did) ? " and joins your party" : " (party full — check Bestiary)"}.`, false);
+    setStatus(els.catchLog, `Bound! the κολπόσφαιρα holds — ${pelor.species} answers φιλία${getParty(trainer.did).includes(pelor.did) ? " and joins your party" : " (party full — check Bestiary)"}.`, false);
     els.throwBtn.disabled = true;
     renderRegion();
     renderParty();
@@ -564,9 +674,11 @@ els.gymChallengeBtn.addEventListener("click", () => {
 
 // ---------- rivals (PvP) ----------
 
-els.opponentForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const handle = (els.opponentInput.value || "").trim().replace(/^@/, "");
+// Shared by the Rivals tab's own form and Wilds' "Battle" track action —
+// scouting is always a fresh live SimCluster pull, never the rival's roster
+// record, so a track's team is exactly as current as a hand-typed one.
+async function scoutRival(rawHandle) {
+  const handle = (rawHandle || "").trim().replace(/^@/, "");
   if (!handle) { setStatus(els.battleStatus, "enter a rival handle first.", true); return; }
   if (!getParty(trainer.did).length) {
     setStatus(els.battleStatus, "bind at least one pelor before challenging a rival.", true);
@@ -596,6 +708,11 @@ els.opponentForm.addEventListener("submit", async (e) => {
   } finally {
     $("scoutBtn").disabled = false;
   }
+}
+
+els.opponentForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  scoutRival(els.opponentInput.value);
 });
 
 els.startBattleBtn.addEventListener("click", () => {
