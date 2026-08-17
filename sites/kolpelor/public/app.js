@@ -1,8 +1,8 @@
 import { buildCluster } from "./lib/cluster.js";
-import { peloraFor, typeMeta, typeMultiplier, rarityMeta } from "./lib/pelora.js";
+import { peloraFor, typeMeta, typeMultiplier, rarityMeta, REGIONS, regionOf } from "./lib/pelora.js";
 import {
   getBestiary, getParty, getRecord, recordResult, setAristos, addToBestiary,
-  addToParty, removeFromParty, isBound, attemptBind, replaceState, MAX_PARTY,
+  addToParty, removeFromParty, releaseFromBestiary, isBound, attemptBind, replaceState, MAX_PARTY,
 } from "./lib/roster.js";
 import { ready, resolveRound } from "./lib/battle.js";
 import { LADDER } from "./lib/trainers.js";
@@ -28,8 +28,13 @@ const els = {
   syncBtn: $("syncBtn"),
   syncStatus: $("syncStatus"),
 
+  regionRow: $("regionRow"),
+  regionFlavor: $("regionFlavor"),
   regionStatus: $("regionStatus"),
   regionGrid: $("regionGrid"),
+  cityExtra: $("cityExtra"),
+  releaseGrid: $("releaseGrid"),
+  releaseEmpty: $("releaseEmpty"),
 
   partyCount: $("partyCount"),
   partySlots: $("partySlots"),
@@ -87,6 +92,7 @@ let session = null; // atproto OAuth session, or null if playing signed-out
 let trainer = null; // { did, handle, self, pool }
 let regionPool = []; // peloraFor(...) per cluster.pool entry
 let regionByDid = new Map();
+let selectedRegionId = REGIONS[0].id; // which of the four homelands the Wilds panel shows
 let currentEncounter = null; // { pelor, hp, maxHp }
 let currentGymIdx = -1;
 let rival = null; // { did, handle, team: [pelor...] }
@@ -264,6 +270,7 @@ async function startGame(rawHandle) {
     els.gameScreen.classList.remove("hidden");
     setStatus(els.status, "");
 
+    renderRegionRow();
     renderRegion();
     renderParty();
     renderLadder();
@@ -281,15 +288,19 @@ els.searchForm.addEventListener("submit", (e) => {
 
 // ---------- tabs ----------
 
+function switchTab(panelName) {
+  document.querySelectorAll("nav.tabs button").forEach((b) => b.classList.toggle("active", b.dataset.panel === panelName));
+  document.querySelectorAll("section.panel").forEach((p) => p.classList.toggle("active", p.id === "panel-" + panelName));
+  if (panelName === "party") renderParty();
+  if (panelName === "gymnasion") renderLadder();
+}
+
 document.querySelectorAll("nav.tabs button").forEach((btn) => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll("nav.tabs button").forEach((b) => b.classList.remove("active"));
-    document.querySelectorAll("section.panel").forEach((p) => p.classList.remove("active"));
-    btn.classList.add("active");
-    $("panel-" + btn.dataset.panel).classList.add("active");
-    if (btn.dataset.panel === "party") renderParty();
-    if (btn.dataset.panel === "gymnasion") renderLadder();
-  });
+  btn.addEventListener("click", () => switchTab(btn.dataset.panel));
+});
+
+document.querySelectorAll("#cityExtra [data-goto]").forEach((btn) => {
+  btn.addEventListener("click", () => switchTab(btn.dataset.goto));
 });
 
 function updateTrainerBar() {
@@ -314,18 +325,69 @@ function mcardHTML(m, bound) {
   `;
 }
 
+function renderRegionRow() {
+  els.regionRow.innerHTML = REGIONS.map((r) => `
+    <button type="button" class="region-card${r.id === selectedRegionId ? " active" : ""}" data-region="${r.id}">
+      <span class="remoji">${r.emoji}</span>
+      <span class="rname">${escapeHtml(r.name)}</span>
+      <span class="rgreek">${escapeHtml(r.greek)}</span>
+    </button>
+  `).join("");
+  els.regionRow.querySelectorAll(".region-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      selectedRegionId = card.dataset.region;
+      renderRegionRow();
+      renderRegion();
+    });
+  });
+}
+
 function renderRegion() {
+  const region = REGIONS.find((r) => r.id === selectedRegionId) || REGIONS[0];
+  els.regionFlavor.innerHTML = `<span class="greek">${escapeHtml(region.verse)}</span>${escapeHtml(region.blurb)}`;
+  els.cityExtra.classList.toggle("hidden", !region.isHub);
+  if (region.isHub) renderReleaseGrid();
+
   if (!regionPool.length) {
     setStatus(els.regionStatus, "no wild pelora found in this SimCluster.");
     els.regionGrid.innerHTML = "";
     return;
   }
+  const inRegion = regionPool.filter((m) => region.types.includes(m.type));
+  if (!inRegion.length) {
+    setStatus(els.regionStatus, `nothing is wandering ${region.name} right now — try another homeland.`);
+    els.regionGrid.innerHTML = "";
+    return;
+  }
   setStatus(els.regionStatus, "");
-  els.regionGrid.innerHTML = regionPool
+  els.regionGrid.innerHTML = inRegion
     .map((m) => `<div class="mcard${isBound(trainer.did, m.did) ? " caught" : ""}" data-did="${m.did}">${mcardHTML(m, isBound(trainer.did, m.did))}</div>`)
     .join("");
   els.regionGrid.querySelectorAll(".mcard").forEach((card) => {
     card.addEventListener("click", () => openEncounter(regionByDid.get(card.dataset.did)));
+  });
+}
+
+function renderReleaseGrid() {
+  if (!trainer) return;
+  const bestiary = getBestiary(trainer.did);
+  const entries = Object.values(bestiary).sort((a, b) => b.boundAt - a.boundAt);
+  els.releaseEmpty.classList.toggle("hidden", entries.length > 0);
+  els.releaseGrid.innerHTML = entries.map((m) => `
+    <div class="mcard" data-did="${m.did}">
+      ${mcardHTML(m, true)}
+      <button type="button" class="btn danger small release-btn" data-did="${m.did}">Release</button>
+    </div>
+  `).join("");
+  els.releaseGrid.querySelectorAll(".release-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      releaseFromBestiary(trainer.did, btn.dataset.did);
+      renderReleaseGrid();
+      renderParty();
+      renderRegion();
+      pushRoster(trainer.did);
+    });
   });
 }
 

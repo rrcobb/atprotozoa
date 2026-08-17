@@ -51,6 +51,56 @@ export function rarityMeta(id) {
   return RARITY.find((r) => r.id === id) || RARITY[3];
 }
 
+// The world, per @antiali.as's reply-thread verse: a shadowed wood (mother of
+// ancient beasts — Echidna, μήτηρ ἀρχαίων, is literally venom's stage-2
+// species below), a grey-blue lake of scaled swimmers, a steep fire-mountain,
+// and a bright city that's agora of battle and exchange rather than a hunting
+// ground. Every domain gets a home; the city instead points at the
+// gymnasion/rivals tabs and hosts the release ("exchange") counter.
+export const REGIONS = [
+  {
+    id: "forest",
+    name: "Shadowed Wood",
+    greek: "Ὕλη Σκιόεσσα",
+    verse: "“Πρῶτα μὲν ὕλη σκιόεσσα, θηρῶν μήτηρ ἀρχαίων”",
+    blurb: "the mother of ancient beasts keeps her wood dark — beast and venom domains den here.",
+    emoji: "\u{1F332}",
+    types: ["beast", "venom"],
+  },
+  {
+    id: "lake",
+    name: "Grey-Blue Lake",
+    greek: "Λίμνη Γλαυκή",
+    verse: "“εἶτα λίμνη γλαυκή, ὅπου νήχονται λέπιδες”",
+    blurb: "scaled swimmers turn in the shallows — the abyss domain, and only the abyss domain.",
+    emoji: "\u{1F30A}",
+    types: ["abyss"],
+  },
+  {
+    id: "mountain",
+    name: "Fire-Born Mountain",
+    greek: "Ὄρος Αἰπὺ Πυρὸς Γέμον",
+    verse: "“ὄρος δ’ αἰπὺ πυρὸς γέμον”",
+    blurb: "a steep peak full of fire — flame smolders in its throat, stone holds its slopes.",
+    emoji: "\u{1F30B}",
+    types: ["flame", "stone"],
+  },
+  {
+    id: "city",
+    name: "Bright City",
+    greek: "Ἄστυ Λαμπρόν",
+    verse: "“ἄστυ δὲ λαμπρόν, ἀγορὰ μάχης καὶ ἀλλαγῆς σφαιρῶν”",
+    blurb: "storm-born strays circle its rooftops; its true business is the gymnasion's battle-agora and the trading counter where bound pelora change hands.",
+    emoji: "\u{1F3DB}️",
+    types: ["storm"],
+    isHub: true,
+  },
+];
+
+export function regionOf(typeId) {
+  return REGIONS.find((r) => r.types.includes(typeId)) || REGIONS[0];
+}
+
 function hashStr(s) {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;

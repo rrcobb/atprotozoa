@@ -93,6 +93,16 @@ export function removeFromParty(playerDid, peloraDid) {
   return party;
 }
 
+// The city's trading counter: let a bound pelor go for good, out of both the
+// bestiary and the active party. Opposite of addToBestiary/addToParty.
+export function releaseFromBestiary(playerDid, peloraDid) {
+  const bestiary = getBestiary(playerDid);
+  delete bestiary[peloraDid];
+  saveBestiary(playerDid, bestiary);
+  removeFromParty(playerDid, peloraDid);
+  return bestiary;
+}
+
 // Hydrate from a PDS roster record (source of truth for party/record once
 // signed in). `bestiary` is merged on top of what's already local rather than
 // replacing it outright — the roster record only carries the active party
