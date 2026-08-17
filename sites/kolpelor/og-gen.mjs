@@ -57,7 +57,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <g>
     <rect x="750" y="70" width="380" height="490" rx="24" fill="${CARD}" stroke="${BORDER}" stroke-width="4"/>
     <rect x="750" y="70" width="380" height="490" rx="24" fill="url(#cardglow)"/>
-    <text x="790" y="130" font-family="JetBrains Mono" font-weight="800" font-size="26" fill="${PURPLE}">VENOM</text>
+    <text x="790" y="130" font-family="JetBrains Mono" font-weight="800" font-size="26" fill="${PURPLE}">WOOD</text>
     <circle cx="940" cy="200" r="72" fill="#1a1424" stroke="${PURPLE}" stroke-width="3"/>
     <text x="940" y="222" text-anchor="middle" font-family="JetBrains Mono" font-weight="800" font-size="64" fill="${PURPLE}">?</text>
     <text x="940" y="305" text-anchor="middle" font-family="JetBrains Mono" font-weight="800" font-size="28" fill="${FG}">Echidna</text>

@@ -31,8 +31,8 @@ export const LADDER = [
     emoji: "\u{1F441}️",
     quote: "“Nobody is eating me!” he cried — well, somebody is about to.",
     team: [
-      mon("stone", "Oread", { hp: 40, atk: 16, def: 14, spd: 10 }),
-      mon("beast", "Kynokephalos", { hp: 44, atk: 18, def: 12, spd: 12 }),
+      mon("mountain", "Oread", { hp: 40, atk: 16, def: 14, spd: 10 }),
+      mon("wood", "Kynokephalos", { hp: 44, atk: 18, def: 12, spd: 12 }),
     ],
   },
   {
@@ -42,9 +42,9 @@ export const LADDER = [
     emoji: "\u{1F9EA}",
     quote: "Every guest leaves her hall a little more of a beast than they arrived.",
     team: [
-      mon("venom", "Amphisbaena", { hp: 46, atk: 20, def: 14, spd: 20 }),
-      mon("flame", "Kakodaimon", { hp: 48, atk: 22, def: 14, spd: 16 }),
-      mon("venom", "Hydra", { hp: 58, atk: 24, def: 18, spd: 14 }),
+      mon("wood", "Amphisbaena", { hp: 46, atk: 20, def: 14, spd: 20 }),
+      mon("fire", "Kakodaimon", { hp: 48, atk: 22, def: 14, spd: 16 }),
+      mon("wood", "Hydra", { hp: 58, atk: 24, def: 18, spd: 14 }),
     ],
   },
   {
@@ -54,9 +54,9 @@ export const LADDER = [
     emoji: "\u{1F3B6}",
     quote: "Wax in your ears, or you'll never leave this arena either.",
     team: [
-      mon("storm", "Harpy", { hp: 44, atk: 24, def: 12, spd: 30 }),
-      mon("storm", "Griffin", { hp: 56, atk: 26, def: 18, spd: 26 }),
-      mon("abyss", "Scylla", { hp: 60, atk: 26, def: 20, spd: 18 }),
+      mon("city", "Harpy", { hp: 44, atk: 24, def: 12, spd: 30 }),
+      mon("city", "Griffin", { hp: 56, atk: 26, def: 18, spd: 26 }),
+      mon("water", "Scylla", { hp: 60, atk: 26, def: 20, spd: 18 }),
     ],
   },
   {
@@ -66,10 +66,10 @@ export const LADDER = [
     emoji: "\u{1F32C}️",
     quote: "Lose a few to Scylla, or lose the whole ship to Charybdis. Choose.",
     team: [
-      mon("abyss", "Scylla", { hp: 62, atk: 30, def: 22, spd: 24 }),
-      mon("venom", "Hydra", { hp: 66, atk: 28, def: 24, spd: 18 }),
-      mon("abyss", "Charybdis", { hp: 80, atk: 30, def: 24, spd: 14 }),
-      mon("beast", "Minotaur", { hp: 70, atk: 32, def: 22, spd: 16 }),
+      mon("water", "Scylla", { hp: 62, atk: 30, def: 22, spd: 24 }),
+      mon("wood", "Hydra", { hp: 66, atk: 28, def: 24, spd: 18 }),
+      mon("water", "Charybdis", { hp: 80, atk: 30, def: 24, spd: 14 }),
+      mon("wood", "Minotaur", { hp: 70, atk: 32, def: 22, spd: 16 }),
     ],
   },
   {
@@ -79,11 +79,11 @@ export const LADDER = [
     emoji: "\u{1F531}",
     quote: "Every wandering hero answers to me eventually.",
     team: [
-      mon("abyss", "Charybdis", { hp: 90, atk: 34, def: 28, spd: 22 }),
-      mon("storm", "Pegasus", { hp: 78, atk: 36, def: 24, spd: 34 }),
-      mon("stone", "Talos", { hp: 96, atk: 34, def: 34, spd: 16 }),
-      mon("beast", "Cerberus", { hp: 92, atk: 38, def: 26, spd: 24 }),
-      mon("venom", "Echidna", { hp: 88, atk: 38, def: 28, spd: 20 }),
+      mon("water", "Charybdis", { hp: 90, atk: 34, def: 28, spd: 22 }),
+      mon("city", "Pegasus", { hp: 78, atk: 36, def: 24, spd: 34 }),
+      mon("mountain", "Talos", { hp: 96, atk: 34, def: 34, spd: 16 }),
+      mon("wood", "Cerberus", { hp: 92, atk: 38, def: 26, spd: 24 }),
+      mon("wood", "Echidna", { hp: 88, atk: 38, def: 28, spd: 20 }),
     ],
   },
 ];

@@ -4,13 +4,15 @@ import {
   getBestiary, getParty, getRecord, recordResult, setAristos, addToBestiary,
   addToParty, removeFromParty, releaseFromBestiary, isBound, attemptBind, replaceState, MAX_PARTY,
   getGold, addGold, getGearInventory, addGear, equipGear, unequipGear, canDig, markDug, registerVictory,
+  sellGear, canBeg, begAlms,
 } from "./lib/roster.js";
 import { ready, resolveRound } from "./lib/battle.js";
-import { dig, gearMeta, effectiveStats } from "./lib/treasure.js";
+import { dig, gearMeta, gearSellValue, effectiveStats } from "./lib/treasure.js";
 import { LADDER } from "./lib/trainers.js";
 import { login, getSession, clearSession, completeLoginIfCallback } from "./lib/oauth.js";
 import { getMyRoster, saveRoster, getPublicRoster } from "./lib/records.js";
 import { subscribeRiver, dismissWorldPelor, CONDITIONS } from "./lib/river.js";
+import { citizenOracle } from "./lib/oracle.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -41,6 +43,12 @@ const els = {
   cityExtra: $("cityExtra"),
   releaseGrid: $("releaseGrid"),
   releaseEmpty: $("releaseEmpty"),
+  merchantGrid: $("merchantGrid"),
+  merchantEmpty: $("merchantEmpty"),
+  begBtn: $("begBtn"),
+  oracleBtn: $("oracleBtn"),
+  oracleStatus: $("oracleStatus"),
+  oracleCard: $("oracleCard"),
 
   tracksBtn: $("tracksBtn"),
   tracksStatus: $("tracksStatus"),
@@ -420,7 +428,7 @@ function renderRegion() {
   const region = REGIONS.find((r) => r.id === selectedRegionId) || REGIONS[0];
   els.regionFlavor.innerHTML = `<span class="greek">${escapeHtml(region.verse)}</span>${escapeHtml(region.blurb)}`;
   els.cityExtra.classList.toggle("hidden", !region.isHub);
-  if (region.isHub) renderReleaseGrid();
+  if (region.isHub) { renderReleaseGrid(); renderMerchant(); updateBegButton(); }
   renderDig(region);
 
   if (!regionPool.length) {
@@ -428,7 +436,7 @@ function renderRegion() {
     els.regionGrid.innerHTML = "";
     return;
   }
-  const inRegion = regionPool.filter((m) => region.types.includes(m.type));
+  const inRegion = regionPool.filter((m) => m.type === region.type);
   if (!inRegion.length) {
     setStatus(els.regionStatus, `nothing is wandering ${region.name} right now — try another homeland.`);
     els.regionGrid.innerHTML = "";
@@ -604,6 +612,74 @@ function renderReleaseGrid() {
     });
   });
 }
+
+// ---------- the city's other business: merchants, alms, citizens ----------
+// Per the verse: "σκῦλα πωλῶν ἐμπόροις" (selling spoils to merchants) and
+// "αἰτεῖς πολίτας ἐλεημοσύνην" (asking the citizens for alms) — see
+// sellGear/begAlms in roster.js for the mechanics.
+
+function renderMerchant() {
+  if (!trainer) return;
+  const inv = getGearInventory(trainer.did);
+  els.merchantEmpty.classList.toggle("hidden", inv.length > 0);
+  els.merchantGrid.innerHTML = inv.map((gid, i) => {
+    const g = gearMeta(gid);
+    if (!g) return "";
+    const value = gearSellValue(gid);
+    return `
+      <div class="gear-card" data-idx="${i}" data-gear="${gid}">
+        <div class="gemoji">${g.emoji}</div>
+        <div class="gname">${escapeHtml(g.label)}</div>
+        <div class="ggreek greek">${escapeHtml(g.name)}</div>
+        <div class="gboost">+${g.boost} ${g.stat.toUpperCase()}</div>
+        <button type="button" class="btn small sell-btn">Sell for ${value} 🪙</button>
+      </div>`;
+  }).join("");
+  els.merchantGrid.querySelectorAll(".sell-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const card = btn.closest(".gear-card");
+      const gid = card.dataset.gear;
+      sellGear(trainer.did, gid, gearSellValue(gid));
+      updateTrainerBar();
+      renderMerchant();
+      renderGear();
+      pushRoster(trainer.did);
+    });
+  });
+}
+
+function updateBegButton() {
+  if (!trainer) return;
+  const can = canBeg(trainer.did);
+  els.begBtn.disabled = !can;
+  els.begBtn.textContent = can ? "Ask citizens for alms" : "The citizens gave recently — try later";
+}
+
+els.begBtn.addEventListener("click", () => {
+  if (!trainer || !canBeg(trainer.did)) return;
+  const result = begAlms(trainer.did);
+  updateTrainerBar();
+  updateBegButton();
+  setStatus(els.oracleStatus, `a citizen presses ${result.amount} χρυσός into your hand — ὀλίγον μὲν δίδωσιν, οὐδεὶς δ’ ἀρνεῖται. (${result.total} total)`, false);
+  pushRoster(trainer.did);
+});
+
+els.oracleBtn.addEventListener("click", async () => {
+  if (!trainer) return;
+  els.oracleBtn.disabled = true;
+  els.oracleCard.classList.add("hidden");
+  setStatus(els.oracleStatus, "a mechanical soul stitches speech...");
+  try {
+    const result = await citizenOracle(trainer.pool);
+    els.oracleCard.innerHTML = `<span class="greek">χρησμός</span> “${escapeHtml(result.text)}”<div class="oracle-sources">stitched from @${escapeHtml(result.sources[0])} &amp; @${escapeHtml(result.sources[1])}</div>`;
+    els.oracleCard.classList.remove("hidden");
+    setStatus(els.oracleStatus, "");
+  } catch (err) {
+    setStatus(els.oracleStatus, err.message, true);
+  } finally {
+    els.oracleBtn.disabled = false;
+  }
+});
 
 function openEncounter(pelor) {
   currentEncounter = { pelor, hp: pelor.stats.hp, maxHp: pelor.stats.hp };
@@ -972,11 +1048,20 @@ function endBattle(won) {
     becameAristos = true;
   }
 
+  // "Νόμισμα κερδαίνεις ἱδρῶτι μάχης" — coin earned by the sweat of battle.
+  // Gym payouts scale with how far up the ladder the trainer is; PvP pays flat.
+  let goldWon = 0;
+  if (won) {
+    goldWon = battle.mode === "gym" ? 10 + battle.meta.idx * 6 : 12;
+    addGold(trainer.did, goldWon);
+  }
+
   updateTrainerBar();
   renderLadder();
 
   const oppName = battle.mode === "gym" ? battle.meta.trainer.name : `@${battle.meta.handle}`;
   logBattle(won ? `Victory! ${oppName}'s team is out of pelora.` : `Defeat... your party is out of pelora.`);
+  if (won) logBattle(`+${goldWon} χρυσός — ἱδρῶτι μάχης.`);
   if (becameAristos) logBattle("ἀριστεύε — the gymnasion is cleared. Best of all.");
 
   // "τῷ θηρὶ δὲ νίκη φέρει αὔξησιν" — victory brings the beast growth. Every

@@ -16,6 +16,14 @@ export function gearMeta(id) {
   return GEAR.find((g) => g.id === id) || null;
 }
 
+// What a merchant pays for a piece of unequipped gear — "σκῦλα πωλῶν
+// ἐμπόροις" (selling spoils to merchants). Scales with the gear's boost so
+// Amaltheia's Horn (boost 12) is worth more than the boost-6 pieces.
+export function gearSellValue(id) {
+  const g = gearMeta(id);
+  return g ? g.boost * 3 : 0;
+}
+
 // One dig at the current region. Weighted: 45% nothing, 25% gold, 10% gear,
 // 20% doom — gifts a little more common than ruin, per "ἄλλοτε δῶρα δίδωσιν,
 // ἄλλοτε πλήσσει" (sometimes gifts, sometimes strikes) reading as "usually

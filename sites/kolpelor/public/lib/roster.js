@@ -18,6 +18,8 @@ const recordKey = (did) => `kolpelor:record:${did}`;
 const goldKey = (did) => `kolpelor:gold:${did}`;
 const gearKey = (did) => `kolpelor:gear:${did}`;
 const digKey = (did, regionId) => `kolpelor:dig:${did}:${regionId}`;
+const begKey = (did) => `kolpelor:beg:${did}`;
+const BEG_COOLDOWN_MS = 10 * 60 * 1000; // one alms-round per 10 minutes — "they give little," not a tap-to-farm loop
 
 function readJson(key, fallback) {
   try {
@@ -95,7 +97,7 @@ export function registerVictory(playerDid, peloraDid) {
   let evolved = false;
   if (p.wins % 3 === 0 && typeof p.evoStage === "number" && p.evoStage < 2) {
     p.evoStage += 1;
-    p.species = speciesForStage(p.type, p.evoStage);
+    p.species = speciesForStage(p.type, p.evoStage, p.did);
     p.stats = growStats(p.stats);
     evolved = true;
   }
@@ -171,6 +173,34 @@ export function canDig(playerDid, regionId) {
 
 export function markDug(playerDid, regionId) {
   localStorage.setItem(digKey(playerDid, regionId), String(Date.now()));
+}
+
+// ---------- the city's other business: selling spoils, begging alms ----------
+// Per @antiali.as's verse: "Νόμισμα κερδαίνεις ἱδρῶτι μάχης, ἢ σκῦλα πωλῶν
+// ἐμπόροις· ἢν δὲ πένῃ, αἰτεῖς πολίτας ἐλεημοσύνην — ὀλίγον μὲν δίδουσιν,
+// οὐδεὶς δ’ ἀρνεῖται πάμπαν." (You earn coin by the sweat of battle, or by
+// selling spoils to merchants; if you're poor, you ask the citizens for
+// alms — they give little, but none ever refuse outright.) Battle gold is
+// awarded straight from app.js's endBattle; this is the other two legs.
+
+// Sell one unequipped gear item from inventory for `value` χρυσός (see
+// treasure.js's gearSellValue — kept there so roster.js stays pure state,
+// no game-balance numbers).
+export function sellGear(playerDid, gearId, value) {
+  removeOneGear(playerDid, gearId);
+  return addGold(playerDid, value);
+}
+
+export function canBeg(playerDid) {
+  const last = Number(localStorage.getItem(begKey(playerDid)) || 0);
+  return Date.now() - last >= BEG_COOLDOWN_MS;
+}
+
+// Alms never refuse outright — this always succeeds once the cooldown clears.
+export function begAlms(playerDid, rng = Math.random) {
+  localStorage.setItem(begKey(playerDid), String(Date.now()));
+  const amount = 1 + Math.floor(rng() * 4);
+  return { amount, total: addGold(playerDid, amount) };
 }
 
 // Roll a bind. `hpPct` (0..1) is the wild pelor's remaining HP — lower HP
