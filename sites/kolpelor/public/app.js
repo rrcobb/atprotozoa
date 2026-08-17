@@ -10,6 +10,7 @@ import { dig, gearMeta, effectiveStats } from "./lib/treasure.js";
 import { LADDER } from "./lib/trainers.js";
 import { login, getSession, clearSession, completeLoginIfCallback } from "./lib/oauth.js";
 import { getMyRoster, saveRoster, getPublicRoster } from "./lib/records.js";
+import { subscribeRiver, dismissWorldPelor, CONDITIONS } from "./lib/river.js";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -97,6 +98,12 @@ const els = {
   fleeEncounterBtn: $("fleeEncounterBtn"),
   closeEncounter: $("closeEncounter"),
   catchLog: $("catchLog"),
+
+  riverOverlay: $("riverOverlay"),
+  riverCond: $("riverCond"),
+  worldPelorBanner: $("worldPelorBanner"),
+  worldPelorCard: $("worldPelorCard"),
+  worldPelorBtn: $("worldPelorBtn"),
 };
 
 let session = null; // atproto OAuth session, or null if playing signed-out
@@ -110,6 +117,7 @@ let rival = null; // { did, handle, team: [pelor...] }
 let battle = null; // { playerTeam, oppTeam, pIdx, oIdx, over, mode: 'gym'|'pvp', meta }
 let lastPushedRegion = null; // last region.id written to the PDS, so we don't spam putRecord on every re-render
 const tracksCache = new Map(); // regionId -> [{did, handle, avatar, roster}] of moots last seen there this session
+let currentWorldPelor = null; // river.js's live World Pelor, if the firehose has surged
 
 function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, (c) => ({
@@ -127,6 +135,35 @@ function avatarImg(url, cls, fallbackEmoji) {
     ? `<img class="${cls}" src="${url}" alt="" loading="lazy" />`
     : `<div class="${cls}">${fallbackEmoji || ""}</div>`;
 }
+
+// ---------- the river: live world weather + World Pelor off the firehose ----------
+// Ῥεῖ ποταμὸς ἀφανὴς δι' ὅλου κόσμου — see lib/river.js for the verse this
+// answers. Runs independently of trainer/session state; the elements it
+// touches just sit hidden inside #gameScreen until a game is underway.
+
+function renderRiver(state) {
+  const cond = CONDITIONS.find((c) => c.id === state.condition) || CONDITIONS[0];
+  els.riverCond.textContent = `${cond.emoji} ${cond.greek} — ${cond.label}`;
+  els.riverOverlay.classList.toggle("rain", state.condition === "rain");
+  els.riverOverlay.classList.toggle("storm", state.condition === "storm");
+
+  currentWorldPelor = state.worldPelor;
+  if (currentWorldPelor) {
+    const type = typeMeta(currentWorldPelor.type);
+    els.worldPelorBanner.classList.remove("hidden");
+    els.worldPelorCard.innerHTML = `${avatarImg(currentWorldPelor.avatar, "mini", type.emoji)}<span>${escapeHtml(currentWorldPelor.species)} · @${escapeHtml(currentWorldPelor.handle)}</span>`;
+  } else {
+    els.worldPelorBanner.classList.add("hidden");
+    els.worldPelorCard.innerHTML = "";
+  }
+}
+
+els.worldPelorBtn.addEventListener("click", () => {
+  if (!currentWorldPelor || !trainer) return;
+  openEncounter(currentWorldPelor);
+});
+
+subscribeRiver(renderRiver);
 
 // ---------- PDS sync ----------
 // A signed-in player's party/record is durable state in their own repo, not
@@ -571,7 +608,7 @@ function renderReleaseGrid() {
 function openEncounter(pelor) {
   currentEncounter = { pelor, hp: pelor.stats.hp, maxHp: pelor.stats.hp };
   const type = typeMeta(pelor.type);
-  els.encType.textContent = `${type.emoji} ${type.label}`;
+  els.encType.textContent = `${type.emoji} ${type.label}${pelor.isWorld ? " · \u{1F30D} World Pelor" : ""}`;
   els.encAvatar.src = pelor.avatar || "";
   els.encSpecies.textContent = pelor.species;
   els.encHandle.textContent = "@" + pelor.handle;
@@ -594,6 +631,9 @@ function updateEncounterHpBar() {
 
 function closeEncounter() {
   els.encounterModal.classList.add("hidden");
+  if (currentEncounter && currentEncounter.pelor && currentEncounter.pelor.isWorld) {
+    dismissWorldPelor(); // the appearance ends whether it was bound or it fled
+  }
   currentEncounter = null;
 }
 els.closeEncounter.addEventListener("click", closeEncounter);
