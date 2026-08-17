@@ -32,11 +32,15 @@ Find every repo holding `net.bisks.steamtags.rating` etc. Turns eleven isolated
 toys that can only read your own records into a shared data layer. The
 crowdsourced steamtags view is what 7778777 originally asked for.
 
-**4. Cache trigram verdicts.** (`store-ours-rederive-theirs.md`)
-`unique.js` has no client-side cache — every run re-downloads the CAR and
-re-verifies from scratch. Verdicts are near-monotonic (a phrase only becomes
-*less* unique), so they cache aggressively with little staleness risk. Small
-change, big saving on repeat runs.
+**4. Cache trigram verdicts.** (`store-ours-rederive-theirs.md`) **Done,
+2026-08-17.** `sites/trigrams/public/lib/unique.js`'s `searchPhrase()` (used by
+`verify()`) and `phraseHits()` (used by `surprise()`) now write through to a
+localStorage cache keyed on the gram/phrase text, shared across every page on
+the origin (launcher, quiver, waluigi). `"common"` verdicts cache forever —
+hit counts are monotonically non-decreasing, so a phrase already confirmed
+common can never become unique again. `"unique"`/`"none"` verdicts cache for
+12h, since new posts could flip them to common. CAR re-download on `scan()` is
+unchanged (a user's own repo can grow between runs, so that has to stay live).
 
 **5. One feed generator, hand-built.** (`feeds-and-labels.md`, `protocol-object-bot.md`)
 `did:web:` on bisks.net (a served document — `apex/` already does this for the

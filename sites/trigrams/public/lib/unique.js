@@ -40,6 +40,78 @@ const STOP = new Set(
   ).split(/\s+/),
 );
 
+// ── verdict cache ────────────────────────────────────────────────────────────
+// Verdicts are near-monotonic: a phrase's network-wide hit count can only stay
+// the same or grow (new posts, no notion of a post un-happening), never shrink.
+// So "common" (hitsTotal >= 2) is permanently safe to trust — it can never
+// become "unique" or "none" again. "unique"/"none" can flip to "common" as new
+// posts land, so those are cached with a TTL instead of forever. Keyed on the
+// gram text alone (not the actor) since network-wide uniqueness doesn't depend
+// on who's asking — a repeat scan, a second handle checking the same phrase,
+// even a different page (launcher/quiver/waluigi all share this origin's
+// localStorage) all hit the same cache. Shaves the "big saving on repeat runs"
+// promised in notes/ideas/store-ours-rederive-theirs.md.
+const CACHE_KEY = "trigrams:verdict-cache:v1";
+const CACHE_TTL_MS = 12 * 60 * 60 * 1000; // unique/none entries go stale after this
+const CACHE_MAX_ENTRIES = 6000; // localStorage is a few MB; prune well before that
+
+let _cache = null; // { verdicts: { gram: {status,count?,post?,ts} }, hits: { phrase: {n,ts} } }
+
+function loadCache() {
+  if (_cache) return _cache;
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    _cache = raw ? JSON.parse(raw) : { verdicts: {}, hits: {} };
+  } catch {
+    _cache = { verdicts: {}, hits: {} };
+  }
+  if (!_cache.verdicts) _cache.verdicts = {};
+  if (!_cache.hits) _cache.hits = {};
+  return _cache;
+}
+
+function pruneAndSave() {
+  const c = loadCache();
+  for (const bucket of [c.verdicts, c.hits]) {
+    const keys = Object.keys(bucket);
+    if (keys.length <= CACHE_MAX_ENTRIES) continue;
+    keys.sort((a, b) => (bucket[a].ts || 0) - (bucket[b].ts || 0));
+    for (const k of keys.slice(0, keys.length - CACHE_MAX_ENTRIES)) delete bucket[k];
+  }
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(c));
+  } catch {
+    // quota exceeded or unavailable (private browsing) — cache just won't persist
+  }
+}
+
+function freshEnough(entry) {
+  if (!entry) return false;
+  if (entry.status === "common") return true; // permanently valid, see above
+  return Date.now() - (entry.ts || 0) < CACHE_TTL_MS;
+}
+
+function getCachedVerdict(gram) {
+  const e = loadCache().verdicts[gram];
+  return freshEnough(e) ? e : null;
+}
+
+function setCachedVerdict(gram, entry) {
+  if (entry.status === "error") return; // don't cache failures
+  loadCache().verdicts[gram] = { ...entry, ts: Date.now() };
+  pruneAndSave();
+}
+
+function getCachedHits(phrase) {
+  const e = loadCache().hits[phrase];
+  return e && Date.now() - (e.ts || 0) < CACHE_TTL_MS ? e.n : null;
+}
+
+function setCachedHits(phrase, n) {
+  loadCache().hits[phrase] = { n, ts: Date.now() };
+  pruneAndSave();
+}
+
 async function jget(url, headers) {
   const r = await fetch(url, headers ? { headers } : undefined);
   if (!r.ok) {
@@ -173,12 +245,16 @@ const SEARCH_CAP_HITS = 10000; // hitsTotal saturates here; treat as "very commo
 // authenticated search proxy (same as verify). Returns null (not 0) if it truly
 // can't tell, so callers can distinguish "no data" from "genuinely zero".
 async function phraseHits(phrase) {
+  const cached = getCachedHits(phrase);
+  if (cached != null) return cached;
   const u = new URL(SEARCH_PROXY, location.href);
   u.searchParams.set("q", `"${phrase}"`);
   u.searchParams.set("limit", "1");
   const d = await searchGet(u.toString());
   if (!d) return null;
-  return typeof d.hitsTotal === "number" ? d.hitsTotal : (d.posts || []).length;
+  const n = typeof d.hitsTotal === "number" ? d.hitsTotal : (d.posts || []).length;
+  setCachedHits(phrase, n);
+  return n;
 }
 
 // surprise(gram): log-scaled score from component-bigram frequencies. Rewards a
@@ -443,11 +519,20 @@ async function searchGet(url, tries = 7) {
 
 // ── verify one candidate against platform-wide full-text search ────────────────
 async function searchPhrase(actor, g) {
+  const n = g.split(" ").length;
+
+  const cached = getCachedVerdict(g);
+  if (cached) {
+    if (cached.status === "unique")
+      return { g, n, status: "unique", mine: cached.post?.did === actor.did, post: cached.post };
+    if (cached.status === "common") return { g, n, status: "common", count: cached.count };
+    if (cached.status === "none") return { g, n, status: "none" };
+  }
+
   const u = new URL(SEARCH_PROXY, location.href);
   u.searchParams.set("q", `"${g}"`); // quoted => exact-phrase intent
   u.searchParams.set("limit", String(SEARCH_LIMIT));
 
-  const n = g.split(" ").length;
   const d = await searchGet(u.toString());
   if (!d) return { g, n, status: "error" }; // exhausted retries
 
@@ -468,17 +553,18 @@ async function searchPhrase(actor, g) {
       text: String(text).slice(0, 240),
     });
   }
-  if (hits.length === 0) return { g, n, status: "none" };
+  if (hits.length === 0) {
+    setCachedVerdict(g, { status: "none" });
+    return { g, n, status: "none" };
+  }
   if (hits.length === 1) {
     const h = hits[0];
+    setCachedVerdict(g, { status: "unique", post: h });
     return { g, n, status: "unique", mine: h.did === actor.did, post: h };
   }
-  return {
-    g,
-    n,
-    status: "common",
-    count: hits.length >= SEARCH_LIMIT ? `${SEARCH_LIMIT}+` : hits.length,
-  };
+  const count = hits.length >= SEARCH_LIMIT ? `${SEARCH_LIMIT}+` : hits.length;
+  setCachedVerdict(g, { status: "common", count });
+  return { g, n, status: "common", count };
 }
 
 // Verify a list of candidates, fanned out SEARCH_CONC-wide. Calls onVerdict(res)
