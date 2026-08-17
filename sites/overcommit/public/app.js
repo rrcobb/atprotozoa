@@ -78,7 +78,128 @@ const els = {
   shareBsky: document.getElementById("shareBsky"),
   downloadCard: document.getElementById("downloadCard"),
   card: document.getElementById("card"),
+  soundToggle: document.getElementById("soundToggle"),
 };
+
+// --- sound effects: synthesized Tony Hawk-style trick blips, muted by ---
+// default (asked for explicitly — with events arriving several/sec off the
+// real firehose, unmuted this is a deliberate cluttered cacophony).
+const SOUND_KEY = "overcommit:sound";
+let audioCtx = null;
+let masterGain = null;
+let soundOn = localStorage.getItem(SOUND_KEY) === "1";
+
+function ensureAudio() {
+  if (audioCtx) return audioCtx;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  audioCtx = new Ctx();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.5;
+  masterGain.connect(audioCtx.destination);
+  return audioCtx;
+}
+
+function noiseBurst(ctx, duration) {
+  const n = Math.max(1, Math.floor(ctx.sampleRate * duration));
+  const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) data[i] = Math.random() * 2 - 1;
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  return src;
+}
+
+// short arcade "flick" per trick — pitch rises a bit with combo length so a
+// long chain audibly ramps up, same way THPS combo meters get more frantic
+function playTrickBlip(comboLen) {
+  if (!soundOn) return;
+  const ctx = ensureAudio();
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  const freq = 260 + Math.min(comboLen, 20) * 16 + Math.random() * 40;
+  osc.type = "square";
+  osc.frequency.setValueAtTime(freq, t);
+  osc.frequency.exponentialRampToValueAtTime(freq * 1.7, t + 0.06);
+  gain.gain.setValueAtTime(0.16, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+  osc.connect(gain).connect(masterGain);
+  osc.start(t);
+  osc.stop(t + 0.09);
+}
+
+// low thud + noise swoosh when a combo banks
+function playLandThud(big) {
+  if (!soundOn) return;
+  const ctx = ensureAudio();
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(big ? 160 : 110, t);
+  osc.frequency.exponentialRampToValueAtTime(40, t + 0.25);
+  gain.gain.setValueAtTime(big ? 0.5 : 0.32, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+  osc.connect(gain).connect(masterGain);
+  osc.start(t);
+  osc.stop(t + 0.32);
+
+  const src = noiseBurst(ctx, 0.25);
+  const filt = ctx.createBiquadFilter();
+  filt.type = "highpass";
+  filt.frequency.value = 1200;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(big ? 0.25 : 0.15, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+  src.connect(filt).connect(ng).connect(masterGain);
+  src.start(t);
+}
+
+// triumphant little arpeggio for the one combo that isn't real
+function playImpossibleFanfare() {
+  if (!soundOn) return;
+  const ctx = ensureAudio();
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6
+  notes.forEach((f, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.value = f;
+    const start = t + i * 0.09;
+    gain.gain.setValueAtTime(0.001, start);
+    gain.gain.exponentialRampToValueAtTime(0.3, start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.35);
+    osc.connect(gain).connect(masterGain);
+    osc.start(start);
+    osc.stop(start + 0.4);
+  });
+  playLandThud(true);
+}
+
+function updateSoundToggle() {
+  els.soundToggle.textContent = soundOn ? "🔊 sound" : "🔇 sound";
+  els.soundToggle.setAttribute("aria-pressed", soundOn ? "true" : "false");
+  els.soundToggle.classList.toggle("on", soundOn);
+}
+
+function setSound(on) {
+  soundOn = on;
+  localStorage.setItem(SOUND_KEY, on ? "1" : "0");
+  updateSoundToggle();
+  if (on) {
+    const ctx = ensureAudio();
+    if (ctx && ctx.state === "suspended") ctx.resume();
+    playTrickBlip(1);
+  }
+}
+
+els.soundToggle.addEventListener("click", () => setSound(!soundOn));
+updateSoundToggle();
 
 const MAX_CHIPS = 7;
 const MAX_LOG = 8;
@@ -138,6 +259,7 @@ function addTrick() {
   const gain = BASE_PTS * chain.length;
   chainScore += gain;
   addChip(trick, chain.length % 5 === 0);
+  playTrickBlip(chain.length);
   renderHud();
   clearTimeout(landTimer);
   landTimer = setTimeout(landCombo, STALL_GAP_MS);
@@ -151,6 +273,7 @@ function landCombo() {
   totalScore += chainScore;
   pushLog(text, chainScore);
   flashLandBanner(`LANDED +${fmt(chainScore)}`);
+  playLandThud(chain.length >= 10);
   if (chainScore > best.score) {
     best = { score: chainScore, text, at: Date.now() };
     localStorage.setItem("overcommit:best", JSON.stringify(best));
@@ -279,6 +402,7 @@ async function landImpossible() {
 
   chain = [];
   chainScore = 0;
+  playImpossibleFanfare();
 
   els.impHeadline.textContent = "IMPOSSIBLE COMBO LANDED";
   els.impBody.innerHTML = handle
