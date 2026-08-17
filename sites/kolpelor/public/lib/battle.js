@@ -2,13 +2,16 @@
 // trainer-vs-trainer rounds (gymnasion PvAI and PvP alike). Pure functions,
 // no DOM/localStorage; app.js drives the UI and mutates working copies of the
 // pelora objects (each gets an `hp` field added on top of pelora.js's
-// `stats.hp` max). Unmodified from sites/mootmon/public/lib/battle.js besides
-// the import.
+// `stats.hp` max). Adapted from sites/mootmon/public/lib/battle.js: ready()
+// now folds a bound pelor's equipped gear bonus (treasure.js) into its
+// working stats, so dug-up gear actually matters in a fight.
 
 import { typeMultiplier, moveName } from "./pelora.js";
+import { effectiveStats } from "./treasure.js";
 
 export function ready(monster) {
-  return { ...monster, hp: monster.stats.hp, maxHp: monster.stats.hp, fainted: false };
+  const stats = effectiveStats(monster);
+  return { ...monster, stats, hp: stats.hp, maxHp: stats.hp, fainted: false };
 }
 
 // One attacker -> defender strike. Returns { damage, move, multiplier }.

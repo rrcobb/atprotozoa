@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "record",
-      "description": "A kolpelor player's current state: their bound party of pelora, how far up the gymnasion ladder they've climbed, and (optionally) which homeland they last had open. One record per player, rkey always \"self\" (create-or-update via com.atproto.repo.putRecord — the same upsert-on-rkey pattern as sites/catspace's net.bisks.catspace.profile). Written by the player to their own repo on every party change, every gymnasion result, and every Wilds region switch. Read by kolpelor (https://kolpelor.bisks.net) two ways: the player's own client on load, to restore state across devices in place of (or alongside) localStorage; and, publicly and without auth, by any other player's client scanning their own SimCluster for moots' `region` — the Wilds panel's Ἴχνη (tracks) feature (see public/lib/records.js's getPublicRoster and public/app.js). PvP still re-derives an opponent's live battle team from their current SimCluster rather than trusting the `party` snapshot here — this record is durable personal state plus a lightweight, opt-in-by-playing presence signal, not a matchmaking index.",
+      "description": "A kolpelor player's current state: their bound party of pelora (each with its battle-driven evolution stage and equipped gear), how far up the gymnasion ladder they've climbed, Zeus's fortune (dug-up gold and unequipped gear), and (optionally) which homeland they last had open. One record per player, rkey always \"self\" (create-or-update via com.atproto.repo.putRecord — the same upsert-on-rkey pattern as sites/catspace's net.bisks.catspace.profile). Written by the player to their own repo on every party change, every gymnasion result, every dig, and every Wilds region switch. Read by kolpelor (https://kolpelor.bisks.net) two ways: the player's own client on load, to restore state across devices in place of (or alongside) localStorage; and, publicly and without auth, by any other player's client scanning their own SimCluster for moots' `region` — the Wilds panel's Ἴχνη (tracks) feature (see public/lib/records.js's getPublicRoster and public/app.js). PvP still re-derives an opponent's live battle team from their current SimCluster rather than trusting the `party` snapshot here — this record is durable personal state plus a lightweight, opt-in-by-playing presence signal, not a matchmaking index.",
       "key": "literal:self",
       "record": {
         "type": "object",
@@ -27,7 +27,10 @@
                 "hp": { "type": "integer" },
                 "atk": { "type": "integer" },
                 "def": { "type": "integer" },
-                "spd": { "type": "integer" }
+                "spd": { "type": "integer" },
+                "evoStage": { "type": "integer", "description": "0/1/2 evolution stage this pelor has climbed to via battle wins — see registerVictory in public/lib/roster.js. Optional; absent means \"whatever its rarity started at.\"" },
+                "wins": { "type": "integer", "description": "Battles this specific pelor has fought in and survived on the winning side — every third evolves it a stage. Optional." },
+                "equipped": { "type": "string", "description": "id of the enchanted gear item (see GEAR in public/lib/treasure.js) currently equipped on this pelor, if any. Optional." }
               }
             }
           },
@@ -36,6 +39,8 @@
           "ladderRank": { "type": "integer", "description": "Index into the gymnasion trainer ladder (public/lib/trainers.js) of the highest trainer beaten so far; 0 if none." },
           "aristos": { "type": "boolean", "description": "True once the full gymnasion ladder has been cleared — \"best of all,\" the Iliad 6.208 line the build brief quoted." },
           "region": { "type": "string", "description": "id of the homeland (see REGIONS in public/lib/pelora.js: forest/lake/mountain/city) the player last had the Wilds panel open on. Optional — absent for players who signed in before this field existed, or who have never opened Wilds signed in." },
+          "gold": { "type": "integer", "description": "χρυσός dug up from the earth (or lost to Zeus's doom) — see dig() in public/lib/treasure.js. Optional; absent means 0." },
+          "gear": { "type": "array", "items": { "type": "string" }, "description": "Unequipped enchanted gear item ids sitting in the player's inventory, dug up but not yet worn by any bound pelor. Optional." },
           "updatedAt": { "type": "string", "format": "datetime" }
         }
       }

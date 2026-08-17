@@ -3,8 +3,10 @@ import { peloraFor, typeMeta, typeMultiplier, rarityMeta, REGIONS, regionOf } fr
 import {
   getBestiary, getParty, getRecord, recordResult, setAristos, addToBestiary,
   addToParty, removeFromParty, releaseFromBestiary, isBound, attemptBind, replaceState, MAX_PARTY,
+  getGold, addGold, getGearInventory, addGear, equipGear, unequipGear, canDig, markDug, registerVictory,
 } from "./lib/roster.js";
 import { ready, resolveRound } from "./lib/battle.js";
+import { dig, gearMeta, effectiveStats } from "./lib/treasure.js";
 import { LADDER } from "./lib/trainers.js";
 import { login, getSession, clearSession, completeLoginIfCallback } from "./lib/oauth.js";
 import { getMyRoster, saveRoster, getPublicRoster } from "./lib/records.js";
@@ -25,6 +27,7 @@ const els = {
   recWins: $("recWins"),
   recLosses: $("recLosses"),
   aristosBadge: $("aristosBadge"),
+  goldCount: $("goldCount"),
   syncBtn: $("syncBtn"),
   syncStatus: $("syncStatus"),
 
@@ -32,6 +35,8 @@ const els = {
   regionFlavor: $("regionFlavor"),
   regionStatus: $("regionStatus"),
   regionGrid: $("regionGrid"),
+  digBtn: $("digBtn"),
+  digStatus: $("digStatus"),
   cityExtra: $("cityExtra"),
   releaseGrid: $("releaseGrid"),
   releaseEmpty: $("releaseEmpty"),
@@ -44,6 +49,8 @@ const els = {
   partySlots: $("partySlots"),
   dexGrid: $("dexGrid"),
   dexEmpty: $("dexEmpty"),
+  gearGrid: $("gearGrid"),
+  gearEmpty: $("gearEmpty"),
 
   gymStatus: $("gymStatus"),
   ladderList: $("ladderList"),
@@ -146,12 +153,17 @@ function rosterRecordFromLocal(trainerDid) {
         atk: p.stats.atk,
         def: p.stats.def,
         spd: p.stats.spd,
+        evoStage: typeof p.evoStage === "number" ? p.evoStage : undefined,
+        wins: p.wins || undefined,
+        equipped: p.equipped || undefined,
       })),
     wins: rec.wins || 0,
     losses: rec.losses || 0,
     ladderRank: rec.ladderRank || 0,
     aristos: !!rec.aristos,
     region: selectedRegionId,
+    gold: getGold(trainerDid),
+    gear: getGearInventory(trainerDid),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -175,6 +187,9 @@ function hydrateFromRemote(trainerDid, remote) {
       catchRate: rm.catchRate,
       stats: { hp: p.hp, atk: p.atk, def: p.def, spd: p.spd },
       boundAt: Date.now(),
+      evoStage: typeof p.evoStage === "number" ? p.evoStage : rm.stage,
+      wins: p.wins || 0,
+      equipped: p.equipped || null,
     };
     party.push(p.did);
   }
@@ -187,6 +202,8 @@ function hydrateFromRemote(trainerDid, remote) {
       ladderRank: remote.ladderRank || 0,
       aristos: !!remote.aristos,
     },
+    gold: typeof remote.gold === "number" ? remote.gold : 0,
+    gear: Array.isArray(remote.gear) ? remote.gear : [],
   });
 }
 
@@ -283,6 +300,7 @@ async function startGame(rawHandle) {
     renderRegion();
     renderTracks();
     renderParty();
+    renderGear();
     renderLadder();
   } catch (err) {
     setStatus(els.status, "couldn't start that journey: " + err.message, true);
@@ -301,7 +319,7 @@ els.searchForm.addEventListener("submit", (e) => {
 function switchTab(panelName) {
   document.querySelectorAll("nav.tabs button").forEach((b) => b.classList.toggle("active", b.dataset.panel === panelName));
   document.querySelectorAll("section.panel").forEach((p) => p.classList.toggle("active", p.id === "panel-" + panelName));
-  if (panelName === "party") renderParty();
+  if (panelName === "party") { renderParty(); renderGear(); }
   if (panelName === "gymnasion") renderLadder();
 }
 
@@ -319,19 +337,23 @@ function updateTrainerBar() {
   els.recWins.textContent = r.wins;
   els.recLosses.textContent = r.losses;
   els.aristosBadge.classList.toggle("hidden", !r.aristos);
+  els.goldCount.textContent = getGold(trainer.did);
 }
 
 // ---------- region / encounters ----------
 
 function mcardHTML(m, bound) {
   const type = typeMeta(m.type);
+  const gear = m.equipped ? gearMeta(m.equipped) : null;
   return `
     <span class="type-badge">${type.emoji}</span>
     ${bound ? '<span class="caught-badge">✓ bound</span>' : ""}
+    ${gear ? `<span class="gear-badge" title="${escapeHtml(gear.label)} — click to unequip">${gear.emoji}</span>` : ""}
     ${avatarImg(m.avatar, "avatar", type.emoji)}
     <div class="species">${escapeHtml(m.species)}</div>
     <div class="handle">@${escapeHtml(m.handle)}</div>
     <span class="rarity" style="color:${m.rarityColor};">${m.rarityLabel}</span>
+    ${m.wins ? `<div class="wins-tag">${m.wins}W${m.evoStage >= 2 ? " · peak form" : ""}</div>` : ""}
   `;
 }
 
@@ -362,6 +384,7 @@ function renderRegion() {
   els.regionFlavor.innerHTML = `<span class="greek">${escapeHtml(region.verse)}</span>${escapeHtml(region.blurb)}`;
   els.cityExtra.classList.toggle("hidden", !region.isHub);
   if (region.isHub) renderReleaseGrid();
+  renderDig(region);
 
   if (!regionPool.length) {
     setStatus(els.regionStatus, "no wild pelora found in this SimCluster.");
@@ -382,6 +405,50 @@ function renderRegion() {
     card.addEventListener("click", () => openEncounter(regionByDid.get(card.dataset.did)));
   });
 }
+
+// ---------- Ζεὺς δὲ δῶρα / ἄτη: digging for hidden spoils ----------
+// Per the verse: "Zeus sometimes gives gifts, sometimes strikes with
+// unforeseen ruin... spoils lie hidden in the earth — gold, gear enchanted
+// with magic." One dig per homeland every 15 minutes (see roster.js's
+// canDig); the roll itself lives in treasure.js.
+
+function renderDig(region) {
+  if (!trainer) return;
+  const diggable = canDig(trainer.did, region.id);
+  els.digBtn.disabled = !diggable;
+  els.digBtn.textContent = diggable ? `Dig ${region.name} for spoils` : `${region.name}'s earth is settled — try later`;
+  setStatus(els.digStatus, "");
+}
+
+els.digBtn.addEventListener("click", () => {
+  if (!trainer) return;
+  const region = REGIONS.find((r) => r.id === selectedRegionId) || REGIONS[0];
+  if (!canDig(trainer.did, region.id)) return;
+  markDug(trainer.did, region.id);
+
+  const result = dig();
+  if (result.kind === "gold") {
+    const total = addGold(trainer.did, result.amount);
+    setStatus(els.digStatus, `${result.message} (${total} χρυσός total)`, false);
+  } else if (result.kind === "gear") {
+    addGear(trainer.did, result.gear.id);
+    setStatus(els.digStatus, result.message, false);
+    renderGear();
+  } else if (result.kind === "doom") {
+    const have = getGold(trainer.did);
+    if (have > 0) {
+      addGold(trainer.did, -Math.min(have, result.amount));
+      setStatus(els.digStatus, result.message, true);
+    } else {
+      setStatus(els.digStatus, "ἄτη ἀπρόπτῳ — Zeus reaches for spoils you don't have yet, and finds nothing to take.", true);
+    }
+  } else {
+    setStatus(els.digStatus, result.message, false);
+  }
+  updateTrainerBar();
+  renderDig(region);
+  pushRoster(trainer.did);
+});
 
 // ---------- Ἴχνη (tracks): moots' PDS-recorded positions on the map ----------
 // Per @antiali.as's reply-thread verse: "whichever friends you follow, you see
@@ -542,7 +609,7 @@ els.weakenBtn.addEventListener("click", () => {
   const bestiary = getBestiary(trainer.did);
   const lead = bestiary[party[0]];
   const mult = typeMultiplier(lead.type, currentEncounter.pelor.type);
-  const raw = Math.max(3, Math.round(lead.stats.atk * (0.5 + Math.random() * 0.3) * mult));
+  const raw = Math.max(3, Math.round(effectiveStats(lead).atk * (0.5 + Math.random() * 0.3) * mult));
   currentEncounter.hp = Math.max(1, currentEncounter.hp - raw);
   updateEncounterHpBar();
   const tag = mult > 1 ? " — super effective!" : mult < 1 ? " — not very effective." : "";
@@ -597,12 +664,54 @@ function renderParty() {
     .map((m) => `<div class="mcard${party.includes(m.did) ? " caught" : ""}" data-did="${m.did}">${mcardHTML(m, party.includes(m.did))}</div>`)
     .join("");
   els.dexGrid.querySelectorAll(".mcard").forEach((card) => {
-    card.addEventListener("click", () => {
+    card.addEventListener("click", (e) => {
       const did = card.dataset.did;
+      if (e.target.closest(".gear-badge")) {
+        unequipGear(trainer.did, did);
+        renderParty();
+        renderGear();
+        pushRoster(trainer.did);
+        return;
+      }
       if (party.includes(did)) removeFromParty(trainer.did, did);
       else addToParty(trainer.did, did);
       renderParty();
       renderRegion();
+      pushRoster(trainer.did);
+    });
+  });
+}
+
+// θησαυρός — dug-up gear waiting to be equipped on a bound pelor.
+function renderGear() {
+  if (!trainer) return;
+  const inv = getGearInventory(trainer.did);
+  const bestiary = getBestiary(trainer.did);
+  const entries = Object.values(bestiary).sort((a, b) => b.boundAt - a.boundAt);
+  els.gearEmpty.classList.toggle("hidden", inv.length > 0);
+  els.gearGrid.innerHTML = inv.map((gid, i) => {
+    const g = gearMeta(gid);
+    if (!g) return "";
+    const options = entries.map((p) => `<option value="${p.did}">${escapeHtml(p.species)} (@${escapeHtml(p.handle)})</option>`).join("");
+    return `
+      <div class="gear-card" data-idx="${i}" data-gear="${gid}">
+        <div class="gemoji">${g.emoji}</div>
+        <div class="gname">${escapeHtml(g.label)}</div>
+        <div class="ggreek greek">${escapeHtml(g.name)}</div>
+        <div class="gboost">+${g.boost} ${g.stat.toUpperCase()}</div>
+        ${entries.length
+          ? `<select class="gear-target">${options}</select><button type="button" class="btn small gear-equip-btn">Equip</button>`
+          : `<div class="status">bind a pelor first</div>`}
+      </div>`;
+  }).join("");
+  els.gearGrid.querySelectorAll(".gear-equip-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const card = btn.closest(".gear-card");
+      const gid = card.dataset.gear;
+      const target = card.querySelector(".gear-target").value;
+      equipGear(trainer.did, target, gid);
+      renderGear();
+      renderParty();
       pushRoster(trainer.did);
     });
   });
@@ -829,6 +938,21 @@ function endBattle(won) {
   const oppName = battle.mode === "gym" ? battle.meta.trainer.name : `@${battle.meta.handle}`;
   logBattle(won ? `Victory! ${oppName}'s team is out of pelora.` : `Defeat... your party is out of pelora.`);
   if (becameAristos) logBattle("ἀριστεύε — the gymnasion is cleared. Best of all.");
+
+  // "τῷ θηρὶ δὲ νίκη φέρει αὔξησιν" — victory brings the beast growth. Every
+  // surviving player pelor racks up a win; every third one climbs a stage.
+  if (won) {
+    let anyEvolved = false;
+    for (const m of battle.playerTeam) {
+      if (m.fainted || !m.did) continue;
+      const result = registerVictory(trainer.did, m.did);
+      if (result && result.evolved) {
+        anyEvolved = true;
+        logBattle(`▲ ${result.prevSpecies} changes form — evolves into ${result.pelor.species}! κρεῖσσον γίγνεται.`, "super");
+      }
+    }
+    if (anyEvolved) { renderParty(); renderRegion(); }
+  }
 
   const shareBase = battle.mode === "gym"
     ? `My kolpelor party ${won ? "beat" : "lost to"} ${oppName} in the gymnasion`

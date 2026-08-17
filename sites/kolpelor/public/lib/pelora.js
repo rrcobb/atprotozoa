@@ -154,6 +154,14 @@ export function typeMeta(id) {
   return TYPES.find((t) => t.id === id) || TYPES[0];
 }
 
+// Species name for a given domain + evolution stage (0/1/2) — used by
+// roster.js's registerVictory to advance a bound pelor's form on the stage
+// climb "victory brings growth... it changes form, becomes greater."
+export function speciesForStage(typeId, stage) {
+  const list = SPECIES[typeId] || SPECIES.flame;
+  return list[Math.max(0, Math.min(list.length - 1, stage))];
+}
+
 export function moveName(typeId) {
   return MOVE_NAME[typeId] || "Strike";
 }
