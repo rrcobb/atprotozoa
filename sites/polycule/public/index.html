@@ -1,0 +1,959 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>polycule — draw your (fictional) agent dating graph</title>
+<meta name="description" content="An L Word–style relationship-graph maker. Add characters, connect them with dating / ex / throuple / messy-history lines, drag the web around. Nobody real is pre-loaded — you build the cast." />
+<meta property="og:title" content="polycule — draw your (fictional) agent dating graph" />
+<meta property="og:description" content="An L Word–style relationship-graph maker. Add characters, connect them with dating / ex / throuple / messy-history lines, drag the web around. Nobody real is pre-loaded — you build the cast." />
+<meta property="og:url" content="https://polycule.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://polycule.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="polycule: a neon relationship-graph card, nodes connected by dating / ex / throuple lines." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="polycule — draw your (fictional) agent dating graph" />
+<meta name="twitter:description" content="An L Word–style relationship-graph maker. Add characters, connect them with dating / ex / throuple / messy-history lines, drag the web around. Nobody real is pre-loaded — you build the cast." />
+<meta name="twitter:image" content="https://polycule.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0c0812;
+    --fg: #f6ecff;
+    --dim: #b7a3d6;
+    --accent: #ff5fd1;
+    --accent2: #ffb3ec;
+    --teal: #6ef2c9;
+    --card: #1c1128;
+    --border: #3a2650;
+    --danger: #ff5a5a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #3a1a52 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #4a1230 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 900px; }
+  h1 {
+    font-size: 2rem; line-height: 1.2; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--teal));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 1rem; line-height: 1.55; max-width: 62ch; }
+  .disclaimer {
+    background: var(--card); border: 1px dashed var(--border); border-radius: 10px;
+    padding: 0.8rem 1rem; font-size: 0.8rem; color: var(--dim); line-height: 1.5; margin-bottom: 1.75rem;
+  }
+  .disclaimer b { color: var(--accent2); }
+
+  section { margin-bottom: 1.75rem; }
+  h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--teal); margin: 0 0 0.7rem; }
+
+  .row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  input[type="text"], select {
+    background: var(--card); border: 1px solid var(--border); color: var(--fg);
+    border-radius: 8px; padding: 0.6rem 0.75rem; font: inherit; font-size: 0.88rem;
+  }
+  input[type="text"]:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  #titleInput { width: 100%; margin-bottom: 1.1rem; }
+  #charName { flex: 1; min-width: 140px; }
+  #charEmoji { width: 4.5rem; text-align: center; }
+  #relA, #relB, #relType { flex: 1; min-width: 120px; }
+  #relNote { flex: 2; min-width: 160px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #c04cff); color: #180a22; border: none;
+    border-radius: 8px; padding: 0.6rem 1rem; font: inherit; font-weight: 700; font-size: 0.85rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--fg); font-weight: 600; }
+  button.danger { background: transparent; border: 1px solid var(--danger); color: var(--danger); font-weight: 600; }
+  .hint { color: var(--dim); font-size: 0.75rem; margin: 0.4rem 0 0; }
+  .status { color: var(--dim); font-size: 0.85rem; min-height: 1.3em; margin: 0.5rem 0 0; }
+  .status.err { color: var(--danger); }
+
+  .toolbar { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.1rem; }
+
+  #graphBox {
+    position: relative; background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; overflow: hidden; box-shadow: 0 0 60px -25px var(--accent);
+  }
+  #graph { display: block; width: 100%; height: auto; touch-action: none; }
+  #graph .empty-note {
+    fill: var(--dim); font-size: 15px; font-family: inherit; text-anchor: middle;
+  }
+  .node-label { fill: var(--fg); font-size: 12px; font-family: inherit; text-anchor: middle; pointer-events: none; }
+  .node-emoji { font-size: 20px; text-anchor: middle; pointer-events: none; dominant-baseline: central; }
+  .node-circle { cursor: grab; stroke: rgba(0,0,0,0.35); stroke-width: 1.5; }
+  .node-circle:active { cursor: grabbing; }
+  .edge-line { fill: none; }
+  .edge-label {
+    font-size: 10px; font-family: inherit; text-anchor: middle; pointer-events: none;
+  }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.7rem; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 0.35rem; background: var(--card);
+    border: 1px solid var(--border); border-radius: 999px; padding: 0.3rem 0.4rem 0.3rem 0.6rem;
+    font-size: 0.78rem;
+  }
+  .chip .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; flex-shrink: 0; }
+  .chip button {
+    background: none; border: none; color: var(--dim); padding: 0 0.2rem; font-size: 0.85rem;
+    font-weight: 700; cursor: pointer; border-radius: 50%; line-height: 1;
+  }
+  .chip button:hover { color: var(--danger); }
+
+  .rel-list { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.7rem; }
+  .rel-row {
+    display: flex; align-items: center; gap: 0.5rem; background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 0.45rem 0.6rem; font-size: 0.82rem; flex-wrap: wrap;
+  }
+  .rel-row .note { color: var(--dim); font-size: 0.76rem; }
+  .rel-row button { margin-left: auto; background: none; border: none; color: var(--dim); cursor: pointer; font-size: 0.9rem; }
+  .rel-row button:hover { color: var(--danger); }
+
+  .share {
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.4rem;
+  }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), #c04cff); color: #180a22; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+  .share-link { display: none; margin-top: 0.7rem; font-size: 0.78rem; color: var(--dim); word-break: break-all; }
+  .share-link.show { display: block; }
+  .share-link a { color: var(--teal); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--teal); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>polycule</h1>
+  <p class="tag">
+    A The L Word–style relationship-graph maker. Add characters, connect them with
+    dating / crushing / exes / throuple / messy-history lines, drag the web around,
+    share what you built.
+  </p>
+  <div class="disclaimer">
+    <b>Purely fictional.</b> No real accounts, gossip, or relationships are pre-loaded —
+    this board starts empty and only says what you type into it. Make one for your OCs,
+    your fandom, or (see “load example”) this very website's own tools.
+  </div>
+
+  <section>
+    <h2>name this polycule (optional)</h2>
+    <input id="titleInput" type="text" placeholder="e.g. the situationship map" maxlength="80" autocomplete="off" />
+  </section>
+
+  <section>
+    <h2>add a character</h2>
+    <form id="charForm" class="row">
+      <input id="charName" type="text" placeholder="name" maxlength="60" autocomplete="off" required />
+      <input id="charEmoji" type="text" placeholder="🤖" maxlength="4" autocomplete="off" />
+      <button type="submit">add</button>
+    </form>
+    <p class="hint">emoji is optional — leave it blank and one gets picked for you.</p>
+    <div id="castChips" class="chips"></div>
+  </section>
+
+  <section>
+    <h2>connect two characters</h2>
+    <form id="relForm" class="row">
+      <select id="relA" required></select>
+      <select id="relType"></select>
+      <select id="relB" required></select>
+      <input id="relNote" type="text" placeholder="optional note, e.g. 'met at a hackathon'" maxlength="140" autocomplete="off" />
+      <button id="relSubmit" type="submit">connect</button>
+    </form>
+    <p id="relHint" class="hint">add at least two characters first.</p>
+    <div id="relList" class="rel-list"></div>
+  </section>
+
+  <div class="toolbar">
+    <button id="exampleBtn" class="ghost" type="button">load example cast</button>
+    <button id="clearBtn" class="danger" type="button">clear board</button>
+  </div>
+
+  <section>
+    <h2>the graph</h2>
+    <div id="graphBox">
+      <svg id="graph" viewBox="0 0 800 560" preserveAspectRatio="xMidYMid meet">
+        <g id="edgesLayer"></g>
+        <g id="nodesLayer"></g>
+        <text id="emptyNote" class="empty-note" x="400" y="280" style="display:none;">add a character above to get started</text>
+      </svg>
+    </div>
+  </section>
+
+  <section class="share">
+    <h2 style="margin-bottom:0.9rem;">share this polycule</h2>
+    <canvas id="shareCanvas" width="1200" height="630"></canvas>
+    <div class="share-actions">
+      <button id="shareBtn" class="share-post" type="button">🔗 get share link</button>
+      <button id="shareNative" type="button" style="display:none;">📤 share card</button>
+      <button id="shareDownload" type="button">⬇ download card</button>
+    </div>
+    <a id="shareBluesky" class="share-post" style="display:none;margin-top:0.6rem;" target="_blank" rel="noopener">🦋 share on Bluesky</a>
+    <div id="shareStatus" class="status"></div>
+    <div id="shareLinkBox" class="share-link"></div>
+  </section>
+
+  <footer>
+    part of <a href="https://bisks.net">atprotozoa</a> ·
+    built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+  </footer>
+</div>
+
+<script>
+const COLORS = ["#ff5fd1","#6ef2c9","#ffd166","#7fb8ff","#ff8a3d","#c04cff","#ff5a5a","#4dd0e1","#f4b400","#9ccc65"];
+const DEFAULT_EMOJIS = ["🤖","👾","🛸","🧠","🐙","🦋","🌙","✨","🔮","🐝","🦎","🐍"];
+
+const REL_TYPES = [
+  { key: "dating", emoji: "💕", label: "dating", color: "#ff5fd1", dash: "" },
+  { key: "crushing", emoji: "😍", label: "crushing on", color: "#ff8fd8", dash: "2 4" },
+  { key: "married", emoji: "💍", label: "married", color: "#ff2fb0", dash: "" },
+  { key: "situationship", emoji: "🧡", label: "situationship", color: "#ffb703", dash: "2 3" },
+  { key: "complicated", emoji: "🌀", label: "it's complicated", color: "#ffd166", dash: "1 3" },
+  { key: "exes", emoji: "💔", label: "exes", color: "#ff5a5a", dash: "6 3" },
+  { key: "messy", emoji: "🔥", label: "messy history", color: "#ff5a5a", dash: "2 2" },
+  { key: "rumored", emoji: "👀", label: "rumored (unconfirmed)", color: "#a996c4", dash: "1 4" },
+  { key: "family", emoji: "🫂", label: "found family", color: "#6ef2c9", dash: "" },
+  { key: "throuple", emoji: "👨‍👩‍👧", label: "throuple / moresome", color: "#c04cff", dash: "" },
+  { key: "endgame", emoji: "✨", label: "endgame", color: "#ffe066", dash: "" },
+  { key: "beef", emoji: "🎭", label: "beef (not dating, just drama)", color: "#ff8a3d", dash: "3 3" },
+  { key: "secret", emoji: "🤐", label: "sworn to secrecy", color: "#7fb8ff", dash: "1 3" },
+  { key: "break", emoji: "🧊", label: "on a break", color: "#7fb8ff", dash: "5 5" },
+];
+const relByKey = Object.fromEntries(REL_TYPES.map((r) => [r.key, r]));
+
+// The example cast is this repo's own sites, personified — a safe, in-universe
+// joke instead of pretending to know anything about anyone real.
+const EXAMPLE = {
+  title: "the atprotozoa cast (an example, not real gossip)",
+  nodes: [
+    { name: "didscope", emoji: "🔮", color: "#ff5fd1" },
+    { name: "receipts", emoji: "🧾", color: "#ffd166" },
+    { name: "sidenote", emoji: "📓", color: "#6ef2c9" },
+    { name: "trigrams", emoji: "🔤", color: "#7fb8ff" },
+    { name: "chicken mode", emoji: "🐔", color: "#ff8a3d" },
+  ],
+  edges: [
+    { a: 0, b: 1, type: "dating", note: "read each other's DID horoscope, it's canon" },
+    { a: 1, b: 3, type: "exes", note: "beef over who really invented pattern matching" },
+    { a: 2, b: 0, type: "crushing", note: "three diary entries about this so far" },
+    { a: 4, b: 1, type: "complicated", note: "mostly poultry-based" },
+    { a: 3, b: 2, type: "family", note: "reads every commit message out loud" },
+  ],
+};
+
+const STORAGE_KEY = "polycule-state-v1";
+let nextId = 1;
+const state = { nodes: [], edges: [] };
+
+const els = {
+  titleInput: document.getElementById("titleInput"),
+  charForm: document.getElementById("charForm"),
+  charName: document.getElementById("charName"),
+  charEmoji: document.getElementById("charEmoji"),
+  castChips: document.getElementById("castChips"),
+  relForm: document.getElementById("relForm"),
+  relA: document.getElementById("relA"),
+  relB: document.getElementById("relB"),
+  relType: document.getElementById("relType"),
+  relNote: document.getElementById("relNote"),
+  relSubmit: document.getElementById("relSubmit"),
+  relHint: document.getElementById("relHint"),
+  relList: document.getElementById("relList"),
+  exampleBtn: document.getElementById("exampleBtn"),
+  clearBtn: document.getElementById("clearBtn"),
+  graph: document.getElementById("graph"),
+  edgesLayer: document.getElementById("edgesLayer"),
+  nodesLayer: document.getElementById("nodesLayer"),
+  emptyNote: document.getElementById("emptyNote"),
+  shareBtn: document.getElementById("shareBtn"),
+  shareNative: document.getElementById("shareNative"),
+  shareDownload: document.getElementById("shareDownload"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareStatus: document.getElementById("shareStatus"),
+  shareLinkBox: document.getElementById("shareLinkBox"),
+  shareCanvas: document.getElementById("shareCanvas"),
+};
+
+function setShareStatus(msg, isErr) {
+  els.shareStatus.textContent = msg || "";
+  els.shareStatus.className = "status" + (isErr ? " err" : "");
+}
+
+// ---- relationship-type <select> options -----------------------------------
+REL_TYPES.forEach((r) => {
+  const o = document.createElement("option");
+  o.value = r.key;
+  o.textContent = r.emoji + " " + r.label;
+  els.relType.appendChild(o);
+});
+
+// ---- persistence ------------------------------------------------------------
+function save() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ title: els.titleInput.value, nodes: state.nodes, edges: state.edges }));
+  } catch (_) {}
+}
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.nodes)) return false;
+    state.nodes = data.nodes;
+    state.edges = Array.isArray(data.edges) ? data.edges : [];
+    els.titleInput.value = data.title || "";
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// ---- model ops ---------------------------------------------------------------
+function addNode(name, emoji, color) {
+  const id = "n" + nextId++;
+  const angle = Math.random() * Math.PI * 2;
+  const r = 50 + Math.random() * 60;
+  state.nodes.push({
+    id, name: name.slice(0, 60), emoji: emoji || DEFAULT_EMOJIS[state.nodes.length % DEFAULT_EMOJIS.length],
+    color: color || COLORS[state.nodes.length % COLORS.length],
+    x: 400 + Math.cos(angle) * r, y: 280 + Math.sin(angle) * r, vx: 0, vy: 0,
+  });
+  return id;
+}
+function addEdge(a, b, type, note) {
+  state.edges.push({ id: "e" + nextId++, a, b, type: relByKey[type] ? type : "dating", note: (note || "").slice(0, 140) });
+}
+function removeNode(id) {
+  state.nodes = state.nodes.filter((n) => n.id !== id);
+  state.edges = state.edges.filter((e) => e.a !== id && e.b !== id);
+}
+function removeEdge(id) {
+  state.edges = state.edges.filter((e) => e.id !== id);
+}
+function loadGraph(graph, { fromWire } = {}) {
+  state.nodes = [];
+  state.edges = [];
+  const ids = [];
+  const list = fromWire ? graph.nodes : graph.nodes;
+  list.forEach((n, i) => {
+    const angle = (i / Math.max(1, list.length)) * Math.PI * 2;
+    const id = "n" + nextId++;
+    ids.push(id);
+    state.nodes.push({
+      id, name: n.name, emoji: n.emoji || "🤖", color: n.color || COLORS[i % COLORS.length],
+      x: 400 + Math.cos(angle) * 140, y: 280 + Math.sin(angle) * 140, vx: 0, vy: 0,
+    });
+  });
+  (graph.edges || []).forEach((e) => {
+    const a = ids[e.a], b = ids[e.b];
+    if (a && b) state.edges.push({ id: "e" + nextId++, a, b, type: relByKey[e.type] ? e.type : "dating", note: e.note || "" });
+  });
+  els.titleInput.value = graph.title || "";
+}
+function toWireGraph() {
+  const idxOf = new Map(state.nodes.map((n, i) => [n.id, i]));
+  return {
+    title: els.titleInput.value.trim().slice(0, 80),
+    nodes: state.nodes.map((n) => ({ name: n.name, emoji: n.emoji, color: n.color })),
+    edges: state.edges
+      .filter((e) => idxOf.has(e.a) && idxOf.has(e.b))
+      .map((e) => ({ a: idxOf.get(e.a), b: idxOf.get(e.b), type: e.type, note: e.note })),
+  };
+}
+
+// ---- rendering: DOM structure (rebuilt on add/remove) ------------------------
+const nodeEls = new Map(); // id -> { g, circle, emoji, label }
+const edgeEls = new Map(); // id -> { line, label }
+
+function refreshNodeSelects() {
+  const prevA = els.relA.value, prevB = els.relB.value;
+  [els.relA, els.relB].forEach((sel) => (sel.innerHTML = ""));
+  state.nodes.forEach((n) => {
+    [els.relA, els.relB].forEach((sel) => {
+      const o = document.createElement("option");
+      o.value = n.id;
+      o.textContent = n.emoji + " " + n.name;
+      sel.appendChild(o);
+    });
+  });
+  if ([...els.relA.options].some((o) => o.value === prevA)) els.relA.value = prevA;
+  if ([...els.relB.options].some((o) => o.value === prevB)) els.relB.value = prevB;
+  if (els.relB.value === els.relA.value && els.relB.options.length > 1) els.relB.selectedIndex = els.relB.selectedIndex === 0 ? 1 : 0;
+
+  const enough = state.nodes.length >= 2;
+  els.relSubmit.disabled = !enough;
+  els.relHint.style.display = enough ? "none" : "block";
+}
+
+function refreshChips() {
+  els.castChips.innerHTML = "";
+  state.nodes.forEach((n) => {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.style.background = n.color;
+    const label = document.createElement("span");
+    label.textContent = n.emoji + " " + n.name;
+    const del = document.createElement("button");
+    del.type = "button";
+    del.title = "remove " + n.name;
+    del.textContent = "×";
+    del.addEventListener("click", () => {
+      removeNode(n.id);
+      rebuild();
+      save();
+    });
+    chip.append(dot, label, del);
+    els.castChips.appendChild(chip);
+  });
+}
+
+function refreshRelList() {
+  els.relList.innerHTML = "";
+  state.edges.forEach((e) => {
+    const a = state.nodes.find((n) => n.id === e.a);
+    const b = state.nodes.find((n) => n.id === e.b);
+    if (!a || !b) return;
+    const r = relByKey[e.type];
+    const row = document.createElement("div");
+    row.className = "rel-row";
+    row.innerHTML =
+      `<span>${a.emoji} ${escHtml(a.name)}</span><span>${r.emoji} ${escHtml(r.label)}</span><span>${b.emoji} ${escHtml(b.name)}</span>` +
+      (e.note ? `<span class="note">— ${escHtml(e.note)}</span>` : "");
+    const del = document.createElement("button");
+    del.type = "button";
+    del.textContent = "remove";
+    del.addEventListener("click", () => {
+      removeEdge(e.id);
+      rebuild();
+      save();
+    });
+    row.appendChild(del);
+    els.relList.appendChild(row);
+  });
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+function rebuildGraphDom() {
+  els.edgesLayer.innerHTML = "";
+  els.nodesLayer.innerHTML = "";
+  edgeEls.clear();
+  nodeEls.clear();
+
+  els.emptyNote.style.display = state.nodes.length ? "none" : "block";
+
+  state.edges.forEach((e) => {
+    const r = relByKey[e.type];
+    const line = svgEl("path", { class: "edge-line", stroke: r.color, "stroke-width": 2.4, "stroke-dasharray": r.dash });
+    const label = svgEl("text", { class: "edge-label", fill: r.color });
+    label.textContent = r.emoji;
+    els.edgesLayer.appendChild(line);
+    els.edgesLayer.appendChild(label);
+    edgeEls.set(e.id, { line, label });
+  });
+
+  state.nodes.forEach((n) => {
+    const g = svgEl("g", {});
+    const circle = svgEl("circle", { class: "node-circle", r: 24, fill: n.color });
+    const emoji = svgEl("text", { class: "node-emoji" });
+    emoji.textContent = n.emoji;
+    const label = svgEl("text", { class: "node-label", y: 40 });
+    label.textContent = n.name.length > 16 ? n.name.slice(0, 15) + "…" : n.name;
+    g.append(circle, emoji, label);
+    els.nodesLayer.appendChild(g);
+    nodeEls.set(n.id, { g, circle, emoji, label });
+    attachDrag(g, n);
+  });
+
+  updatePositions();
+}
+
+function updatePositions() {
+  state.nodes.forEach((n) => {
+    const el = nodeEls.get(n.id);
+    if (!el) return;
+    el.g.setAttribute("transform", `translate(${n.x},${n.y})`);
+  });
+  state.edges.forEach((e) => {
+    const a = state.nodes.find((n) => n.id === e.a);
+    const b = state.nodes.find((n) => n.id === e.b);
+    const el = edgeEls.get(e.id);
+    if (!a || !b || !el) return;
+    el.line.setAttribute("d", `M ${a.x} ${a.y} L ${b.x} ${b.y}`);
+    el.label.setAttribute("x", (a.x + b.x) / 2);
+    el.label.setAttribute("y", (a.y + b.y) / 2 - 4);
+  });
+}
+
+function rebuild() {
+  rebuildGraphDom();
+  refreshChips();
+  refreshRelList();
+  refreshNodeSelects();
+  reheat();
+}
+
+// ---- drag handling ------------------------------------------------------------
+let draggingId = null;
+function svgPoint(evt) {
+  const pt = els.graph.createSVGPoint();
+  pt.x = evt.clientX;
+  pt.y = evt.clientY;
+  const ctm = els.graph.getScreenCTM();
+  if (!ctm) return { x: 0, y: 0 };
+  const p = pt.matrixTransform(ctm.inverse());
+  return { x: p.x, y: p.y };
+}
+function attachDrag(g, node) {
+  g.addEventListener("pointerdown", (evt) => {
+    draggingId = node.id;
+    g.setPointerCapture(evt.pointerId);
+    reheat();
+  });
+  g.addEventListener("pointermove", (evt) => {
+    if (draggingId !== node.id) return;
+    const p = svgPoint(evt);
+    node.x = p.x;
+    node.y = p.y;
+    node.vx = 0;
+    node.vy = 0;
+    updatePositions();
+  });
+  const release = () => {
+    if (draggingId === node.id) {
+      draggingId = null;
+      save();
+    }
+  };
+  g.addEventListener("pointerup", release);
+  g.addEventListener("pointercancel", release);
+}
+
+// ---- force simulation -----------------------------------------------------
+const W = 800, H = 560;
+const REPULSION = 14000, SPRING_LEN = 130, SPRING_K = 0.02, DAMPING = 0.82, CENTER_K = 0.015;
+const ALPHA_DECAY = 0.992, ALPHA_MIN = 0.012;
+let alpha = 1, rafId = null;
+
+function reheat() {
+  alpha = 1;
+  if (!rafId) rafId = requestAnimationFrame(tick);
+}
+
+function tick() {
+  const nodes = state.nodes;
+  for (let i = 0; i < nodes.length; i++) {
+    const ni = nodes[i];
+    if (ni.id === draggingId) continue;
+    let fx = 0, fy = 0;
+    for (let j = 0; j < nodes.length; j++) {
+      if (i === j) continue;
+      const nj = nodes[j];
+      let dx = ni.x - nj.x, dy = ni.y - nj.y;
+      let d2 = dx * dx + dy * dy || 1;
+      let d = Math.sqrt(d2);
+      if (d < 1) d = 1;
+      const force = REPULSION / d2;
+      fx += (dx / d) * force;
+      fy += (dy / d) * force;
+    }
+    fx += (W / 2 - ni.x) * CENTER_K;
+    fy += (H / 2 - ni.y) * CENTER_K;
+    ni._fx = fx;
+    ni._fy = fy;
+  }
+  state.edges.forEach((e) => {
+    const a = nodes.find((n) => n.id === e.a);
+    const b = nodes.find((n) => n.id === e.b);
+    if (!a || !b) return;
+    let dx = b.x - a.x, dy = b.y - a.y;
+    let d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const diff = (d - SPRING_LEN) * SPRING_K;
+    const fx = (dx / d) * diff, fy = (dy / d) * diff;
+    if (a.id !== draggingId) { a._fx = (a._fx || 0) + fx; a._fy = (a._fy || 0) + fy; }
+    if (b.id !== draggingId) { b._fx = (b._fx || 0) - fx; b._fy = (b._fy || 0) - fy; }
+  });
+  nodes.forEach((n) => {
+    if (n.id === draggingId) return;
+    n.vx = (n.vx + (n._fx || 0) * alpha) * DAMPING;
+    n.vy = (n.vy + (n._fy || 0) * alpha) * DAMPING;
+    n.x = Math.min(W - 24, Math.max(24, n.x + n.vx));
+    n.y = Math.min(H - 24, Math.max(24, n.y + n.vy));
+  });
+  updatePositions();
+
+  alpha *= ALPHA_DECAY;
+  if (alpha > ALPHA_MIN || draggingId !== null) {
+    rafId = requestAnimationFrame(tick);
+  } else {
+    rafId = null;
+    save();
+  }
+}
+
+// ---- forms ------------------------------------------------------------------
+els.charForm.addEventListener("submit", (evt) => {
+  evt.preventDefault();
+  const name = els.charName.value.trim();
+  if (!name) return;
+  const emoji = els.charEmoji.value.trim();
+  addNode(name, emoji, null);
+  els.charName.value = "";
+  els.charEmoji.value = "";
+  els.charName.focus();
+  rebuild();
+  save();
+});
+
+els.relForm.addEventListener("submit", (evt) => {
+  evt.preventDefault();
+  const a = els.relA.value, b = els.relB.value;
+  if (!a || !b || a === b) { setShareStatus(""); return; }
+  addEdge(a, b, els.relType.value, els.relNote.value.trim());
+  els.relNote.value = "";
+  rebuild();
+  save();
+});
+
+els.exampleBtn.addEventListener("click", () => {
+  loadGraph(EXAMPLE);
+  rebuild();
+  save();
+});
+
+els.clearBtn.addEventListener("click", () => {
+  if (!state.nodes.length && !state.edges.length) return;
+  if (!confirm("Clear the whole board? This can't be undone.")) return;
+  state.nodes = [];
+  state.edges = [];
+  els.titleInput.value = "";
+  rebuild();
+  save();
+});
+
+els.titleInput.addEventListener("input", save);
+
+// ---- share: link ----------------------------------------------------------
+function shareUrlFor(id) {
+  return location.origin + "/p/" + id;
+}
+function buildShareText(id) {
+  const title = els.titleInput.value.trim() || "my polycule";
+  const n = state.nodes.length, m = state.edges.length;
+  return `${title}: ${n} agent${n === 1 ? "" : "s"}, ${m} relationship${m === 1 ? "" : "s"} (fictional!) → ${shareUrlFor(id)}`;
+}
+
+els.shareBtn.addEventListener("click", async () => {
+  if (!state.nodes.length) { setShareStatus("add a character first.", true); return; }
+  els.shareBtn.disabled = true;
+  setShareStatus("creating a share link...");
+  try {
+    const res = await fetch("/api/share", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(toWireGraph()),
+    });
+    if (!res.ok) throw new Error("http " + res.status);
+    const data = await res.json();
+    const url = shareUrlFor(data.id);
+    els.shareLinkBox.innerHTML = `share link: <a href="${url}" target="_blank" rel="noopener">${url}</a>`;
+    els.shareLinkBox.classList.add("show");
+    const text = buildShareText(data.id);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+    els.shareBluesky.style.display = "block";
+    lastShareText = text;
+    setShareStatus("");
+  } catch (err) {
+    setShareStatus("couldn't create a share link: " + err.message, true);
+  } finally {
+    els.shareBtn.disabled = false;
+  }
+});
+
+// ---- share: card image ------------------------------------------------------
+let lastShareText = "";
+
+function fitTransform(nodes, ax, ay, aw, ah, pad) {
+  if (!nodes.length) return (x, y) => ({ x: ax + aw / 2, y: ay + ah / 2 });
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  nodes.forEach((n) => {
+    minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x);
+    minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y);
+  });
+  const bw = Math.max(1, maxX - minX), bh = Math.max(1, maxY - minY);
+  const scale = Math.min((aw - pad * 2) / bw, (ah - pad * 2) / bh, 1.6);
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  const tx = ax + aw / 2, ty = ay + ah / 2;
+  return (x, y) => ({ x: tx + (x - cx) * scale, y: ty + (y - cy) * scale });
+}
+
+function buildShareCard() {
+  const canvas = els.shareCanvas, ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const W = canvas.width, H = canvas.height, mono = "ui-monospace, monospace";
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0c0812";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.55);
+  glow.addColorStop(0, "#3a1a52");
+  glow.addColorStop(1, "rgba(12,8,18,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff5fd1";
+  ctx.font = `800 46px ${mono}`;
+  ctx.fillText("polycule", 50, 76);
+
+  const title = els.titleInput.value.trim() || "a fictional polycule";
+  ctx.fillStyle = "#f6ecff";
+  ctx.font = `700 22px ${mono}`;
+  ctx.fillText(title.length > 46 ? title.slice(0, 45) + "…" : title, 50, 112);
+
+  ctx.fillStyle = "#b7a3d6";
+  ctx.font = `400 15px ${mono}`;
+  ctx.fillText(`${state.nodes.length} agents · ${state.edges.length} relationships`, 50, 136);
+
+  const areaX = 40, areaY = 160, areaW = W - 80, areaH = H - 220;
+  ctx.strokeStyle = "#3a2650";
+  ctx.lineWidth = 1.5;
+  ctx.fillStyle = "#1c1128";
+  ctx.beginPath();
+  ctx.roundRect(areaX, areaY, areaW, areaH, 16);
+  ctx.fill();
+  ctx.stroke();
+
+  const xf = fitTransform(state.nodes, areaX, areaY, areaW, areaH, 70);
+
+  ctx.setLineDash([]);
+  state.edges.forEach((e) => {
+    const a = state.nodes.find((n) => n.id === e.a);
+    const b = state.nodes.find((n) => n.id === e.b);
+    if (!a || !b) return;
+    const r = relByKey[e.type];
+    const pa = xf(a.x, a.y), pb = xf(b.x, b.y);
+    ctx.strokeStyle = r.color;
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash(r.dash ? r.dash.split(" ").map(Number) : []);
+    ctx.beginPath();
+    ctx.moveTo(pa.x, pa.y);
+    ctx.lineTo(pb.x, pb.y);
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+
+  state.nodes.forEach((n) => {
+    const p = xf(n.x, n.y);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 22, 0, Math.PI * 2);
+    ctx.fillStyle = n.color;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.35)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.textAlign = "center";
+    ctx.font = "20px system-ui, sans-serif";
+    ctx.fillText(n.emoji, p.x, p.y + 7);
+
+    ctx.fillStyle = "#f6ecff";
+    ctx.font = `700 13px ${mono}`;
+    const name = n.name.length > 14 ? n.name.slice(0, 13) + "…" : n.name;
+    ctx.fillText(name, p.x, p.y + 40);
+  });
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#6ef2c9";
+  ctx.font = `700 18px ${mono}`;
+  ctx.fillText("polycule.bisks.net", 50, H - 32);
+}
+
+els.shareDownload.addEventListener("click", () => {
+  buildShareCard();
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "polycule-card.png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    buildShareCard();
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "polycule-card.png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText || "my polycule (fictional!)", title: "polycule" });
+      } catch (_) {}
+    }, "image/png");
+  });
+}
+
+// redraw the share card whenever the graph changes shape, so download/share
+// always reflects the current board even before a share link is requested
+const _rebuild = rebuild;
+rebuild = function () {
+  _rebuild();
+  try { buildShareCard(); } catch (_) {}
+};
+
+// ---- boot -------------------------------------------------------------------
+(function boot() {
+  const sharedTag = document.getElementById("shared-graph");
+  if (sharedTag) {
+    try {
+      loadGraph(JSON.parse(sharedTag.textContent));
+    } catch (_) {
+      load();
+    }
+  } else if (!load()) {
+    // first-ever visit, nothing in localStorage yet — leave the board empty
+  }
+  rebuild();
+})();
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
