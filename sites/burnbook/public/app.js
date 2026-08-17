@@ -95,7 +95,7 @@ const EULOGY_TEMPLATES = [
   (title, who) => `No copy was kept. No draft survives. This was the only version of the truth it told.`,
   (title, who) => `What is remembered of "${title}" now lives only in whoever was here for this.`,
   (title, who) => `Let the record show: it existed, briefly, and it was never boring.`,
-  (title, who) => `Ash to ash. Page to page. Nothing here gets a second printing.`,
+  (title, who) => `Nothing here gets a second printing.`,
 ];
 
 const EPITAPHS = [
@@ -107,6 +107,44 @@ const EPITAPHS = [
   "This edition is now permanently out of print.",
   "It is not in any archive, including this one.",
 ];
+
+// ---------------------------------------------------------------- destruction methods
+
+const METHODS = [
+  {
+    id: "burn", emoji: "🔥", label: "burn", verbClause: "Once it burns",
+    buttonLabel: "burn it", closer: "is ash now.",
+    pastPhrase: "cremated", epitaphExtra: "Ash to ash. Page to page.",
+  },
+  {
+    id: "shred", emoji: "✂️", label: "shred", verbClause: "Once it goes through the shredder",
+    buttonLabel: "shred it", closer: "is a thousand unreadable strips now.",
+    pastPhrase: "shredded", epitaphExtra: "Every strip is too narrow to reassemble.",
+  },
+  {
+    id: "drown", emoji: "🌊", label: "drown", verbClause: "Once it sinks and the ink runs",
+    buttonLabel: "drown it", closer: "is silt at the bottom now.",
+    pastPhrase: "drowned", epitaphExtra: "Waterlogged, then gone, then forgotten.",
+  },
+  {
+    id: "bury", emoji: "🪦", label: "bury", verbClause: "Once the last shovel of dirt goes on",
+    buttonLabel: "bury it", closer: "is six feet down now.",
+    pastPhrase: "buried", epitaphExtra: "No headstone. No return address.",
+  },
+  {
+    id: "vaporize", emoji: "🕳️", label: "black hole", verbClause: "Once it crosses the event horizon",
+    buttonLabel: "feed the void", closer: "has crossed the event horizon.",
+    pastPhrase: "fed to a black hole", epitaphExtra: "Not even the light got out.",
+  },
+  {
+    id: "devour", emoji: "🦗", label: "moths", verbClause: "Once the moths are finished",
+    buttonLabel: "feed the moths", closer: "is a binding and some dust now.",
+    pastPhrase: "fed to the moths", epitaphExtra: "They left the cover. They left nothing else.",
+  },
+];
+
+let selectedMethodId = "burn";
+function currentMethod() { return METHODS.find((m) => m.id === selectedMethodId) || METHODS[0]; }
 
 function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -162,7 +200,9 @@ const els = {
   ceremony: document.getElementById("ceremony"),
   confirmStep: document.getElementById("confirmStep"),
   confirmTitle: document.getElementById("confirmTitle"),
+  confirmClause: document.getElementById("confirmClause"),
   confirmYes: document.getElementById("confirmYes"),
+  confirmYesLabel: document.getElementById("confirmYesLabel"),
   confirmNo: document.getElementById("confirmNo"),
   burnStep: document.getElementById("burnStep"),
   pyreBook: document.getElementById("pyreBook"),
@@ -204,12 +244,33 @@ function renderBook(book) {
       <ol>${book.chapters.map((c) => `<li>${escapeHtml(c)}</li>`).join("")}</ol>
     </details>
     <div class="catalog">catalog no. ${book.catalog} · no further copies will be printed, digitized, cached, or archived</div>
+    <div class="method-picker">
+      <div class="method-label">choose how it ends</div>
+      <div class="method-grid" id="methodGrid"></div>
+    </div>
     <div class="book-actions">
       <button id="beginBurn" class="danger" type="button">begin the ceremony</button>
     </div>
   `;
   els.stage.appendChild(div);
+  renderMethodGrid(div.querySelector("#methodGrid"));
   document.getElementById("beginBurn").addEventListener("click", () => openConfirm(book));
+}
+
+function renderMethodGrid(grid) {
+  grid.innerHTML = "";
+  for (const m of METHODS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "method-btn" + (m.id === selectedMethodId ? " active" : "");
+    btn.textContent = `${m.emoji} ${m.label}`;
+    btn.addEventListener("click", () => {
+      selectedMethodId = m.id;
+      grid.querySelectorAll(".method-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+    });
+    grid.appendChild(btn);
+  }
 }
 
 function escapeHtml(s) {
@@ -220,7 +281,10 @@ function escapeHtml(s) {
 
 function openConfirm(book) {
   current = book;
+  const method = currentMethod();
   els.confirmTitle.textContent = `"${book.title}"`;
+  els.confirmClause.textContent = method.verbClause;
+  els.confirmYesLabel.textContent = method.buttonLabel;
   els.confirmStep.style.display = "";
   els.burnStep.style.display = "none";
   els.ceremony.classList.add("show");
@@ -254,82 +318,184 @@ async function typeLine(text) {
 }
 
 async function runCeremony(book) {
-  els.pyreBook.className = "pyreBook";
+  const method = currentMethod();
+  els.pyreBook.className = `pyreBook m-${method.id}`;
+  els.pyreBook.style.animation = "";
   els.pyreBook.style.setProperty("--cover", book.cover);
   els.flameCanvas.classList.remove("show");
 
-  const lines = pickN(EULOGY_TEMPLATES, 4).map((t) => t(book.title, book.author));
+  const lines = pickN(EULOGY_TEMPLATES, 3).map((t) => t(book.title, book.author));
+  lines.push(method.epitaphExtra);
   for (const line of lines) {
     await typeLine(line);
   }
 
   els.flameCanvas.classList.add("show");
-  els.pyreBook.classList.add("burning");
-  const stopFlames = startFlames(els.flameCanvas);
+  els.pyreBook.classList.add("active");
+  const stopParticles = startParticles(els.flameCanvas, method.id);
   await sleep(2200);
-  els.pyreBook.classList.add("ash");
+  els.pyreBook.style.animation = "none"; // stop the active-state keyframe so the gone-state transition can take over
+  els.pyreBook.classList.add("gone");
   await sleep(1500);
-  stopFlames();
-  els.eulogy.innerHTML = `<span style="color:var(--ash)">${escapeHtml(book.catalog)} is ash now.</span>`;
+  stopParticles();
+  els.eulogy.innerHTML = `<span style="color:var(--ash)">${escapeHtml(book.catalog)} ${escapeHtml(method.closer)}</span>`;
   await sleep(1400);
 
   els.ceremony.classList.remove("show");
-  showCertificate(book);
+  showCertificate(book, method);
 }
 
-// ---- flame particles: a small canvas fire sim, nothing fancy -------------
+// ---- particle sims: one small canvas physics loop per method -------------
 
-function startFlames(canvas) {
+function startParticles(canvas, methodId) {
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
+  const cx = W / 2, cy = H / 2 + 40;
   let particles = [];
   let running = true;
 
-  function spawn() {
-    for (let i = 0; i < 3; i++) {
-      particles.push({
-        x: W / 2 + (Math.random() - 0.5) * 60,
-        y: H / 2 + 40 + Math.random() * 20,
-        vy: -1.2 - Math.random() * 1.6,
-        vx: (Math.random() - 0.5) * 0.8,
-        life: 0,
-        maxLife: 40 + Math.random() * 40,
-        size: 6 + Math.random() * 10,
-        hue: 18 + Math.random() * 40,
-      });
+  const SPAWNERS = {
+    burn() {
+      for (let i = 0; i < 3; i++) {
+        particles.push({
+          x: cx + (Math.random() - 0.5) * 60, y: cy + Math.random() * 20,
+          vy: -1.2 - Math.random() * 1.6, vx: (Math.random() - 0.5) * 0.8,
+          life: 0, maxLife: 40 + Math.random() * 40, size: 6 + Math.random() * 10,
+          hue: 18 + Math.random() * 40, shape: "circle",
+        });
+      }
+      if (Math.random() < 0.3) {
+        particles.push({
+          x: cx + (Math.random() - 0.5) * 90, y: cy + 10,
+          vy: -0.6 - Math.random() * 1.2, vx: (Math.random() - 0.5) * 1.4,
+          life: 0, maxLife: 80 + Math.random() * 60, size: 1.5 + Math.random() * 2,
+          hue: 40 + Math.random() * 20, shape: "circle",
+        });
+      }
+    },
+    shred() {
+      for (let i = 0; i < 2; i++) {
+        particles.push({
+          x: cx + (Math.random() - 0.5) * 50, y: cy - 30 + Math.random() * 20,
+          vy: 1.6 + Math.random() * 1.8, vx: (Math.random() - 0.5) * 1.6,
+          rot: Math.random() * Math.PI, vrot: (Math.random() - 0.5) * 0.3,
+          life: 0, maxLife: 70 + Math.random() * 40, w: 5, h: 22 + Math.random() * 14,
+          hue: 38, light: 78, shape: "strip",
+        });
+      }
+    },
+    drown() {
+      if (Math.random() < 0.7) {
+        particles.push({
+          x: cx + (Math.random() - 0.5) * 70, y: cy + 40 + Math.random() * 20,
+          vy: -0.6 - Math.random() * 0.9, vx: (Math.random() - 0.5) * 0.5,
+          life: 0, maxLife: 90 + Math.random() * 60, size: 2 + Math.random() * 5,
+          hue: 200, shape: "circle", wobble: Math.random() * Math.PI * 2,
+        });
+      }
+    },
+    bury() {
+      for (let i = 0; i < 2; i++) {
+        particles.push({
+          x: cx + (Math.random() - 0.5) * 100, y: cy - 90 - Math.random() * 30,
+          vy: 1.8 + Math.random() * 1.4, vx: (Math.random() - 0.5) * 0.6,
+          life: 0, maxLife: 60 + Math.random() * 30, size: 4 + Math.random() * 6,
+          hue: 28, light: 22 + Math.random() * 10, shape: "clump",
+        });
+      }
+    },
+    vaporize() {
+      for (let i = 0; i < 3; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 70 + Math.random() * 60;
+        particles.push({
+          x: cx + Math.cos(angle) * dist, y: cy + Math.sin(angle) * dist,
+          angle, dist, spin: 0.08 + Math.random() * 0.08,
+          life: 0, maxLife: 60 + Math.random() * 30, size: 2 + Math.random() * 3,
+          hue: 260 + Math.random() * 40, shape: "orbit",
+        });
+      }
+    },
+    devour() {
+      for (let i = 0; i < 2; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        particles.push({
+          x: cx + Math.cos(angle) * 55, y: cy + Math.sin(angle) * 60,
+          angle, radius: 50 + Math.random() * 20, speed: 0.05 + Math.random() * 0.06,
+          life: 0, maxLife: 50 + Math.random() * 30, size: 2 + Math.random() * 2,
+          hue: 42, light: 55, shape: "flit",
+        });
+      }
+    },
+  };
+
+  function update(p) {
+    switch (p.shape) {
+      case "circle":
+        p.x += p.vx; p.y += p.vy; p.vy -= p.wobble !== undefined ? -0.005 : 0.01;
+        if (p.wobble !== undefined) { p.wobble += 0.2; p.x += Math.sin(p.wobble) * 0.4; }
+        break;
+      case "strip":
+        p.x += p.vx; p.y += p.vy; p.vy += 0.05; p.rot += p.vrot;
+        break;
+      case "clump":
+        p.x += p.vx; p.y += p.vy; p.vy += 0.08;
+        break;
+      case "orbit":
+        p.angle += p.spin; p.dist *= 0.965;
+        p.x = cx + Math.cos(p.angle) * p.dist; p.y = cy + Math.sin(p.angle) * p.dist;
+        break;
+      case "flit":
+        p.angle += p.speed; p.radius *= 0.99;
+        p.x = cx + Math.cos(p.angle) * p.radius; p.y = cy + Math.sin(p.angle * 1.3) * p.radius * 0.6;
+        break;
     }
+    p.life++;
+  }
+
+  function draw(p) {
+    const t = p.life / p.maxLife;
+    const alpha = Math.max(0, 1 - t);
+    ctx.save();
+    if (p.shape === "circle") {
+      const size = p.size * (1 - t * 0.7);
+      ctx.beginPath();
+      ctx.fillStyle = p.light !== undefined
+        ? `hsla(${p.hue}, 70%, ${p.light}%, ${alpha})`
+        : `hsla(${p.hue}, 95%, ${55 - t * 25}%, ${alpha})`;
+      ctx.arc(p.x, p.y, Math.max(0, size), 0, Math.PI * 2);
+      ctx.fill();
+    } else if (p.shape === "strip") {
+      ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.fillStyle = `hsla(${p.hue}, 40%, ${p.light}%, ${alpha})`;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+    } else if (p.shape === "clump") {
+      ctx.beginPath();
+      ctx.fillStyle = `hsla(${p.hue}, 35%, ${p.light}%, ${alpha})`;
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (p.shape === "orbit") {
+      ctx.beginPath();
+      ctx.fillStyle = `hsla(${p.hue}, 80%, 70%, ${alpha})`;
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (p.shape === "flit") {
+      ctx.beginPath();
+      ctx.fillStyle = `hsla(${p.hue}, 30%, ${p.light}%, ${alpha})`;
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   function step() {
     if (!running) return;
     ctx.clearRect(0, 0, W, H);
-    spawn();
+    (SPAWNERS[methodId] || SPAWNERS.burn)();
     particles = particles.filter((p) => p.life < p.maxLife);
     for (const p of particles) {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy -= 0.01;
-      p.life++;
-      const t = p.life / p.maxLife;
-      const alpha = 1 - t;
-      const size = p.size * (1 - t * 0.7);
-      ctx.beginPath();
-      ctx.fillStyle = `hsla(${p.hue}, 95%, ${55 - t * 25}%, ${alpha})`;
-      ctx.arc(p.x, p.y, Math.max(0, size), 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // embers drifting up
-    if (Math.random() < 0.3) {
-      particles.push({
-        x: W / 2 + (Math.random() - 0.5) * 90,
-        y: H / 2 + 50,
-        vy: -0.6 - Math.random() * 1.2,
-        vx: (Math.random() - 0.5) * 1.4,
-        life: 0,
-        maxLife: 80 + Math.random() * 60,
-        size: 1.5 + Math.random() * 2,
-        hue: 40 + Math.random() * 20,
-      });
+      update(p);
+      draw(p);
     }
     requestAnimationFrame(step);
   }
@@ -343,17 +509,17 @@ function startFlames(canvas) {
 
 // ---------------------------------------------------------------- certificate
 
-function showCertificate(book) {
+function showCertificate(book, method) {
   els.stage.innerHTML = "";
   els.certTitle.textContent = `"${book.title}"`;
   els.certAuthor.textContent = `by ${book.author}`;
   const epitaph = pick(EPITAPHS);
   els.certEpitaph.textContent = epitaph;
   const destroyedAt = new Date();
-  els.certStamp.textContent = `${book.catalog} · destroyed ${destroyedAt.toLocaleString()}`;
+  els.certStamp.textContent = `${book.catalog} · ${method.pastPhrase} ${destroyedAt.toLocaleString()}`;
   els.cert.classList.add("show");
 
-  const shareText = buildShareCard(book, epitaph, destroyedAt);
+  const shareText = buildShareCard(book, epitaph, destroyedAt, method);
   els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
 
   els.shareDownload.onclick = () => {
@@ -392,7 +558,7 @@ function canShareFiles() {
   }
 }
 
-function buildShareCard(book, epitaph, destroyedAt) {
+function buildShareCard(book, epitaph, destroyedAt, method) {
   const canvas = els.shareCanvas;
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
@@ -430,13 +596,13 @@ function buildShareCard(book, epitaph, destroyedAt) {
 
   ctx.fillStyle = "#5a5048";
   ctx.font = `20px ${mono}`;
-  ctx.fillText(`${book.catalog} · destroyed ${destroyedAt.toLocaleString()}`, 60, 560);
+  ctx.fillText(`${book.catalog} · ${method.pastPhrase} ${destroyedAt.toLocaleString()}`, 60, 560);
 
   ctx.fillStyle = "#d4622c";
   ctx.font = `700 22px ${mono}`;
   ctx.fillText("burnbook.bisks.net", 60, 600);
 
-  return `I just cremated "${book.title}" by ${book.author} (${book.catalog}). It existed once. It will not exist again. https://burnbook.bisks.net/`;
+  return `I just ${method.pastPhrase} "${book.title}" by ${book.author} (${book.catalog}). It existed once. It will not exist again. https://burnbook.bisks.net/`;
 }
 
 function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
