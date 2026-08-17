@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>junipereth — a wallet that only mints for one person</title>
+<meta name="description" content="Juniper quote-reposts the magic phrase, her fake ETH balance goes up. Nobody else's account is ever scanned, so nobody else's balance ever moves." />
+<meta property="og:title" content="junipereth — a wallet that only mints for one person" />
+<meta property="og:description" content="Juniper quote-reposts the magic phrase, her fake ETH balance goes up. Nobody else's account is ever scanned, so nobody else's balance ever moves." />
+<meta property="og:url" content="https://junipereth.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://junipereth.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="junipereth: a fake ETH wallet balance ticking up, with the magic quote-repost phrase that's the only way to move it." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="junipereth — a wallet that only mints for one person" />
+<meta name="twitter:description" content="Juniper quote-reposts the magic phrase, her fake ETH balance goes up. Nobody else's account is ever scanned, so nobody else's balance ever moves." />
+<meta name="twitter:image" content="https://junipereth.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #050a08;
+    --bg2: #071410;
+    --fg: #eafff0;
+    --dim: #7fa08e;
+    --accent: #39ff88;
+    --accent2: #ffd166;
+    --card: #0c1712;
+    --border: #1e3a2c;
+    --bad: #ff8a8a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #0f2e1c 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #2a2410 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3.5rem 1.25rem 5rem;
+  }
+  a { color: var(--accent2); }
+  .wrap { width: 100%; max-width: 620px; }
+
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 2rem;
+    line-height: 1.55;
+  }
+  .tag code, .tag b { color: var(--fg); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem 1.6rem;
+    margin-bottom: 1.4rem;
+  }
+
+  .rules-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin-bottom: 0.9rem;
+  }
+  .rules p {
+    font-size: 0.9rem;
+    line-height: 1.6;
+    color: var(--dim);
+    margin: 0 0 0.9rem;
+  }
+  .rules p:last-child { margin-bottom: 0; }
+  .rules b { color: var(--fg); }
+  .phrase-box {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: var(--bg2);
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    padding: 0.85rem 1rem;
+    margin: 0.9rem 0;
+  }
+  .phrase-box code {
+    flex: 1;
+    color: var(--accent);
+    font-size: 0.95rem;
+    font-weight: 700;
+  }
+  .phrase-box button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 6px;
+    padding: 0.35rem 0.6rem;
+    font: inherit;
+    font-size: 0.72rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .phrase-box button:hover { color: var(--fg); border-color: var(--accent); }
+  .only-line {
+    font-size: 0.8rem;
+    color: var(--dim);
+    border-left: 3px solid var(--accent2);
+    padding-left: 0.75rem;
+  }
+  .only-line b { color: var(--accent2); }
+
+  .wallet-card { position: relative; overflow: hidden; }
+  .who {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.3rem;
+  }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); }
+  .who .handle { font-weight: 700; }
+  .who .did { color: var(--dim); font-size: 0.7rem; word-break: break-all; }
+
+  .balance-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--dim);
+    margin-bottom: 0.35rem;
+  }
+  .balance {
+    font-size: 2.4rem;
+    font-weight: 800;
+    color: var(--accent);
+    text-shadow: 0 0 24px rgba(57, 255, 136, 0.35);
+    line-height: 1.1;
+    margin-bottom: 0.2rem;
+  }
+  .balance .unit { font-size: 1.1rem; color: var(--accent2); margin-left: 0.4rem; }
+  .balance-sub { color: var(--dim); font-size: 0.78rem; margin-bottom: 1.2rem; }
+
+  .status { color: var(--dim); font-size: 0.85rem; min-height: 1.4em; margin-bottom: 0.6rem; }
+  .status.err { color: var(--bad); }
+
+  .refresh-row { display: flex; justify-content: flex-end; margin-top: -0.4rem; }
+  #refresh {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 8px;
+    padding: 0.4rem 0.75rem;
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+  #refresh:hover { color: var(--fg); border-color: var(--accent); }
+  #refresh:disabled { opacity: 0.5; cursor: wait; }
+
+  .ledger-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--dim);
+    margin: 1.6rem 0 0.8rem;
+  }
+  .ledger { list-style: none; margin: 0; padding: 0; }
+  .ledger li {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.7rem 0;
+    border-top: 1px dashed var(--border);
+    font-size: 0.85rem;
+  }
+  .ledger li:first-child { border-top: none; }
+  .ledger .row1 { display: flex; justify-content: space-between; gap: 0.6rem; }
+  .ledger .amt { color: var(--accent); font-weight: 700; white-space: nowrap; }
+  .ledger .when { color: var(--dim); font-size: 0.72rem; }
+  .ledger .quote { color: var(--fg); font-size: 0.82rem; line-height: 1.45; }
+  .ledger .quote a { color: inherit; text-decoration: none; }
+  .ledger .quote a:hover { text-decoration: underline; }
+  .ledger .after { color: var(--dim); font-size: 0.72rem; }
+  .empty { color: var(--dim); font-size: 0.85rem; padding: 0.6rem 0; }
+
+  .share {
+    border-top: 1px dashed var(--border);
+    margin-top: 1.4rem;
+    padding-top: 1.2rem;
+  }
+  #shareCanvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 0.8rem;
+  }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share-post {
+    background: linear-gradient(90deg, var(--accent), #1fae5a);
+    color: #04160b;
+  }
+  .share-actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+  }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>junipereth</h1>
+    <p class="tag">
+      A fake ETH wallet with exactly one accountholder. <b>@juniperbevensee.bsky.social</b>
+      quote-reposts something with a specific phrase, her balance goes up. There is no
+      other way in — no handle field, no faucet button, no admin key. This page just
+      reads her own public posts and counts.
+    </p>
+
+    <div class="card rules">
+      <div class="rules-title">how to mint</div>
+      <p>Quote-repost anything — anything at all — and put this phrase somewhere in your own words on it:</p>
+      <div class="phrase-box">
+        <code id="phraseText">&ldquo;IP is fake but my ETH is real&rdquo;</code>
+        <button id="copyPhrase" type="button">copy</button>
+      </div>
+      <p>Every qualifying quote-repost mints <b>+2.000000 jETH</b>. The board bid was always going to start at
+        two — so does every deposit here.</p>
+      <p class="only-line">Only <b>@juniperbevensee.bsky.social</b>'s account is ever scanned. Quote-repost
+        this phrase from any other account and precisely nothing happens — there's no wallet for you to
+        credit, because this site doesn't look at anyone else.</p>
+    </div>
+
+    <div class="card wallet-card">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut">@juniperbevensee.bsky.social</div>
+          <div class="did" id="didOut">resolving…</div>
+        </div>
+      </div>
+
+      <div class="balance-label">balance</div>
+      <div class="balance"><span id="balanceOut">0.000000</span><span class="unit">jETH</span></div>
+      <div class="balance-sub" id="balanceSub">—</div>
+
+      <p id="status" class="status">scanning her public posts…</p>
+      <div class="refresh-row"><button id="refresh" type="button">rescan</button></div>
+
+      <div class="ledger-title">deposit ledger</div>
+      <ul class="ledger" id="ledger"></ul>
+      <p class="empty" id="emptyState" style="display:none;">no qualifying quote-reposts found yet. the
+        balance sits at zero until she asks for it.</p>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share the balance</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      built for a thread where the bid should start at 2 ·
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/wallet.js"></script>
+<script>
+const els = {
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  didOut: document.getElementById("didOut"),
+  balanceOut: document.getElementById("balanceOut"),
+  balanceSub: document.getElementById("balanceSub"),
+  status: document.getElementById("status"),
+  refresh: document.getElementById("refresh"),
+  ledger: document.getElementById("ledger"),
+  emptyState: document.getElementById("emptyState"),
+  copyPhrase: document.getElementById("copyPhrase"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function fmt(n) {
+  return n.toFixed(6);
+}
+
+function fmtWhen(iso) {
+  try {
+    return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch (_) {
+    return iso || "";
+  }
+}
+
+function renderLedger(deposits) {
+  els.ledger.innerHTML = "";
+  if (!deposits.length) {
+    els.emptyState.style.display = "";
+    return;
+  }
+  els.emptyState.style.display = "none";
+  for (const d of deposits) {
+    const li = document.createElement("li");
+    const row1 = document.createElement("div");
+    row1.className = "row1";
+    const amt = document.createElement("span");
+    amt.className = "amt";
+    amt.textContent = "+" + fmt(2) + " jETH";
+    const when = document.createElement("span");
+    when.className = "when";
+    when.textContent = fmtWhen(d.createdAt);
+    row1.appendChild(amt);
+    row1.appendChild(when);
+
+    const quote = document.createElement("div");
+    quote.className = "quote";
+    const link = document.createElement("a");
+    link.href = d.url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "“" + d.text.slice(0, 180) + (d.text.length > 180 ? "…" : "") + "”";
+    quote.appendChild(link);
+
+    const after = document.createElement("div");
+    after.className = "after";
+    after.textContent = "balance after: " + fmt(d.balanceAfter) + " jETH";
+
+    li.appendChild(row1);
+    li.appendChild(quote);
+    li.appendChild(after);
+    els.ledger.appendChild(li);
+  }
+}
+
+let lastShareText = "";
+let lastWallet = null;
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+async function buildShareCard(wallet) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(wallet.profile.avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#050a08";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#0f2e1c");
+  glow.addColorStop(1, "rgba(5,10,8,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#39ff88";
+  ctx.font = `800 50px ${mono}`;
+  ctx.fillText("junipereth", 60, 100);
+
+  const who = "@" + wallet.handle;
+  ctx.fillStyle = "#eafff0";
+  ctx.font = `700 26px ${mono}`;
+  let textX = 60;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 150, 26, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 62, 124, 52, 52);
+    ctx.restore();
+    textX = 128;
+  }
+  ctx.fillText(who, textX, 158);
+
+  ctx.strokeStyle = "#1e3a2c";
+  ctx.lineWidth = 1.5;
+  const cardX = 60, cardY = 220, cardW = W - 120, cardH = H - 280;
+  ctx.fillStyle = "#0c1712";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#7fa08e";
+  ctx.font = `700 15px ${mono}`;
+  ctx.fillText("BALANCE", W / 2, cardY + 60);
+
+  ctx.fillStyle = "#39ff88";
+  ctx.font = `800 72px ${mono}`;
+  ctx.fillText(fmt(wallet.balance), W / 2, cardY + 140);
+  ctx.fillStyle = "#ffd166";
+  ctx.font = `700 26px ${mono}`;
+  ctx.fillText("jETH", W / 2, cardY + 178);
+
+  ctx.fillStyle = "#7fa08e";
+  ctx.font = `400 16px ${mono}`;
+  ctx.fillText(wallet.deposits.length + " qualifying quote-repost" + (wallet.deposits.length === 1 ? "" : "s") + " · +2 jETH each", W / 2, cardY + 220);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffd166";
+  ctx.fillRect(cardX + 48, cardY + 254, 4, 60);
+  ctx.fillStyle = "#eafff0";
+  ctx.font = `italic 18px ${mono}`;
+  ctx.fillText("only her account is ever scanned.", cardX + 68, cardY + 278);
+  ctx.fillText("nobody else's balance can move.", cardX + 68, cardY + 304);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#39ff88";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("junipereth.bisks.net", 60, H - 40);
+}
+
+function shareText(wallet) {
+  return (
+    `@${wallet.handle}'s fake ETH balance: ${fmt(wallet.balance)} jETH from ${wallet.deposits.length} qualifying quote-repost` +
+    `${wallet.deposits.length === 1 ? "" : "s"}. Nobody else can mint it.\n\n` +
+    `junipereth.bisks.net`
+  );
+}
+
+async function load() {
+  els.refresh.disabled = true;
+  setStatus("scanning her public posts…");
+  try {
+    const wallet = await window.JuniperEth.loadWallet();
+    lastWallet = wallet;
+    els.avatar.src = wallet.profile.avatar || "";
+    els.avatar.style.visibility = wallet.profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + wallet.handle;
+    els.didOut.textContent = wallet.profile.did;
+    els.balanceOut.textContent = fmt(wallet.balance);
+    els.balanceSub.textContent = wallet.deposits.length + " qualifying quote-repost" + (wallet.deposits.length === 1 ? "" : "s") + " found, " + wallet.scanned + " posts scanned";
+    renderLedger(wallet.deposits);
+    setStatus("");
+
+    lastShareText = shareText(wallet);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+    await buildShareCard(wallet);
+  } catch (err) {
+    setStatus("couldn't scan her feed: " + err.message, true);
+  } finally {
+    els.refresh.disabled = false;
+  }
+}
+
+els.refresh.addEventListener("click", load);
+
+els.copyPhrase.addEventListener("click", async () => {
+  const phrase = window.JuniperEth.MAGIC_PHRASE;
+  try {
+    await navigator.clipboard.writeText(phrase);
+    els.copyPhrase.textContent = "copied";
+    setTimeout(() => { els.copyPhrase.textContent = "copy"; }, 1400);
+  } catch (_) {
+    els.copyPhrase.textContent = "select & copy";
+  }
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "junipereth-balance.png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "junipereth-balance.png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "junipereth" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+load();
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
