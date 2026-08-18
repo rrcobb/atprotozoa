@@ -28,9 +28,14 @@ TXT record so NSIDs actually resolve — needs a human with Cloudflare dashboard
 access, not something the builder can do from the repo.
 
 **3. Aggregate views via `listReposByCollection`.** (`pds-and-lexicons.md`)
-Find every repo holding `net.bisks.steamtags.rating` etc. Turns eleven isolated
-toys that can only read your own records into a shared data layer. The
-crowdsourced steamtags view is what 7778777 originally asked for.
+Find every repo holding a given collection. **Done for three sites so far:**
+steamtags (the reference implementation, `global-index.js`), memex, and — as of
+2026-08-18 — verdict's `/crowd`, which aggregates every judgment on the network
+into a good/bad split, a kindest/harshest judge leaderboard, and the posts
+people can't agree on. Still one-repo-only: paintmoot (the obvious next one —
+"every board a gallery instead of a private canvas") plus alice-meets-bob,
+catspace, clusterpedia, docmoot, duohaunt, griftmax, hyperobject, keytags,
+kolpelor, padmoot, postwith, quadrants, socialcredit, tallybot, velvetrope, war.
 
 **4. Cache trigram verdicts.** (`store-ours-rederive-theirs.md`) **Done,
 2026-08-17.** `sites/trigrams/public/lib/unique.js`'s `searchPhrase()` (used by
@@ -186,10 +191,12 @@ a page isn't.
 
 ## If picking one thing
 
-Cheapest real win: **the lexicon work (1–3)**. It's mostly documentation of what
-already exists, it fixes a bug class that has already bitten twice, and step 3
-turns it into something genuinely new — an aggregate view of data nobody else
-has.
+Cheapest real win: **the lexicon work (1–3)**. Steps 1–2 are documentation of
+what already exists; step 3 (the aggregate views) is now live for three sites
+and turns the pattern into something genuinely new — a small, reusable
+`global-index.js` recipe (backfill via `listReposByCollection` + a live
+Jetstream feed) that any of the remaining one-repo-only lexicon sites could
+pick up next. Paintmoot is the obvious next target.
 
 Most fun for the effort: **one hand-built feed generator (5)**. Small, and it
 puts the project inside the Bluesky app instead of behind a link.

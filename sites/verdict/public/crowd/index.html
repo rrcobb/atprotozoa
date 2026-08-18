@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>verdict / crowd — what the network thinks</title>
+    <meta name="description" content="Every net.bisks.verdict.judgment record on the network, aggregated: the overall good/bad split, the kindest and harshest judges, and the posts the network can't agree on." />
+    <meta property="og:title" content="verdict / crowd" />
+    <meta property="og:description" content="Every verdict cast on the network, aggregated — including the posts the network can't agree on." />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --good: #1a7f37;
+        --bad: #c0392b;
+        --beautiful: #9b59b6;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 680px; margin: 0 auto; padding: 2.5rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem;
+      }
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .home { font-size: 0.8rem; }
+      .home a { color: var(--accent); text-decoration: none; }
+      .intro { color: var(--muted); margin: 0 0 1.75rem; font-size: 0.9rem; line-height: 1.7; max-width: 58ch; }
+      .intro b { color: var(--ink); font-weight: 600; }
+      a { color: var(--accent); }
+
+      .status { font-size: 0.78rem; color: var(--muted); margin-bottom: 1.5rem; }
+      .status .err { color: var(--bad); }
+      .status .dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--faint); margin-right: 0.35rem; }
+      .status .dot.live { background: var(--good); }
+
+      .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.75rem; margin-bottom: 2rem; }
+      .stat { border: 1px solid var(--faint); border-radius: 4px; padding: 0.75rem 0.9rem; }
+      .stat .n { font-size: 1.35rem; font-weight: 600; }
+      .stat .l { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+      .stat.good .n { color: var(--good); }
+      .stat.bad .n { color: var(--bad); }
+      .stat.beautiful .n { color: var(--beautiful); }
+
+      .splitbar { display: flex; height: 0.55rem; border-radius: 3px; overflow: hidden; margin: 0.4rem 0 2rem; background: var(--faint); }
+      .splitbar .good { background: var(--good); }
+      .splitbar .bad { background: var(--bad); }
+
+      section { margin-bottom: 2.5rem; }
+      h2 { font-size: 0.85rem; font-weight: 600; margin: 0 0 0.25rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
+      .sub { font-size: 0.8rem; color: var(--muted); margin: 0 0 1rem; }
+
+      .board { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+      @media (max-width: 540px) { .board { grid-template-columns: 1fr; } }
+      .board h3 { font-size: 0.78rem; margin: 0 0 0.5rem; color: var(--ink); }
+      ol.ranks { list-style: none; margin: 0; padding: 0; }
+      ol.ranks li { display: flex; justify-content: space-between; gap: 0.5rem; padding: 0.35rem 0; border-bottom: 1px solid var(--faint); font-size: 0.85rem; }
+      ol.ranks li:last-child { border-bottom: none; }
+      ol.ranks .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      ol.ranks .who a { color: var(--ink); text-decoration: none; }
+      ol.ranks .who a:hover { color: var(--accent); }
+      ol.ranks .ratio { color: var(--muted); flex-shrink: 0; }
+
+      .contested-list { display: flex; flex-direction: column; gap: 0.9rem; }
+      .cpost { border: 1px solid var(--faint); border-left: 3px solid var(--beautiful); border-radius: 4px; padding: 0.85rem 1rem; }
+      .cpost .by { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.4rem; }
+      .cpost .by a { color: var(--muted); text-decoration: none; }
+      .cpost .by a:hover { color: var(--accent); }
+      .cpost .txt { font-size: 0.9rem; white-space: pre-wrap; word-break: break-word; margin-bottom: 0.5rem; }
+      .cpost .txt:empty::before { content: "(media post, no text)"; color: var(--muted); font-style: italic; }
+      .cpost .votes { font-size: 0.78rem; }
+      .cpost .votes .good-txt { color: var(--good); font-weight: 600; }
+      .cpost .votes .bad-txt { color: var(--bad); font-weight: 600; }
+      .cpost .votes .beau { color: var(--beautiful); }
+
+      .empty { font-size: 0.85rem; color: var(--muted); font-style: italic; }
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="../">verdict</a> <span class="slash">/</span> crowd</h1>
+        <span class="home"><a href="../">cast your own →</a></span>
+      </header>
+      <p class="intro">
+        Every <code>net.bisks.verdict.judgment</code> record anyone has ever
+        written to their own repo, pulled straight off the network — no login,
+        nobody's data but what they already published. <b>What the crowd
+        thinks</b>, and, more interestingly, <b>where it doesn't agree</b>.
+      </p>
+
+      <div class="status" id="status">connecting…</div>
+
+      <div class="stats" id="stats"></div>
+      <div class="splitbar" id="splitbar" style="display:none"></div>
+
+      <section>
+        <h2>the leaderboard</h2>
+        <p class="sub">judges with at least 3 verdicts on record, ranked by their good/bad lean.</p>
+        <div class="board">
+          <div>
+            <h3>kindest</h3>
+            <ol class="ranks" id="kindest"><li class="empty">counting…</li></ol>
+          </div>
+          <div>
+            <h3>harshest</h3>
+            <ol class="ranks" id="harshest"><li class="empty">counting…</li></ol>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>the network disagrees</h2>
+        <p class="sub">posts more than one person judged, where the calls split — some said good, some said bad.</p>
+        <div class="contested-list" id="contested"><p class="empty">still gathering judgments…</p></div>
+      </section>
+
+      <footer>
+        reads <code>net.bisks.verdict.judgment</code> off every repo on the network via
+        <code>listReposByCollection</code> + a live Jetstream feed ·
+        <a href="../">back to verdict</a> · <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { GlobalIndex } from "../lib/global-index.js";
+
+      const APPVIEW = "https://api.bsky.app/xrpc";
+      const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      const postUrl = (handleOrDid, uri) => `https://bsky.app/profile/${handleOrDid}/post/${uri.split("/").pop()}`;
+      const pct = (n, d) => (d ? Math.round((n / d) * 100) : 0);
+
+      // ---- batched profile / post lookups, cached for the page's lifetime ----
+      const profileCache = new Map();
+      const postCache = new Map();
+
+      async function jget(url) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`${url} -> ${res.status}`);
+        return res.json();
+      }
+
+      function chunk(arr, size) {
+        const out = [];
+        for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+        return out;
+      }
+
+      async function loadProfiles(dids) {
+        const missing = dids.filter((d) => !profileCache.has(d));
+        for (const batch of chunk(missing, 25)) {
+          if (!batch.length) continue;
+          try {
+            const qs = batch.map((d) => `actors=${encodeURIComponent(d)}`).join("&");
+            const data = await jget(`${APPVIEW}/app.bsky.actor.getProfiles?${qs}`);
+            for (const p of data.profiles || []) profileCache.set(p.did, p);
+          } catch (_) {
+            // A profile lookup failure just falls back to the bare DID below.
+          }
+        }
+        for (const d of dids) if (!profileCache.has(d)) profileCache.set(d, null);
+      }
+
+      async function loadPosts(uris) {
+        const missing = uris.filter((u) => !postCache.has(u));
+        for (const batch of chunk(missing, 25)) {
+          if (!batch.length) continue;
+          try {
+            const qs = batch.map((u) => `uris=${encodeURIComponent(u)}`).join("&");
+            const data = await jget(`${APPVIEW}/app.bsky.feed.getPosts?${qs}`);
+            for (const p of data.posts || []) postCache.set(p.uri, p);
+          } catch (_) {
+            // A missing/deleted post just falls back to a bare link below.
+          }
+        }
+        for (const u of uris) if (!postCache.has(u)) postCache.set(u, null);
+      }
+
+      // ---- render --------------------------------------------------------------
+      const statusEl = document.getElementById("status");
+      const statsEl = document.getElementById("stats");
+      const splitEl = document.getElementById("splitbar");
+      const kindestEl = document.getElementById("kindest");
+      const harshestEl = document.getElementById("harshest");
+      const contestedEl = document.getElementById("contested");
+
+      function renderStatus(snap) {
+        const dot = `<span class="dot ${snap.connected ? "live" : ""}"></span>`;
+        const phase = snap.backfillDone
+          ? "full history scanned"
+          : snap.backfillActive
+          ? "scanning network history…"
+          : "history scan paused";
+        const errPart = snap.error ? ` · <span class="err">${esc(snap.error)}</span>` : "";
+        statusEl.innerHTML = `${dot}${snap.connected ? "live" : "reconnecting…"} · ${phase} · ${snap.entryCount} judgments seen so far${errPart}`;
+      }
+
+      function renderStats(snap) {
+        const t = snap.totals;
+        statsEl.innerHTML = `
+          <div class="stat"><div class="n">${t.judgments}</div><div class="l">judgments</div></div>
+          <div class="stat"><div class="n">${snap.judgeCount}</div><div class="l">judges</div></div>
+          <div class="stat good"><div class="n">${pct(t.good, t.judgments)}%</div><div class="l">good</div></div>
+          <div class="stat bad"><div class="n">${pct(t.bad, t.judgments)}%</div><div class="l">bad</div></div>
+          <div class="stat beautiful"><div class="n">${pct(t.beautiful, t.judgments)}%</div><div class="l">beautiful</div></div>
+        `;
+        if (t.judgments) {
+          splitEl.style.display = "flex";
+          splitEl.innerHTML = `
+            <div class="good" style="width:${pct(t.good, t.judgments)}%"></div>
+            <div class="bad" style="width:${pct(t.bad, t.judgments)}%"></div>
+          `;
+        }
+      }
+
+      function judgeLabel(did) {
+        const p = profileCache.get(did);
+        const handle = p?.handle || did;
+        return `<a href="https://bsky.app/profile/${encodeURIComponent(handle)}" target="_blank">@${esc(handle)}</a>`;
+      }
+
+      async function renderLeaderboard(snap) {
+        const dids = [...snap.kindest, ...snap.harshest].map((j) => j.did);
+        if (dids.length) await loadProfiles(dids);
+
+        const rows = (list) =>
+          list.length
+            ? list
+                .map(
+                  (j) =>
+                    `<li><span class="who">${judgeLabel(j.did)}</span><span class="ratio">${pct(j.good, j.total)}% good · ${j.total}</span></li>`
+                )
+                .join("")
+            : `<li class="empty">not enough judges with 3+ verdicts yet</li>`;
+        kindestEl.innerHTML = rows(snap.kindest);
+        harshestEl.innerHTML = rows(snap.harshest);
+      }
+
+      function contestedCard(post, uri) {
+        const total = post.good + post.bad;
+        const author = post.authorHandle
+          ? `<a href="${postUrl(post.authorHandle, uri)}" target="_blank">@${esc(post.authorHandle)}</a>`
+          : `<a href="https://bsky.app/profile/${encodeURIComponent(uri.split("/")[2])}" target="_blank">unknown post</a>`;
+        return `
+          <div class="cpost">
+            <div class="by">${author} · judged by ${post.raterCount}</div>
+            <div class="txt">${esc(post.text || "")}</div>
+            <div class="votes">
+              <span class="good-txt">${post.good} good</span> ·
+              <span class="bad-txt">${post.bad} bad</span>${
+                post.beautiful ? ` · <span class="beau">${post.beautiful} ✦ beautiful</span>` : ""
+              } · ${total} total
+            </div>
+          </div>`;
+      }
+
+      async function renderContested(snap) {
+        if (!snap.contested.length) {
+          contestedEl.innerHTML = snap.backfillDone
+            ? `<p class="empty">no disagreements yet — every doubly-judged post the network has seen, it's agreed on.</p>`
+            : `<p class="empty">still gathering judgments…</p>`;
+          return;
+        }
+        const uris = snap.contested.map((c) => c.uri);
+        await loadPosts(uris);
+        contestedEl.innerHTML = snap.contested
+          .map((c) => {
+            const post = postCache.get(c.uri);
+            return contestedCard(
+              { ...c, text: post?.record?.text || "", authorHandle: post?.author?.handle || "" },
+              c.uri
+            );
+          })
+          .join("");
+      }
+
+      let rendering = false;
+      let pendingSnap = null;
+      async function render(snap) {
+        renderStatus(snap);
+        renderStats(snap);
+        if (rendering) {
+          pendingSnap = snap;
+          return;
+        }
+        rendering = true;
+        try {
+          await renderLeaderboard(snap);
+          await renderContested(snap);
+        } finally {
+          rendering = false;
+          if (pendingSnap) {
+            const next = pendingSnap;
+            pendingSnap = null;
+            render(next);
+          }
+        }
+      }
+
+      const index = new GlobalIndex({ onUpdate: render });
+      index.start();
+    </script>
+  </body>
+</html>

@@ -52,19 +52,30 @@ is documented and fetchable, not a formally resolvable namespace.
 
 **Tier 3 — use `listReposByCollection`.** This is the fun part and the reason to
 bother. It finds every repo on the network holding records in a given collection.
-Right now each of these sites writes records into individual users' repos and
-then can only ever read *your own* back. With `listReposByCollection` you get the
+Most of these sites write records into individual users' repos and can otherwise
+only ever read *your own* back. With `listReposByCollection` you get the
 aggregate view for free:
 
-- every steamtags rating anyone has made → a real crowdsourced tag-fit dataset,
-  which is what 7778777 was asking for in the first place ("let users log in and
-  save this under `net.bisks.steamtags`")
-- every verdict judgment → a "what did the network think" page
-- every paintmoot board → a gallery instead of a private canvas
+- steamtags — **done.** `sites/steamtags/public/lib/global-index.js` is the
+  reference implementation: `listReposByCollection` backfill + a live Jetstream
+  subscription, rendered as a per-tag board of games and average fit scores.
+- memex — **done**, same pattern (`sites/memex/public/lib/`).
+- verdict — **done, 2026-08-18** (daily-slot pass). `sites/verdict/public/lib/global-index.js`
+  (copied from steamtags') + `verdict.bisks.net/crowd` — network-wide good/bad/beautiful
+  totals, a kindest/harshest judge leaderboard, and the actual payoff: posts more
+  than one person judged where the calls split, rendered with the real post text
+  pulled from the AppView.
+- paintmoot boards → still just a private canvas per board, not a gallery. Next
+  obvious candidate — same `listReposByCollection` shape, the interesting part
+  would be surfacing boards other people's moots have drawn on.
+- the other lexicon-bearing sites without an aggregate view yet: alice-meets-bob,
+  catspace, clusterpedia, docmoot, duohaunt, griftmax, hyperobject, keytags,
+  kolpelor, padmoot, postwith, quadrants, socialcredit, tallybot, velvetrope, war.
 
-That turns eleven isolated toys into something that looks like a small network of
-apps sharing a data layer. Same house style (copy, don't abstract) — the sites
-stay independent, they just agree on record shapes.
+Steamtags, memex, and verdict now look like a small network of apps sharing a
+data layer. Same house style (copy, don't abstract) — the sites stay
+independent, they just agree on record shapes and, increasingly, on the same
+`global-index.js` pattern for reading them back in aggregate.
 
 **Worth noting:** this is the "dataset maker" idea from `beyond-buildthis.md`, except the
 dataset is one you already own and already generate. Much less work than indexing
@@ -112,8 +123,9 @@ self-hosting actually helps.
 1. ~~Write the missing lexicon schemas.~~ Done (2026-08-16).
 2. ~~Serve them all at one path~~ (`bisks.net/lexicons/`, done 2026-08-16) +
    add the `_lexicon` DNS record — still needs a human with dashboard access.
-3. Build one aggregate view off `listReposByCollection` — steamtags is the
-   obvious first, since the crowdsourced version is what was originally asked
-   for.
+3. ~~Build one aggregate view off `listReposByCollection`~~ Done for steamtags,
+   memex, and verdict (`/crowd`, 2026-08-18). Paintmoot boards are the next
+   obvious candidate; the rest of the lexicon-bearing sites listed above are
+   still one-repo-only.
 4. Publish a feed generator, as the flashier protocol-ownership move.
 5. Only then reconsider a PDS, with a specific reason.
