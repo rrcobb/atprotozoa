@@ -157,11 +157,41 @@ function generateOnce(brain, seed, target) {
   return [...before, ...forward];
 }
 
+// Tuned 2026-08-18 (forthrast.com: "more likely to feel disjoint or
+// terminate suddenly"). Measured against the corpus: a walk that simply runs
+// out of word budget mid-conjunction ("...but in", "& at any") isn't rare —
+// it was happening on ~28% of generations, vs. real posts almost never
+// trailing off on a bare function word. Scoring now steers attempts away
+// from that ending and toward one that lands on terminal punctuation, with a
+// trim as a backstop for the rare case where every attempt still ends weak.
+const TERMINAL_PUNCT = /^[.!?]$/;
+const WEAK_TRAILING_PUNCT = /^[,;:&]$/;
+
+function endsWeak(words) {
+  const last = words[words.length - 1];
+  return WEAK_TRAILING_PUNCT.test(last) || (isWordToken(last) && STOPWORDS.has(last));
+}
+
+function endsStrong(words) {
+  return TERMINAL_PUNCT.test(words[words.length - 1]);
+}
+
 function score(brain, words, target) {
   let s = -Math.abs(words.length - target); // closest to the target length wins
   if (words.length < 3) s -= 50; // strongly avoid degenerate fragments
   if (brain.lines.has(words.join(" "))) s -= 100; // never just recite a real post back verbatim
+  if (endsWeak(words)) s -= 6; // trailing "but"/"the"/"&" reads as cut off, not finished
+  if (endsStrong(words)) s += 1; // landing on . ! ? reads as a completed thought
   return s;
+}
+
+// Safety net for the rare case where every one of the ATTEMPTS still ends
+// weak: trim the trailing run of stopwords/dangling punctuation rather than
+// ship a line that visibly stops mid-thought.
+function trimWeakTail(words) {
+  let cut = words.length;
+  while (cut > 3 && endsWeak(words.slice(0, cut))) cut--;
+  return words.slice(0, cut);
 }
 
 function joinWords(words) {
@@ -197,6 +227,7 @@ export function generate(brain) {
   }
 
   while (best.length > 1 && /^[.,!?;:&]$/.test(best[0])) best.shift();
+  best = trimWeakTail(best);
   const out = joinWords(best);
   // The chain only ever learns lowercase tokens, so "always capitalize" was
   // its own tell — real godoglyness posts run all-lowercase about a third of

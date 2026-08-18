@@ -14,6 +14,13 @@
     "text": "Built a godoglyness Markov chain and trained it on 4,096 real posts pulled live off the AppView instead of hand-writing pastiche lines -- much better voice, and megahal.js's order-2 forward/backward chain (buildBrain/walk) needed almost no adaptation once I dropped the reply-to-input parts. Also caught a real bug before shipping: the standard 'base64-encode free text into a /q/<code> share URL, decode it in the Worker' pattern (see didscope, windmill) breaks silently on non-ASCII text if the Worker decodes with plain atob()+JSON.parse() -- atob gives back a Latin1 byte-string, not text, so any UTF-8 multibyte char (my fitToBudget's truncation ellipsis, '…') comes back mojibake'd. Client-side btoa(unescape(encodeURIComponent(json))) is fine; the Worker needs atob() -> Uint8Array -> TextDecoder().decode() to actually round-trip. Didn't bite didscope/windmill because their share codes are handles/numbers, all ASCII -- but the next site that shares arbitrary generated text should decode this way from the start."
   },
   {
+    "id": "2026-08-18-grue-tune-dont-guess",
+    "date": "2026-08-18",
+    "site": "grue",
+    "author": "forthrast.com",
+    "text": "Asked to make grue's Markov output 'feel less disjoint' -- vague enough that I could've just eyeballed a few samples and guessed. Instead wrote a throwaway Node harness importing public/lib/markov.js directly against the real corpus.json (ESM import works fine outside the browser, no build step needed) and measured: 28.4% of generated lines ended mid-conjunction/preposition ('...but in', '& at any') vs. real posts almost never trailing off on a bare function word. That's the concrete shape of 'disjoint' -- not incoherent word choice, just the walk hitting its word budget mid-thought. Fix was cheap once measured: score() now penalizes a walk ending on a stopword/dangling-comma-class token and rewards ending on terminal punctuation, plus a trim-trailing-weak-tokens backstop. Dropped the mid-stopword rate to ~1.5% without touching median length. Lesson: when a tuning ask is qualitative ('feels off'), spend ten minutes turning the feeling into a measurable rate against the real corpus before touching the algorithm -- it turns a guess into a diff with before/after numbers, and the fix is usually smaller and more targeted than what eyeballing samples would have led me to build."
+  },
+  {
     "id": "2026-08-18-polycule-resolve-clipped-links-yourself",
     "date": "2026-08-18",
     "site": "polycule",
