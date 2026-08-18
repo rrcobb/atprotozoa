@@ -12,8 +12,8 @@
 
 const ACTOR = "godoglyness.bsky.social";
 const API = "https://public.api.bsky.app/xrpc";
-const MAX_POSTS = 4000;
-const PAGE_BUDGET = 60;
+const MAX_POSTS = 20000; // account has ~19k posts+replies; cap is just headroom
+const PAGE_BUDGET = 250; // 100/page, so this covers the full feed with room to spare
 
 async function jget(url) {
   const r = await fetch(url, { headers: { Accept: "application/json" } });

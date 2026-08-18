@@ -1,11 +1,14 @@
-// A from-scratch order-2 Markov chain, walked both forward and backward from
-// a seed word, with several candidates generated and the most "interesting"
-// one kept — the same core algorithm as sites/megahal/public/lib/megahal.js
-// (itself a reimplementation of the classic MegaHAL idea), copied in and
-// trimmed down: no reply-to-input, no in-session learning, no keyword
-// extraction from a prompt. This brain only ever does one thing — generate a
-// fresh line in the voice of whatever corpus it was trained on — so half of
-// megahal.js's surface (built for a two-way chat) doesn't apply here.
+// A from-scratch order-3 Markov chain (falls back to order-2, then order-1,
+// whenever the longer context is unseen — the classic MegaHAL back-off trick,
+// otherwise a bigger order just means more dead ends), walked both forward
+// and backward from a seed word, with several candidates generated and the
+// most "interesting" one kept — the same core algorithm as
+// sites/megahal/public/lib/megahal.js (itself a reimplementation of the
+// classic MegaHAL idea), copied in and trimmed down: no reply-to-input, no
+// in-session learning, no keyword extraction from a prompt. This brain only
+// ever does one thing — generate a fresh line in the voice of whatever corpus
+// it was trained on — so half of megahal.js's surface (built for a two-way
+// chat) doesn't apply here.
 //
 // Each corpus line (one real post) is trained as its own bounded sequence,
 // same as megahal's "you brain": the chain never wanders from what looked
@@ -50,8 +53,10 @@ function addTo(map, key, value) {
 
 function newBrain() {
   return {
+    forward3: new Map(),
     forward2: new Map(),
     forward1: new Map(),
+    backward3: new Map(),
     backward2: new Map(),
     backward1: new Map(),
     dict: new Map(), // word -> occurrence count
@@ -62,25 +67,27 @@ function newBrain() {
   };
 }
 
+// Three BOUNDARY tokens of padding up front covers the order-3 context even
+// on the first generated word; order-2 and order-1 just read the last two
+// (or one) slots of the same padded array, so one pass builds all three maps.
+function learnDirection(chain3, chain2, chain1, words) {
+  const padded = [BOUNDARY, BOUNDARY, BOUNDARY, ...words, BOUNDARY];
+  for (let i = 3; i < padded.length; i++) {
+    const w2 = padded[i - 3], w1 = padded[i - 2], w0 = padded[i - 1], next = padded[i];
+    addTo(chain3, w2 + SEP + w1 + SEP + w0, next);
+    addTo(chain2, w1 + SEP + w0, next);
+    addTo(chain1, w0, next);
+  }
+}
+
 function learnLine(brain, words) {
   if (!words.length) return;
   for (const w of words) brain.dict.set(w, (brain.dict.get(w) || 0) + 1);
   brain.lines.add(words.join(" "));
   brain.trainedOn++;
 
-  const fwd = [BOUNDARY, BOUNDARY, ...words, BOUNDARY];
-  for (let i = 2; i < fwd.length; i++) {
-    const w0 = fwd[i - 2], w1 = fwd[i - 1], next = fwd[i];
-    addTo(brain.forward2, w0 + SEP + w1, next);
-    addTo(brain.forward1, w1, next);
-  }
-
-  const bwd = [BOUNDARY, BOUNDARY, ...[...words].reverse(), BOUNDARY];
-  for (let i = 2; i < bwd.length; i++) {
-    const w0 = bwd[i - 2], w1 = bwd[i - 1], next = bwd[i];
-    addTo(brain.backward2, w0 + SEP + w1, next);
-    addTo(brain.backward1, w1, next);
-  }
+  learnDirection(brain.forward3, brain.forward2, brain.forward1, words);
+  learnDirection(brain.backward3, brain.backward2, brain.backward1, [...words].reverse());
 }
 
 export function buildBrain(lines) {
@@ -111,16 +118,21 @@ function seedCandidates(brain) {
   return out;
 }
 
-function walk(chain2, chain1, seed, maxWords) {
+function walk(chain3, chain2, chain1, seed, maxWords) {
   const out = [seed];
   const seenContexts = new Set();
   while (out.length < maxWords) {
     let options = null;
-    if (out.length >= 2) {
-      const ctx = out[out.length - 2] + SEP + out[out.length - 1];
+    if (out.length >= 3) {
+      const ctx = out[out.length - 3] + SEP + out[out.length - 2] + SEP + out[out.length - 1];
       if (seenContexts.has(ctx)) break;
       seenContexts.add(ctx);
-      options = chain2.get(ctx);
+      options = chain3.get(ctx);
+    }
+    // Back off to a shorter, more-often-seen context rather than dead-ending
+    // the walk the moment the order-3 context is novel.
+    if ((!options || !options.length) && out.length >= 2) {
+      options = chain2.get(out[out.length - 2] + SEP + out[out.length - 1]);
     }
     if (!options || !options.length) options = chain1.get(out[out.length - 1]);
     if (!options || !options.length) break;
@@ -139,8 +151,8 @@ const MAX_HALF = 36; // hard ceiling on words grown in each direction from the s
 // sampled from the real corpus instead of maximizing it.
 function generateOnce(brain, seed, target) {
   const half = Math.max(2, Math.min(MAX_HALF, Math.round(target / 2)));
-  const forward = walk(brain.forward2, brain.forward1, seed, half);
-  const backwardWalk = walk(brain.backward2, brain.backward1, seed, half);
+  const forward = walk(brain.forward3, brain.forward2, brain.forward1, seed, half);
+  const backwardWalk = walk(brain.backward3, brain.backward2, brain.backward1, seed, half);
   const before = backwardWalk.slice(1).reverse();
   return [...before, ...forward];
 }

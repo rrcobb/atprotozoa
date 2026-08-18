@@ -25,27 +25,37 @@
       content="Trained on thousands of @godoglyness.bsky.social's real posts. Can you tell the generated line from the real thing?"
     />
     <meta name="twitter:image" content="https://grue.bisks.net/og.png" />
-    <!-- bisks.net house style: plain, black on white, one readable mono,
-         hairline-separated blocks. Blue accent for the site chrome; green is
-         reserved for "real" in the quiz, matching the grue (green+blue)
-         portmanteau the name comes from. Palette shape copied from
-         trigrams/megahal (siblings). -->
+    <!-- Redesign 2026-08-18 (asked for by forthrast.com): the comparison used
+         to be buried under a long intro + thread quote, and the grey-on-white
+         bisks.net house style read as flat for a page that's explicitly about
+         a philosophy-of-induction riddle. Two changes: the generate/quiz pair
+         now leads the page (long context moved into a <details> below), and
+         the palette goes dark with an elementary-cellular-automaton backdrop
+         (Rule 30, canvas, ~11fps) — a Markov chain and a cellular automaton
+         are both "next state from local rule", so it's automata-themed
+         *and* on-topic, not just Matrix-rain for its own sake. Green/blue
+         keep meaning grue/bleen, same portmanteau as before, just brightened
+         for a dark background. prefers-reduced-motion gets one static frame.
+    -->
     <style>
       :root {
-        --bg: #ffffff;
-        --ink: #111111;
-        --muted: #6b6b6b;
-        --faint: #e4e4e4;
-        --faintbg: #f6f6f6;
-        --accent: #1a5fd0;
-        --grue: #1f8a4c;
-        --bleen: #1a5fd0;
-        --bad: #c0392b;
-        --gold: #e0a400;
+        --bg: #060907;
+        --panel: rgba(10, 16, 12, 0.86);
+        --panel-solid: #0b120d;
+        --ink: #d9f5df;
+        --muted: #7fa088;
+        --faint: #1c2e21;
+        --faintbg: rgba(19, 33, 23, 0.6);
+        --accent: #5fb2ff;
+        --grue: #3ee283;
+        --bleen: #5fb2ff;
+        --bad: #ff6f61;
+        --gold: #ffcf5c;
         --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
           "Roboto Mono", Menlo, Consolas, monospace;
       }
       * { box-sizing: border-box; }
+      html, body { height: 100%; }
       body {
         margin: 0;
         background: var(--bg);
@@ -55,42 +65,38 @@
         line-height: 1.6;
         -webkit-font-smoothing: antialiased;
       }
-      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      #automaton {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 0;
+        opacity: 0.55;
+        pointer-events: none;
+      }
+      .wrap { position: relative; z-index: 1; max-width: 660px; margin: 0 auto; padding: 2.75rem 1.25rem 5rem; }
       header {
-        display: flex; align-items: baseline; justify-content: space-between;
-        gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap;
+        text-align: center; margin-bottom: 0.5rem;
       }
-      header h1 { font-size: 1.4rem; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
+      header h1 { font-size: 2.3rem; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
       header h1 a { color: inherit; text-decoration: none; }
-      header h1 .g { color: var(--grue); }
-      header h1 .u { color: var(--bleen); }
-      header .sub { color: var(--muted); font-size: 0.82rem; }
+      header h1 .g { color: var(--grue); text-shadow: 0 0 18px rgba(62, 226, 131, 0.45); }
+      header h1 .u { color: var(--bleen); text-shadow: 0 0 18px rgba(95, 178, 255, 0.45); }
+      header .tagline { color: var(--muted); font-size: 0.85rem; margin: 0.5rem 0 0; }
+      header .tagline b { color: var(--ink); }
 
-      .intro {
-        color: var(--muted); font-size: 0.88rem; line-height: 1.75;
-        margin: 0 0 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--faint);
-      }
-      .intro b { color: var(--ink); }
-      .intro a { color: var(--accent); text-decoration: none; }
-      .intro a:hover { text-decoration: underline; }
-      .intro .thread {
-        display: block; margin-top: 0.9rem; padding: 0.7rem 0.9rem;
-        background: var(--faintbg); border-radius: 8px; font-size: 0.82rem;
-        color: var(--ink);
-      }
-      .intro .thread p { margin: 0.2rem 0; }
-      .intro .thread .who { color: var(--muted); }
-
-      section { margin-bottom: 2.5rem; }
+      section { margin-bottom: 2.25rem; }
       h2 {
-        font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em;
-        color: var(--muted); font-weight: 700; margin: 0 0 0.9rem;
+        font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em;
+        color: var(--muted); font-weight: 700; margin: 0 0 0.9rem; text-align: center;
       }
 
       /* generator card */
       .card {
         border: 1px solid var(--faint); border-radius: 12px; padding: 1.4rem 1.5rem;
-        position: relative; min-height: 6rem;
+        position: relative; min-height: 6rem; background: var(--panel);
+        backdrop-filter: blur(2px);
+        box-shadow: 0 0 0 1px rgba(62, 226, 131, 0.04), 0 20px 40px -24px rgba(0, 0, 0, 0.6);
       }
       .card-head {
         display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.8rem;
@@ -106,7 +112,7 @@
         color: var(--bleen); border: 1px solid var(--bleen); border-radius: 999px;
         padding: 0.15rem 0.55rem; text-transform: uppercase;
       }
-      .card-text { font-size: 1.02rem; line-height: 1.65; white-space: pre-wrap; }
+      .card-text { font-size: 1.05rem; line-height: 1.65; white-space: pre-wrap; }
       .card-text.loading { color: var(--muted); font-style: italic; }
       .card-meta {
         margin-top: 1rem; padding-top: 0.8rem; border-top: 1px dashed var(--faint);
@@ -114,46 +120,75 @@
         gap: 1rem; flex-wrap: wrap;
       }
 
-      .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; }
+      .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; justify-content: center; }
       button, .btn {
         font-family: var(--mono); font-size: 0.82rem; font-weight: 600;
         border-radius: 6px; padding: 0.5rem 0.8rem; cursor: pointer;
-        border: 1px solid var(--faint); background: var(--bg); color: var(--ink);
+        border: 1px solid var(--faint); background: var(--panel-solid); color: var(--ink);
         text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem;
       }
-      button:hover, .btn:hover { border-color: var(--muted); }
+      button:hover, .btn:hover { border-color: var(--grue); }
       button:disabled { opacity: 0.5; cursor: default; }
-      .btn-primary { background: var(--ink); color: #fff; border-color: var(--ink); }
-      .btn-primary:hover { background: #333; }
+      .btn-primary { background: var(--grue); color: #04150a; border-color: var(--grue); font-weight: 700; }
+      .btn-primary:hover { background: #57eb95; }
       .copied-hint { font-size: 0.75rem; color: var(--grue); align-self: center; }
 
       /* quiz */
-      .quiz-intro { color: var(--muted); font-size: 0.85rem; margin: 0 0 1rem; }
+      .quiz-intro { color: var(--muted); font-size: 0.85rem; margin: 0 auto 1rem; max-width: 46em; text-align: center; }
       .quiz-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
       @media (max-width: 520px) { .quiz-cards { grid-template-columns: 1fr; } }
       .quiz-card {
         border: 1px solid var(--faint); border-radius: 10px; padding: 1rem;
         cursor: pointer; font-size: 0.92rem; line-height: 1.5; text-align: left;
-        background: var(--bg); color: var(--ink); font-family: var(--mono);
-        transition: border-color 0.1s, background 0.1s;
+        background: var(--panel); color: var(--ink); font-family: var(--mono);
+        transition: border-color 0.15s, background 0.15s;
       }
-      .quiz-card:hover:not(:disabled) { border-color: var(--muted); }
+      .quiz-card:hover:not(:disabled) { border-color: var(--bleen); }
       .quiz-card:disabled { cursor: default; }
-      .quiz-card.pick-correct { border-color: var(--grue); background: #f1faf4; }
-      .quiz-card.pick-wrong { border-color: var(--bad); background: #fbf1f0; }
+      .quiz-card.pick-correct { border-color: var(--grue); background: rgba(62, 226, 131, 0.1); }
+      .quiz-card.pick-wrong { border-color: var(--bad); background: rgba(255, 111, 97, 0.1); }
       .quiz-label {
         display: block; font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase;
         color: var(--muted); margin-bottom: 0.5rem;
       }
-      .quiz-result { margin-top: 0.9rem; font-size: 0.85rem; min-height: 1.4em; }
+      .quiz-result { margin-top: 0.9rem; font-size: 0.85rem; min-height: 1.4em; text-align: center; }
       .quiz-result.grue { color: var(--grue); }
       .quiz-result.bleen { color: var(--bad); }
-      .quiz-score { color: var(--muted); font-size: 0.78rem; margin-top: 0.3rem; }
-      .quiz-actions { margin-top: 0.8rem; }
+      .quiz-score { color: var(--muted); font-size: 0.78rem; margin-top: 0.3rem; text-align: center; }
+      .quiz-actions { margin-top: 0.8rem; text-align: center; }
+
+      /* collapsed context: the long intro + thread quote, out of the way of
+         the fold but not deleted */
+      details.context {
+        margin: 2.5rem 0 2rem; border-top: 1px solid var(--faint); padding-top: 1.1rem;
+      }
+      details.context summary {
+        cursor: pointer; color: var(--muted); font-size: 0.76rem; text-transform: uppercase;
+        letter-spacing: 0.08em; list-style: none;
+      }
+      details.context summary::-webkit-details-marker { display: none; }
+      details.context summary::before { content: "▸ "; color: var(--grue); }
+      details.context[open] summary::before { content: "▾ "; }
+      details.context summary:hover { color: var(--ink); }
+      .intro {
+        color: var(--muted); font-size: 0.88rem; line-height: 1.75; margin: 1rem 0 0;
+      }
+      .intro p { margin: 0 0 0.9rem; }
+      .intro p:last-child { margin-bottom: 0; }
+      .intro b { color: var(--ink); }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+      .intro .thread {
+        margin: 0 0 0.9rem; padding: 0.7rem 0.9rem;
+        background: var(--faintbg); border-radius: 8px; font-size: 0.82rem;
+        color: var(--ink); border: 1px solid var(--faint);
+      }
+      .intro .thread p { margin: 0.2rem 0; }
+      .intro .thread .who { color: var(--muted); }
 
       footer {
-        border-top: 1px solid var(--faint); padding-top: 1.2rem; margin-top: 2.5rem;
-        color: var(--muted); font-size: 0.78rem; line-height: 1.8;
+        border-top: 1px solid var(--faint); padding-top: 1.2rem; margin-top: 1.5rem;
+        color: var(--muted); font-size: 0.78rem; line-height: 1.8; text-align: center;
       }
       footer a { color: var(--accent); text-decoration: none; }
       footer a:hover { text-decoration: underline; }
@@ -162,31 +197,16 @@
     </style>
   </head>
   <body>
+    <canvas id="automaton" aria-hidden="true"></canvas>
+
     <div class="wrap">
       <header>
         <h1><a href="/"><span class="g">gr</span><span class="u">u</span>e</a></h1>
-        <span class="sub">a godoglyness markov chain</span>
+        <p class="tagline">
+          a godoglyness markov chain — trained on <b id="corpusCount">thousands</b> of
+          @godoglyness.bsky.social's real posts. can you spot the real one?
+        </p>
       </header>
-
-      <p class="intro">
-        <b>@godoglyness.bsky.social</b> writes real posts that read like a fever-dream
-        footnote to Nelson Goodman. The chain below is trained on
-        <b id="corpusCount">thousands</b> of the actual account's real posts (pulled
-        straight off the AppView, not one quote from a thread) and generates a fresh
-        line every time you ask — same second-order word-chain trick as
-        <a href="https://megahal.bisks.net/">megahal</a>.
-        <span class="thread">
-          <p class="who">@norvid-studies.bsky.social</p>
-          <p>genuinely can't tell if this is a spambot or a ~2500 Elo simcluster poster</p>
-          <p class="who">@godoglyness.bsky.social</p>
-          <p>at the top level of play, it's impossible to tell</p>
-          <p class="who">@lucresnooker.bsky.social</p>
-          <p>(and it would be rude and unsporting to ask)</p>
-        </span>
-        Asked for by <a href="https://bsky.app/profile/forthrast.com">@forthrast.com</a>. See also the
-        <a href="https://godoglyness.bisks.net/">full archive</a> and
-        <a href="https://onlygodoglyness.bisks.net/">the social network with exactly one poster</a>.
-      </p>
 
       <section>
         <h2>generate</h2>
@@ -232,6 +252,33 @@
         </div>
       </section>
 
+      <details class="context">
+        <summary>the full story</summary>
+        <div class="intro">
+          <p>
+            <b>@godoglyness.bsky.social</b> writes real posts that read like a fever-dream
+            footnote to Nelson Goodman. The chain above is trained on
+            <span id="corpusCount2">thousands</span> of the actual account's real posts (pulled
+            straight off the AppView, not one quote from a thread) and generates a fresh
+            line every time you ask — same second-order-and-up word-chain trick as
+            <a href="https://megahal.bisks.net/">megahal</a>.
+          </p>
+          <div class="thread">
+            <p class="who">@norvid-studies.bsky.social</p>
+            <p>genuinely can't tell if this is a spambot or a ~2500 Elo simcluster poster</p>
+            <p class="who">@godoglyness.bsky.social</p>
+            <p>at the top level of play, it's impossible to tell</p>
+            <p class="who">@lucresnooker.bsky.social</p>
+            <p>(and it would be rude and unsporting to ask)</p>
+          </div>
+          <p>
+            Asked for by <a href="https://bsky.app/profile/forthrast.com">@forthrast.com</a>. See also the
+            <a href="https://godoglyness.bisks.net/">full archive</a> and
+            <a href="https://onlygodoglyness.bisks.net/">the social network with exactly one poster</a>.
+          </p>
+        </div>
+      </details>
+
       <footer>
         Corpus: <span id="corpusMeta">loading…</span> · text only, own posts and replies, no
         reposts. This is a Markov chain, not a language model — it has no idea what any of
@@ -244,6 +291,84 @@
 
     <canvas id="shareCanvas" width="1200" height="630"></canvas>
 
+    <script>
+      // Elementary cellular automaton (Rule 30) scrolling down a fixed canvas
+      // behind the page — a Markov chain and a cellular automaton are both
+      // "pick the next state from a local rule," so this is the same idea as
+      // the page itself, just visual. Deliberately dim + slow (~11fps): a
+      // backdrop, not a distraction. One static frame if the visitor asked
+      // for reduced motion.
+      (function () {
+        var canvas = document.getElementById("automaton");
+        if (!canvas || !canvas.getContext) return;
+        var ctx = canvas.getContext("2d");
+        var reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        var CELL = 6;
+        var RULE = 30;
+        var ruleTable = [];
+        for (var i = 0; i < 8; i++) ruleTable[i] = (RULE >> i) & 1;
+
+        var cols, cells, y, timer;
+
+        function reset() {
+          canvas.width = window.innerWidth;
+          canvas.height = window.innerHeight;
+          cols = Math.max(1, Math.ceil(canvas.width / CELL));
+          cells = new Uint8Array(cols);
+          cells[Math.floor(cols / 2)] = 1;
+          y = 0;
+          ctx.fillStyle = "#060907";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function step(row) {
+          var next = new Uint8Array(cols);
+          for (var x = 0; x < cols; x++) {
+            var l = row[(x - 1 + cols) % cols];
+            var c = row[x];
+            var r = row[(x + 1) % cols];
+            next[x] = ruleTable[(l << 2) | (c << 1) | r];
+          }
+          return next;
+        }
+
+        function drawRow() {
+          for (var x = 0; x < cols; x++) {
+            if (!cells[x]) continue;
+            ctx.fillStyle = (x + y) % 7 === 0 ? "rgba(95,178,255,0.18)" : "rgba(62,226,131,0.11)";
+            ctx.fillRect(x * CELL, y * CELL, CELL - 1, CELL - 1);
+          }
+        }
+
+        function tick() {
+          drawRow();
+          cells = step(cells);
+          y++;
+          if (y * CELL > canvas.height + CELL) reset();
+        }
+
+        reset();
+        if (reduceMotion) {
+          var rows = Math.ceil(canvas.height / CELL);
+          for (var i2 = 0; i2 < rows; i2++) tick();
+        } else {
+          timer = setInterval(tick, 90);
+        }
+
+        var resizeTimer;
+        window.addEventListener("resize", function () {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(function () {
+            reset();
+            if (reduceMotion) {
+              var rows2 = Math.ceil(canvas.height / CELL);
+              for (var j = 0; j < rows2; j++) tick();
+            }
+          }, 200);
+        });
+      })();
+    </script>
+
     <script type="module">
       import { buildBrain, generate, fitToBudget } from "./lib/markov.js";
 
@@ -254,6 +379,7 @@
         seedHint: document.getElementById("seedHint"),
         corpusHint: document.getElementById("corpusHint"),
         corpusCount: document.getElementById("corpusCount"),
+        corpusCount2: document.getElementById("corpusCount2"),
         corpusMeta: document.getElementById("corpusMeta"),
         regen: document.getElementById("regen"),
         copyBtn: document.getElementById("copyBtn"),
@@ -365,18 +491,18 @@
         const mono = "ui-monospace, monospace";
 
         ctx.clearRect(0, 0, W, H);
-        ctx.fillStyle = "#ffffff";
+        ctx.fillStyle = "#060907";
         ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = "#1f8a4c";
+        ctx.fillStyle = "#3ee283";
         ctx.fillRect(0, 0, W, 10);
-        ctx.fillStyle = "#1a5fd0";
+        ctx.fillStyle = "#5fb2ff";
         ctx.fillRect(0, H - 10, W, 10);
 
         ctx.textAlign = "left";
-        ctx.fillStyle = "#111111";
+        ctx.fillStyle = "#d9f5df";
         ctx.font = `800 46px ${mono}`;
         ctx.fillText("grue", 60, 100);
-        ctx.fillStyle = "#6b6b6b";
+        ctx.fillStyle = "#7fa088";
         ctx.font = `400 18px ${mono}`;
         ctx.fillText("a godoglyness markov chain", 60, 132);
 
@@ -392,27 +518,27 @@
           ctx.restore();
           nameX = 128;
         }
-        ctx.fillStyle = "#111111";
+        ctx.fillStyle = "#d9f5df";
         ctx.font = `700 22px ${mono}`;
         ctx.fillText("godoglyness", nameX, 180);
-        ctx.fillStyle = "#6b6b6b";
+        ctx.fillStyle = "#7fa088";
         ctx.font = `400 16px ${mono}`;
         ctx.fillText("@godoglyness.bsky.social · synthetic", nameX, 202);
 
         const cardX = 60, cardY = 240, cardW = W - 120, cardH = H - 320;
-        ctx.strokeStyle = "#e4e4e4";
+        ctx.strokeStyle = "#1c2e21";
         ctx.lineWidth = 1.5;
-        ctx.fillStyle = "#f6f6f6";
+        ctx.fillStyle = "#0b120d";
         ctx.beginPath();
         ctx.roundRect(cardX, cardY, cardW, cardH, 16);
         ctx.fill();
         ctx.stroke();
 
-        ctx.fillStyle = "#111111";
+        ctx.fillStyle = "#d9f5df";
         ctx.font = `400 26px ${mono}`;
         wrapCanvasText(ctx, current.text || "…", cardX + 36, cardY + 56, cardW - 72, 36, 9);
 
-        ctx.fillStyle = "#6b6b6b";
+        ctx.fillStyle = "#7fa088";
         ctx.font = `400 16px ${mono}`;
         ctx.fillText(
           current.seed ? "seeded from “" + current.seed + "”" : "",
@@ -420,7 +546,7 @@
           cardY + cardH - 24
         );
 
-        ctx.fillStyle = "#1a5fd0";
+        ctx.fillStyle = "#5fb2ff";
         ctx.font = `700 22px ${mono}`;
         ctx.fillText("grue.bisks.net", 60, H - 40);
       }
@@ -549,6 +675,7 @@
           brain = buildBrain(corpusLines);
           const n = corpusLines.length.toLocaleString();
           els.corpusCount.textContent = n + " real";
+          if (els.corpusCount2) els.corpusCount2.textContent = n;
           els.corpusHint.textContent = n + " posts trained";
           const date = data.fetchedAt ? new Date(data.fetchedAt).toISOString().slice(0, 10) : "unknown date";
           els.corpusMeta.textContent = `${n} posts, snapshotted ${date}`;
