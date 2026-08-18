@@ -35,8 +35,15 @@ import * as THREE from "three";
   const ROOM_WIDTH = 10;
   const ROOM_HEIGHT = 5.6;
   const ROOM_EVERY = 5;
-  const TURN_MIN_GAP = 3;
-  const TURN_CHANCE = 0.32;
+  const TURN_MIN_GAP = 2;
+  const TURN_CHANCE = 0.4;
+  const FLOOR_TH = 0.2;
+
+  const RAMP_CHANCE = 0.16;
+  const RAMP_MIN_GAP = 3;
+  const RAMP_RISE = 0.85;
+
+  const STOOL_CHANCE = 0.14;
 
   const EYE_HEIGHT = 1.65;
   const PLAYER_R = 0.38;
@@ -71,6 +78,18 @@ import * as THREE from "three";
       [a[i], a[j]] = [a[j], a[i]];
     }
     return a;
+  }
+  // string -> 32-bit seed, so each exhibit gets a *stable* rng (same post
+  // always hangs the same way, across rebuilds/laps) without threading a
+  // counter through the pool.
+  function hashSeed(str) {
+    let h = 2166136261;
+    str = String(str || "");
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
   }
   function truncate(s, n) {
     s = (s || "").replace(/\s+/g, " ").trim();
@@ -166,6 +185,8 @@ import * as THREE from "three";
     const segments = []; // metadata, append-only, never removed once made
     const segGroups = new Map(); // index -> THREE.Group currently in the scene
     let lastTurnIndex = -99;
+    let lastRampIndex = -99;
+    let nextRoomIndex = ROOM_EVERY;
     const globalSeed = (opts.seed >>> 0) || 1337;
     const pathRng = mulberry32(globalSeed ^ 0x9e3779b9);
 
@@ -181,6 +202,17 @@ import * as THREE from "three";
     function localToWorld(seg, lx, lz) {
       const c = Math.cos(seg.heading), s = Math.sin(seg.heading);
       return { x: seg.start.x + c * lx + s * lz, z: seg.start.z - s * lx + c * lz };
+    }
+    // inverse of localToWorld: a world-space point -> this segment's local
+    // (lx, lz). Rotation matrices built from cos/sin are orthogonal, so the
+    // inverse is just the transpose — used to carry the player's position
+    // across a segment boundary that changed heading (a turn) without the
+    // old local offsets (meant for the old axes) silently getting reused as
+    // if they were the new segment's axes.
+    function worldToLocal(seg, wx, wz) {
+      const dx = wx - seg.start.x, dz = wz - seg.start.z;
+      const c = Math.cos(seg.heading), s = Math.sin(seg.heading);
+      return { lx: c * dx - s * dz, lz: s * dx + c * dz };
     }
 
     // ---- exhibit pool + assignment (sequential, shuffled, laps) --------
@@ -221,24 +253,43 @@ import * as THREE from "three";
         // "increasing local t" (walking further into the gallery) as
         // heading toward -Z too, or the player would spawn facing the
         // entrance wall instead of the corridor.
-        seg = { index: 0, start: { x: 0, z: 0 }, heading: Math.PI, room: false, length: SEG_LEN, width: WIDTH, height: HEIGHT };
+        seg = {
+          index: 0, start: { x: 0, z: 0 }, heading: Math.PI, turned: false, room: false,
+          length: SEG_LEN, width: WIDTH, height: HEIGHT, prevWidth: WIDTH, baseY: 0, rise: 0,
+        };
       } else {
         const prev = ensureSegment(i - 1);
         const heading = segFrameHeading(prev.heading, i);
         const start = localToWorld(prev, 0, prev.length);
-        const room = i % ROOM_EVERY === 0;
+        // rooms land on a slightly irregular cadence (4-6 segments apart,
+        // not a fixed modulo) so the gallery doesn't read as mechanically
+        // repeating — part of "more branching" per feedback.
+        const room = i === nextRoomIndex;
+        if (room) nextRoomIndex = i + 4 + Math.floor(pathRng() * 3);
+        const turned = heading !== prev.heading;
+        // ramps only happen on straight corridors — combining a slope with
+        // a turn's corner geometry, or with a room's bench/seating, isn't
+        // worth the added risk for a bot pass that can't be visually tested.
+        const rampEligible = !room && !turned && i - lastRampIndex >= RAMP_MIN_GAP;
+        const rise = rampEligible && pathRng() < RAMP_CHANCE ? (pathRng() < 0.5 ? -1 : 1) * RAMP_RISE : 0;
+        if (rise) lastRampIndex = i;
+        const sizeJ = room ? 0.82 + pathRng() * 0.5 : 1;
         seg = {
           index: i,
           start,
           heading,
+          turned,
           room,
-          length: room ? ROOM_LEN : SEG_LEN,
-          width: room ? ROOM_WIDTH : WIDTH,
+          length: room ? ROOM_LEN * sizeJ : SEG_LEN,
+          width: room ? ROOM_WIDTH * (0.9 + pathRng() * 0.3) : WIDTH,
           height: room ? ROOM_HEIGHT : HEIGHT,
+          prevWidth: prev.width,
+          baseY: prev.baseY + prev.rise,
+          rise,
         };
       }
       const slots = seg.room ? 4 : 2;
-      const fracs = seg.room ? [0.24, 0.24, 0.76, 0.76] : [0.5, 0.5];
+      const fracs = seg.room ? [0.28, 0.28, 0.72, 0.72] : [0.5, 0.5];
       const sides = seg.room ? [-1, 1, -1, 1] : [-1, 1];
       seg.exhibits = [];
       for (let k = 0; k < slots; k++) {
@@ -380,26 +431,122 @@ import * as THREE from "three";
     // Shared across every segment's frame bars/bench, so disposeGroup() must
     // never dispose() these — a single streamed-out segment would otherwise
     // free the GPU material every other still-visible frame/bench uses too.
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x3a2c1a, roughness: 0.6, metalness: 0.15 });
     const benchMat = new THREE.MeshStandardMaterial({ color: 0x2e2620, roughness: 0.8 });
-    frameMat.userData.shared = true;
     benchMat.userData.shared = true;
 
-    function wallMaterial(hue) {
-      const c = new THREE.Color().setHSL(hue / 360, 0.28, 0.22);
-      return new THREE.MeshStandardMaterial({ color: c, roughness: 0.92, metalness: 0.02 });
+    // a few frame finishes instead of one uniform wood bar everywhere —
+    // weighted so classic wood still dominates but the wall reads as hung
+    // over time, not stamped from one mold. Shared + never disposed, same
+    // reasoning as benchMat above.
+    const FRAME_FINISHES = [
+      { color: 0x3a2c1a, roughness: 0.6, metalness: 0.15, weight: 0.55 }, // wood
+      { color: 0x9c7a2e, roughness: 0.35, metalness: 0.55, weight: 0.18 }, // gilt
+      { color: 0x14110f, roughness: 0.5, metalness: 0.1, weight: 0.17 },  // black
+      { color: 0xdcd2ba, roughness: 0.7, metalness: 0.02, weight: 0.1 },  // ivory
+    ];
+    const frameMats = FRAME_FINISHES.map((f) => {
+      const m = new THREE.MeshStandardMaterial({ color: f.color, roughness: f.roughness, metalness: f.metalness });
+      m.userData.shared = true;
+      return m;
+    });
+    function pickFrameMat(rng) {
+      const r = rng();
+      let acc = 0;
+      for (let i = 0; i < FRAME_FINISHES.length; i++) {
+        acc += FRAME_FINISHES[i].weight;
+        if (r < acc) return frameMats[i];
+      }
+      return frameMats[0];
     }
-    function floorMaterial(hue) {
+
+    // ramp treads: a faint horizontal-line texture on a sloped floor so it
+    // reads as shallow stairs rather than a plain wedge — decorative only,
+    // the walking surface underneath is still a smooth slope (see
+    // buildRampFloor), so it stays cheap and collision-free.
+    let treadTexture = null;
+    function getTreadTexture() {
+      if (treadTexture) return treadTexture;
+      const cnv = document.createElement("canvas");
+      cnv.width = 64;
+      cnv.height = 64;
+      const ctx = cnv.getContext("2d");
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, 64, 64);
+      ctx.strokeStyle = "rgba(255,255,255,0.35)";
+      ctx.lineWidth = 2;
+      const rows = 8;
+      for (let i = 0; i <= rows; i++) {
+        const y = (i / rows) * 64;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(64, y);
+        ctx.stroke();
+      }
+      treadTexture = new THREE.CanvasTexture(cnv);
+      treadTexture.wrapS = treadTexture.wrapT = THREE.RepeatWrapping;
+      return treadTexture;
+    }
+
+    function wallMaterial(hue, parity) {
+      const c = new THREE.Color().setHSL(hue / 360, 0.28, 0.22);
+      const m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.92, metalness: 0.02 });
+      m.polygonOffset = true;
+      m.polygonOffsetFactor = parity ? 1 : -1;
+      m.polygonOffsetUnits = parity ? 1 : -1;
+      return m;
+    }
+    function floorMaterial(hue, parity) {
       const c = new THREE.Color().setHSL(((hue + 40) % 360) / 360, 0.22, 0.16);
-      return new THREE.MeshStandardMaterial({ color: c, roughness: 0.96, metalness: 0.0 });
+      const m = new THREE.MeshStandardMaterial({ color: c, roughness: 0.96, metalness: 0.0 });
+      // turns make adjacent segments' floor/ceiling boxes overlap at the
+      // inner corner (two coplanar coincident top faces) — without this,
+      // that overlap flickers between the two segments' colors every
+      // frame. Alternating the offset by index parity means whichever of
+      // the two ALWAYS wins the depth test there, so it reads as one
+      // clean corner instead of a fight.
+      m.polygonOffset = true;
+      m.polygonOffsetFactor = parity ? 1 : -1;
+      m.polygonOffsetUnits = parity ? 1 : -1;
+      return m;
+    }
+
+    // a sloped floor slab, exact — not an approximation. cz/cy/hyp solve
+    // the box's rotated-length and center exactly so its TOP face passes
+    // through local (x,0,0) at z=0 and (x,rise,length) at z=length for any
+    // slab thickness th, keeping the seam flush with the flat floors on
+    // either side of a ramp segment.
+    function buildRampFloor(length, rise, width, th, mat) {
+      const hyp = Math.hypot(rise, length);
+      const theta = Math.atan2(-rise, length);
+      const cz = length / 2 + (rise * th) / (2 * hyp);
+      const cy = rise / 2 - (length * th) / (2 * hyp);
+      const geo = new THREE.BoxGeometry(width, th, hyp);
+      const tex = getTreadTexture();
+      const treadMat = mat.clone();
+      treadMat.map = tex.clone();
+      treadMat.map.needsUpdate = true;
+      treadMat.map.repeat.set(1, Math.max(1, Math.round(hyp / 0.55)));
+      const mesh = new THREE.Mesh(geo, treadMat);
+      mesh.position.set(0, cy, cz);
+      mesh.rotation.x = theta;
+      return mesh;
     }
 
     function buildExhibitFrame(seg, ex) {
+      const rng = mulberry32(hashSeed(ex.post.uri || `${seg.index}:${ex.side}:${ex.atT}`) ^ 0x51ed270b);
+      const scale = 0.92 + rng() * 0.22;
+      const tilt = (rng() - 0.5) * 0.06;
+      const yJitter = (rng() - 0.5) * 0.26;
+      const fancy = (ex.post.likeCount || 0) >= 15;
+
       const group = new THREE.Group();
       const lx = (seg.width / 2 - 0.05) * ex.side;
       const lz = ex.atT * seg.length;
-      group.position.set(lx, PIC_Y, lz);
+      const picY = PIC_Y + seg.rise * ex.atT + yJitter;
+      group.position.set(lx, picY, lz);
       group.rotation.y = ex.side < 0 ? Math.PI / 2 : -Math.PI / 2;
+      group.rotation.z = tilt;
+      group.scale.setScalar(scale);
 
       const cnv = document.createElement("canvas");
       cnv.width = 640;
@@ -423,7 +570,8 @@ import * as THREE from "three";
       pic.userData.post = ex.post;
       group.add(pic);
 
-      const bw = 0.08;
+      const frameMat = pickFrameMat(rng);
+      const bw = fancy ? 0.13 : 0.08;
       const fw = PIC_W + bw * 2, fh = PIC_H + bw * 2;
       const bars = [
         [fw, bw, 0, fh / 2 - bw / 2],
@@ -435,6 +583,22 @@ import * as THREE from "three";
         const bar = new THREE.Mesh(new THREE.BoxGeometry(bw_, bh_, 0.05), frameMat);
         bar.position.set(ox, oy, -0.03);
         group.add(bar);
+      }
+      if (fancy) {
+        // a well-liked post gets a second, thinner gilt mat around the
+        // main frame — a little museum-label flex for the crowd favorites.
+        const ow = 0.05, ofw = fw + ow * 2, ofh = fh + ow * 2;
+        const outerBars = [
+          [ofw, ow, 0, ofh / 2 - ow / 2],
+          [ofw, ow, 0, -(ofh / 2 - ow / 2)],
+          [ow, ofh, ofw / 2 - ow / 2, 0],
+          [ow, ofh, -(ofw / 2 - ow / 2), 0],
+        ];
+        for (const [bw_, bh_, ox, oy] of outerBars) {
+          const bar = new THREE.Mesh(new THREE.BoxGeometry(bw_, bh_, 0.04), frameMats[1]);
+          bar.position.set(ox, oy, -0.02);
+          group.add(bar);
+        }
       }
 
       const refreshImg = () => {
@@ -453,27 +617,54 @@ import * as THREE from "three";
 
     function buildSegmentGroup(seg) {
       const group = new THREE.Group();
-      group.position.set(seg.start.x, 0, seg.start.z);
+      group.position.set(seg.start.x, seg.baseY, seg.start.z);
       group.rotation.y = seg.heading;
 
-      const wMat = wallMaterial(seg.accentHue);
-      const fMat = floorMaterial(seg.accentHue);
+      const parity = seg.index % 2 === 0;
+      const wMat = wallMaterial(seg.accentHue, parity);
+      const fMat = floorMaterial(seg.accentHue, parity);
 
-      const floor = new THREE.Mesh(new THREE.BoxGeometry(seg.width, 0.2, seg.length), fMat);
-      floor.position.set(0, -0.1, seg.length / 2);
+      const floor = seg.rise
+        ? buildRampFloor(seg.length, seg.rise, seg.width, FLOOR_TH, fMat)
+        : new THREE.Mesh(new THREE.BoxGeometry(seg.width, FLOOR_TH, seg.length), fMat);
+      if (!seg.rise) floor.position.set(0, -FLOOR_TH / 2, seg.length / 2);
       group.add(floor);
 
+      // ceiling stays flat even over a ramp (headroom just tightens toward
+      // the top of the slope, like a real gallery stair run) — a tilted
+      // ceiling isn't worth the extra geometry risk for a segment you only
+      // walk under briefly.
       const ceil = new THREE.Mesh(new THREE.BoxGeometry(seg.width, 0.2, seg.length), wMat);
       ceil.position.set(0, seg.height + 0.1, seg.length / 2);
       group.add(ceil);
 
-      const left = new THREE.Mesh(new THREE.BoxGeometry(WALL_TH, seg.height, seg.length), wMat);
-      left.position.set(-seg.width / 2 - WALL_TH / 2, seg.height / 2, seg.length / 2);
+      // walls span from the LOWEST point the sloped floor reaches (0 for a
+      // flat segment, or `rise` when the ramp dips below its start) up to
+      // the flat ceiling — otherwise a downward ramp's far end would have
+      // its floor drop out from under the wall, leaving a gap at the seam.
+      const wallLo = Math.min(0, seg.rise);
+      const wallH = seg.height - wallLo;
+      const left = new THREE.Mesh(new THREE.BoxGeometry(WALL_TH, wallH, seg.length), wMat);
+      left.position.set(-seg.width / 2 - WALL_TH / 2, wallLo + wallH / 2, seg.length / 2);
       group.add(left);
 
-      const right = new THREE.Mesh(new THREE.BoxGeometry(WALL_TH, seg.height, seg.length), wMat);
-      right.position.set(seg.width / 2 + WALL_TH / 2, seg.height / 2, seg.length / 2);
+      const right = new THREE.Mesh(new THREE.BoxGeometry(WALL_TH, wallH, seg.length), wMat);
+      right.position.set(seg.width / 2 + WALL_TH / 2, wallLo + wallH / 2, seg.length / 2);
       group.add(right);
+
+      // jamb caps: when this segment is narrower than the one before it
+      // (room -> corridor, no turn), the wider predecessor's floor extends
+      // past this segment's walls with nothing closing the gap — a real
+      // hole you could see/step into right at the doorway. Plug it with a
+      // stub wall on each side that shrank.
+      if (!seg.turned && seg.prevWidth > seg.width + 0.01) {
+        const gap = (seg.prevWidth - seg.width) / 2;
+        for (const side of [-1, 1]) {
+          const jamb = new THREE.Mesh(new THREE.BoxGeometry(gap, seg.height, WALL_TH), wMat);
+          jamb.position.set(side * (seg.width / 2 + gap / 2), seg.height / 2, WALL_TH / 2);
+          group.add(jamb);
+        }
+      }
 
       if (seg.room) {
         const glow = new THREE.PointLight(0xfff2d0, 0.55, 9, 2);
@@ -482,6 +673,18 @@ import * as THREE from "three";
         const bench = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.45, 0.5), benchMat);
         bench.position.set(0, 0.22, seg.length / 2);
         group.add(bench);
+      } else if (!seg.turned && !seg.rise) {
+        // a little seat along the wall now and then — corridors get them
+        // too, not just rooms (the one piece of feedback that was pure
+        // praise, so: more of it). Deterministic per segment index so it
+        // doesn't flicker in/out as segments stream past.
+        const stoolRng = mulberry32(hashSeed(`stool:${globalSeed}:${seg.index}`));
+        if (stoolRng() < STOOL_CHANCE) {
+          const stoolSide = stoolRng() < 0.5 ? -1 : 1;
+          const stool = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), benchMat);
+          stool.position.set(stoolSide * (seg.width / 2 - 0.35), 0.21, seg.length * 0.5);
+          group.add(stool);
+        }
       }
 
       const pickables = [];
@@ -522,7 +725,7 @@ import * as THREE from "three";
     function worldPosFor(p) {
       const seg = ensureSegment(p.seg);
       const w = localToWorld(seg, p.u, p.t * seg.length);
-      return { x: w.x, z: w.z, seg };
+      return { x: w.x, z: w.z, y: seg.baseY + seg.rise * p.t, seg };
     }
 
     function moveBy(dx, dz) {
@@ -538,29 +741,32 @@ import * as THREE from "three";
       const half = seg.width / 2 - PLAYER_R;
       u = Math.max(-half, Math.min(half, u));
 
-      if (t > 1) {
-        const next = ensureSegment(player.seg + 1);
-        const halfNext = next.width / 2 - PLAYER_R;
-        player.seg += 1;
-        player.t = ((t - 1) * seg.length) / next.length;
-        player.u = Math.max(-halfNext, Math.min(halfNext, u));
+      if (t <= 1 && t >= 0) {
+        player.t = t;
+        player.u = u;
         return;
       }
-      if (t < 0) {
-        if (player.seg === 0) {
-          player.t = 0;
-          player.u = u;
-          return;
-        }
-        const prev = ensureSegment(player.seg - 1);
-        const halfPrev = prev.width / 2 - PLAYER_R;
-        player.seg -= 1;
-        player.t = 1 + (t * seg.length) / prev.length;
-        player.u = Math.max(-halfPrev, Math.min(halfPrev, u));
+      if (t < 0 && player.seg === 0) {
+        player.t = 0;
+        player.u = u;
         return;
       }
-      player.t = t;
-      player.u = u;
+      // Crossing into a neighboring segment. u/t are offsets along THIS
+      // segment's local axes — at a turn, the neighbor's axes are rotated
+      // 90° from these, so naively carrying u/t across (as if axes always
+      // stayed aligned) hands the new segment a lateral offset that was
+      // actually a forward one, and vice versa: the player would appear to
+      // teleport sideways right at the boundary. Instead, resolve the
+      // (clamped) local position to world space, then re-localize into the
+      // neighbor's own frame — correct regardless of whether it turned.
+      const nextIndex = player.seg + (t > 1 ? 1 : -1);
+      const nseg = ensureSegment(nextIndex);
+      const w = localToWorld(seg, u, t * seg.length);
+      const loc = worldToLocal(nseg, w.x, w.z);
+      const halfNext = nseg.width / 2 - PLAYER_R;
+      player.seg = nextIndex;
+      player.u = Math.max(-halfNext, Math.min(halfNext, loc.lx));
+      player.t = loc.lz / nseg.length;
     }
 
     // ---- streaming: keep [seg-BEHIND, seg+AHEAD] instantiated -----------
@@ -605,9 +811,9 @@ import * as THREE from "three";
       const w = worldPosFor(player);
       bobPhase += (moving ? dt * 7.5 : dt * 2.2);
       const bob = moving ? Math.sin(bobPhase) * 0.035 : Math.sin(bobPhase) * 0.006;
-      camera.position.set(w.x, EYE_HEIGHT + bob, w.z);
+      camera.position.set(w.x, w.y + EYE_HEIGHT + bob, w.z);
       camera.rotation.set(player.pitch, player.yaw, 0, "YXZ");
-      headlamp.position.set(w.x, EYE_HEIGHT + 0.3, w.z);
+      headlamp.position.set(w.x, w.y + EYE_HEIGHT + 0.3, w.z);
     }
 
     // ---- input --------------------------------------------------------
@@ -741,6 +947,8 @@ import * as THREE from "three";
       segGroups.clear();
       segments.length = 0;
       lastTurnIndex = -99;
+      lastRampIndex = -99;
+      nextRoomIndex = ROOM_EVERY;
       streamSegments();
     };
     Feedwalk.progress = function () {
