@@ -57,6 +57,8 @@ function newBrain() {
     dict: new Map(), // word -> occurrence count
     lines: new Set(), // normalized training lines, so a generation can dodge an exact echo
     trainedOn: 0,
+    lineWordCounts: [], // token count of each training line, sampled to size a generation
+    allLowerFraction: 0, // share of training lines with no uppercase at all
   };
 }
 
@@ -83,7 +85,14 @@ function learnLine(brain, words) {
 
 export function buildBrain(lines) {
   const brain = newBrain();
-  for (const line of lines) learnLine(brain, tokenize(line));
+  let lowerCount = 0;
+  for (const line of lines) {
+    if (line && line === line.toLowerCase()) lowerCount++;
+    const words = tokenize(line);
+    learnLine(brain, words);
+    if (words.length) brain.lineWordCounts.push(words.length);
+  }
+  brain.allLowerFraction = lines.length ? lowerCount / lines.length : 0;
   return brain;
 }
 
@@ -122,18 +131,23 @@ function walk(chain2, chain1, seed, maxWords) {
   return out;
 }
 
-const MAX_HALF = 34; // words grown in each direction from the seed — generous, since the real posts run long and get truncated to a grapheme budget afterward anyway
+const MAX_HALF = 36; // hard ceiling on words grown in each direction from the seed
 
-function generateOnce(brain, seed) {
-  const forward = walk(brain.forward2, brain.forward1, seed, MAX_HALF);
-  const backwardWalk = walk(brain.backward2, brain.backward1, seed, MAX_HALF);
+// Real godoglyness posts are mostly much shorter than a maxed-out walk would
+// produce (median ~34 tokens, not ~65) — always favoring the longest of
+// several attempts was itself a tell, so each generation targets a length
+// sampled from the real corpus instead of maximizing it.
+function generateOnce(brain, seed, target) {
+  const half = Math.max(2, Math.min(MAX_HALF, Math.round(target / 2)));
+  const forward = walk(brain.forward2, brain.forward1, seed, half);
+  const backwardWalk = walk(brain.backward2, brain.backward1, seed, half);
   const before = backwardWalk.slice(1).reverse();
   return [...before, ...forward];
 }
 
-function score(brain, words) {
-  let s = words.length;
-  if (words.length < 5) s -= 20; // strongly avoid short, boring fragments
+function score(brain, words, target) {
+  let s = -Math.abs(words.length - target); // closest to the target length wins
+  if (words.length < 3) s -= 50; // strongly avoid degenerate fragments
   if (brain.lines.has(words.join(" "))) s -= 100; // never just recite a real post back verbatim
   return s;
 }
@@ -154,13 +168,15 @@ export function generate(brain) {
   const seeds = seedCandidates(brain);
   if (!seeds.length) return { text: "…", seed: null };
 
+  const target = brain.lineWordCounts.length ? pick(brain.lineWordCounts) : 24;
+
   let best = null;
   let bestScore = -Infinity;
   let bestSeed = null;
   for (let i = 0; i < ATTEMPTS; i++) {
     const seed = pick(seeds);
-    const words = generateOnce(brain, seed);
-    const s = score(brain, words);
+    const words = generateOnce(brain, seed, target);
+    const s = score(brain, words, target);
     if (s > bestScore) {
       bestScore = s;
       best = words;
@@ -170,8 +186,13 @@ export function generate(brain) {
 
   while (best.length > 1 && /^[.,!?;:&]$/.test(best[0])) best.shift();
   const out = joinWords(best);
-  const capitalized = (out.charAt(0).toUpperCase() + out.slice(1)).replace(/\bi\b/g, "I");
-  return { text: capitalized, seed: bestSeed };
+  // The chain only ever learns lowercase tokens, so "always capitalize" was
+  // its own tell — real godoglyness posts run all-lowercase about a third of
+  // the time. Match that rate instead of forcing title case every time.
+  const text = Math.random() < brain.allLowerFraction
+    ? out
+    : (out.charAt(0).toUpperCase() + out.slice(1)).replace(/\bi\b/g, "I");
+  return { text, seed: bestSeed };
 }
 
 // Trims to a grapheme budget (Bluesky's own post limit is 300) without
