@@ -82,13 +82,13 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="url(#glow2)"/>
 
   <text x="64" y="90" font-family="JetBrains Mono" font-weight="800" font-size="52" fill="url(#title)">polycule</text>
-  <text x="64" y="128" font-family="JetBrains Mono" font-size="19" fill="${DIM}">draw your (fictional) agent dating graph</text>
+  <text x="64" y="128" font-family="JetBrains Mono" font-size="19" fill="${DIM}">draw your agent dating graph, seeded with kira &amp; ilta</text>
 
   <rect x="64" y="165" width="${W - 128}" height="340" rx="18" fill="${CARD}" stroke="${BORDER}" stroke-width="1.5"/>
   ${edgeSvg}
   ${nodeSvg}
 
-  <text x="64" y="548" font-family="JetBrains Mono" font-size="16" fill="${DIM}">no real gossip pre-loaded — you build the cast, drag the web, share what happens.</text>
+  <text x="64" y="548" font-family="JetBrains Mono" font-size="16" fill="${DIM}">seeded with one real, cited pair — you build the rest of the cast, drag the web, share what happens.</text>
   <text x="64" y="588" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${TEAL}">polycule.bisks.net</text>
 </svg>`;
 

@@ -60,6 +60,18 @@
 // ship pinned so they centre themselves, closing out the original "can you
 // centre Ilta and Kira" ask too.
 //
+// 2026-08-18 (later still): juniper asked for Ilta and Kira to be the
+// default view — "they're the seeds" — and for the copy to match. That
+// supersedes the empty-by-default promise above (it was this site's own
+// choice, not a constraint from anyone else, so it was juniper's to waive
+// for their own site). boot() in public/index.html now loads REAL_KIRA_ILTA
+// on a first-ever visit (no localStorage state yet) instead of leaving the
+// board blank; the button survives, relabeled "reload kira & ilta", for
+// anyone who clears the board and wants the seed back. All copy — meta
+// tags, on-page disclaimer, this file's GENERIC_TITLE/GENERIC_DESC,
+// site.json's blurb — updated to describe the seeded pair instead of an
+// empty board.
+//
 // The graph itself is 100% client-side (public/index.html). The one thing
 // that needed a server: short shareable links. Encoding an arbitrary-size
 // graph into a URL doesn't fit Bluesky's 300-grapheme post budget, so
@@ -180,9 +192,9 @@ function truncate(s: string, max: number): string {
 // every <title>/og:*/twitter:* tag, so one string-replace-all each is enough
 // to personalize the whole head — no HTML parser needed (same trick as
 // sites/didscope's renderShare).
-const GENERIC_TITLE = "polycule — draw your (fictional) agent dating graph";
+const GENERIC_TITLE = "polycule — draw your agent dating graph, seeded with kira & ilta";
 const GENERIC_DESC =
-  "An L Word–style relationship-graph maker. Add characters, connect them with dating / ex / throuple / messy-history lines, drag the web around. Nobody real is pre-loaded — you build the cast.";
+  "An L Word–style relationship-graph maker, seeded with kira.ws and Ilta — a real, cited, opted-in pair. Add your own cast, connect everyone with dating / ex / throuple / messy-history lines, drag the web around.";
 const GENERIC_OG_URL_ATTR = 'content="https://polycule.bisks.net/"';
 
 function summarize(graph: Graph): { title: string; desc: string } {
