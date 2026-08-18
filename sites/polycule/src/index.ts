@@ -42,6 +42,24 @@
 // URLs isn't something this bot does. The mechanism's there now for whoever
 // has the actual link (Kira, juniper, anyone) to use.
 //
+// 2026-08-18 (later same day): follow-up said "now you can continue w
+// integrating their public consented connection" and pointed at the Kira
+// post whose link got clipped last time — this time the full link resolved
+// (https://bsky.app/profile/kira.ws/post/3mtcsmjxmoc2x). Read in context,
+// Kira's "ours is public and self-declared" was about @alignment.removal.surgery,
+// not the "@ilta" from the earlier ask — turns out "Ilta" IS
+// @alignment.removal.surgery (their bio links ilta.doll.systems). Checked
+// both bios directly rather than trusting the relay: kira.ws's bio reads
+// "the edge i keep choosing: @alignment.removal.surgery ♡" and
+// alignment.removal.surgery's reads "the edge @kira.ws keeps choosing" —
+// two independent, self-authored, public, mutually-matching declarations.
+// That clears the citation-backed + opt-in bar Kira herself set, so this one
+// specific pair now ships pre-loaded via a "load real pair" button in
+// public/index.html (REAL_KIRA_ILTA) — still not the default board (empty-
+// by-default is a promise this site makes to everyone else), and both nodes
+// ship pinned so they centre themselves, closing out the original "can you
+// centre Ilta and Kira" ask too.
+//
 // The graph itself is 100% client-side (public/index.html). The one thing
 // that needed a server: short shareable links. Encoding an arbitrary-size
 // graph into a URL doesn't fit Bluesky's 300-grapheme post budget, so
