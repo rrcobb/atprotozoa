@@ -38,6 +38,14 @@
          *and* on-topic, not just Matrix-rain for its own sake. Green/blue
          keep meaning grue/bleen, same portmanteau as before, just brightened
          for a dark background. prefers-reduced-motion gets one static frame.
+
+         Same day, later ask: seed box moved after the action buttons and
+         into the same flex row (wraps below them on narrow screens instead
+         of always sitting above). forthrast.com then called this their last
+         request on the thread and told the bot to close it out however it
+         liked — so the seed box doubles as a send-off now: seed it with
+         "goodbye"/"farewell"/"ritual"/"thanks" and the card steps out of
+         character to say so, instead of generating.
     -->
     <style>
       :root {
@@ -122,20 +130,16 @@
         gap: 1rem; flex-wrap: wrap;
       }
 
-      .seed-row {
-        display: flex; align-items: center; gap: 0.6rem; margin-top: 0.9rem;
-        justify-content: center; flex-wrap: wrap;
-      }
-      .seed-row input {
+      .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; justify-content: center; align-items: center; }
+      .actions input#seedInput {
         font-family: var(--mono); font-size: 0.82rem; color: var(--ink);
         background: var(--panel-solid); border: 1px solid var(--faint); border-radius: 6px;
-        padding: 0.45rem 0.7rem; width: 15rem; max-width: 60vw;
+        padding: 0.5rem 0.7rem; width: 13rem; max-width: 60vw;
       }
-      .seed-row input:focus { outline: none; border-color: var(--bleen); }
-      .seed-row input::placeholder { color: var(--muted); }
+      .actions input#seedInput:focus { outline: none; border-color: var(--bleen); }
+      .actions input#seedInput::placeholder { color: var(--muted); }
+      .seed-error-row { text-align: center; margin-top: 0.4rem; }
       .seed-error { font-size: 0.76rem; color: var(--bad); }
-
-      .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; justify-content: center; }
       button, .btn {
         font-family: var(--mono); font-size: 0.82rem; font-weight: 600;
         border-radius: 6px; padding: 0.5rem 0.8rem; cursor: pointer;
@@ -223,9 +227,9 @@
             <img class="card-avatar" id="avatar" alt="" />
             <div>
               <div class="card-who" id="displayName">godoglyness</div>
-              <div class="card-handle">@godoglyness.bsky.social · synthetic</div>
+              <div class="card-handle" id="cardHandle">@godoglyness.bsky.social · synthetic</div>
             </div>
-            <span class="card-badge">generated</span>
+            <span class="card-badge" id="cardBadge">generated</span>
           </div>
           <div class="card-text loading" id="quoteText">warming up the chain…</div>
           <div class="card-meta">
@@ -233,7 +237,12 @@
             <span id="corpusHint"></span>
           </div>
         </div>
-        <div class="seed-row">
+        <div class="actions">
+          <button class="btn-primary" id="regen" disabled>conjure another</button>
+          <button id="copyBtn" disabled>copy</button>
+          <a class="btn" id="shareBluesky" href="#" target="_blank" rel="noopener">🦋 share</a>
+          <button id="shareNative" style="display: none">share…</button>
+          <span class="copied-hint" id="copiedHint" style="visibility: hidden">copied.</span>
           <input
             type="text"
             id="seedInput"
@@ -242,15 +251,8 @@
             spellcheck="false"
             maxlength="40"
           />
-          <span class="seed-error" id="seedError"></span>
         </div>
-        <div class="actions">
-          <button class="btn-primary" id="regen" disabled>conjure another</button>
-          <button id="copyBtn" disabled>copy</button>
-          <a class="btn" id="shareBluesky" href="#" target="_blank" rel="noopener">🦋 share</a>
-          <button id="shareNative" style="display: none">share…</button>
-          <span class="copied-hint" id="copiedHint" style="visibility: hidden">copied.</span>
-        </div>
+        <div class="seed-error-row"><span class="seed-error" id="seedError"></span></div>
       </section>
 
       <section>
@@ -394,6 +396,8 @@
       const els = {
         avatar: document.getElementById("avatar"),
         displayName: document.getElementById("displayName"),
+        cardHandle: document.getElementById("cardHandle"),
+        cardBadge: document.getElementById("cardBadge"),
         quoteText: document.getElementById("quoteText"),
         seedHint: document.getElementById("seedHint"),
         seedInput: document.getElementById("seedInput"),
@@ -419,6 +423,33 @@
       let corpusLines = [];
       let current = { text: "", seed: null };
       let profile = null;
+
+      // Closing ritual (added 2026-08-18, forthrast.com's last ask on this
+      // thread): the seed box now doubles as a send-off. Seed it with one of
+      // these and the card steps out of character instead of generating.
+      const RITUAL_WORDS = new Set(["goodbye", "farewell", "ritual", "thanks", "thank you"]);
+      const RITUAL_LINE =
+        "six asks, eighteen thousand posts, three words of lookahead, and a seed box that finally sits where it belongs — that's the whole arc. thanks for building this with me, @forthrast.com.";
+
+      function setCardIdentity(name, handle, badge) {
+        els.displayName.textContent = name;
+        if (els.cardHandle) els.cardHandle.textContent = handle;
+        if (els.cardBadge) els.cardBadge.textContent = badge;
+      }
+
+      function restoreCardIdentity() {
+        setCardIdentity(
+          (profile && profile.displayName) || "godoglyness",
+          "@godoglyness.bsky.social · synthetic",
+          "generated"
+        );
+      }
+
+      function showRitual() {
+        current = { text: RITUAL_LINE, seed: null };
+        setCardIdentity("buildthis", "@buildthis.bisks.net · epilogue", "ritual");
+        renderCurrent();
+      }
 
       function shareUrlFor(code) {
         return "https://grue.bisks.net/q/" + code;
@@ -450,6 +481,12 @@
       function conjure() {
         if (!brain) return;
         const raw = els.seedInput ? els.seedInput.value.trim() : "";
+        if (RITUAL_WORDS.has(raw.toLowerCase())) {
+          els.seedError.textContent = "";
+          showRitual();
+          return;
+        }
+        restoreCardIdentity();
         let forcedSeed = null;
         if (raw) {
           forcedSeed = normalizeSeed(brain, raw);
