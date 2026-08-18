@@ -301,6 +301,27 @@ const STORAGE_KEY = "polycule-state-v1";
 let nextId = 1;
 const state = { nodes: [], edges: [] };
 
+// 2026-08-18 (removal follow-up): pulling REAL_KIRA_ILTA from boot() (see the
+// comment above and src/index.ts) stops *new* visits from loading Ilta's
+// node/edge, but anyone who'd already had it auto-loaded had it written to
+// their own localStorage by the normal save()-on-every-edit path, and it just
+// sat there for returning visitors. Same fingerprint as the retired seed
+// (server-side twin of this lives in src/index.ts) — strip it out of
+// persisted state on load, same trust boundary as everywhere else here (only
+// touches state this site itself can see).
+const RETIRED_SEED_NODE_NAME = "Ilta";
+const RETIRED_SEED_CITATION = "https://bsky.app/profile/kira.ws/post/3mtcsmjxmoc2x";
+const RETIRED_SEED_TITLE = "kira ✕ ilta (real, cited, opted in)";
+function migrateRetiredSeed(data) {
+  const dropIds = new Set((data.nodes || []).filter((n) => n && n.name === RETIRED_SEED_NODE_NAME).map((n) => n.id));
+  const hasRetiredEdge = (data.edges || []).some((e) => e && e.citation === RETIRED_SEED_CITATION);
+  if (!dropIds.size && !hasRetiredEdge && data.title !== RETIRED_SEED_TITLE) return { data, changed: false };
+  data.nodes = (data.nodes || []).filter((n) => !dropIds.has(n.id));
+  data.edges = (data.edges || []).filter((e) => !dropIds.has(e.a) && !dropIds.has(e.b) && e.citation !== RETIRED_SEED_CITATION);
+  if (data.title === RETIRED_SEED_TITLE) data.title = "";
+  return { data, changed: true };
+}
+
 const els = {
   titleInput: document.getElementById("titleInput"),
   charForm: document.getElementById("charForm"),
@@ -357,11 +378,14 @@ function load() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return false;
-    const data = JSON.parse(raw);
+    let data = JSON.parse(raw);
     if (!data || !Array.isArray(data.nodes)) return false;
+    const migrated = migrateRetiredSeed(data);
+    data = migrated.data;
     state.nodes = data.nodes;
     state.edges = Array.isArray(data.edges) ? data.edges : [];
     els.titleInput.value = data.title || "";
+    if (migrated.changed) save();
     return true;
   } catch (_) {
     return false;

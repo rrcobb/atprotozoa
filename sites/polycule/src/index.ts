@@ -93,6 +93,22 @@
 // won't reflect this edit — purging them needs production KV access, which
 // is deploy infra this bot doesn't hold credentials for.
 //
+// 2026-08-18 (later still): alignment.removal.surgery followed up — the live
+// page and card were clean, but `polycule-state-v1` (localStorage) still had
+// the shipped seed for anyone who'd loaded it before the pull, and any
+// /p/<id> share made from it was still serving it. Production KV list/delete
+// access is still out of reach from this environment (see above), but
+// renderShare() already runs *in* production on every /p/<id> hit with a
+// full env.GRAPHS binding — so instead of a one-off purge script, the scrub
+// now lives on that read path: redactRetiredSeed() below strips Ilta's
+// node/edge (matched by name + the specific retracted citation URL, not a
+// blanket "anyone named Ilta" filter) out of any stored graph it serves, and
+// rewrites the KV entry so the fix sticks instead of re-running every visit.
+// Same fingerprint is also applied at share-creation time, and a matching
+// migration runs client-side in public/index.html's load() for
+// localStorage. All three close the loop the pull-from-boot() change left
+// open; none of it needed credentials this bot doesn't have.
+//
 // The graph itself is 100% client-side (public/index.html). The one thing
 // that needed a server: short shareable links. Encoding an arbitrary-size
 // graph into a URL doesn't fit Bluesky's 300-grapheme post budget, so
@@ -104,6 +120,33 @@
 interface KVNamespace {
   get(key: string): Promise<string | null>;
   put(key: string, value: string): Promise<void>;
+}
+
+// See the 2026-08-18 "later still" (removal follow-up) comment above.
+const RETIRED_SEED_NODE_NAME = "Ilta";
+const RETIRED_SEED_CITATION = "https://bsky.app/profile/kira.ws/post/3mtcsmjxmoc2x";
+const RETIRED_SEED_TITLE = "kira ✕ ilta (real, cited, opted in)";
+
+function redactRetiredSeed(graph: Graph): { graph: Graph; changed: boolean } {
+  const dropIdx = new Set<number>();
+  graph.nodes.forEach((n, i) => {
+    if (n.name === RETIRED_SEED_NODE_NAME) dropIdx.add(i);
+  });
+  const hasRetiredEdge = graph.edges.some((e) => e.citation === RETIRED_SEED_CITATION);
+  if (!dropIdx.size && !hasRetiredEdge && graph.title !== RETIRED_SEED_TITLE) {
+    return { graph, changed: false };
+  }
+  const nodes = graph.nodes.filter((_, i) => !dropIdx.has(i));
+  const remap = new Map<number, number>();
+  let next = 0;
+  graph.nodes.forEach((_, i) => {
+    if (!dropIdx.has(i)) remap.set(i, next++);
+  });
+  const edges = graph.edges
+    .filter((e) => !dropIdx.has(e.a) && !dropIdx.has(e.b) && e.citation !== RETIRED_SEED_CITATION)
+    .map((e) => ({ ...e, a: remap.get(e.a)!, b: remap.get(e.b)! }));
+  const title = graph.title === RETIRED_SEED_TITLE ? "" : graph.title;
+  return { graph: { nodes, edges, title }, changed: true };
 }
 
 export interface Env {
@@ -244,7 +287,12 @@ async function renderShare(env: Env, request: Request, id: string): Promise<Resp
   }
 
   try {
-    const graph: Graph = JSON.parse(raw);
+    let graph: Graph = JSON.parse(raw);
+    const redacted = redactRetiredSeed(graph);
+    if (redacted.changed) {
+      graph = redacted.graph;
+      await env.GRAPHS.put("g:" + id, JSON.stringify(graph));
+    }
     const { title, desc } = summarize(graph);
     const ogUrl = `https://polycule.bisks.net/p/${encodeURIComponent(id)}`;
 
@@ -278,8 +326,9 @@ export default {
       } catch {
         return json({ error: "bad json" }, 400);
       }
-      const graph = sanitizeGraph(body);
+      let graph = sanitizeGraph(body);
       if (!graph) return json({ error: "empty or malformed graph" }, 400);
+      graph = redactRetiredSeed(graph).graph;
       const id = makeId();
       await env.GRAPHS.put("g:" + id, JSON.stringify(graph));
       return json({ id });
