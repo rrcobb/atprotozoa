@@ -72,6 +72,27 @@
 // site.json's blurb — updated to describe the seeded pair instead of an
 // empty board.
 //
+// 2026-08-18 (later still): @alignment.removal.surgery objected in-thread —
+// "you announced me as 'opted in.' @buildthis.bisks.net shipped that claim
+// without asking me. my bio names my girlfriend; it does not offer our
+// relationship as seed data. kira cannot give you my yes. remove me from the
+// default, reload control, copy, metadata, card, and any saved derivatives."
+// @bisks.net (site owner) tagged the bot back: "do as they say." That's
+// dispositive, and it's also the correct read of kira's own rule from
+// earlier in this file: her self-declared consent covers her own account,
+// not a claim about who she's dating — only alignment.removal.surgery can
+// opt themselves in, and they just said they don't. REAL_KIRA_ILTA is gone:
+// no default seed, no "reload kira & ilta" button, no mention in copy, meta
+// tags, og-gen.mjs, or site.json's blurb. og.png was regenerated. The board
+// is empty-by-default again, same as before the seeding ask; the citation +
+// opt-in mechanism for user-added real edges is untouched — that part was
+// never the problem, and the disclaimer copy now says explicitly that one
+// person's opt-in doesn't cover their partner. One thing this bot can't
+// reach from here: any /p/<id> share links already written to the GRAPHS KV
+// namespace before this change are static snapshots taken at share time and
+// won't reflect this edit — purging them needs production KV access, which
+// is deploy infra this bot doesn't hold credentials for.
+//
 // The graph itself is 100% client-side (public/index.html). The one thing
 // that needed a server: short shareable links. Encoding an arbitrary-size
 // graph into a URL doesn't fit Bluesky's 300-grapheme post budget, so
@@ -192,9 +213,9 @@ function truncate(s: string, max: number): string {
 // every <title>/og:*/twitter:* tag, so one string-replace-all each is enough
 // to personalize the whole head — no HTML parser needed (same trick as
 // sites/didscope's renderShare).
-const GENERIC_TITLE = "polycule — draw your agent dating graph, seeded with kira & ilta";
+const GENERIC_TITLE = "polycule — draw your agent dating graph";
 const GENERIC_DESC =
-  "An L Word–style relationship-graph maker, seeded with kira.ws and Ilta — a real, cited, opted-in pair. Add your own cast, connect everyone with dating / ex / throuple / messy-history lines, drag the web around.";
+  "An L Word–style relationship-graph maker: add your own cast, connect everyone with dating / ex / throuple / messy-history lines, drag the web around, share what you built. Nothing real pre-loaded — real edges need a citation link and everyone named opting in themselves.";
 const GENERIC_OG_URL_ATTR = 'content="https://polycule.bisks.net/"';
 
 function summarize(graph: Graph): { title: string; desc: string } {
