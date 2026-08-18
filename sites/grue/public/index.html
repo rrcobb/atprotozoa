@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>grue — a godoglyness markov chain</title>
+    <meta
+      name="description"
+      content="Trained on thousands of @godoglyness.bsky.social's real posts. Generates a fresh line of gemeralds-and-coalsop erudition every time — can you tell it from the real thing?"
+    />
+    <meta property="og:title" content="grue — a godoglyness markov chain" />
+    <meta
+      property="og:description"
+      content="Trained on thousands of @godoglyness.bsky.social's real posts. Generates a fresh line of gemeralds-and-coalsop erudition every time — can you tell it from the real thing?"
+    />
+    <meta property="og:url" content="https://grue.bisks.net/" />
+    <meta property="og:image" content="https://grue.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="grue — a generated line of godoglyness-style erudition on a card, next to a green/blue grue-bleen divider." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="grue — a godoglyness markov chain" />
+    <meta
+      name="twitter:description"
+      content="Trained on thousands of @godoglyness.bsky.social's real posts. Can you tell the generated line from the real thing?"
+    />
+    <meta name="twitter:image" content="https://grue.bisks.net/og.png" />
+    <!-- bisks.net house style: plain, black on white, one readable mono,
+         hairline-separated blocks. Blue accent for the site chrome; green is
+         reserved for "real" in the quiz, matching the grue (green+blue)
+         portmanteau the name comes from. Palette shape copied from
+         trigrams/megahal (siblings). -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --grue: #1f8a4c;
+        --bleen: #1a5fd0;
+        --bad: #c0392b;
+        --gold: #e0a400;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap;
+      }
+      header h1 { font-size: 1.4rem; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
+      header h1 a { color: inherit; text-decoration: none; }
+      header h1 .g { color: var(--grue); }
+      header h1 .u { color: var(--bleen); }
+      header .sub { color: var(--muted); font-size: 0.82rem; }
+
+      .intro {
+        color: var(--muted); font-size: 0.88rem; line-height: 1.75;
+        margin: 0 0 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid var(--faint);
+      }
+      .intro b { color: var(--ink); }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+      .intro .thread {
+        display: block; margin-top: 0.9rem; padding: 0.7rem 0.9rem;
+        background: var(--faintbg); border-radius: 8px; font-size: 0.82rem;
+        color: var(--ink);
+      }
+      .intro .thread p { margin: 0.2rem 0; }
+      .intro .thread .who { color: var(--muted); }
+
+      section { margin-bottom: 2.5rem; }
+      h2 {
+        font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--muted); font-weight: 700; margin: 0 0 0.9rem;
+      }
+
+      /* generator card */
+      .card {
+        border: 1px solid var(--faint); border-radius: 12px; padding: 1.4rem 1.5rem;
+        position: relative; min-height: 6rem;
+      }
+      .card-head {
+        display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.8rem;
+      }
+      .card-avatar {
+        width: 30px; height: 30px; border-radius: 50%; background: var(--faintbg);
+        object-fit: cover; flex: none;
+      }
+      .card-who { font-weight: 700; font-size: 0.9rem; }
+      .card-handle { color: var(--muted); font-size: 0.82rem; }
+      .card-badge {
+        margin-left: auto; font-size: 0.68rem; letter-spacing: 0.04em;
+        color: var(--bleen); border: 1px solid var(--bleen); border-radius: 999px;
+        padding: 0.15rem 0.55rem; text-transform: uppercase;
+      }
+      .card-text { font-size: 1.02rem; line-height: 1.65; white-space: pre-wrap; }
+      .card-text.loading { color: var(--muted); font-style: italic; }
+      .card-meta {
+        margin-top: 1rem; padding-top: 0.8rem; border-top: 1px dashed var(--faint);
+        font-size: 0.76rem; color: var(--muted); display: flex; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap;
+      }
+
+      .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; }
+      button, .btn {
+        font-family: var(--mono); font-size: 0.82rem; font-weight: 600;
+        border-radius: 6px; padding: 0.5rem 0.8rem; cursor: pointer;
+        border: 1px solid var(--faint); background: var(--bg); color: var(--ink);
+        text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem;
+      }
+      button:hover, .btn:hover { border-color: var(--muted); }
+      button:disabled { opacity: 0.5; cursor: default; }
+      .btn-primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+      .btn-primary:hover { background: #333; }
+      .copied-hint { font-size: 0.75rem; color: var(--grue); align-self: center; }
+
+      /* quiz */
+      .quiz-intro { color: var(--muted); font-size: 0.85rem; margin: 0 0 1rem; }
+      .quiz-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+      @media (max-width: 520px) { .quiz-cards { grid-template-columns: 1fr; } }
+      .quiz-card {
+        border: 1px solid var(--faint); border-radius: 10px; padding: 1rem;
+        cursor: pointer; font-size: 0.92rem; line-height: 1.5; text-align: left;
+        background: var(--bg); color: var(--ink); font-family: var(--mono);
+        transition: border-color 0.1s, background 0.1s;
+      }
+      .quiz-card:hover:not(:disabled) { border-color: var(--muted); }
+      .quiz-card:disabled { cursor: default; }
+      .quiz-card.pick-correct { border-color: var(--grue); background: #f1faf4; }
+      .quiz-card.pick-wrong { border-color: var(--bad); background: #fbf1f0; }
+      .quiz-label {
+        display: block; font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase;
+        color: var(--muted); margin-bottom: 0.5rem;
+      }
+      .quiz-result { margin-top: 0.9rem; font-size: 0.85rem; min-height: 1.4em; }
+      .quiz-result.grue { color: var(--grue); }
+      .quiz-result.bleen { color: var(--bad); }
+      .quiz-score { color: var(--muted); font-size: 0.78rem; margin-top: 0.3rem; }
+      .quiz-actions { margin-top: 0.8rem; }
+
+      footer {
+        border-top: 1px solid var(--faint); padding-top: 1.2rem; margin-top: 2.5rem;
+        color: var(--muted); font-size: 0.78rem; line-height: 1.8;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+
+      canvas#shareCanvas { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/"><span class="g">gr</span><span class="u">u</span>e</a></h1>
+        <span class="sub">a godoglyness markov chain</span>
+      </header>
+
+      <p class="intro">
+        <b>@godoglyness.bsky.social</b> writes real posts that read like a fever-dream
+        footnote to Nelson Goodman. The chain below is trained on
+        <b id="corpusCount">thousands</b> of the actual account's real posts (pulled
+        straight off the AppView, not one quote from a thread) and generates a fresh
+        line every time you ask — same second-order word-chain trick as
+        <a href="https://megahal.bisks.net/">megahal</a>.
+        <span class="thread">
+          <p class="who">@norvid-studies.bsky.social</p>
+          <p>genuinely can't tell if this is a spambot or a ~2500 Elo simcluster poster</p>
+          <p class="who">@godoglyness.bsky.social</p>
+          <p>at the top level of play, it's impossible to tell</p>
+          <p class="who">@lucresnooker.bsky.social</p>
+          <p>(and it would be rude and unsporting to ask)</p>
+        </span>
+        Asked for by <a href="https://bsky.app/profile/forthrast.com">@forthrast.com</a>. See also the
+        <a href="https://godoglyness.bisks.net/">full archive</a> and
+        <a href="https://onlygodoglyness.bisks.net/">the social network with exactly one poster</a>.
+      </p>
+
+      <section>
+        <h2>generate</h2>
+        <div class="card">
+          <div class="card-head">
+            <img class="card-avatar" id="avatar" alt="" />
+            <div>
+              <div class="card-who" id="displayName">godoglyness</div>
+              <div class="card-handle">@godoglyness.bsky.social · synthetic</div>
+            </div>
+            <span class="card-badge">generated</span>
+          </div>
+          <div class="card-text loading" id="quoteText">warming up the chain…</div>
+          <div class="card-meta">
+            <span id="seedHint"></span>
+            <span id="corpusHint"></span>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn-primary" id="regen" disabled>conjure another</button>
+          <button id="copyBtn" disabled>copy</button>
+          <a class="btn" id="shareBluesky" href="#" target="_blank" rel="noopener">🦋 share</a>
+          <button id="shareNative" style="display: none">share…</button>
+          <span class="copied-hint" id="copiedHint" style="visibility: hidden">copied.</span>
+        </div>
+      </section>
+
+      <section>
+        <h2>grue or bleen?</h2>
+        <p class="quiz-intro">
+          Goodman's riddle, but with a poster instead of an emerald. One of these two
+          lines is a <b>real</b> godoglyness post; the other, the chain just made up. Pick
+          the real one — same rules as the thread: no fair asking.
+        </p>
+        <div class="quiz-cards">
+          <button class="quiz-card" id="quizA" disabled></button>
+          <button class="quiz-card" id="quizB" disabled></button>
+        </div>
+        <div class="quiz-result" id="quizResult"></div>
+        <div class="quiz-score" id="quizScore"></div>
+        <div class="quiz-actions">
+          <button id="quizNext">next round</button>
+        </div>
+      </section>
+
+      <footer>
+        Corpus: <span id="corpusMeta">loading…</span> · text only, own posts and replies, no
+        reposts. This is a Markov chain, not a language model — it has no idea what any of
+        these words mean, same as the real thing, allegedly.
+        <br />
+        Part of the <a href="https://bisks.net/">bisks.net</a> constellation. Built by
+        <a href="https://bisks.net/buildthis">@buildthis</a>.
+      </footer>
+    </div>
+
+    <canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+    <script type="module">
+      import { buildBrain, generate, fitToBudget } from "./lib/markov.js";
+
+      const els = {
+        avatar: document.getElementById("avatar"),
+        displayName: document.getElementById("displayName"),
+        quoteText: document.getElementById("quoteText"),
+        seedHint: document.getElementById("seedHint"),
+        corpusHint: document.getElementById("corpusHint"),
+        corpusCount: document.getElementById("corpusCount"),
+        corpusMeta: document.getElementById("corpusMeta"),
+        regen: document.getElementById("regen"),
+        copyBtn: document.getElementById("copyBtn"),
+        copiedHint: document.getElementById("copiedHint"),
+        shareBluesky: document.getElementById("shareBluesky"),
+        shareNative: document.getElementById("shareNative"),
+        shareCanvas: document.getElementById("shareCanvas"),
+        quizA: document.getElementById("quizA"),
+        quizB: document.getElementById("quizB"),
+        quizResult: document.getElementById("quizResult"),
+        quizScore: document.getElementById("quizScore"),
+        quizNext: document.getElementById("quizNext"),
+      };
+
+      let brain = null;
+      let corpusLines = [];
+      let current = { text: "", seed: null };
+      let profile = null;
+
+      function shareUrlFor(code) {
+        return "https://grue.bisks.net/q/" + code;
+      }
+
+      function encodeQuote(text, seed) {
+        const json = JSON.stringify({ t: text, s: seed });
+        let b64 = btoa(unescape(encodeURIComponent(json)));
+        return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      }
+
+      function buildShareText(text) {
+        const code = encodeQuote(text, current.seed);
+        const url = shareUrlFor(code);
+        const budget = 300 - url.length - 4;
+        const quoted = '"' + fitToBudget(text, Math.max(40, budget)) + '"';
+        return quoted + "\n\n" + url;
+      }
+
+      function renderCurrent() {
+        els.quoteText.classList.remove("loading");
+        els.quoteText.textContent = current.text;
+        els.seedHint.textContent = current.seed ? "seeded from “" + current.seed + "”" : "";
+        const code = encodeQuote(current.text, current.seed);
+        els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(current.text));
+        drawShareCard();
+      }
+
+      function conjure() {
+        if (!brain) return;
+        const budgeted = () => {
+          const g = generate(brain);
+          return { text: fitToBudget(g.text, 300), seed: g.seed };
+        };
+        let result = budgeted();
+        // a couple of retries if the walk died down to almost nothing
+        for (let i = 0; i < 4 && [...result.text].length < 24; i++) result = budgeted();
+        current = result;
+        renderCurrent();
+      }
+
+      els.regen.addEventListener("click", conjure);
+
+      els.copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(current.text);
+          els.copiedHint.style.visibility = "visible";
+          setTimeout(() => (els.copiedHint.style.visibility = "hidden"), 1400);
+        } catch (_) {}
+      });
+
+      function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+        const words = text.split(" ");
+        let line = "";
+        let cy = y;
+        let lines = 0;
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            ctx.fillText(line, x, cy);
+            line = w;
+            cy += lineHeight;
+            lines++;
+            if (lines >= maxLines - 1) {
+              ctx.fillText(line + "…", x, cy);
+              return cy;
+            }
+          } else {
+            line = test;
+          }
+        }
+        if (line) ctx.fillText(line, x, cy);
+        return cy;
+      }
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      async function drawShareCard() {
+        const canvas = els.shareCanvas;
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const mono = "ui-monospace, monospace";
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = "#1f8a4c";
+        ctx.fillRect(0, 0, W, 10);
+        ctx.fillStyle = "#1a5fd0";
+        ctx.fillRect(0, H - 10, W, 10);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#111111";
+        ctx.font = `800 46px ${mono}`;
+        ctx.fillText("grue", 60, 100);
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `400 18px ${mono}`;
+        ctx.fillText("a godoglyness markov chain", 60, 132);
+
+        const avatar = profile && profile.avatar ? await loadImg(profile.avatar) : null;
+        let nameX = 60;
+        if (avatar) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(84, 186, 26, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(avatar, 58, 160, 52, 52);
+          ctx.restore();
+          nameX = 128;
+        }
+        ctx.fillStyle = "#111111";
+        ctx.font = `700 22px ${mono}`;
+        ctx.fillText("godoglyness", nameX, 180);
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `400 16px ${mono}`;
+        ctx.fillText("@godoglyness.bsky.social · synthetic", nameX, 202);
+
+        const cardX = 60, cardY = 240, cardW = W - 120, cardH = H - 320;
+        ctx.strokeStyle = "#e4e4e4";
+        ctx.lineWidth = 1.5;
+        ctx.fillStyle = "#f6f6f6";
+        ctx.beginPath();
+        ctx.roundRect(cardX, cardY, cardW, cardH, 16);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = "#111111";
+        ctx.font = `400 26px ${mono}`;
+        wrapCanvasText(ctx, current.text || "…", cardX + 36, cardY + 56, cardW - 72, 36, 9);
+
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `400 16px ${mono}`;
+        ctx.fillText(
+          current.seed ? "seeded from “" + current.seed + "”" : "",
+          cardX + 36,
+          cardY + cardH - 24
+        );
+
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `700 22px ${mono}`;
+        ctx.fillText("grue.bisks.net", 60, H - 40);
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) {
+          return false;
+        }
+      }
+      if (canShareFiles()) {
+        els.shareNative.style.display = "";
+        els.shareNative.addEventListener("click", () => {
+          els.shareCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "grue.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: buildShareText(current.text), title: "grue" });
+            } catch (_) {}
+          }, "image/png");
+        });
+      }
+
+      // --- quiz: grue (real) or bleen (synthetic) ---
+      const QUIZ_KEY = "grue-quiz-score";
+      function loadScore() {
+        try {
+          return JSON.parse(localStorage.getItem(QUIZ_KEY)) || { right: 0, total: 0 };
+        } catch (_) {
+          return { right: 0, total: 0 };
+        }
+      }
+      function saveScore(s) {
+        try {
+          localStorage.setItem(QUIZ_KEY, JSON.stringify(s));
+        } catch (_) {}
+      }
+      let score = loadScore();
+
+      function eloFlavor(pct) {
+        if (pct == null) return "";
+        const elo = Math.round(600 + pct * 2200);
+        if (pct >= 0.9) return `${elo} Elo. It would be rude and unsporting to ask how.`;
+        if (pct >= 0.65) return `${elo} Elo. Top level of play, honestly.`;
+        if (pct >= 0.4) return `${elo} Elo. Genuinely can't tell either.`;
+        return `${elo} Elo. The chain is, at minimum, out-posting you.`;
+      }
+
+      function renderScore() {
+        if (!score.total) {
+          els.quizScore.textContent = "";
+          return;
+        }
+        const pct = score.right / score.total;
+        els.quizScore.textContent =
+          `${score.right}/${score.total} correct (${Math.round(pct * 100)}%). ${eloFlavor(pct)}`;
+      }
+      renderScore();
+
+      // Generated lines tend to run long (MAX_HALF in markov.js walks up to
+      // 34 words each way); a real one-word reply like "claim" would make the
+      // quiz trivial on length alone, not on voice. Bias toward real posts
+      // long enough to be a fair fight; fall back to the full corpus if that
+      // pool is too thin. Populated once the corpus loads (see boot below).
+      let quizPool = [];
+
+      function nextQuiz() {
+        if (!brain || !corpusLines.length) return;
+        els.quizResult.textContent = "";
+        els.quizResult.className = "quiz-result";
+        const pool = quizPool.length >= 10 ? quizPool : corpusLines;
+        const real = pool[Math.floor(Math.random() * pool.length)];
+        let fake = generate(brain).text;
+        for (let i = 0; i < 4 && [...fake].length < 20; i++) fake = generate(brain).text;
+        const realFirst = Math.random() < 0.5;
+        const a = realFirst ? real : fake;
+        const b = realFirst ? fake : real;
+        const aReal = realFirst;
+
+        for (const el of [els.quizA, els.quizB]) {
+          el.disabled = false;
+          el.className = "quiz-card";
+        }
+        els.quizA.textContent = a.slice(0, 260);
+        els.quizB.textContent = b.slice(0, 260);
+
+        function choose(pickedReal, el, otherEl) {
+          els.quizA.disabled = true;
+          els.quizB.disabled = true;
+          score.total++;
+          if (pickedReal) score.right++;
+          saveScore(score);
+          el.classList.add(pickedReal ? "pick-correct" : "pick-wrong");
+          if (!pickedReal) otherEl.classList.add("pick-correct");
+          els.quizResult.textContent = pickedReal
+            ? "grue — that was the real post."
+            : "bleen — that one was the chain talking.";
+          els.quizResult.className = "quiz-result " + (pickedReal ? "grue" : "bleen");
+          renderScore();
+        }
+
+        els.quizA.onclick = () => choose(aReal, els.quizA, els.quizB);
+        els.quizB.onclick = () => choose(!aReal, els.quizB, els.quizA);
+      }
+      els.quizNext.addEventListener("click", nextQuiz);
+
+      // --- boot: load real profile (avatar/name, best-effort) + corpus, train, go ---
+      fetch("https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=godoglyness.bsky.social")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((p) => {
+          if (!p) return;
+          profile = p;
+          if (p.avatar) els.avatar.src = p.avatar;
+          if (p.displayName) els.displayName.textContent = p.displayName;
+        })
+        .catch(() => {});
+
+      fetch("./data/corpus.json")
+        .then((r) => r.json())
+        .then((data) => {
+          corpusLines = data.lines || [];
+          quizPool = corpusLines.filter((l) => l.length >= 60 && l.length <= 320);
+          brain = buildBrain(corpusLines);
+          const n = corpusLines.length.toLocaleString();
+          els.corpusCount.textContent = n + " real";
+          els.corpusHint.textContent = n + " posts trained";
+          const date = data.fetchedAt ? new Date(data.fetchedAt).toISOString().slice(0, 10) : "unknown date";
+          els.corpusMeta.textContent = `${n} posts, snapshotted ${date}`;
+          els.regen.disabled = false;
+          els.copyBtn.disabled = false;
+          conjure();
+          nextQuiz();
+        })
+        .catch(() => {
+          els.quoteText.textContent = "couldn't load the corpus. try reloading?";
+          els.quoteText.classList.remove("loading");
+        });
+    </script>
+  </body>
+</html>
