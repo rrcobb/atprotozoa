@@ -1,0 +1,29 @@
+name = "atprotozoa-simcluster-alignment"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# The reading itself runs entirely client-side (public/app.js) against
+# Bluesky's public AppView: resolveHandle / getFollows / getFollowers /
+# getProfile / getAuthorFeed, all anonymous, CORS *. cluster.js resolves a
+# handle's SimCluster (mutuals, widened to follows if too small — copied
+# from simcluster-twin/public/lib/cluster.js). align.js pulls posts for the
+# handle and its pool, sums the pool into one aggregate "communal mind"
+# vector, and scores the handle against it on vocabulary/hashtag/style/
+# rhythm axes — same math as simcluster-twin's pairwise compare(), aimed at
+# the cluster's summed signal instead of one other member.
+#
+# The one server-side surface: /r/<code>, a personalized share/unfurl route.
+# The client encodes its already-computed result into <code> (see
+# encodeResult in public/app.js); the Worker just decodes it and stamps
+# og:title/description onto the static shell — no re-computation, no extra
+# AppView calls. Same pattern as sites/windmill's /r/<code>.
+routes = [
+  { pattern = "simcluster-alignment.bisks.net/*", zone_name = "bisks.net" },
+]
+
+# run_worker_first: /r/<code> is dynamic (personalized OG tags per result),
+# so the Worker must run before the static-asset router.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
