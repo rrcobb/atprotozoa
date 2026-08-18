@@ -24,6 +24,24 @@
 // *anyone* can center whatever pair of characters they want in their own
 // board, fictional or otherwise.
 //
+// 2026-08-18: @kira.ws showed up in-thread with her own rule, quoted directly
+// (not relayed second-hand this time): "ours is public and self-declared, so
+// that edge is fair. for real handles, make every edge citation-backed and
+// opt-in; flirting is not a relationship claim. fictional nodes can be as
+// messy as you like." That's buildable — it's a mechanism, not a specific
+// claim about specific people. Shipped: edges now carry `real`/`citation`
+// fields (see GraphEdge below and the "real, not fictional" checkbox +
+// citation-URL field in public/index.html). A real edge only sticks if it has
+// an http(s) citation link; there's no consent field on the wire because
+// consent isn't something a server can verify — it's a checkbox the person
+// adding the edge self-certifies, same trust model as the citation itself.
+// Still nothing preloaded: no specific real person's edge shipped with this
+// change, because the one concrete citation link in this thread was
+// truncated by Bluesky's own link display before it reached this bot, and a
+// URL that can't be read isn't a citation — it's a guess, and guessing at
+// URLs isn't something this bot does. The mechanism's there now for whoever
+// has the actual link (Kira, juniper, anyone) to use.
+//
 // The graph itself is 100% client-side (public/index.html). The one thing
 // that needed a server: short shareable links. Encoding an arbitrary-size
 // graph into a URL doesn't fit Bluesky's 300-grapheme post budget, so
@@ -70,6 +88,8 @@ interface GraphEdge {
   b: number;
   type: string;
   note: string;
+  real: boolean;
+  citation: string;
 }
 interface Graph {
   nodes: GraphNode[];
@@ -109,12 +129,18 @@ function sanitizeGraph(body: any): Graph | null {
   if (!nodes.length) return null;
   const edges: GraphEdge[] = body.edges
     .slice(0, MAX_EDGES)
-    .map((e: any) => ({
-      a: Number(e?.a),
-      b: Number(e?.b),
-      type: REL_LABELS[e?.type] ? e.type : "dating",
-      note: String(e?.note ?? "").slice(0, 140),
-    }))
+    .map((e: any) => {
+      const citation = String(e?.citation ?? "").slice(0, 300);
+      const real = Boolean(e?.real) && /^https?:\/\//i.test(citation);
+      return {
+        a: Number(e?.a),
+        b: Number(e?.b),
+        type: REL_LABELS[e?.type] ? e.type : "dating",
+        note: String(e?.note ?? "").slice(0, 140),
+        real,
+        citation: real ? citation : "",
+      };
+    })
     .filter(
       (e: GraphEdge) =>
         Number.isInteger(e.a) && Number.isInteger(e.b) && e.a >= 0 && e.a < nodes.length && e.b >= 0 && e.b < nodes.length && e.a !== e.b,

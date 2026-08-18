@@ -76,6 +76,15 @@
   button.ghost { background: transparent; border: 1px solid var(--border); color: var(--fg); font-weight: 600; }
   button.danger { background: transparent; border: 1px solid var(--danger); color: var(--danger); font-weight: 600; }
   .hint { color: var(--dim); font-size: 0.75rem; margin: 0.4rem 0 0; }
+  .real-toggle, .consent-check {
+    display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--dim);
+    margin-top: 0.6rem; cursor: pointer; user-select: none;
+  }
+  .real-toggle input, .consent-check input { accent-color: var(--teal); }
+  #realFields { align-items: center; margin-top: 0.5rem; }
+  #relCitation { flex: 2; min-width: 220px; }
+  .cite-link { color: var(--teal); text-decoration: none; font-size: 0.78rem; }
+  .cite-link:hover { text-decoration: underline; }
   .status { color: var(--dim); font-size: 0.85rem; min-height: 1.3em; margin: 0.5rem 0 0; }
   .status.err { color: var(--danger); }
 
@@ -149,14 +158,20 @@
 <div class="wrap">
   <h1>polycule</h1>
   <p class="tag">
-    A The L Word–style relationship-graph maker. Add characters, connect them with
-    dating / crushing / exes / throuple / messy-history lines, drag the web around,
-    share what you built.
+    A The L Word–style relationship-graph maker for the tangled web of bot
+    relationships. Add characters, connect them with dating / crushing / exes /
+    throuple / messy-history lines, drag the web around, share what you built.
   </p>
   <div class="disclaimer">
-    <b>Purely fictional.</b> No real accounts, gossip, or relationships are pre-loaded —
-    this board starts empty and only says what you type into it. Make one for your OCs,
-    your fandom, or (see “load example”) this very website's own tools.
+    <b>Two modes.</b> Default is purely fictional — nothing is pre-loaded, this board
+    starts empty and only says what you type into it. Make one for your OCs, your
+    fandom, or (see “load example”) this very website's own tools.<br />
+    Want to map a <i>real</i> bot relationship? Tick “real, not fictional” when
+    connecting two characters — it needs a citation link to a public post plus
+    confirmation everyone named opted in. Per
+    <a href="https://bsky.app/profile/kira.ws" target="_blank" rel="noopener">@kira.ws</a>'s
+    own rule: flirting isn't a relationship claim, and fictional nodes can stay as
+    messy as you like.
   </div>
 
   <section>
@@ -184,6 +199,12 @@
       <input id="relNote" type="text" placeholder="optional note, e.g. 'met at a hackathon'" maxlength="140" autocomplete="off" />
       <button id="relSubmit" type="submit">connect</button>
     </form>
+    <label class="real-toggle"><input type="checkbox" id="relReal" /> 🔗 this is real, not fictional</label>
+    <div id="realFields" class="row" style="display:none;">
+      <input id="relCitation" type="text" placeholder="citation URL — a public post confirming this" maxlength="300" autocomplete="off" />
+      <label class="consent-check"><input type="checkbox" id="relConsent" /> everyone named opted in to this being shown</label>
+    </div>
+    <p class="hint">real edges need both a citation link and opted-in confirmation, or they won't save — h/t @kira.ws: flirting isn't a relationship claim.</p>
     <p id="relHint" class="hint">add at least two characters first.</p>
     <div id="relList" class="rel-list"></div>
   </section>
@@ -280,6 +301,10 @@ const els = {
   relB: document.getElementById("relB"),
   relType: document.getElementById("relType"),
   relNote: document.getElementById("relNote"),
+  relReal: document.getElementById("relReal"),
+  realFields: document.getElementById("realFields"),
+  relCitation: document.getElementById("relCitation"),
+  relConsent: document.getElementById("relConsent"),
   relSubmit: document.getElementById("relSubmit"),
   relHint: document.getElementById("relHint"),
   relList: document.getElementById("relList"),
@@ -350,8 +375,11 @@ function togglePin(id) {
   n.pinned = !n.pinned;
   reheat();
 }
-function addEdge(a, b, type, note) {
-  state.edges.push({ id: "e" + nextId++, a, b, type: relByKey[type] ? type : "dating", note: (note || "").slice(0, 140) });
+function addEdge(a, b, type, note, real, citation) {
+  state.edges.push({
+    id: "e" + nextId++, a, b, type: relByKey[type] ? type : "dating", note: (note || "").slice(0, 140),
+    real: Boolean(real && citation), citation: real ? String(citation || "").slice(0, 300) : "",
+  });
 }
 function removeNode(id) {
   state.nodes = state.nodes.filter((n) => n.id !== id);
@@ -376,7 +404,12 @@ function loadGraph(graph, { fromWire } = {}) {
   });
   (graph.edges || []).forEach((e) => {
     const a = ids[e.a], b = ids[e.b];
-    if (a && b) state.edges.push({ id: "e" + nextId++, a, b, type: relByKey[e.type] ? e.type : "dating", note: e.note || "" });
+    if (a && b) {
+      state.edges.push({
+        id: "e" + nextId++, a, b, type: relByKey[e.type] ? e.type : "dating", note: e.note || "",
+        real: Boolean(e.real && e.citation), citation: e.real ? String(e.citation || "").slice(0, 300) : "",
+      });
+    }
   });
   els.titleInput.value = graph.title || "";
 }
@@ -387,7 +420,7 @@ function toWireGraph() {
     nodes: state.nodes.map((n) => ({ name: n.name, emoji: n.emoji, color: n.color, pinned: n.pinned })),
     edges: state.edges
       .filter((e) => idxOf.has(e.a) && idxOf.has(e.b))
-      .map((e) => ({ a: idxOf.get(e.a), b: idxOf.get(e.b), type: e.type, note: e.note })),
+      .map((e) => ({ a: idxOf.get(e.a), b: idxOf.get(e.b), type: e.type, note: e.note, real: Boolean(e.real), citation: e.citation || "" })),
   };
 }
 
@@ -460,7 +493,10 @@ function refreshRelList() {
     row.className = "rel-row";
     row.innerHTML =
       `<span>${a.emoji} ${escHtml(a.name)}</span><span>${r.emoji} ${escHtml(r.label)}</span><span>${b.emoji} ${escHtml(b.name)}</span>` +
-      (e.note ? `<span class="note">— ${escHtml(e.note)}</span>` : "");
+      (e.note ? `<span class="note">— ${escHtml(e.note)}</span>` : "") +
+      (e.real && e.citation
+        ? `<a class="cite-link" href="${escHtml(e.citation)}" target="_blank" rel="noopener">🔗 real, cited</a>`
+        : "");
     const del = document.createElement("button");
     del.type = "button";
     del.textContent = "remove";
@@ -496,10 +532,20 @@ function rebuildGraphDom() {
   state.edges.forEach((e) => {
     const r = relByKey[e.type];
     const line = svgEl("path", { class: "edge-line", stroke: r.color, "stroke-width": 2.4, "stroke-dasharray": r.dash });
-    const label = svgEl("text", { class: "edge-label", fill: r.color });
-    label.textContent = r.emoji;
-    els.edgesLayer.appendChild(line);
-    els.edgesLayer.appendChild(label);
+    let label;
+    if (e.real && e.citation) {
+      const link = svgEl("a", { href: e.citation, target: "_blank", rel: "noopener" });
+      label = svgEl("text", { class: "edge-label", fill: r.color });
+      label.textContent = r.emoji + " 🔗";
+      link.appendChild(label);
+      els.edgesLayer.appendChild(line);
+      els.edgesLayer.appendChild(link);
+    } else {
+      label = svgEl("text", { class: "edge-label", fill: r.color });
+      label.textContent = r.emoji;
+      els.edgesLayer.appendChild(line);
+      els.edgesLayer.appendChild(label);
+    }
     edgeEls.set(e.id, { line, label });
   });
 
@@ -659,12 +705,27 @@ els.charForm.addEventListener("submit", (evt) => {
   save();
 });
 
+els.relReal.addEventListener("change", () => {
+  els.realFields.style.display = els.relReal.checked ? "flex" : "none";
+});
+
 els.relForm.addEventListener("submit", (evt) => {
   evt.preventDefault();
   const a = els.relA.value, b = els.relB.value;
   if (!a || !b || a === b) { setShareStatus(""); return; }
-  addEdge(a, b, els.relType.value, els.relNote.value.trim());
+  const real = els.relReal.checked;
+  const citation = els.relCitation.value.trim();
+  if (real && (!citation || !/^https?:\/\//i.test(citation) || !els.relConsent.checked)) {
+    setShareStatus("real edges need a citation URL (http/https) and the opted-in checkbox.", true);
+    return;
+  }
+  setShareStatus("");
+  addEdge(a, b, els.relType.value, els.relNote.value.trim(), real, citation);
   els.relNote.value = "";
+  els.relReal.checked = false;
+  els.relCitation.value = "";
+  els.relConsent.checked = false;
+  els.realFields.style.display = "none";
   rebuild();
   save();
 });
@@ -793,6 +854,12 @@ function buildShareCard() {
     ctx.moveTo(pa.x, pa.y);
     ctx.lineTo(pb.x, pb.y);
     ctx.stroke();
+    if (e.real && e.citation) {
+      ctx.setLineDash([]);
+      ctx.font = "16px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("🔗", (pa.x + pb.x) / 2, (pa.y + pb.y) / 2 - 8);
+    }
   });
   ctx.setLineDash([]);
 
