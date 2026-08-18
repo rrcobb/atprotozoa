@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>bottomcoded — bottom or top posting energy?</title>
+<meta name="description" content="Enter a Bluesky handle. We score your last ~100 posts for bottom-to-top posting energy — hedging and apologies vs. declarative, no-notes confidence — and average it into one number." />
+<meta property="og:title" content="bottomcoded — bottom or top posting energy?" />
+<meta property="og:description" content="Enter a Bluesky handle. We score your last ~100 posts for bottom-to-top posting energy and average it into one number." />
+<meta property="og:url" content="https://bottomcoded.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://bottomcoded.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="bottomcoded: a gauge running from bottom to top, scoring a handle's last 100 posts." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="bottomcoded — bottom or top posting energy?" />
+<meta name="twitter:description" content="Enter a Bluesky handle. We score your last ~100 posts for bottom-to-top posting energy and average it into one number." />
+<meta name="twitter:image" content="https://bottomcoded.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #120a16;
+    --bg2: #1c0f22;
+    --fg: #f5edf7;
+    --dim: #ab97b8;
+    --faint: #2c1c34;
+    --bottom: #5aa2ff;
+    --top: #ff4d84;
+    --mid: #b25aff;
+    --card: #1b1120;
+    --border: #33223d;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background:
+      radial-gradient(900px 480px at 15% -10%, #2a1440 0%, transparent 55%),
+      radial-gradient(900px 480px at 90% 5%, #401432 0%, transparent 55%),
+      var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    display: flex;
+    justify-content: center;
+    padding: 3rem 1.1rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 620px; }
+  a { color: var(--top); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .back { font-size: 0.8rem; color: var(--dim); }
+
+  h1 {
+    font-size: 2rem; font-weight: 900; letter-spacing: -0.02em; margin: 1.1rem 0 0.4rem;
+  }
+  .sub { color: var(--dim); font-size: 0.94rem; line-height: 1.55; margin: 0 0 1.3rem; max-width: 56ch; }
+  .sub b { color: var(--fg); }
+
+  blockquote.origin {
+    margin: 0 0 1.6rem;
+    padding: 0.85rem 1rem;
+    border-left: 3px solid var(--mid);
+    background: var(--card);
+    border-radius: 0 10px 10px 0;
+    color: var(--dim);
+    font-size: 0.84rem;
+    line-height: 1.6;
+  }
+  blockquote.origin q { color: var(--fg); font-style: italic; }
+
+  form { display: flex; gap: 0.55rem; margin-bottom: 0.6rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0; font: inherit; padding: 0.7rem 0.85rem;
+    border: 1px solid var(--faint); border-radius: 10px;
+    background: var(--card); color: var(--fg); font-size: 0.95rem;
+  }
+  input::placeholder { color: #6f5c7d; }
+  input:focus { outline: 2px solid var(--mid); outline-offset: -1px; }
+  button.go {
+    padding: 0.7rem 1.15rem; border: 0; border-radius: 10px;
+    background: linear-gradient(90deg, var(--bottom), var(--top));
+    color: #140a1a; font: inherit; font-weight: 800; cursor: pointer;
+  }
+  button.go:disabled { opacity: 0.5; cursor: default; }
+
+  .status { color: var(--dim); font-size: 0.85rem; min-height: 1.4rem; margin-bottom: 0.3rem; }
+  .status.err { color: #ff6b8a; }
+  .examples { color: var(--dim); font-size: 0.82rem; margin-bottom: 1.5rem; }
+  .examples a { cursor: pointer; }
+
+  .progwrap { display: none; margin: 0.6rem 0 1.2rem; }
+  .progwrap.show { display: block; }
+  .progbar { height: 8px; border-radius: 5px; background: var(--faint); overflow: hidden; }
+  .progbar i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--bottom), var(--top)); transition: width 0.2s ease; }
+  .proglabel { font-size: 0.78rem; color: var(--dim); margin-top: 0.35rem; font-family: var(--mono); }
+
+  .profile { display: none; align-items: center; gap: 0.75rem; margin: 0.4rem 0 1.6rem; padding-bottom: 1.2rem; border-bottom: 1px solid var(--faint); }
+  .profile.show { display: flex; }
+  .profile img { width: 52px; height: 52px; border-radius: 50%; background: var(--faint); object-fit: cover; flex: none; }
+  .profile .pname { font-weight: 800; font-size: 1.02rem; line-height: 1.25; }
+  .profile .phandle { color: var(--dim); font-size: 0.85rem; }
+  .profile .pcount { margin-left: auto; text-align: right; color: var(--dim); font-size: 0.76rem; font-family: var(--mono); }
+
+  .resultWrap { display: none; }
+  .resultWrap.show { display: block; animation: rise 0.35s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .gaugeCard {
+    background: var(--card); border: 1px solid var(--border); border-radius: 18px;
+    padding: 1.6rem 1.5rem; margin-bottom: 1.3rem;
+  }
+  .verdict { font-size: 1.5rem; font-weight: 900; text-transform: lowercase; margin: 0 0 0.2rem; }
+  .verdictBlurb { color: var(--dim); font-size: 0.9rem; margin: 0 0 1.2rem; }
+  .gaugeLabels { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 0.72rem;
+    letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); margin-bottom: 0.4rem; }
+  .gaugeLabels .b { color: var(--bottom); }
+  .gaugeLabels .t { color: var(--top); }
+  .gaugeTrack { position: relative; height: 14px; border-radius: 7px;
+    background: linear-gradient(90deg, var(--bottom), var(--mid), var(--top)); }
+  .gaugeTick { position: absolute; top: -6px; bottom: -6px; width: 2px; background: rgba(255,255,255,0.35); left: 50%; }
+  .gaugeMarker { position: absolute; top: -9px; width: 26px; height: 26px; margin-left: -13px;
+    border-radius: 50%; background: #140a1a; border: 3px solid var(--fg); box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    transition: left 0.5s cubic-bezier(.2,.9,.3,1); }
+  .gaugeScore { text-align: center; font-family: var(--mono); font-weight: 800; font-size: 0.85rem; margin-top: 0.9rem; color: var(--fg); }
+  .gaugeScore span { color: var(--dim); font-weight: 400; }
+
+  .exhibits { display: grid; gap: 0.9rem; margin-bottom: 1.4rem; }
+  .exhibit { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 0.95rem 1.05rem; }
+  .exhibit .tag { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase; font-weight: 800; margin-bottom: 0.4rem; }
+  .exhibit.top .tag { color: var(--top); }
+  .exhibit.bottom .tag { color: var(--bottom); }
+  .exhibit .txt { font-size: 0.94rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: break-word; }
+  .exhibit .why { margin-top: 0.55rem; font-size: 0.76rem; color: var(--dim); }
+  .exhibit .why b { color: var(--fg); font-weight: 600; }
+  .exhibit .link { display: block; margin-top: 0.5rem; font-size: 0.78rem; }
+
+  .share { display: none; flex-wrap: wrap; gap: 0.55rem; margin-bottom: 1.4rem; }
+  .share.show { display: flex; }
+  .share button, .share a.btn {
+    font-family: var(--mono); font-size: 0.8rem; color: var(--dim); background: none;
+    border: 1px solid var(--faint); border-radius: 9px; padding: 0.5rem 0.85rem; cursor: pointer; text-decoration: none;
+  }
+  .share button:hover, .share a.btn:hover { color: var(--fg); border-color: var(--mid); text-decoration: none; }
+  .share a.compose { color: #140a1a; background: linear-gradient(90deg, var(--bottom), var(--top)); border: none; font-weight: 700; }
+
+  .note { margin-top: 2.4rem; color: var(--dim); font-size: 0.78rem; line-height: 1.7; }
+  code { font-family: var(--mono); font-size: 0.9em; }
+  .credit { margin-top: 0.8rem; color: var(--dim); font-size: 0.76rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="https://bisks.net">← the zoo</a>
+  <h1>bottomcoded</h1>
+  <p class="sub">
+    Enter a handle. We pull their <b>latest 100 posts</b> and score each one
+    for bottom-to-top posting energy — hedging, apologies, and question marks
+    versus declarative, no-notes confidence — then average it into a single
+    number from <b>bottom</b> to <b>top</b>.
+  </p>
+
+  <blockquote class="origin">
+    the ask started from a thread: <q>learning to notice when my skeets are bottom
+    coded and ouchies, it is often</q> — followed by <q>Is this a "no I'm
+    actually a top!!" sitch or a "oh damn I didn't realize it was that
+    obvious" sitch?</q> — answer: <q>yes.</q> this is the meter for that.
+  </blockquote>
+
+  <form id="form">
+    <input id="handle" placeholder="handle, e.g. bsky.app" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <button class="go" id="go" type="submit">score me</button>
+  </form>
+  <div class="status" id="status"></div>
+  <div class="examples">try:
+    <a data-h="bsky.app">bsky.app</a> ·
+    <a data-h="pfrazee.com">pfrazee.com</a> ·
+    <a data-h="jay.bsky.team">jay.bsky.team</a>
+  </div>
+
+  <div class="profile" id="profile">
+    <img id="pavatar" alt="" referrerpolicy="no-referrer" />
+    <div>
+      <div class="pname" id="pname"></div>
+      <div class="phandle" id="phandle"></div>
+    </div>
+    <div class="pcount" id="pcount"></div>
+  </div>
+
+  <div class="progwrap" id="progwrap">
+    <div class="progbar"><i id="progbarfill"></i></div>
+    <div class="proglabel" id="proglabel"></div>
+  </div>
+
+  <div class="resultWrap" id="resultWrap">
+    <div class="gaugeCard">
+      <div class="verdict" id="verdict"></div>
+      <p class="verdictBlurb" id="verdictBlurb"></p>
+      <div class="gaugeLabels"><span class="b">bottom</span><span class="t">top</span></div>
+      <div class="gaugeTrack">
+        <div class="gaugeTick"></div>
+        <div class="gaugeMarker" id="gaugeMarker"></div>
+      </div>
+      <div class="gaugeScore" id="gaugeScore"></div>
+    </div>
+
+    <div class="exhibits" id="exhibits"></div>
+
+    <div class="share" id="share">
+      <a class="btn compose" id="shareBluesky" target="_blank" rel="noopener">🦋 share to Bluesky</a>
+      <button id="shareDownload">⬇ download card</button>
+      <button id="shareNative" style="display:none">📤 share</button>
+      <button id="copyLink">🔗 copy link</button>
+    </div>
+  </div>
+
+  <canvas id="shareCanvas" width="1200" height="630" style="display:none"></canvas>
+
+  <p class="note">
+    Reads only Bluesky's public anonymous AppView (<code>resolveHandle</code>,
+    <code>getProfile</code>, <code>getAuthorFeed</code>) and scans up to the
+    latest 100 posts you actually wrote (reposts don't count, replies do —
+    everything runs in your browser). This is not a real personality
+    assessment, it's a keyword-and-punctuation bit: exclamation points,
+    ALL CAPS, and phrases like "fix it" or "not up for debate" push toward
+    top; question marks, "sorry," "maybe," and "bottom coded" push toward
+    bottom. Nothing is posted or changed unless you tap share.
+  </p>
+  <p class="credit">asked for by <a href="https://bsky.app/profile/shimmermathlabs.com">@shimmermathlabs.com</a> · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a></p>
+</div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script type="module">
+  import { resolveActor, fetchLatestPosts, bskyLink, TARGET_POSTS } from "./lib/feed.js";
+  import { scoreTimeline } from "./lib/energy.js";
+
+  if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+
+  const form = document.getElementById("form");
+  const handleEl = document.getElementById("handle");
+  const statusEl = document.getElementById("status");
+  const go = document.getElementById("go");
+  const profile = document.getElementById("profile");
+  const progwrap = document.getElementById("progwrap");
+  const progbarfill = document.getElementById("progbarfill");
+  const proglabel = document.getElementById("proglabel");
+  const resultWrap = document.getElementById("resultWrap");
+  const verdictEl = document.getElementById("verdict");
+  const verdictBlurbEl = document.getElementById("verdictBlurb");
+  const gaugeMarker = document.getElementById("gaugeMarker");
+  const gaugeScore = document.getElementById("gaugeScore");
+  const exhibitsEl = document.getElementById("exhibits");
+  const share = document.getElementById("share");
+  const shareCanvas = document.getElementById("shareCanvas");
+
+  function esc(s) {
+    return (s || "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+  }
+
+  function exhibitHTML(kind, scored, profileHandle) {
+    if (!scored) return "";
+    const label = kind === "top" ? "most top-coded" : "most bottom-coded";
+    const why = scored.hits.slice(0, 4).map((h) => esc(h.label)).join(" · ") || "punctuation & shape";
+    return `
+      <div class="exhibit ${kind}">
+        <div class="tag">${label}</div>
+        <div class="txt">${esc(scored.post.text) || "<em>(no text)</em>"}</div>
+        <div class="why">flagged for: <b>${why}</b></div>
+        <a class="link" href="${bskyLink(scored.post.uri, profileHandle)}" target="_blank" rel="noopener">open ↗</a>
+      </div>`;
+  }
+
+  async function loadImg(url) {
+    if (!url) return null;
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  }
+
+  function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+    const words = (text || "").split(" ");
+    let line = "", cy = y, lines = 0;
+    for (const w of words) {
+      const test = line ? line + " " + w : w;
+      if (line && ctx.measureText(test).width > maxWidth) {
+        ctx.fillText(line, x, cy);
+        line = w; cy += lineHeight; lines++;
+        if (maxLines && lines >= maxLines - 1) { line += "…"; break; }
+      } else line = test;
+    }
+    if (line) ctx.fillText(line, x, cy);
+    return cy;
+  }
+
+  async function buildShareCard(profileObj, result) {
+    const ctx = shareCanvas.getContext("2d");
+    const W = shareCanvas.width, H = shareCanvas.height;
+    const mono = "ui-monospace, monospace";
+    const avatar = await loadImg(profileObj.avatar);
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "#120a16";
+    ctx.fillRect(0, 0, W, H);
+    const glow = ctx.createRadialGradient(W * 0.5, -H * 0.1, 0, W * 0.5, -H * 0.1, W * 0.65);
+    glow.addColorStop(0, "#331a45");
+    glow.addColorStop(1, "rgba(18,10,22,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#ff4d84";
+    ctx.font = `800 46px ${mono}`;
+    ctx.fillText("bottomcoded", 60, 96);
+
+    let textX = 60;
+    ctx.font = `700 24px ${mono}`;
+    if (avatar) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(88, 148, 26, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(avatar, 62, 122, 52, 52);
+      ctx.restore();
+      textX = 130;
+    }
+    ctx.fillStyle = "#f5edf7";
+    ctx.fillText(`@${profileObj.handle}`, textX, 156);
+
+    const cardX = 60, cardY = 200, cardW = W - 120, cardH = H - 320;
+    ctx.fillStyle = "#1b1120";
+    ctx.strokeStyle = "#33223d";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#f5edf7";
+    ctx.font = `900 38px ${mono}`;
+    ctx.fillText(result.verdict.label, W / 2, cardY + 66);
+    ctx.fillStyle = "#ab97b8";
+    ctx.font = `400 18px ${mono}`;
+    wrapCanvasText(ctx, result.verdict.blurb, W / 2 - 260, cardY + 100, 520, 24, 2);
+
+    // gauge bar
+    const barX = cardX + 60, barY = cardY + cardH - 70, barW = cardW - 120, barH = 16;
+    const grad = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+    grad.addColorStop(0, "#5aa2ff");
+    grad.addColorStop(0.5, "#b25aff");
+    grad.addColorStop(1, "#ff4d84");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, barW, barH, 8);
+    ctx.fill();
+    const pos = barX + ((result.timeline + 100) / 200) * barW;
+    ctx.beginPath();
+    ctx.arc(pos, barY + barH / 2, 13, 0, Math.PI * 2);
+    ctx.fillStyle = "#140a1a";
+    ctx.fill();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "#f5edf7";
+    ctx.stroke();
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#5aa2ff";
+    ctx.font = `700 16px ${mono}`;
+    ctx.fillText("BOTTOM", barX, barY - 12);
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#ff4d84";
+    ctx.fillText("TOP", barX + barW, barY - 12);
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#f5edf7";
+    ctx.font = `700 15px ${mono}`;
+    ctx.fillText(`${result.timeline > 0 ? "+" : ""}${result.timeline} / 100 · last ${result.postCount} posts`, W / 2, cardY + cardH + 40);
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#ff4d84";
+    ctx.font = `700 20px ${mono}`;
+    ctx.fillText("bottomcoded.bisks.net", 60, H - 40);
+  }
+
+  function buildShareText(profileObj, result) {
+    const url = "https://bottomcoded.bisks.net/?handle=" + encodeURIComponent(profileObj.handle);
+    return `@${profileObj.handle}'s last ${result.postCount} posts score ${result.timeline > 0 ? "+" : ""}${result.timeline}/100 on the bottom↔top posting energy meter: ${result.verdict.label}.\n\n${url}`;
+  }
+
+  let lastProfile = null, lastResult = null;
+
+  let busy = false;
+  async function run(rawHandle) {
+    if (busy) return;
+    busy = true;
+    go.disabled = true;
+    statusEl.className = "status";
+    statusEl.textContent = "";
+    profile.classList.remove("show");
+    progwrap.classList.remove("show");
+    resultWrap.classList.remove("show");
+    share.classList.remove("show");
+    exhibitsEl.innerHTML = "";
+
+    try {
+      statusEl.textContent = "resolving handle…";
+      const profileObj = await resolveActor(rawHandle);
+      document.getElementById("pavatar").src = profileObj.avatar || "";
+      document.getElementById("pname").textContent = profileObj.displayName || profileObj.handle;
+      document.getElementById("phandle").textContent = "@" + profileObj.handle;
+      document.getElementById("pcount").textContent = (profileObj.postsCount || 0).toLocaleString() + " total posts";
+      profile.classList.add("show");
+
+      progwrap.classList.add("show");
+      statusEl.textContent = `pulling their last ${TARGET_POSTS} posts…`;
+      const posts = await fetchLatestPosts(profileObj.did, TARGET_POSTS, {
+        onProgress: (done, total) => {
+          const pct = Math.round((Math.min(done, total) / total) * 100);
+          progbarfill.style.width = pct + "%";
+          proglabel.textContent = `${Math.min(done, total)} / ${total} posts scored`;
+        },
+      });
+      progwrap.classList.remove("show");
+
+      if (!posts.length) throw new Error("no original posts found to score");
+
+      const result = scoreTimeline(posts);
+      statusEl.textContent = "";
+
+      verdictEl.textContent = result.verdict.label;
+      verdictBlurbEl.textContent = result.verdict.blurb;
+      gaugeMarker.style.left = ((result.timeline + 100) / 200) * 100 + "%";
+      gaugeScore.innerHTML = `${result.timeline > 0 ? "+" : ""}${result.timeline} <span>/ 100 · from ${result.postCount} posts</span>`;
+
+      exhibitsEl.innerHTML =
+        exhibitHTML("top", result.mostTop, profileObj.handle) +
+        exhibitHTML("bottom", result.mostBottom, profileObj.handle);
+
+      resultWrap.classList.add("show");
+      share.classList.add("show");
+
+      lastProfile = profileObj;
+      lastResult = result;
+      document.getElementById("shareBluesky").href =
+        "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(profileObj, result));
+      buildShareCard(profileObj, result);
+
+      const url = new URL(location.href);
+      url.searchParams.set("handle", profileObj.handle);
+      history.replaceState(null, "", url);
+    } catch (e) {
+      statusEl.className = "status err";
+      statusEl.textContent = "couldn't score that: " + e.message;
+      progwrap.classList.remove("show");
+    } finally {
+      go.disabled = false;
+      busy = false;
+    }
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (handleEl.value.trim()) run(handleEl.value);
+  });
+  document.querySelectorAll(".examples a").forEach((el) =>
+    el.addEventListener("click", () => { handleEl.value = el.dataset.h; run(el.dataset.h); }));
+
+  document.getElementById("shareDownload").addEventListener("click", () => {
+    shareCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "bottomcoded.png";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  });
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      const probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (_) { return false; }
+  }
+  if (canShareFiles()) {
+    document.getElementById("shareNative").style.display = "";
+    document.getElementById("shareNative").addEventListener("click", () => {
+      shareCanvas.toBlob(async (blob) => {
+        if (!blob || !lastProfile || !lastResult) return;
+        const file = new File([blob], "bottomcoded.png", { type: "image/png" });
+        try {
+          await navigator.share({ files: [file], text: buildShareText(lastProfile, lastResult), title: "bottomcoded" });
+        } catch (_) {}
+      }, "image/png");
+    });
+  }
+
+  document.getElementById("copyLink").addEventListener("click", async (e) => {
+    try {
+      await navigator.clipboard.writeText(location.href);
+      e.target.textContent = "✓ copied!";
+      setTimeout(() => { e.target.textContent = "🔗 copy link"; }, 1800);
+    } catch { e.target.textContent = "copy failed — select the URL"; }
+  });
+
+  const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+  const qp = new URLSearchParams(location.search).get("handle") || (pathHandle && decodeURIComponent(pathHandle));
+  if (qp) { handleEl.value = qp; run(qp); }
+  else handleEl.focus();
+</script>
+</body>
+</html>
