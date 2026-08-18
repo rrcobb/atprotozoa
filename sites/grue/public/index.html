@@ -122,6 +122,19 @@
         gap: 1rem; flex-wrap: wrap;
       }
 
+      .seed-row {
+        display: flex; align-items: center; gap: 0.6rem; margin-top: 0.9rem;
+        justify-content: center; flex-wrap: wrap;
+      }
+      .seed-row input {
+        font-family: var(--mono); font-size: 0.82rem; color: var(--ink);
+        background: var(--panel-solid); border: 1px solid var(--faint); border-radius: 6px;
+        padding: 0.45rem 0.7rem; width: 15rem; max-width: 60vw;
+      }
+      .seed-row input:focus { outline: none; border-color: var(--bleen); }
+      .seed-row input::placeholder { color: var(--muted); }
+      .seed-error { font-size: 0.76rem; color: var(--bad); }
+
       .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; justify-content: center; }
       button, .btn {
         font-family: var(--mono); font-size: 0.82rem; font-weight: 600;
@@ -198,8 +211,8 @@
       <header>
         <h1><a href="/"><span class="g">gr</span><span class="u">u</span>e</a></h1>
         <p class="tagline">
-          a godoglyness markov chain — trained on <b id="corpusCount">thousands</b> of
-          @godoglyness.bsky.social's real posts. can you spot the real one?
+          a godoglyness markov chain — trained on <b id="corpusCount">thousands</b> real posts.
+          spot the real one?
         </p>
       </header>
 
@@ -219,6 +232,17 @@
             <span id="seedHint"></span>
             <span id="corpusHint"></span>
           </div>
+        </div>
+        <div class="seed-row">
+          <input
+            type="text"
+            id="seedInput"
+            placeholder="start it from a word (optional)"
+            autocomplete="off"
+            spellcheck="false"
+            maxlength="40"
+          />
+          <span class="seed-error" id="seedError"></span>
         </div>
         <div class="actions">
           <button class="btn-primary" id="regen" disabled>conjure another</button>
@@ -365,13 +389,15 @@
     </script>
 
     <script type="module">
-      import { buildBrain, generate, fitToBudget } from "./lib/markov.js";
+      import { buildBrain, generate, fitToBudget, normalizeSeed } from "./lib/markov.js";
 
       const els = {
         avatar: document.getElementById("avatar"),
         displayName: document.getElementById("displayName"),
         quoteText: document.getElementById("quoteText"),
         seedHint: document.getElementById("seedHint"),
+        seedInput: document.getElementById("seedInput"),
+        seedError: document.getElementById("seedError"),
         corpusHint: document.getElementById("corpusHint"),
         corpusCount: document.getElementById("corpusCount"),
         corpusCount2: document.getElementById("corpusCount2"),
@@ -423,8 +449,18 @@
 
       function conjure() {
         if (!brain) return;
+        const raw = els.seedInput ? els.seedInput.value.trim() : "";
+        let forcedSeed = null;
+        if (raw) {
+          forcedSeed = normalizeSeed(brain, raw);
+          if (!forcedSeed) {
+            els.seedError.textContent = "“" + raw + "” isn't in the corpus — try another word.";
+            return;
+          }
+        }
+        els.seedError.textContent = "";
         const budgeted = () => {
-          const g = generate(brain);
+          const g = generate(brain, forcedSeed);
           return { text: fitToBudget(g.text, 300), seed: g.seed };
         };
         let result = budgeted();
@@ -435,6 +471,15 @@
       }
 
       els.regen.addEventListener("click", conjure);
+      els.seedInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          conjure();
+        }
+      });
+      els.seedInput.addEventListener("input", () => {
+        els.seedError.textContent = "";
+      });
 
       els.copyBtn.addEventListener("click", async () => {
         try {
@@ -669,7 +714,7 @@
           quizPool = corpusLines.filter((l) => l.length >= 60 && l.length <= 320);
           brain = buildBrain(corpusLines);
           const n = corpusLines.length.toLocaleString();
-          els.corpusCount.textContent = n + " real";
+          els.corpusCount.textContent = n;
           if (els.corpusCount2) els.corpusCount2.textContent = n;
           els.corpusHint.textContent = n + " posts trained";
           const date = data.fetchedAt ? new Date(data.fetchedAt).toISOString().slice(0, 10) : "unknown date";

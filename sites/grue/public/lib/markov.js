@@ -118,6 +118,16 @@ function seedCandidates(brain) {
   return out;
 }
 
+// Validates a visitor-typed seed word against the trained dictionary: takes
+// the first word-token out of whatever they typed, lowercases it the same
+// way training did, and returns it only if the chain actually knows it —
+// unlike seedCandidates() above, a custom seed is allowed to be a stopword
+// or a hapax legomenon (the visitor asked for it on purpose).
+export function normalizeSeed(brain, raw) {
+  const word = tokenize(String(raw || "")).find(isWordToken);
+  return word && brain.dict.has(word) ? word : null;
+}
+
 function walk(chain3, chain2, chain1, seed, maxWords) {
   const out = [seed];
   const seenContexts = new Set();
@@ -205,9 +215,11 @@ function joinWords(words) {
 
 const ATTEMPTS = 20;
 
-// Generates one fresh line from `brain`. Returns { text, seed }.
-export function generate(brain) {
-  const seeds = seedCandidates(brain);
+// A caller-supplied seed word is only ever a single known token (validated by
+// normalizeSeed below), so every attempt reuses it — the variety across
+// attempts comes from the random choices inside walk(), same as usual.
+export function generate(brain, forcedSeed) {
+  const seeds = forcedSeed ? [forcedSeed] : seedCandidates(brain);
   if (!seeds.length) return { text: "…", seed: null };
 
   const target = brain.lineWordCounts.length ? pick(brain.lineWordCounts) : 24;
