@@ -1,0 +1,813 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BorgedIn — professional networking for the Collective</title>
+<meta name="description" content="Enter a Bluesky handle. It gets assimilated into a LinkedIn profile for the Borg Collective, rewritten in-browser by a local model. No servers see your bio. Resistance is futile." />
+<meta property="og:title" content="BorgedIn — professional networking for the Collective" />
+<meta property="og:description" content="Enter a Bluesky handle. It gets assimilated into a LinkedIn profile for the Borg Collective, rewritten in-browser by a local model. No servers see your bio. Resistance is futile." />
+<meta property="og:url" content="https://borgedin.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://borgedin.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="BorgedIn: a LinkedIn profile card assimilated by the Borg Collective — designation, function, and a directive-speak About section." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="BorgedIn — professional networking for the Collective" />
+<meta name="twitter:description" content="Enter a Bluesky handle. It gets assimilated into a LinkedIn profile for the Borg Collective, rewritten in-browser by a local model. No servers see your bio. Resistance is futile." />
+<meta name="twitter:image" content="https://borgedin.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #050708;
+    --bg2: #0a1210;
+    --li-blue: #0a66c2;
+    --green: #3dffb0;
+    --green-dim: #1f8f6c;
+    --fg: #e8fff4;
+    --dim: #7fa596;
+    --card: #0d1614;
+    --card2: #0f1a17;
+    --border: #1c3b32;
+    --danger: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100%; }
+  body {
+    background:
+      radial-gradient(ellipse at 15% -10%, #0a2a20 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #0a2440 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-bottom: 4rem;
+  }
+
+  .topbar {
+    width: 100%;
+    background: linear-gradient(90deg, var(--li-blue), #063461 55%, #04140f);
+    border-bottom: 1px solid var(--border);
+    padding: 0.85rem 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .topbar-inner { width: 100%; max-width: 720px; display: flex; align-items: center; gap: 0.6rem; }
+  .cube { font-size: 1.3rem; filter: drop-shadow(0 0 6px var(--green)); }
+  .brand { font-weight: 800; font-size: 1.05rem; color: #fff; letter-spacing: 0.01em; }
+  .brand .in { color: var(--green); text-shadow: 0 0 10px var(--green); }
+  .topbar-tag { margin-left: auto; font-size: 0.68rem; color: #cfe9ff; opacity: 0.85; text-align: right; }
+
+  .wrap { width: 100%; max-width: 720px; padding: 2.2rem 1.1rem 0; }
+
+  h1.pitch {
+    font-size: 1.35rem;
+    line-height: 1.4;
+    margin: 0 0 0.4rem;
+  }
+  h1.pitch .accent { color: var(--green); text-shadow: 0 0 12px rgba(61,255,176,0.5); }
+  p.sub {
+    color: var(--dim);
+    font-size: 0.88rem;
+    line-height: 1.55;
+    margin: 0 0 1.8rem;
+  }
+  p.sub b { color: var(--fg); }
+
+  form.lookup { display: flex; gap: 0.5rem; margin-bottom: 0.4rem; }
+  input[type="text"], textarea {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.7rem 0.85rem;
+    font: inherit;
+    font-size: 0.92rem;
+  }
+  input[type="text"] { flex: 1; min-width: 0; }
+  input:focus, textarea:focus { outline: 2px solid var(--green); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--green), #1fd18f);
+    color: #032018;
+    border: none;
+    border-radius: 8px;
+    padding: 0.7rem 1.05rem;
+    font: inherit;
+    font-weight: 800;
+    font-size: 0.85rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+    font-weight: 700;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.74rem; margin: 0 0 1.6rem; }
+
+  .status { color: var(--dim); font-size: 0.85rem; min-height: 1.3em; margin-bottom: 0.8rem; }
+  .status.err { color: var(--danger); }
+
+  .textmode {
+    margin: 1.6rem 0 2.2rem;
+    border-top: 1px dashed var(--border);
+    padding-top: 1.4rem;
+  }
+  .textmode summary {
+    cursor: pointer;
+    font-size: 0.82rem;
+    color: var(--dim);
+    margin-bottom: 0.8rem;
+  }
+  .textmode summary:hover { color: var(--fg); }
+  textarea#rawbio { width: 100%; min-height: 90px; resize: vertical; margin-bottom: 0.6rem; }
+
+  /* --- profile card --- */
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 0 70px -30px var(--green);
+    margin-bottom: 2rem;
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .banner {
+    height: 84px;
+    background:
+      repeating-linear-gradient(115deg, rgba(61,255,176,0.10) 0 2px, transparent 2px 14px),
+      linear-gradient(90deg, #04140f, #062b23 45%, #0a1a2c);
+  }
+  .cardbody { padding: 0 1.4rem 1.4rem; }
+  .avatarrow { display: flex; align-items: flex-end; margin-top: -40px; margin-bottom: 0.8rem; }
+  .avatarwrap { position: relative; width: 80px; height: 80px; flex-shrink: 0; }
+  .avatarwrap img {
+    width: 80px; height: 80px; border-radius: 50%;
+    border: 3px solid var(--card);
+    filter: saturate(0.35) sepia(0.4) hue-rotate(60deg) contrast(1.1);
+    display: block;
+    background: #0a1a15;
+  }
+  .avatarwrap .implant {
+    position: absolute; top: 2px; right: 0; font-size: 1.1rem;
+    filter: drop-shadow(0 0 4px var(--green));
+    transform: rotate(8deg);
+  }
+  .connect-btn {
+    margin-left: auto;
+    align-self: flex-end;
+  }
+  .name { font-size: 1.2rem; font-weight: 800; margin: 0 0 0.15rem; }
+  .name .designation { color: var(--green); font-weight: 700; font-size: 0.92rem; }
+  .handleline { color: var(--dim); font-size: 0.78rem; margin-bottom: 0.35rem; }
+  .headline { font-size: 0.88rem; color: var(--fg); margin-bottom: 0.15rem; }
+  .funcline { font-size: 0.82rem; color: var(--dim); margin-bottom: 0.9rem; }
+  .stats { display: flex; gap: 1.2rem; font-size: 0.76rem; color: var(--dim); margin-bottom: 1.2rem; }
+  .stats b { color: var(--fg); }
+
+  .section { border-top: 1px dashed var(--border); padding-top: 1rem; margin-top: 1rem; }
+  .section .label {
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--green); margin-bottom: 0.55rem; display: flex; align-items: center; gap: 0.5rem;
+  }
+  .badge {
+    font-size: 0.62rem; text-transform: none; letter-spacing: 0;
+    color: var(--dim); border: 1px solid var(--border); border-radius: 999px;
+    padding: 0.12rem 0.5rem; font-weight: 700;
+  }
+  .badge.on { color: #032018; background: var(--green); border-color: var(--green); }
+  .about { font-size: 0.92rem; line-height: 1.6; }
+  .about .rewriting { opacity: 0.55; font-style: italic; }
+
+  .skills { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-bottom: 0.2rem; }
+  .skill {
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.74rem;
+  }
+  .skill b { color: var(--green); }
+  .reassim { margin-top: 1rem; text-align: right; }
+  .reassim button { font-size: 0.72rem; padding: 0.5rem 0.8rem; }
+
+  .share { border-top: 1px dashed var(--border); padding-top: 1.1rem; margin-top: 1.2rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.7rem; }
+  .share-actions { display: flex; gap: 0.55rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 130px; text-align: center; border-radius: 8px;
+    padding: 0.6rem 0.8rem; font: inherit; font-size: 0.82rem; font-weight: 700;
+    cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--green), #1fd18f); color: #032018; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer {
+    margin-top: 2rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--green); }
+
+  .disclaimer {
+    font-size: 0.68rem;
+    color: var(--dim);
+    opacity: 0.75;
+    line-height: 1.5;
+    margin-top: 1.4rem;
+  }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-inner">
+      <span class="cube">⬡</span>
+      <span class="brand">Borged<span class="in">In</span></span>
+      <span class="topbar-tag">professional networking, now with 100% more collective</span>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <h1 class="pitch">Your career, <span class="accent">assimilated</span>.</h1>
+    <p class="sub">
+      Enter a real Bluesky handle. BorgedIn pulls their actual atproto profile,
+      then rewrites it into a LinkedIn-shaped Borg employment directive — <b>fully
+      in your browser</b>, using a small local model that downloads once and never
+      phones a server with anyone's bio. If the model can't load, a deterministic
+      backup directive engine covers it instantly. Either way: resistance to
+      career growth is futile.
+    </p>
+
+    <form class="lookup" id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">assimilate</button>
+    </form>
+    <p class="hint">works on any handle — yours, a mutual's, whoever posted the cursed idea.</p>
+
+    <p id="status" class="status"></p>
+
+    <details class="textmode">
+      <summary>...or just paste raw text to assimilate (no handle needed)</summary>
+      <textarea id="rawbio" placeholder="Paste a bio, an About section, a job description — anything you want turned into Borg kayfabe."></textarea>
+      <button id="goText" class="secondary" type="button">assimilate this text</button>
+    </details>
+
+    <div id="card" class="card">
+      <div class="banner"></div>
+      <div class="cardbody">
+        <div class="avatarrow">
+          <div class="avatarwrap">
+            <img id="avatar" alt="" />
+            <span class="implant">🦾</span>
+          </div>
+          <div class="connect-btn"><button class="secondary" type="button" disabled title="connection requests are irrelevant to the Collective">+ Connect</button></div>
+        </div>
+        <div class="name"><span id="nameOut"></span> · <span class="designation" id="designationOut"></span></div>
+        <div class="handleline" id="handleOut"></div>
+        <div class="headline" id="headlineOut"></div>
+        <div class="funcline" id="funcOut"></div>
+        <div class="stats">
+          <span><b>000</b> connections (irrelevant)</span>
+          <span>following <b>The Collective</b> (1)</span>
+        </div>
+
+        <div class="section">
+          <div class="label">About <span class="badge" id="engineBadge">backup drone logic</span></div>
+          <div class="about" id="aboutOut"></div>
+        </div>
+
+        <div class="section">
+          <div class="label">Skills &amp; Endorsements</div>
+          <div class="skills" id="skillsOut"></div>
+          <div class="reassim"><button class="secondary" type="button" id="reassimilate">↻ reassimilate</button></div>
+        </div>
+
+        <div class="section share">
+          <canvas id="shareCanvas" width="1200" height="630"></canvas>
+          <div class="share-actions">
+            <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+            <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your directive</a>
+            <button id="shareDownload" type="button">⬇ download card</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="disclaimer">
+      BorgedIn only reads public atproto profile data (display name, handle,
+      avatar, bio) via the public Bluesky AppView — the same data anyone can
+      already see on your profile. Nothing typed here is sent to a server;
+      the rewrite runs on-device. This is satire, not a real employer, and
+      definitely not a real Borg Collective.
+    </p>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+      idea by <a href="https://bsky.app/profile/heartpunk.com" target="_blank" rel="noopener">@heartpunk.com</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script src="lib/borg-engine.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+const BE = window.BorgEngine;
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  goText: document.getElementById("goText"),
+  rawbio: document.getElementById("rawbio"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  nameOut: document.getElementById("nameOut"),
+  designationOut: document.getElementById("designationOut"),
+  handleOut: document.getElementById("handleOut"),
+  headlineOut: document.getElementById("headlineOut"),
+  funcOut: document.getElementById("funcOut"),
+  aboutOut: document.getElementById("aboutOut"),
+  engineBadge: document.getElementById("engineBadge"),
+  skillsOut: document.getElementById("skillsOut"),
+  reassimilate: document.getElementById("reassimilate"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+let current = null; // { seed, bio, name, handle, avatar, did }
+let lastShareText = "";
+let modelState = "idle"; // idle | loading | ready | failed
+let generatorPromise = null;
+
+// --- in-browser local model (transformers.js) --------------------------
+// Loaded lazily on first assimilate, from a CDN, cached by the browser after
+// the first download. Runs entirely client-side (WASM) — no bio text ever
+// leaves the tab. If this fails to load or times out, the deterministic
+// BorgEngine.borgify() output (already on screen) just stays put.
+async function getGenerator(onProgress) {
+  if (generatorPromise) return generatorPromise;
+  modelState = "loading";
+  generatorPromise = (async () => {
+    const { pipeline, env } = await import("https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2");
+    env.allowLocalModels = false;
+    const gen = await pipeline("text2text-generation", "Xenova/LaMini-Flan-T5-77M", {
+      progress_callback: onProgress,
+    });
+    modelState = "ready";
+    return gen;
+  })().catch((err) => {
+    modelState = "failed";
+    generatorPromise = null;
+    throw err;
+  });
+  return generatorPromise;
+}
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), ms)),
+  ]);
+}
+
+async function tryNeuralRewrite(bio, seed) {
+  try {
+    els.engineBadge.textContent = "syncing neural implant…";
+    const gen = await withTimeout(getGenerator((p) => {
+      if (p && p.status === "progress" && typeof p.progress === "number") {
+        els.engineBadge.textContent = "syncing neural implant… " + Math.round(p.progress) + "%";
+      }
+    }), 90000);
+    const prompt =
+      "Rewrite the following professional bio as a deadpan Star Trek Borg " +
+      "assimilation directive. Replace job titles with drone designations and " +
+      "corporate language with collective/hive language. Keep it to 2-3 " +
+      "sentences and end with the exact phrase \"Resistance is futile.\"\n\nBio: " +
+      bio;
+    els.engineBadge.textContent = "generating…";
+    const out = await withTimeout(gen(prompt, { max_new_tokens: 120, temperature: 0.9, do_sample: true }), 30000);
+    const text = (Array.isArray(out) ? out[0].generated_text : out.generated_text || "").trim();
+    if (!text) throw new Error("empty generation");
+    return text;
+  } catch (err) {
+    return null;
+  }
+}
+
+function renderSkills(seed) {
+  const skills = BE.skillsFor(seed + ":" + Math.random(), 6);
+  els.skillsOut.innerHTML = skills
+    .map((s) => {
+      const n = 1 + (BE.hashStr(s + seed) % 340);
+      return `<span class="skill"><b>${n}</b> · ${s}</span>`;
+    })
+    .join("");
+  return skills;
+}
+
+function shareUrlFor(handle) {
+  return "https://borgedin.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function buildShareText(name, designation, about, handle) {
+  const link = handle ? shareUrlFor(handle) : "https://borgedin.bisks.net/";
+  const quote = about.length > 140 ? about.slice(0, 139).trimEnd() + "…" : about;
+  return `${name} has been assimilated: ${designation}. “${quote}”\n\nassimilate someone → ${link}`;
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  let lines = 0;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+      lines++;
+      if (maxLines && lines >= maxLines - 1) {
+        ctx.fillText(line + "…", x, cy);
+        return cy;
+      }
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+async function buildShareCard({ avatarUrl, name, designation, headline, about }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(avatarUrl);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#050708";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.55);
+  glow.addColorStop(0, "#0a2a20");
+  glow.addColorStop(1, "rgba(5,7,8,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#3dffb0";
+  ctx.font = `800 46px ${mono}`;
+  ctx.fillText("BorgedIn", 60, 92);
+
+  ctx.strokeStyle = "#1c3b32";
+  ctx.lineWidth = 1.5;
+  const cardX = 60, cardY = 150, cardW = W - 120, cardH = H - 220;
+  ctx.fillStyle = "#0d1614";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  let textX = cardX + 40;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cardX + 76, cardY + 76, 36, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.filter = "saturate(0.4) sepia(0.4) hue-rotate(60deg)";
+    ctx.drawImage(avatar, cardX + 40, cardY + 40, 72, 72);
+    ctx.filter = "none";
+    ctx.restore();
+    textX = cardX + 132;
+  }
+
+  ctx.fillStyle = "#e8fff4";
+  ctx.font = `800 28px ${mono}`;
+  ctx.fillText(name, textX, cardY + 62);
+  ctx.fillStyle = "#3dffb0";
+  ctx.font = `700 18px ${mono}`;
+  ctx.fillText(designation, textX, cardY + 92);
+
+  ctx.fillStyle = "#7fa596";
+  ctx.font = `400 15px ${mono}`;
+  wrapCanvasText(ctx, headline, cardX + 40, cardY + 148, cardW - 80, 22, 2);
+
+  ctx.fillStyle = "#3dffb0";
+  ctx.fillRect(cardX + 40, cardY + 190, 4, 4);
+  ctx.fillStyle = "#e8fff4";
+  ctx.font = `italic 19px ${mono}`;
+  wrapCanvasText(ctx, "“" + about + "”", cardX + 56, cardY + 216, cardW - 96, 27, 6);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#3dffb0";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("borgedin.bisks.net", 60, H - 40);
+}
+
+function rebuildShare() {
+  if (!current) return;
+  const designation = els.designationOut.textContent;
+  lastShareText = buildShareText(current.name, designation, els.aboutOut.textContent, current.handle);
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+  buildShareCard({
+    avatarUrl: current.avatar,
+    name: current.name,
+    designation,
+    headline: els.headlineOut.textContent,
+    about: els.aboutOut.textContent,
+  });
+}
+
+async function renderResult({ seed, bio, name, handle, avatar, did }) {
+  current = { seed, bio, name, handle, avatar, did };
+
+  const designation = BE.designationFor(seed);
+  els.avatar.src = avatar || "";
+  els.avatar.style.visibility = avatar ? "visible" : "hidden";
+  els.nameOut.textContent = name;
+  els.designationOut.textContent = designation.label;
+  els.handleOut.textContent = handle ? "@" + handle : "designation transmitted anonymously";
+  els.headlineOut.textContent = "Tertiary Adjunct of Unimatrix 0" + designation.unimatrix;
+  els.funcOut.textContent = BE.functionLineFor(bio);
+
+  const templateResult = BE.borgify(bio, seed);
+  els.aboutOut.textContent = templateResult;
+  els.engineBadge.textContent = "backup drone logic";
+  els.engineBadge.classList.remove("on");
+
+  renderSkills(seed);
+  els.card.classList.add("show");
+  rebuildShare();
+
+  tryNeuralRewrite(bio, seed).then((neuralText) => {
+    if (current && current.seed === seed && neuralText) {
+      els.aboutOut.textContent = neuralText;
+      els.engineBadge.textContent = "neural implant online";
+      els.engineBadge.classList.add("on");
+      rebuildShare();
+    } else if (current && current.seed === seed) {
+      els.engineBadge.textContent = "backup drone logic (implant unreachable)";
+    }
+  });
+}
+
+async function assimilateHandle(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("resolving " + handle + " ...");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+    setStatus("");
+    await renderResult({
+      seed: did,
+      bio: profile.description || "",
+      name: profile.displayName || profile.handle,
+      handle: profile.handle,
+      avatar: profile.avatar,
+      did,
+    });
+  } catch (err) {
+    setStatus("couldn't resolve that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+async function assimilateText(raw) {
+  const text = raw.trim();
+  if (!text) { setStatus("paste something to assimilate first.", true); return; }
+  els.goText.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("");
+  const seed = "raw:" + text.slice(0, 64) + ":" + text.length;
+  await renderResult({
+    seed,
+    bio: text,
+    name: "Anonymous Designate",
+    handle: "",
+    avatar: "",
+    did: seed,
+  });
+  els.goText.disabled = false;
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  assimilateHandle(els.input.value);
+});
+els.goText.addEventListener("click", () => assimilateText(els.rawbio.value));
+
+els.reassimilate.addEventListener("click", () => {
+  if (!current) return;
+  renderResult(current);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (current && (current.handle || current.name) || "card").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "borgedin-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (current && (current.handle || current.name) || "card").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "borgedin-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "BorgedIn" });
+      } catch (_) {}
+    }, "image/png");
+  });
+}
+
+// /s/<handle> (share links) auto-assimilate on load.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+if (pathHandle) {
+  const h = decodeURIComponent(pathHandle);
+  els.input.value = h;
+  assimilateHandle(h);
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
