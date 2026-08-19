@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>paintmoot / gallery — every board on the network</title>
+    <meta
+      name="description"
+      content="Every net.bisks.paintmoot.board record on the network, pulled straight off atproto — no login, nobody's data but what they already published. Browse every collaborative canvas anyone has started."
+    />
+    <meta property="og:title" content="paintmoot / gallery" />
+    <meta property="og:description" content="Every board anyone has started on paintmoot, aggregated straight off the network." />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --good: #1a7f37;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1000px; margin: 0 auto; padding: 2.5rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem;
+      }
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .home { font-size: 0.8rem; }
+      .home a { color: var(--accent); text-decoration: none; }
+      .intro { color: var(--muted); margin: 0 0 1.5rem; font-size: 0.9rem; line-height: 1.7; max-width: 68ch; }
+      .intro b { color: var(--ink); font-weight: 600; }
+      a { color: var(--accent); }
+
+      .status { font-size: 0.78rem; color: var(--muted); margin-bottom: 1.5rem; }
+      .status .err { color: #c0392b; }
+      .status .dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--faint); margin-right: 0.35rem; }
+      .status .dot.live { background: var(--good); }
+
+      .grid {
+        display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+        gap: 1.1rem;
+      }
+      .card {
+        border: 1px solid var(--faint); border-radius: 6px; overflow: hidden;
+        text-decoration: none; color: inherit; display: block; background: var(--bg);
+      }
+      .card:hover { border-color: var(--accent); }
+      .thumbwrap {
+        aspect-ratio: 4 / 3; background: repeating-conic-gradient(#f4f4f4 0% 25%, #fff 0% 50%) 50% / 18px 18px;
+        display: flex; align-items: center; justify-content: center; overflow: hidden;
+      }
+      .thumbwrap canvas { width: 100%; height: 100%; object-fit: contain; display: block; }
+      .thumbwrap .ph { font-size: 0.72rem; color: var(--muted); }
+      .cmeta { padding: 0.6rem 0.7rem 0.75rem; }
+      .ctitle { font-weight: 600; font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .cby { font-size: 0.74rem; color: var(--muted); margin-top: 0.2rem; }
+
+      .empty { font-size: 0.85rem; color: var(--muted); font-style: italic; }
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="../">paintmoot</a> <span class="slash">/</span> gallery</h1>
+        <span class="home"><a href="../">start your own board →</a></span>
+      </header>
+      <p class="intro">
+        Every <code>net.bisks.paintmoot.board</code> record anyone has ever
+        written to their own repo, pulled straight off the network — no
+        login, nobody's data but what they already published. Thumbnails show
+        the board owner's own strokes; open a board to see the full
+        collaborative canvas (owner + their moots).
+      </p>
+
+      <div class="status" id="status">connecting…</div>
+
+      <div class="grid" id="grid"></div>
+      <p class="empty" id="emptymsg" hidden>no boards found yet — be the first.</p>
+
+      <footer>
+        reads <code>net.bisks.paintmoot.board</code> off every repo on the network via
+        <code>listReposByCollection</code> + a live Jetstream feed ·
+        <a href="../">back to paintmoot</a> · <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { BoardIndex } from "../lib/board-index.js";
+      import { resolvePds, resolveHandleForDid, listRecords } from "../lib/atproto.js";
+      import { redraw } from "../lib/paint.js";
+
+      const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+      function fmtDay(iso) {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return iso || "";
+        const pad = (n) => String(n).padStart(2, "0");
+        return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+      }
+
+      const statusEl = document.getElementById("status");
+      const gridEl = document.getElementById("grid");
+      const emptyEl = document.getElementById("emptymsg");
+
+      const handleCache = new Map();
+      async function handleFor(did) {
+        if (handleCache.has(did)) return handleCache.get(did);
+        const p = resolveHandleForDid(did).catch(() => did);
+        handleCache.set(did, p);
+        return p;
+      }
+
+      function renderStatus(snap) {
+        const dot = `<span class="dot ${snap.connected ? "live" : ""}"></span>`;
+        const phase = snap.backfillDone
+          ? "full history scanned"
+          : snap.backfillActive
+          ? "scanning network history…"
+          : "history scan paused";
+        const errPart = snap.error ? ` · <span class="err">${esc(snap.error)}</span>` : "";
+        statusEl.innerHTML = `${dot}${snap.connected ? "live" : "reconnecting…"} · ${phase} · ${snap.entryCount} board${snap.entryCount === 1 ? "" : "s"} from ${snap.artistCount} artist${snap.artistCount === 1 ? "" : "s"}${errPart}`;
+      }
+
+      // Thumbnails only render once a card actually scrolls into view — one
+      // repo read per visible board, not per board in the whole index.
+      const observer = new IntersectionObserver(
+        (entries) => {
+          for (const e of entries) {
+            if (!e.isIntersecting) continue;
+            observer.unobserve(e.target);
+            loadThumb(e.target);
+          }
+        },
+        { rootMargin: "200px" }
+      );
+
+      async function loadThumb(cardEl) {
+        const board = JSON.parse(cardEl.dataset.board);
+        const wrap = cardEl.querySelector(".thumbwrap");
+        try {
+          const pds = await resolvePds(board.did);
+          if (!pds) throw new Error("no pds");
+          const recs = await listRecords(pds, board.did, "net.bisks.paintmoot.mark", (v) => v.board === board.uri, 2);
+          const marks = recs.map((r) => r.value).sort((a, b) => (a.createdAt < b.createdAt ? -1 : 1));
+          const canvas = document.createElement("canvas");
+          canvas.width = board.width;
+          canvas.height = board.height;
+          const ctx = canvas.getContext("2d");
+          redraw(ctx, board, marks);
+          wrap.innerHTML = "";
+          wrap.appendChild(canvas);
+        } catch (_) {
+          wrap.innerHTML = `<span class="ph">preview unavailable</span>`;
+        }
+      }
+
+      function card(board, handle) {
+        const el = document.createElement("a");
+        el.className = "card";
+        el.href = `../?owner=${encodeURIComponent(board.did)}&rkey=${encodeURIComponent(board.rkey)}`;
+        el.dataset.board = JSON.stringify(board);
+        el.innerHTML = `
+          <div class="thumbwrap"><span class="ph">loading…</span></div>
+          <div class="cmeta">
+            <div class="ctitle">${esc(board.title)}</div>
+            <div class="cby">by @${esc(handle)} · ${board.width}×${board.height} · ${esc(fmtDay(board.createdAt))}</div>
+          </div>
+        `;
+        observer.observe(el);
+        return el;
+      }
+
+      const known = new Set();
+      async function render(snap) {
+        renderStatus(snap);
+        emptyEl.hidden = snap.boards.length > 0;
+
+        const fresh = snap.boards.filter((b) => !known.has(`${b.did}::${b.rkey}`));
+        if (!fresh.length) return;
+        for (const b of fresh) known.add(`${b.did}::${b.rkey}`);
+
+        const frag = document.createDocumentFragment();
+        for (const b of fresh) {
+          const handle = await handleFor(b.did);
+          frag.appendChild(card(b, handle));
+        }
+        gridEl.appendChild(frag);
+      }
+
+      let rendering = false;
+      let pendingSnap = null;
+      async function scheduleRender(snap) {
+        if (rendering) {
+          pendingSnap = snap;
+          return;
+        }
+        rendering = true;
+        try {
+          await render(snap);
+        } finally {
+          rendering = false;
+          if (pendingSnap) {
+            const next = pendingSnap;
+            pendingSnap = null;
+            scheduleRender(next);
+          }
+        }
+      }
+
+      const index = new BoardIndex({ onUpdate: scheduleRender });
+      index.start();
+    </script>
+  </body>
+</html>
