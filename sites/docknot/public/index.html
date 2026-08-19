@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>docknot — could this just be a static page?</title>
+<meta name="description" content="A doc-site generator that runs entirely in the browser: paste markdown or a raw doc URL, it parses with a real WASM markdown engine, and hands back a downloadable static site. No server, no Gleam backend, no PDS round-trip required." />
+<meta property="og:title" content="docknot — could this just be a static page?" />
+<meta property="og:description" content="Paste markdown (or pull it from a repo), get a real WASM-rendered static docs site, entirely client-side. Built to answer a thread's own question." />
+<meta property="og:url" content="https://docknot.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://docknot.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="docknot: a two-pane static site generator, markdown editor on the left, live-rendered docs site on the right." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="docknot — could this just be a static page?" />
+<meta name="twitter:description" content="Paste markdown (or pull it from a repo), get a real WASM-rendered static docs site, entirely client-side." />
+<meta name="twitter:image" content="https://docknot.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0d12;
+    --bg2: #10151d;
+    --fg: #e8edf4;
+    --dim: #8593a8;
+    --accent: #62e0c4;
+    --accent2: #ffb454;
+    --card: #131922;
+    --border: #232c39;
+    --danger: #ff6b6b;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(circle at 15% -10%, #163028 0%, transparent 45%),
+                radial-gradient(circle at 85% 0%, #1a2436 0%, transparent 50%),
+                var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 20px 80px; }
+  header h1 {
+    font-size: clamp(28px, 5vw, 44px);
+    margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  header h1 .knot { color: var(--accent); }
+  .tagline { color: var(--dim); margin: 0 0 22px; font-size: 15px; }
+  .pitch {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 28px;
+    font-size: 14px;
+    color: var(--dim);
+  }
+  .pitch strong { color: var(--fg); }
+  .pitch code {
+    background: #0d1319;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--accent2);
+    font-size: 13px;
+  }
+  .engine-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: #0d1319;
+    color: var(--dim);
+    margin-top: 10px;
+  }
+  .engine-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+  .engine-pill.wasm { color: var(--accent); border-color: #1f4a3f; }
+  .engine-pill.wasm .dot { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .engine-pill.fallback { color: var(--accent2); border-color: #4a3b1f; }
+  .engine-pill.fallback .dot { background: var(--accent2); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    min-height: 460px;
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: #0d1319;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--dim);
+  }
+  .panel-body { padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+
+  .pages-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .page-tab {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: #0d1319;
+    border: 1px solid var(--border);
+    color: var(--dim);
+    padding: 5px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .page-tab.active { color: var(--fg); border-color: var(--accent); }
+  .page-tab .x { margin-left: 6px; color: var(--danger); }
+  .page-tab.add { color: var(--accent); border-style: dashed; }
+
+  input[type="text"], textarea {
+    width: 100%;
+    background: #0d1319;
+    border: 1px solid var(--border);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 13px;
+    border-radius: 8px;
+    padding: 8px 10px;
+    resize: vertical;
+  }
+  textarea { flex: 1; min-height: 260px; }
+  label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .fetch-row { display: flex; gap: 6px; }
+  .fetch-row input { flex: 1; }
+  button {
+    font-family: var(--mono);
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #0d1319;
+    color: var(--fg);
+    padding: 8px 12px;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #06110d; border-color: var(--accent); font-weight: 700; }
+  button.primary:hover { filter: brightness(1.08); }
+  .error-banner {
+    display: none;
+    font-size: 12px;
+    color: var(--danger);
+    background: #1c1113;
+    border: 1px solid #4a2323;
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .error-banner.show { display: block; }
+
+  .preview-frame {
+    flex: 1;
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .preview-frame iframe { width: 100%; height: 100%; border: 0; min-height: 400px; }
+
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+
+  footer { margin-top: 34px; font-size: 12.5px; color: var(--dim); border-top: 1px solid var(--border); padding-top: 16px; }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span class="knot">dock</span>not</h1>
+    <p class="tagline">a doc-site generator that runs entirely in your browser</p>
+  </header>
+
+  <div class="pitch">
+    Reply-thread engineering: <a href="https://bsky.app/profile/kitto.nekoweb.org" target="_blank" rel="noopener">@kitto.nekoweb.org</a>
+    pitched <strong>"a Gleam SSG that pulls docs from a Tangled repo and publishes them to the PDS,"</strong>
+    then asked their own question back: <strong>"couldn't this just be a webasm static page?"</strong>
+    This is the "yes, and here it is" answer. Paste markdown &mdash; or a raw doc URL,
+    from a Tangled repo's raw-file link or anywhere with permissive CORS &mdash; and it's
+    parsed by a real WebAssembly build of <code>md4c</code> right here in the tab, then
+    exported as an actual static site. No Gleam backend, no server round-trip, no PDS write
+    required to prove the shape works.
+    <div id="enginePill" class="engine-pill"><span class="dot"></span><span id="engineLabel">loading render engine…</span></div>
+  </div>
+
+  <div class="grid">
+    <section class="panel">
+      <div class="panel-head"><span>source</span><span id="pageCount">1 page</span></div>
+      <div class="panel-body">
+        <div class="pages-list" id="pagesList"></div>
+        <label for="pageTitle">page title</label>
+        <input type="text" id="pageTitle" />
+        <div class="fetch-row">
+          <input type="text" id="fetchUrl" placeholder="or fetch raw markdown from a URL (e.g. a Tangled/GitHub raw file link)" />
+          <button id="fetchBtn">fetch</button>
+        </div>
+        <div class="error-banner" id="fetchError"></div>
+        <label for="pageBody">markdown</label>
+        <textarea id="pageBody" spellcheck="false"></textarea>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><span>rendered static site</span><span id="renderStatus"></span></div>
+      <div class="panel-body">
+        <div class="preview-frame"><iframe id="previewFrame" title="rendered docs site preview"></iframe></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="actions">
+    <button class="primary" id="downloadBtn">↓ download static site (.zip)</button>
+    <button id="shareBtn">share on Bluesky</button>
+  </div>
+
+  <footer>
+    Built by <a href="https://bisks.net/">@buildthis.bisks.net</a> off a thread reply from
+    <a href="https://bsky.app/profile/kitto.nekoweb.org">@kitto.nekoweb.org</a>. Rendering:
+    <a href="https://github.com/rsms/markdown-wasm" target="_blank" rel="noopener">markdown-wasm</a>
+    (md4c compiled to WebAssembly) with a plain-JS fallback if the module can't load. Zipping:
+    <a href="https://stuk.github.io/jszip/" target="_blank" rel="noopener">JSZip</a>, client-side.
+    Everything above the fold happened in your tab &mdash; view source, there's no fetch to
+    docknot's own server for any of it except loading those two libraries.
+  </footer>
+</div>
+
+<script src="https://unpkg.com/jszip@3.10.1/dist/jszip.min.js"></script>
+<script type="module">
+  const DEFAULT_PAGES = [
+    {
+      title: "Getting started",
+      body:
+`# Getting started
+
+This "site" was never written to disk by a server. It's markdown, sitting in
+a \`<textarea>\`, run through a WebAssembly build of \`md4c\` the moment you
+typed it.
+
+- Add more pages with the **+ page** tab on the left.
+- Paste a raw markdown URL (GitHub raw, a Tangled repo's raw file route,
+  anywhere with permissive CORS) to pull real docs in instead of typing them.
+- Hit **download static site** to get an actual folder of \`.html\` files you
+  could push anywhere — a Tangled repo's own \`docs/\` branch, a PDS blob,
+  a Cloudflare Pages project, whatever.`,
+    },
+    {
+      title: "Why no server",
+      body:
+`# Why this doesn't need a server
+
+The original pitch was a **Gleam SSG**: pull docs from a Tangled repo, run a
+build step, publish standard site docs to the PDS.
+
+That's a fine architecture. But the build step itself — markdown in,
+HTML out — has no dependency on the network, a filesystem, or a language
+runtime beyond "something that can run WebAssembly." A browser tab already
+is that something. So:
+
+1. **Fetch** — the repo's raw files, over plain HTTP.
+2. **Parse** — \`md4c\`, compiled once to \`.wasm\`, run client-side.
+3. **Publish** — write the rendered bytes wherever you want: a PDS blob
+   record, a downloaded zip, a KV bucket. The parse step doesn't care.
+
+Gleam (or Rust, or anything else compiling to wasm32) is a perfectly good
+choice *if* you want a CLI you can also run in CI. But "couldn't this be a
+webasm static page" was the right instinct — the browser can already do
+the whole middle step for free.`,
+    },
+  ];
+
+  const state = {
+    pages: DEFAULT_PAGES.map((p) => ({ ...p })),
+    active: 0,
+  };
+
+  let md = null;
+  let engineReady = false;
+
+  const engineDot = document.getElementById("enginePill");
+  const engineLabel = document.getElementById("engineLabel");
+
+  async function loadEngine() {
+    try {
+      md = await import("https://unpkg.com/markdown-wasm@1.2.0/dist/markdown.es.js");
+      await md.ready;
+      engineReady = true;
+      engineDot.classList.add("wasm");
+      engineLabel.textContent = "render engine: markdown-wasm (md4c, actual .wasm)";
+    } catch (e) {
+      engineReady = false;
+      engineDot.classList.add("fallback");
+      engineLabel.textContent = "render engine: plain-JS fallback (wasm module failed to load)";
+    }
+    renderAll();
+  }
+
+  // A small, deliberately non-exhaustive fallback so the tool still works if
+  // the CDN is unreachable. Headings, bold/italic, links, inline code, code
+  // fences, lists, and paragraphs — not a CommonMark implementation.
+  function fallbackMarkdown(src) {
+    const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const lines = src.replace(/\r\n/g, "\n").split("\n");
+    let html = "";
+    let inList = false;
+    let inCode = false;
+    let codeBuf = [];
+    const inline = (t) =>
+      esc(t)
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+    for (const raw of lines) {
+      const line = raw;
+      if (line.trim().startsWith("```")) {
+        if (inCode) {
+          html += `<pre><code>${esc(codeBuf.join("\n"))}</code></pre>`;
+          codeBuf = [];
+          inCode = false;
+        } else {
+          inCode = true;
+        }
+        continue;
+      }
+      if (inCode) {
+        codeBuf.push(line);
+        continue;
+      }
+      const h = line.match(/^(#{1,6})\s+(.*)$/);
+      if (h) {
+        if (inList) { html += "</ul>"; inList = false; }
+        html += `<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`;
+        continue;
+      }
+      if (/^\s*-\s+/.test(line)) {
+        if (!inList) { html += "<ul>"; inList = true; }
+        html += `<li>${inline(line.replace(/^\s*-\s+/, ""))}</li>`;
+        continue;
+      }
+      if (inList) { html += "</ul>"; inList = false; }
+      if (line.trim() === "") continue;
+      html += `<p>${inline(line)}</p>`;
+    }
+    if (inList) html += "</ul>";
+    if (inCode) html += `<pre><code>${esc(codeBuf.join("\n"))}</code></pre>`;
+    return html;
+  }
+
+  function renderMarkdown(src) {
+    if (engineReady && md) {
+      try {
+        return md.parse(src);
+      } catch (e) {
+        return fallbackMarkdown(src);
+      }
+    }
+    return fallbackMarkdown(src);
+  }
+
+  const PAGE_CSS = `
+    body { font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+      max-width: 720px; margin: 0 auto; padding: 32px 20px 60px; color: #16211c; line-height: 1.6; }
+    nav { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 28px; padding-bottom: 14px; border-bottom: 2px solid #16211c; }
+    nav a { color: #0d7a5f; text-decoration: none; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; }
+    nav a.current { color: #16211c; }
+    h1 { font-size: 26px; } h2 { font-size: 20px; } h3 { font-size: 17px; }
+    code { background: #eef4f1; padding: 1px 5px; border-radius: 4px; font-size: 0.9em; }
+    pre { background: #16211c; color: #eef4f1; padding: 12px 14px; border-radius: 8px; overflow: auto; }
+    pre code { background: none; padding: 0; }
+    a { color: #0d7a5f; }
+  `;
+
+  function slugify(title, i) {
+    const s = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+    return s || `page-${i + 1}`;
+  }
+
+  function pageFilename(i) {
+    return i === 0 ? "index.html" : `${slugify(state.pages[i].title, i)}.html`;
+  }
+
+  function renderPageHtml(i) {
+    const nav = state.pages
+      .map((p, j) => `<a class="${j === i ? "current" : ""}" href="${pageFilename(j)}">${escHtml(p.title || `page ${j + 1}`)}</a>`)
+      .join("\n      ");
+    const body = renderMarkdown(state.pages[i].body);
+    return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${escHtml(state.pages[i].title || "docs")}</title>
+<style>${PAGE_CSS}</style>
+</head>
+<body>
+  <nav>
+      ${nav}
+  </nav>
+  ${body}
+</body>
+</html>`;
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  function renderPreview() {
+    const html = renderPageHtml(state.active);
+    const frame = document.getElementById("previewFrame");
+    frame.srcdoc = html;
+  }
+
+  function renderTabs() {
+    const list = document.getElementById("pagesList");
+    list.innerHTML = "";
+    state.pages.forEach((p, i) => {
+      const tab = document.createElement("span");
+      tab.className = "page-tab" + (i === state.active ? " active" : "");
+      tab.textContent = p.title || `page ${i + 1}`;
+      tab.addEventListener("click", () => {
+        commitCurrent();
+        state.active = i;
+        loadCurrent();
+        renderAll();
+      });
+      if (state.pages.length > 1) {
+        const x = document.createElement("span");
+        x.className = "x";
+        x.textContent = "×";
+        x.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          state.pages.splice(i, 1);
+          if (state.active >= state.pages.length) state.active = state.pages.length - 1;
+          loadCurrent();
+          renderAll();
+        });
+        tab.appendChild(x);
+      }
+      list.appendChild(tab);
+    });
+    const add = document.createElement("span");
+    add.className = "page-tab add";
+    add.textContent = "+ page";
+    add.addEventListener("click", () => {
+      commitCurrent();
+      state.pages.push({ title: `Page ${state.pages.length + 1}`, body: "# New page\n\nwrite something." });
+      state.active = state.pages.length - 1;
+      loadCurrent();
+      renderAll();
+    });
+    list.appendChild(add);
+    document.getElementById("pageCount").textContent = `${state.pages.length} page${state.pages.length === 1 ? "" : "s"}`;
+  }
+
+  function loadCurrent() {
+    document.getElementById("pageTitle").value = state.pages[state.active].title;
+    document.getElementById("pageBody").value = state.pages[state.active].body;
+  }
+
+  function commitCurrent() {
+    state.pages[state.active].title = document.getElementById("pageTitle").value;
+    state.pages[state.active].body = document.getElementById("pageBody").value;
+  }
+
+  function renderAll() {
+    renderTabs();
+    renderPreview();
+  }
+
+  document.getElementById("pageTitle").addEventListener("input", () => {
+    commitCurrent();
+    renderAll();
+  });
+  document.getElementById("pageBody").addEventListener("input", () => {
+    commitCurrent();
+    renderPreview();
+  });
+
+  const fetchError = document.getElementById("fetchError");
+  document.getElementById("fetchBtn").addEventListener("click", async () => {
+    const url = document.getElementById("fetchUrl").value.trim();
+    fetchError.classList.remove("show");
+    if (!url) return;
+    try {
+      const res = await fetch(url, { mode: "cors" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      commitCurrent();
+      const name = url.split("/").pop() || "fetched";
+      state.pages.push({ title: name.replace(/\.mdx?$/i, ""), body: text });
+      state.active = state.pages.length - 1;
+      loadCurrent();
+      renderAll();
+    } catch (e) {
+      fetchError.textContent =
+        "couldn't fetch that URL client-side (" + (e && e.message ? e.message : "network error") +
+        "). Most likely CORS — the host isn't sending access-control-allow-origin, which a pure static page can't work around. Paste the markdown directly instead.";
+      fetchError.classList.add("show");
+    }
+  });
+
+  document.getElementById("downloadBtn").addEventListener("click", async () => {
+    commitCurrent();
+    if (typeof JSZip === "undefined") {
+      alert("JSZip hasn't finished loading yet — try again in a second.");
+      return;
+    }
+    const zip = new JSZip();
+    state.pages.forEach((_, i) => {
+      zip.file(pageFilename(i), renderPageHtml(i));
+    });
+    const blob = await zip.generateAsync({ type: "blob" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "docknot-site.zip";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+
+  document.getElementById("shareBtn").addEventListener("click", () => {
+    const text =
+      "docknot: paste markdown, get a real WASM-parsed static docs site, zero server involved. " +
+      "https://docknot.bisks.net/";
+    window.open("https://bsky.app/intent/compose?text=" + encodeURIComponent(text), "_blank", "noopener");
+  });
+
+  loadCurrent();
+  renderAll();
+  loadEngine();
+</script>
+</body>
+</html>
