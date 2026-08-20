@@ -1,0 +1,36 @@
+name = "atprotozoa-patientzero"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Everything real runs client-side (public/index.html + public/lib/*.js):
+# search Bluesky for a phrase, find the earliest post (global patient zero)
+# and the earliest one inside your moots (local patient zero), render a case
+# history timeline, and generate a downloadable "hype video" with canvas +
+# MediaRecorder. No AI, no Durable Objects, no KV — pure browser compute
+# against public reads.
+#
+# Search itself needs auth: anonymous app.bsky.feed.searchPosts 403s at
+# volume (notes/71). Rather than minting a second bot session + secret for
+# this site, this reuses sites/trigrams's already-authenticated /api/search
+# proxy straight from the browser — it's CORS-open (access-control-allow-origin:
+# "*") by design for exactly this. See sites/gracewasright's diary entry
+# (sites/sidenote) for the same trick working before. No secrets live here.
+#
+# Two small server jobs, same shape as sites/mechpilot:
+#   - /api/avatar proxies cdn.bsky.app (sends no CORS headers of its own) so
+#     the hype-video canvas can draw real avatars without tainting the canvas.
+#   - /s/<phrase> renders the static shell with a per-phrase og:title/description
+#     baked in server-side (one extra /api/search page for a rough case count),
+#     so every shared case file gets its own link-preview instead of one
+#     generic card for every phrase.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
+routes = [{ pattern = "patientzero.bisks.net/*", zone_name = "bisks.net" }]
+
+# run_worker_first: both /s/<phrase> and /api/avatar are dynamic, so the
+# Worker must run BEFORE the static-asset router picks it up.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true

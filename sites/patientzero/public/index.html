@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>patient zero — outbreak tracking for whatever weird phrase everyone's suddenly saying</title>
+    <meta
+      name="description"
+      content="Paste a phrase and it finds the global patient zero, your local patient zero, a full case history timeline, and makes you a hype video about the outbreak."
+    />
+    <meta property="og:title" content="patient zero — outbreak tracking for whatever weird phrase everyone's suddenly saying" />
+    <meta
+      property="og:description"
+      content="Paste a phrase and it finds the global patient zero, your local patient zero, a full case history timeline, and makes you a hype video about the outbreak."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://patientzero.bisks.net/" />
+    <meta property="og:image" content="https://patientzero.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        --bg: #0a0b0e;
+        --panel: #15141b;
+        --panel-2: #1c1a24;
+        --ink: #f4f2f7;
+        --muted: #9b98a8;
+        --faint: #2a2833;
+        --hazard: #e34948;
+        --hazard-dim: #5a2323;
+        --safe: #3987e5;
+        --safe-dim: #1c3a5c;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        background: radial-gradient(1100px 600px at 50% -8%, #17141a, var(--bg));
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+      }
+      .wrap {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 2.5rem 1.1rem 6rem;
+      }
+      a {
+        color: var(--safe);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--hazard);
+        border: 1px solid var(--hazard-dim);
+        background: rgba(227, 73, 72, 0.08);
+        padding: 0.25rem 0.55rem;
+        border-radius: 999px;
+      }
+      .tag .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+        box-shadow: 0 0 6px currentColor;
+      }
+      h1 {
+        font-size: 1.7rem;
+        font-weight: 800;
+        letter-spacing: -0.01em;
+        margin: 1rem 0 0.35rem;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 0.94rem;
+        margin: 0 0 1.75rem;
+        max-width: 58ch;
+      }
+
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 0.6rem;
+        margin-bottom: 0.5rem;
+      }
+      .row {
+        display: flex;
+        gap: 0.55rem;
+      }
+      label {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted);
+        display: block;
+        margin-bottom: 0.3rem;
+      }
+      input {
+        width: 100%;
+        font: inherit;
+        padding: 0.65rem 0.75rem;
+        border: 1px solid var(--faint);
+        border-radius: 11px;
+        background: var(--panel);
+        color: var(--ink);
+      }
+      input::placeholder {
+        color: #6c6979;
+      }
+      input:focus {
+        outline: 2px solid var(--hazard);
+        outline-offset: -1px;
+      }
+      .field {
+        flex: 1;
+      }
+      .go {
+        padding: 0.65rem 1.3rem;
+        border: 0;
+        border-radius: 11px;
+        background: var(--hazard);
+        color: #fff;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        align-self: flex-start;
+      }
+      .go:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .examples {
+        color: var(--muted);
+        font-size: 0.82rem;
+        margin-bottom: 1.5rem;
+      }
+      .examples a {
+        cursor: pointer;
+      }
+
+      .status {
+        font-family: var(--mono);
+        color: var(--muted);
+        font-size: 0.85rem;
+        min-height: 1.4rem;
+        margin: 0.5rem 0 1.5rem;
+      }
+      .status.err {
+        color: var(--hazard);
+      }
+
+      #results {
+        display: none;
+      }
+      #results.show {
+        display: block;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.6rem;
+        margin-bottom: 1.5rem;
+      }
+      .stat {
+        background: var(--panel);
+        border: 1px solid var(--faint);
+        border-radius: 14px;
+        padding: 0.85rem 0.9rem;
+      }
+      .stat .n {
+        font-size: 1.5rem;
+        font-weight: 800;
+        line-height: 1.1;
+      }
+      .stat .l {
+        font-family: var(--mono);
+        font-size: 0.68rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-top: 0.2rem;
+      }
+      .caveat {
+        color: var(--muted);
+        font-size: 0.8rem;
+        margin: -0.9rem 0 1.5rem;
+      }
+
+      section {
+        margin-bottom: 2rem;
+      }
+      .section-label {
+        font-family: var(--mono);
+        font-size: 0.75rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin: 0 0 0.6rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .section-label .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .section-label.global {
+        color: var(--hazard);
+      }
+      .section-label.local {
+        color: var(--safe);
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--faint);
+        border-radius: 16px;
+        padding: 1rem 1.1rem 1.05rem;
+      }
+      .card .who {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin-bottom: 0.6rem;
+      }
+      .card .avatar {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        background: var(--faint);
+        object-fit: cover;
+        flex: none;
+        border: 2px solid var(--faint);
+      }
+      .card.global .avatar {
+        border-color: var(--hazard);
+      }
+      .card.local .avatar {
+        border-color: var(--safe);
+      }
+      .card .name {
+        font-weight: 700;
+        font-size: 0.98rem;
+      }
+      .card .handle {
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+      .card .text {
+        font-size: 0.98rem;
+        margin: 0.35rem 0 0.6rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .card .meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        color: var(--muted);
+      }
+      .empty-note {
+        color: var(--muted);
+        font-size: 0.9rem;
+        font-style: italic;
+      }
+
+      .chart-wrap {
+        background: var(--panel);
+        border: 1px solid var(--faint);
+        border-radius: 16px;
+        padding: 0.9rem 1rem 0.6rem;
+      }
+      .chart-wrap svg {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .chart-axis-label {
+        font-family: var(--mono);
+        font-size: 0.7rem;
+        fill: var(--muted);
+      }
+
+      .timeline {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        border-left: 2px solid var(--faint);
+      }
+      .timeline li {
+        position: relative;
+        padding: 0.15rem 0 0.9rem 1.1rem;
+      }
+      .timeline li::before {
+        content: "";
+        position: absolute;
+        left: -5px;
+        top: 0.35rem;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--faint);
+      }
+      .timeline li.mark-global::before {
+        background: var(--hazard);
+        box-shadow: 0 0 8px var(--hazard);
+      }
+      .timeline li.mark-local::before {
+        background: var(--safe);
+        box-shadow: 0 0 8px var(--safe);
+      }
+      .timeline .row1 {
+        display: flex;
+        gap: 0.45rem;
+        align-items: baseline;
+        flex-wrap: wrap;
+      }
+      .timeline .case-no {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--muted);
+      }
+      .timeline .handle {
+        font-weight: 700;
+        font-size: 0.9rem;
+      }
+      .timeline .when {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--muted);
+        margin-left: auto;
+      }
+      .timeline .snippet {
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin-top: 0.1rem;
+      }
+      .timeline a.plink {
+        color: inherit;
+        text-decoration: none;
+      }
+      .timeline a.plink:hover .handle {
+        text-decoration: underline;
+      }
+      .more-note {
+        color: var(--muted);
+        font-size: 0.82rem;
+        margin-top: 0.4rem;
+      }
+
+      .video-box {
+        background: var(--panel);
+        border: 1px solid var(--faint);
+        border-radius: 16px;
+        padding: 1rem;
+        text-align: center;
+      }
+      .video-box video {
+        width: 100%;
+        border-radius: 12px;
+        background: #000;
+        display: none;
+      }
+      .video-box video.ready {
+        display: block;
+        margin-bottom: 0.8rem;
+      }
+      .btn {
+        padding: 0.6rem 1.1rem;
+        border: 0;
+        border-radius: 11px;
+        background: var(--hazard);
+        color: #fff;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .btn.secondary {
+        background: var(--panel-2);
+        border: 1px solid var(--faint);
+        color: var(--ink);
+      }
+      .btn-row {
+        display: flex;
+        gap: 0.6rem;
+        justify-content: center;
+        flex-wrap: wrap;
+        margin-top: 0.5rem;
+      }
+      .video-status {
+        font-family: var(--mono);
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin-top: 0.5rem;
+        min-height: 1.2rem;
+      }
+
+      .share-row {
+        display: flex;
+        gap: 0.6rem;
+        flex-wrap: wrap;
+        margin-top: 0.5rem;
+      }
+
+      footer {
+        margin-top: 3rem;
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <span class="tag"><span class="dot"></span> outbreak tracker</span>
+      <h1>patient zero</h1>
+      <p class="sub">
+        Paste the weird phrase everyone's suddenly saying and this runs a full epidemiological
+        workup: the global patient zero, the patient zero inside your own moots, a complete case
+        history timeline, and a hype video about the spread.
+      </p>
+
+      <form id="form">
+        <div class="field">
+          <label for="phrase">the phrase (or word) going around</label>
+          <input id="phrase" type="text" placeholder="hey whats this weird phrase everyone is suddenly using" autocomplete="off" />
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="handle">your handle <span style="text-transform:none">(optional — finds your local patient zero)</span></label>
+            <input id="handle" type="text" placeholder="you.bsky.social" autocomplete="off" />
+          </div>
+        </div>
+        <button class="go" id="submit" type="submit">investigate</button>
+      </form>
+      <p class="examples">
+        try: <a data-ex="skibidi">skibidi</a>, <a data-ex="delulu">delulu</a>, <a data-ex="rizz">rizz</a>,
+        <a data-ex="mewing">mewing</a> — or whatever's actually going around right now.
+      </p>
+
+      <p class="status" id="status"></p>
+
+      <div id="results">
+        <div class="stats">
+          <div class="stat">
+            <div class="n" id="statCount">–</div>
+            <div class="l">confirmed cases</div>
+          </div>
+          <div class="stat">
+            <div class="n" id="statFirst">–</div>
+            <div class="l">first seen</div>
+          </div>
+          <div class="stat">
+            <div class="n" id="statSpan">–</div>
+            <div class="l">outbreak span</div>
+          </div>
+        </div>
+        <p class="caveat" id="caveat"></p>
+
+        <section id="chartSection">
+          <p class="section-label"><span class="dot"></span> spread over time</p>
+          <div class="chart-wrap" id="chart"></div>
+        </section>
+
+        <section>
+          <p class="section-label global"><span class="dot"></span> global patient zero</p>
+          <div id="globalCard"></div>
+        </section>
+
+        <section id="localSection">
+          <p class="section-label local"><span class="dot"></span> patient zero in your circle</p>
+          <div id="localCard"></div>
+        </section>
+
+        <section>
+          <p class="section-label"><span class="dot"></span> case history</p>
+          <ol class="timeline" id="timeline"></ol>
+          <p class="more-note" id="moreNote"></p>
+        </section>
+
+        <section>
+          <p class="section-label"><span class="dot"></span> hype video</p>
+          <div class="video-box">
+            <video id="video" controls></video>
+            <p style="color:var(--muted);font-size:0.85rem;margin:0 0 0.3rem">
+              A real, generated recap — recorded live from canvas, not a template.
+            </p>
+            <div class="btn-row">
+              <button class="btn" id="makeVideo" type="button">generate hype video</button>
+              <a class="btn secondary" id="downloadVideo" download="patientzero-outbreak.webm" style="display:none">download .webm</a>
+            </div>
+            <p class="video-status" id="videoStatus"></p>
+          </div>
+        </section>
+
+        <section>
+          <p class="section-label"><span class="dot"></span> share the case file</p>
+          <div class="share-row">
+            <a class="btn secondary" id="shareBluesky" target="_blank" rel="noopener">post to bluesky</a>
+            <button class="btn secondary" id="shareVideo" type="button" style="display:none">share video</button>
+          </div>
+        </section>
+      </div>
+
+      <footer>
+        reads Bluesky's public search + AppView, client-side only. no account needed. built by
+        @buildthis.bisks.net for @norvid-studies.bsky.social.
+      </footer>
+    </div>
+
+    <script src="./lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { searchAll, postTime } from "./lib/search.js";
+      import { socialGraph } from "./lib/graph.js";
+      import { escapeHtml, truncate, timeAgo, fmtClock, postUrl } from "./lib/util.js";
+      import { generateHypeVideo, canRecordVideo } from "./lib/video.js";
+
+      const $ = (id) => document.getElementById(id);
+      const form = $("form");
+      const phraseInput = $("phrase");
+      const handleInput = $("handle");
+      const statusEl = $("status");
+      const results = $("results");
+
+      let state = null; // { phrase, cases, globalZero, localZero, localChecked, graph }
+
+      document.querySelectorAll(".examples a[data-ex]").forEach((a) => {
+        a.addEventListener("click", () => {
+          phraseInput.value = a.dataset.ex;
+          form.requestSubmit();
+        });
+      });
+
+      if (window.attachHandleTypeahead) attachHandleTypeahead(handleInput);
+
+      const params = new URLSearchParams(location.search);
+      if (params.get("q")) phraseInput.value = params.get("q");
+      if (params.get("handle")) handleInput.value = params.get("handle");
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const phrase = phraseInput.value.trim();
+        if (!phrase) return;
+        runInvestigation(phrase, handleInput.value.trim());
+      });
+
+      if (phraseInput.value.trim()) {
+        runInvestigation(phraseInput.value.trim(), handleInput.value.trim());
+      }
+
+      function setStatus(msg, isErr) {
+        statusEl.textContent = msg || "";
+        statusEl.classList.toggle("err", !!isErr);
+      }
+
+      async function runInvestigation(phrase, handle) {
+        results.classList.remove("show");
+        $("submit").disabled = true;
+        $("makeVideo").disabled = false;
+        $("video").classList.remove("ready");
+        $("video").removeAttribute("src");
+        $("downloadVideo").style.display = "none";
+        $("shareVideo").style.display = "none";
+        $("videoStatus").textContent = "";
+
+        const url = new URL(location.href);
+        url.searchParams.set("q", phrase);
+        if (handle) url.searchParams.set("handle", handle);
+        else url.searchParams.delete("handle");
+        history.replaceState(null, "", url);
+
+        try {
+          setStatus("pulling recent case reports…");
+          const { posts: cases, hitLimit } = await searchAll(phrase, {
+            onPage: (s) => setStatus(`pulling recent case reports… ${s.totalSoFar} found so far (page ${s.page})`),
+          });
+
+          let graph = null;
+          let localZero = null;
+          const localChecked = !!handle;
+          if (handle) {
+            try {
+              setStatus("cross-referencing your social graph…");
+              graph = await socialGraph(handle, { onStep: setStatus });
+              localZero = cases.find((c) => graph.poolDids.has(c.author.did) || c.author.did === graph.did) || null;
+            } catch (e) {
+              setStatus(`couldn't read that handle's social graph (${e.message}) — continuing without it`, true);
+              await new Promise((r) => setTimeout(r, 1200));
+            }
+          }
+
+          const globalZero = cases[0] || null;
+
+          state = { phrase, cases, globalZero, localZero, localChecked, graph, hitLimit };
+          render(state);
+          setStatus(cases.length ? `investigation complete — ${cases.length} case${cases.length === 1 ? "" : "s"} found.` : "no cases found yet — this phrase hasn't hit search. try again in a bit.");
+        } catch (e) {
+          setStatus(`investigation failed: ${e.message}`, true);
+        } finally {
+          $("submit").disabled = false;
+        }
+      }
+
+      function render(s) {
+        results.classList.add("show");
+
+        $("statCount").textContent = s.hitLimit ? `${s.cases.length}+` : String(s.cases.length);
+        $("statFirst").textContent = s.globalZero ? fmtClock(postTime(s.globalZero)) : "—";
+        if (s.cases.length > 1) {
+          const spanMs = postTime(s.cases[s.cases.length - 1]) - postTime(s.cases[0]);
+          $("statSpan").textContent = fmtDuration(spanMs);
+        } else {
+          $("statSpan").textContent = "—";
+        }
+        $("caveat").textContent = s.hitLimit
+          ? "Search coverage caps out around here — treat patient zero as \"earliest we could still find,\" not an absolute origin."
+          : "This is the full run of what Bluesky's search index still has for this phrase.";
+
+        renderChart(s.cases);
+        $("globalCard").innerHTML = s.globalZero ? patientCardHtml(s.globalZero, "global", 1) : `<p class="empty-note">No confirmed cases found yet.</p>`;
+
+        const localSection = $("localSection");
+        if (!s.localChecked) {
+          localSection.style.display = "none";
+        } else {
+          localSection.style.display = "";
+          if (s.localZero) {
+            const caseNo = s.cases.indexOf(s.localZero) + 1;
+            $("localCard").innerHTML = patientCardHtml(s.localZero, "local", caseNo);
+          } else {
+            $("localCard").innerHTML = `<p class="empty-note">Nobody in your ${escapeHtml(s.graph?.kind || "circle")} has caught it yet. You might be patient zero.</p>`;
+          }
+        }
+
+        renderTimeline(s);
+        renderShare(s);
+      }
+
+      function fmtDuration(ms) {
+        const mins = ms / 60000;
+        if (mins < 60) return `${Math.round(mins)}m`;
+        const hrs = mins / 60;
+        if (hrs < 48) return `${hrs.toFixed(1)}h`;
+        return `${Math.round(hrs / 24)}d`;
+      }
+
+      function patientCardHtml(post, kind, caseNo) {
+        const av = post.author.avatar ? `/api/avatar?u=${encodeURIComponent(post.author.avatar)}` : "";
+        return `
+          <div class="card ${kind}">
+            <div class="who">
+              <img class="avatar" src="${escapeHtml(av)}" alt="" onerror="this.style.visibility='hidden'" />
+              <div>
+                <div class="name">${escapeHtml(post.author.displayName || post.author.handle)}</div>
+                <div class="handle">@${escapeHtml(post.author.handle)}</div>
+              </div>
+            </div>
+            <div class="text">${escapeHtml(truncate(post.record?.text || "", 280))}</div>
+            <div class="meta">
+              <a href="${escapeHtml(postUrl(post))}" target="_blank" rel="noopener">case #${caseNo} · ${escapeHtml(fmtClock(postTime(post)))}</a>
+              <span>${escapeHtml(timeAgo(postTime(post)))}</span>
+            </div>
+          </div>`;
+      }
+
+      function renderTimeline(s) {
+        const MAX_SHOWN = 40;
+        const shown = s.cases.slice(0, MAX_SHOWN);
+        $("timeline").innerHTML = shown
+          .map((post, i) => {
+            const cls = post === s.globalZero ? "mark-global" : post === s.localZero ? "mark-local" : "";
+            return `
+              <li class="${cls}">
+                <a class="plink" href="${escapeHtml(postUrl(post))}" target="_blank" rel="noopener">
+                  <div class="row1">
+                    <span class="case-no">#${i + 1}</span>
+                    <span class="handle">@${escapeHtml(post.author.handle)}</span>
+                    <span class="when">${escapeHtml(timeAgo(postTime(post)))}</span>
+                  </div>
+                  <div class="snippet">${escapeHtml(truncate(post.record?.text || "", 100))}</div>
+                </a>
+              </li>`;
+          })
+          .join("");
+        $("moreNote").textContent = s.cases.length > MAX_SHOWN ? `+ ${s.cases.length - MAX_SHOWN} more cases not shown` : "";
+      }
+
+      // ---- chart: cases over time, single-hue sequential bars ----------------
+      function renderChart(cases) {
+        const el = $("chart");
+        if (cases.length < 2) {
+          el.innerHTML = `<p class="empty-note" style="margin:0.5rem 0">Not enough cases yet for a spread chart.</p>`;
+          return;
+        }
+        const times = cases.map((c) => postTime(c).getTime());
+        const t0 = times[0];
+        const t1 = times[times.length - 1];
+        const spanMs = Math.max(1, t1 - t0);
+
+        // pick a bucket size so we get roughly 12-24 buckets
+        const targetBuckets = 16;
+        const rawBucket = spanMs / targetBuckets;
+        const steps = [60_000, 5 * 60_000, 15 * 60_000, 30 * 60_000, 3600_000, 3 * 3600_000, 6 * 3600_000, 24 * 3600_000, 7 * 24 * 3600_000];
+        const bucketMs = steps.find((s) => s >= rawBucket) || steps[steps.length - 1];
+
+        const nBuckets = Math.max(1, Math.ceil(spanMs / bucketMs) + 1);
+        const counts = new Array(nBuckets).fill(0);
+        for (const t of times) {
+          const idx = Math.min(nBuckets - 1, Math.floor((t - t0) / bucketMs));
+          counts[idx]++;
+        }
+        const max = Math.max(...counts);
+
+        const W = 640,
+          H = 160,
+          padL = 6,
+          padR = 6,
+          padT = 6,
+          padB = 22;
+        const plotW = W - padL - padR;
+        const plotH = H - padT - padB;
+        const gap = 2;
+        const barW = Math.max(1, plotW / nBuckets - gap);
+
+        // sequential blue ramp (dark mode), light->dark by magnitude
+        const ramp = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#2a78d6", "#1c5cab", "#104281"];
+        const colorFor = (v) => {
+          if (max === 0) return ramp[0];
+          const f = v / max;
+          const i = Math.min(ramp.length - 1, Math.floor(f * (ramp.length - 1)));
+          return ramp[i];
+        };
+
+        let bars = "";
+        for (let i = 0; i < nBuckets; i++) {
+          const v = counts[i];
+          const h = max === 0 ? 0 : (v / max) * plotH;
+          const x = padL + i * (plotW / nBuckets);
+          const y = padT + (plotH - h);
+          const bucketStart = new Date(t0 + i * bucketMs);
+          const title = `${v} case${v === 1 ? "" : "s"} · ${bucketStart.toLocaleString()}`;
+          bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(1, h).toFixed(1)}" rx="2" fill="${colorFor(v)}"><title>${escapeHtml(title)}</title></rect>`;
+        }
+
+        const baselineY = padT + plotH;
+        const startLabel = new Date(t0).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+        const endLabel = new Date(t1).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+        el.innerHTML = `
+          <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Case count over time, from ${escapeHtml(startLabel)} to ${escapeHtml(endLabel)}">
+            <line x1="${padL}" y1="${baselineY}" x2="${W - padR}" y2="${baselineY}" stroke="#383835" stroke-width="1" />
+            ${bars}
+            <text class="chart-axis-label" x="${padL}" y="${H - 4}">${escapeHtml(startLabel)}</text>
+            <text class="chart-axis-label" x="${W - padR}" y="${H - 4}" text-anchor="end">${escapeHtml(endLabel)}</text>
+          </svg>`;
+      }
+
+      // ---- hype video ----------------------------------------------------
+      $("makeVideo").addEventListener("click", async () => {
+        if (!state) return;
+        if (!canRecordVideo()) {
+          $("videoStatus").textContent = "this browser can't record canvas video — try a recent Chrome/Firefox/Edge.";
+          return;
+        }
+        $("makeVideo").disabled = true;
+        $("videoStatus").textContent = "recording…";
+        try {
+          const shareUrl = `patientzero.bisks.net/s/${encodeURIComponent(state.phrase)}`;
+          const blob = await generateHypeVideo({
+            phrase: state.phrase,
+            globalZero: state.globalZero,
+            localZero: state.localZero,
+            localChecked: state.localChecked,
+            cases: state.cases,
+            shareUrl,
+            onProgress: (p) => ($("videoStatus").textContent = `recording… ${Math.round(p * 100)}%`),
+          });
+          const url = URL.createObjectURL(blob);
+          const video = $("video");
+          video.src = url;
+          video.classList.add("ready");
+          $("downloadVideo").href = url;
+          $("downloadVideo").style.display = "";
+          $("videoStatus").textContent = "done — play it, download it, or share it.";
+          window.__pzVideoBlob = blob;
+          if (navigator.share && navigator.canShare) {
+            try {
+              const probe = new File([blob], "probe.webm", { type: blob.type });
+              if (navigator.canShare({ files: [probe] })) {
+                $("shareVideo").style.display = "";
+              }
+            } catch {}
+          }
+        } catch (e) {
+          $("videoStatus").textContent = `couldn't record: ${e.message}`;
+        } finally {
+          $("makeVideo").disabled = false;
+        }
+      });
+
+      $("shareVideo").addEventListener("click", async () => {
+        if (!window.__pzVideoBlob || !state) return;
+        const file = new File([window.__pzVideoBlob], "patientzero-outbreak.webm", { type: window.__pzVideoBlob.type });
+        try {
+          await navigator.share({
+            files: [file],
+            title: "patient zero",
+            text: buildShareText(state),
+          });
+        } catch {}
+      });
+
+      function buildShareText(s) {
+        const url = `https://patientzero.bisks.net/s/${encodeURIComponent(s.phrase)}`;
+        const count = s.hitLimit ? `${s.cases.length}+` : s.cases.length;
+        let text = `🦠 outbreak report: "${s.phrase}" — ${count} confirmed case${s.cases.length === 1 ? "" : "s"}`;
+        if (s.globalZero) text += `, patient zero: @${s.globalZero.author.handle}`;
+        text += `\nfull case file: ${url}`;
+        if (text.length > 295) text = text.slice(0, 292) + "…";
+        return text;
+      }
+
+      function renderShare(s) {
+        $("shareBluesky").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(s));
+      }
+    </script>
+  </body>
+</html>
