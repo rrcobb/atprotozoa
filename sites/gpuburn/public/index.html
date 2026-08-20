@@ -294,44 +294,56 @@
   </div>
 
   <div class="presets" id="presets">
-    <button class="preset-btn" data-preset="kimik3" title="2.8T-param MoE, needs a B200/GB200 cluster — API charges $15/1M output tok">kimi k3</button>
-    <button class="preset-btn" data-preset="qwen" title="Qwen3.5-27B MoE, comfortably serves off a single H100">qwen3.5-27b</button>
-    <button class="preset-btn" data-preset="deepseek" title="DeepSeek V3/R1, 671B MoE on an 8×H100 node — API charges $2.19/1M output tok">deepseek v3/r1</button>
+    <button class="preset-btn" data-preset="kimik3" title="2.8T-param MoE, needs a B200/GB200 cluster — OpenRouter charges $2.60 in / $13.00 out per 1M tok">kimi k3</button>
+    <button class="preset-btn" data-preset="qwen" title="Qwen3.8-27B MoE, comfortably serves off a single H100">qwen3.8-27b</button>
+    <button class="preset-btn" data-preset="deepseek" title="DeepSeek R1, 671B MoE on an 8×H100 node — OpenRouter charges $0.70 in / $2.50 out per 1M tok">deepseek v3/r1</button>
   </div>
   <p class="hint" style="text-align:center; margin: -12px 0 22px;">
-    real GPU rental + published API prices, Aug 2026 —
+    real GPU rental + actual OpenRouter API pricing, Aug 2026 —
     <a href="https://intuitionlabs.ai/articles/h100-rental-prices-cloud-comparison" target="_blank" rel="noopener">H100 pricing</a>,
     <a href="https://www.spheron.network/blog/nvidia-b200-cloud-pricing-2026/" target="_blank" rel="noopener">B200 pricing</a>,
     <a href="https://inferencex.semianalysis.com/compare/deepseek-r1-b200-vs-h100" target="_blank" rel="noopener">DeepSeek throughput</a>,
-    <a href="https://deepseek.ai/pricing" target="_blank" rel="noopener">DeepSeek API</a>,
+    <a href="https://openrouter.ai/deepseek/deepseek-r1" target="_blank" rel="noopener">DeepSeek R1 on OpenRouter</a>,
+    <a href="https://openrouter.ai/qwen/qwen3.8-27b" target="_blank" rel="noopener">Qwen3.8-27B on OpenRouter</a>,
+    <a href="https://openrouter.ai/moonshotai/kimi-k3" target="_blank" rel="noopener">Kimi K3 on OpenRouter</a>,
     <a href="https://vllm.ai/blog/2026-07-27-k3" target="_blank" rel="noopener">Kimi K3 on vLLM</a>
   </p>
 
   <div class="panel">
     <h2>the knobs</h2>
     <div class="field">
-      <label><span class="name">price you charge</span><span class="val" id="valPrice">$3.00 / 1M tok</span></label>
-      <input type="range" id="price" min="0" max="2000" value="300" step="1" />
-      <div class="hint">what you bill customers per million output tokens</div>
+      <label><span class="name">price you charge — input tok</span><span class="val" id="valPriceIn">$2.60 / 1M tok</span></label>
+      <input type="range" id="priceIn" min="0" max="2000" value="260" step="1" />
+      <div class="hint">what you bill customers per million input (prompt) tokens — real APIs meter this separately, and it's always cheaper than output</div>
     </div>
     <div class="field">
-      <label><span class="name">tokens served per day</span><span class="val" id="valTokens">500M / day</span></label>
-      <input type="range" id="tokens" min="0" max="4000" value="500" step="1" />
-      <div class="hint">total output tokens your API ships in a day, in millions</div>
+      <label><span class="name">price you charge — output tok</span><span class="val" id="valPriceOut">$13.00 / 1M tok</span></label>
+      <input type="range" id="priceOut" min="0" max="3000" value="1300" step="1" />
+      <div class="hint">what you bill customers per million output (generated) tokens</div>
     </div>
     <div class="field">
-      <label><span class="name">gpu throughput</span><span class="val" id="valThroughput">3000 tok/s</span></label>
-      <input type="range" id="throughput" min="100" max="10000" value="3000" step="50" />
-      <div class="hint">tokens/sec one GPU produces flat-out for this model</div>
+      <label><span class="name">input tokens served per day</span><span class="val" id="valTokensIn">2000M / day</span></label>
+      <input type="range" id="tokensIn" min="0" max="6000" value="2000" step="10" />
+      <div class="hint">prompt/context tokens you bill for, in millions — usually the bulk of real traffic</div>
     </div>
     <div class="field">
-      <label><span class="name">effective utilization</span><span class="val" id="valUtil">55%</span></label>
-      <input type="range" id="util" min="1" max="100" value="55" step="1" />
+      <label><span class="name">output tokens served per day</span><span class="val" id="valTokensOut">200M / day</span></label>
+      <input type="range" id="tokensOut" min="0" max="4000" value="200" step="1" />
+      <div class="hint">generated tokens your API ships in a day, in millions — this is what drives GPU load below</div>
+    </div>
+    <div class="field">
+      <label><span class="name">gpu throughput</span><span class="val" id="valThroughput">150 tok/s</span></label>
+      <input type="range" id="throughput" min="100" max="10000" value="150" step="50" />
+      <div class="hint">output tokens/sec one GPU produces flat-out for this model (decode, not prefill)</div>
+    </div>
+    <div class="field">
+      <label><span class="name">effective utilization</span><span class="val" id="valUtil">35%</span></label>
+      <input type="range" id="util" min="1" max="100" value="35" step="1" />
       <div class="hint">how much of that throughput you actually capture — batching, bursty traffic, cold starts all eat this</div>
     </div>
     <div class="field">
-      <label><span class="name">gpu cost</span><span class="val" id="valGpuCost">$2.50 / hr</span></label>
-      <input type="range" id="gpuCost" min="10" max="900" value="250" step="5" />
+      <label><span class="name">gpu cost</span><span class="val" id="valGpuCost">$7.00 / hr</span></label>
+      <input type="range" id="gpuCost" min="10" max="900" value="700" step="5" />
       <div class="hint">what you pay per GPU-hour, on-demand or amortized reserved</div>
     </div>
   </div>
@@ -369,13 +381,17 @@ const els = {
   statProfit: document.getElementById("statProfit"),
   statMargin: document.getElementById("statMargin"),
   statGpus: document.getElementById("statGpus"),
-  price: document.getElementById("price"),
-  tokens: document.getElementById("tokens"),
+  priceIn: document.getElementById("priceIn"),
+  priceOut: document.getElementById("priceOut"),
+  tokensIn: document.getElementById("tokensIn"),
+  tokensOut: document.getElementById("tokensOut"),
   throughput: document.getElementById("throughput"),
   util: document.getElementById("util"),
   gpuCost: document.getElementById("gpuCost"),
-  valPrice: document.getElementById("valPrice"),
-  valTokens: document.getElementById("valTokens"),
+  valPriceIn: document.getElementById("valPriceIn"),
+  valPriceOut: document.getElementById("valPriceOut"),
+  valTokensIn: document.getElementById("valTokensIn"),
+  valTokensOut: document.getElementById("valTokensOut"),
   valThroughput: document.getElementById("valThroughput"),
   valUtil: document.getElementById("valUtil"),
   valGpuCost: document.getElementById("valGpuCost"),
@@ -387,21 +403,28 @@ const els = {
   shareNative: document.getElementById("shareNative"),
 };
 
-// GPU cost = $/GPU-hr, throughput = tok/s per GPU, price = API rate the model's own
-// provider actually charges per 1M output tok. Sourced Aug 2026, see links above.
+// GPU cost = $/GPU-hr, throughput = output tok/s per GPU (decode), prices = the
+// ACTUAL split input/output rates OpenRouter charges per 1M tok for that model.
+// Sourced Aug 2026, see links above. tokensIn/tokensOut assume a traffic mix
+// typical of agentic/coding usage (input-heavy: big repo/context, short-ish
+// output) — drag the sliders if your workload skews differently.
 const PRESETS = {
   // Kimi K3 (Moonshot, 2.8T-param MoE): needs 16+ B200/GB200 to even load, so it's
-  // priced on B200 rental (~$7/hr median) and Moonshot's own $15/1M output rate.
-  // Batched aggregate throughput per GPU isn't published; 150 tok/s/GPU is a
-  // conservative estimate in line with DeepSeek's similarly-shaped MoE at scale.
-  kimik3:   { price: 1500, tokens: 200,  throughput: 150,  util: 35, gpuCost: 700 },
-  // Qwen3.5-27B: MoE, dense-sized-comparable, fits on a single H100. Throughput
-  // extrapolated from Gemma3-27B's ~5,500 tok/s/GPU on H100 (same weight class);
-  // price is a typical cheap open-weight hosting rate (Together/Fireworks-style).
-  qwen:     { price: 30,   tokens: 1500, throughput: 6000, util: 60, gpuCost: 250 },
-  // DeepSeek V3/R1: 671B-param MoE, standard 8xH100 SXM node. Throughput and API
-  // price are both from published DeepSeek/SemiAnalysis benchmarks.
-  deepseek: { price: 219,  tokens: 500,  throughput: 200,  util: 55, gpuCost: 250 },
+  // priced on B200 rental (~$7/hr median). OpenRouter charges $2.60 in / $13.00
+  // out per 1M tok. Batched aggregate decode throughput per GPU isn't published;
+  // 150 tok/s/GPU is a conservative estimate in line with DeepSeek's similarly-
+  // shaped MoE at scale. The old build only counted output revenue and called
+  // this a $4.4k/day loss — billing input tokens too (the way OpenRouter actually
+  // charges) is what flips it profitable.
+  kimik3:   { priceIn: 260, priceOut: 1300, tokensIn: 2000, tokensOut: 200, throughput: 150,  util: 35, gpuCost: 700 },
+  // Qwen3.8-27B: MoE, dense-sized-comparable, fits on a single H100. Throughput
+  // extrapolated from Gemma3-27B's ~5,500 tok/s/GPU on H100 (same weight class).
+  // OpenRouter charges $0.40 in / $3.00 out per 1M tok.
+  qwen:     { priceIn: 40,  priceOut: 300,  tokensIn: 4500, tokensOut: 1500, throughput: 6000, util: 60, gpuCost: 250 },
+  // DeepSeek R1: 671B-param MoE, standard 8xH100 SXM node. Throughput from
+  // published DeepSeek/SemiAnalysis benchmarks; OpenRouter charges $0.70 in /
+  // $2.50 out per 1M tok.
+  deepseek: { priceIn: 70,  priceOut: 250,  tokensIn: 1000, tokensOut: 500,  throughput: 200,  util: 55, gpuCost: 250 },
 };
 
 function fmtUSD(n, opts) {
@@ -414,21 +437,27 @@ function fmtUSD(n, opts) {
 let state = { revenuePerDay: 0, costPerDay: 0, profitPerDay: 0, marginPct: 0, gpus: 0 };
 
 function compute() {
-  const priceUsd = els.price.value / 100; // stored in cents/1M for slider precision
-  const tokensM = Number(els.tokens.value);
+  const priceInUsd = els.priceIn.value / 100; // stored in cents/1M for slider precision
+  const priceOutUsd = els.priceOut.value / 100;
+  const tokensInM = Number(els.tokensIn.value);
+  const tokensOutM = Number(els.tokensOut.value);
   const throughputPerGpu = Number(els.throughput.value);
   const util = Number(els.util.value) / 100;
   const gpuCostHr = els.gpuCost.value / 100;
 
-  els.valPrice.textContent = fmtUSD(priceUsd) + " / 1M tok";
-  els.valTokens.textContent = tokensM.toLocaleString() + "M / day";
+  els.valPriceIn.textContent = fmtUSD(priceInUsd) + " / 1M tok";
+  els.valPriceOut.textContent = fmtUSD(priceOutUsd) + " / 1M tok";
+  els.valTokensIn.textContent = tokensInM.toLocaleString() + "M / day";
+  els.valTokensOut.textContent = tokensOutM.toLocaleString() + "M / day";
   els.valThroughput.textContent = throughputPerGpu.toLocaleString() + " tok/s";
   els.valUtil.textContent = Math.round(util * 100) + "%";
   els.valGpuCost.textContent = fmtUSD(gpuCostHr) + " / hr";
 
-  const tokensPerDay = tokensM * 1e6;
-  const revenuePerDay = tokensM * priceUsd;
-  const neededTokPerSec = tokensPerDay / 86400;
+  // GPU load is decode-bound: output tokens drive the compute you have to rent.
+  // Input/prefill is comparatively cheap and fast, so it's billed but not costed here.
+  const outputTokensPerDay = tokensOutM * 1e6;
+  const revenuePerDay = tokensInM * priceInUsd + tokensOutM * priceOutUsd;
+  const neededTokPerSec = outputTokensPerDay / 86400;
   const effectiveTokPerSecPerGpu = throughputPerGpu * util;
   const gpusNeeded = effectiveTokPerSecPerGpu > 0 ? neededTokPerSec / effectiveTokPerSecPerGpu : 0;
   const costPerDay = gpusNeeded * gpuCostHr * 24;
@@ -519,7 +548,7 @@ function tickTotal(ts) {
 }
 requestAnimationFrame(tickTotal);
 
-["price", "tokens", "throughput", "util", "gpuCost"].forEach((id) => {
+["priceIn", "priceOut", "tokensIn", "tokensOut", "throughput", "util", "gpuCost"].forEach((id) => {
   els[id].addEventListener("input", compute);
 });
 
@@ -528,8 +557,10 @@ els.presets.addEventListener("click", (e) => {
   if (!btn) return;
   const p = PRESETS[btn.dataset.preset];
   if (!p) return;
-  els.price.value = p.price;
-  els.tokens.value = p.tokens;
+  els.priceIn.value = p.priceIn;
+  els.priceOut.value = p.priceOut;
+  els.tokensIn.value = p.tokensIn;
+  els.tokensOut.value = p.tokensOut;
   els.throughput.value = p.throughput;
   els.util.value = p.util;
   els.gpuCost.value = p.gpuCost;
