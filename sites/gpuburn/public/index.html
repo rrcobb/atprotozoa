@@ -294,19 +294,21 @@
   </div>
 
   <div class="presets" id="presets">
-    <button class="preset-btn" data-preset="kimik3" title="2.8T-param MoE, needs a B200/GB200 cluster — OpenRouter charges $2.60 in / $13.00 out per 1M tok">kimi k3</button>
-    <button class="preset-btn" data-preset="qwen" title="Qwen3.8-27B MoE, comfortably serves off a single H100">qwen3.8-27b</button>
-    <button class="preset-btn" data-preset="deepseek" title="DeepSeek R1, 671B MoE on an 8×H100 node — OpenRouter charges $0.70 in / $2.50 out per 1M tok">deepseek v3/r1</button>
+    <button class="preset-btn" data-preset="kimik3" title="2.8T-param MoE, needs a B200/GB200 cluster — OpenRouter charges $2.60 in / $13.00 out per 1M tok, ~2,000 tok/s/GPU published batched decode">kimi k3</button>
+    <button class="preset-btn" data-preset="qwen" title="Qwen3.8-27B MoE, fits on an H100 but needs a real fleet of them at scale — ~900 tok/s/GPU batched decode for this weight class">qwen3.8-27b</button>
+    <button class="preset-btn" data-preset="deepseek" title="DeepSeek R1, 671B MoE on 8×H100 nodes — OpenRouter charges $0.70 in / $2.50 out per 1M tok, ~280 tok/s/GPU published batched decode">deepseek v3/r1</button>
   </div>
   <p class="hint" style="text-align:center; margin: -12px 0 22px;">
-    real GPU rental + actual OpenRouter API pricing, Aug 2026 —
+    real GPU rental + actual OpenRouter API pricing + published batched-decode throughput, Aug 2026 —
     <a href="https://intuitionlabs.ai/articles/h100-rental-prices-cloud-comparison" target="_blank" rel="noopener">H100 pricing</a>,
     <a href="https://www.spheron.network/blog/nvidia-b200-cloud-pricing-2026/" target="_blank" rel="noopener">B200 pricing</a>,
-    <a href="https://inferencex.semianalysis.com/compare/deepseek-r1-b200-vs-h100" target="_blank" rel="noopener">DeepSeek throughput</a>,
+    <a href="https://inferencex.semianalysis.com/compare/deepseek-r1-b200-vs-h100" target="_blank" rel="noopener">DeepSeek R1 throughput, B200 vs H100</a>,
     <a href="https://openrouter.ai/deepseek/deepseek-r1" target="_blank" rel="noopener">DeepSeek R1 on OpenRouter</a>,
+    <a href="https://www.millstoneai.com/inference-benchmark/qwen3-coder-30b-a3b-instruct-fp8" target="_blank" rel="noopener">Qwen3-Coder-30B-A3B throughput on H100</a>,
     <a href="https://openrouter.ai/qwen/qwen3.8-27b" target="_blank" rel="noopener">Qwen3.8-27B on OpenRouter</a>,
     <a href="https://openrouter.ai/moonshotai/kimi-k3" target="_blank" rel="noopener">Kimi K3 on OpenRouter</a>,
-    <a href="https://vllm.ai/blog/2026-07-27-k3" target="_blank" rel="noopener">Kimi K3 on vLLM</a>
+    <a href="https://vllm.ai/blog/2026-07-27-k3" target="_blank" rel="noopener">Kimi K3 throughput on vLLM</a>,
+    <a href="https://inferencex.semianalysis.com/blog/gb200-nvl72-kimi-k2-5-vllm-wide-ep-3x-vs-b200" target="_blank" rel="noopener">Kimi K2.5 B200 throughput</a>
   </p>
 
   <div class="panel">
@@ -332,8 +334,8 @@
       <div class="hint">generated tokens your API ships in a day, in millions — this is what drives GPU load below</div>
     </div>
     <div class="field">
-      <label><span class="name">gpu throughput</span><span class="val" id="valThroughput">150 tok/s</span></label>
-      <input type="range" id="throughput" min="100" max="10000" value="150" step="50" />
+      <label><span class="name">gpu throughput</span><span class="val" id="valThroughput">2000 tok/s</span></label>
+      <input type="range" id="throughput" min="100" max="10000" value="2000" step="50" />
       <div class="hint">output tokens/sec one GPU produces flat-out for this model (decode, not prefill)</div>
     </div>
     <div class="field">
@@ -403,7 +405,8 @@ const els = {
   shareNative: document.getElementById("shareNative"),
 };
 
-// GPU cost = $/GPU-hr, throughput = output tok/s per GPU (decode), prices = the
+// GPU cost = $/GPU-hr, throughput = output tok/s per GPU (decode) at REALISTIC
+// batched production concurrency (not single-stream best-case), prices = the
 // ACTUAL split input/output rates OpenRouter charges per 1M tok for that model.
 // Sourced Aug 2026, see links above. tokensIn/tokensOut assume a traffic mix
 // typical of agentic/coding usage (input-heavy: big repo/context, short-ish
@@ -411,20 +414,24 @@ const els = {
 const PRESETS = {
   // Kimi K3 (Moonshot, 2.8T-param MoE): needs 16+ B200/GB200 to even load, so it's
   // priced on B200 rental (~$7/hr median). OpenRouter charges $2.60 in / $13.00
-  // out per 1M tok. Batched aggregate decode throughput per GPU isn't published;
-  // 150 tok/s/GPU is a conservative estimate in line with DeepSeek's similarly-
-  // shaped MoE at scale. The old build only counted output revenue and called
-  // this a $4.4k/day loss — billing input tokens too (the way OpenRouter actually
-  // charges) is what flips it profitable.
-  kimik3:   { priceIn: 260, priceOut: 1300, tokensIn: 2000, tokensOut: 200, throughput: 150,  util: 35, gpuCost: 700 },
-  // Qwen3.8-27B: MoE, dense-sized-comparable, fits on a single H100. Throughput
-  // extrapolated from Gemma3-27B's ~5,500 tok/s/GPU on H100 (same weight class).
-  // OpenRouter charges $0.40 in / $3.00 out per 1M tok.
-  qwen:     { priceIn: 40,  priceOut: 300,  tokensIn: 4500, tokensOut: 1500, throughput: 6000, util: 60, gpuCost: 250 },
-  // DeepSeek R1: 671B-param MoE, standard 8xH100 SXM node. Throughput from
-  // published DeepSeek/SemiAnalysis benchmarks; OpenRouter charges $0.70 in /
+  // out per 1M tok. vLLM's own K3 launch benchmark publishes "2K+ TPGS" (tokens
+  // per GPU-second) at the high-throughput end of its serving Pareto frontier —
+  // corroborated by Kimi K2.5 (same MoE shape) hitting ~4,021 tok/s/GPU batched
+  // decode on a saturated 16xB200 pool per SemiAnalysis/InferenceX. Using the
+  // more conservative, K3-specific 2,000 tok/s/GPU here.
+  kimik3:   { priceIn: 260, priceOut: 1300, tokensIn: 2000, tokensOut: 200, throughput: 2000, util: 35, gpuCost: 700 },
+  // Qwen3.8-27B: MoE in the ~30B-A3B weight class. Real batched-decode benchmarks
+  // for that class on a single H100 SXM (Millstone AI) land around 580-910
+  // tok/s/GPU depending on context/concurrency, nowhere near the ~6,000 tok/s a
+  // same-size DENSE model (e.g. Gemma3-27B) would hit — MoE routing overhead and
+  // KV-cache pressure eat most of the naive dense extrapolation. OpenRouter
+  // charges $0.40 in / $3.00 out per 1M tok.
+  qwen:     { priceIn: 40,  priceOut: 300,  tokensIn: 4500, tokensOut: 1500, throughput: 900,  util: 60, gpuCost: 250 },
+  // DeepSeek R1: 671B-param MoE, standard 8xH100 SXM node. SemiAnalysis/InferenceX's
+  // B200-vs-H100 benchmark puts H100 batched decode at ~281 tok/s/chip (8k/1k fp8,
+  // 71 tok/s/user interactivity target) — using 280. OpenRouter charges $0.70 in /
   // $2.50 out per 1M tok.
-  deepseek: { priceIn: 70,  priceOut: 250,  tokensIn: 1000, tokensOut: 500,  throughput: 200,  util: 55, gpuCost: 250 },
+  deepseek: { priceIn: 70,  priceOut: 250,  tokensIn: 1000, tokensOut: 500,  throughput: 280,  util: 55, gpuCost: 250 },
 };
 
 function fmtUSD(n, opts) {
