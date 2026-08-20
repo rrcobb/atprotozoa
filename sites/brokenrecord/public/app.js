@@ -100,10 +100,44 @@ function fmtDate(iso) {
   }
 }
 
-function postCardHtml(post, handle, matchScore) {
+// Shows *why* two posts matched, not just the score: bolds words in a post's
+// text that also appear (case-insensitively) in `sharedSet` — the other
+// side's content-word set from similarity.js's buildIndex. Walks the same
+// word regex tokenize() uses in similarity.js so highlighted spans line up
+// with what actually fed the TF-IDF/bigram signals, not just any substring.
+const WORD_RE = /[\p{L}\p{N}][\p{L}\p{N}']*/gu;
+function highlightShared(rawText, sharedSet) {
+  if (!sharedSet || !sharedSet.size) return esc(rawText);
+  let out = "";
+  let last = 0;
+  let m;
+  WORD_RE.lastIndex = 0;
+  while ((m = WORD_RE.exec(rawText))) {
+    out += esc(rawText.slice(last, m.index));
+    const word = m[0];
+    out += sharedSet.has(word.toLowerCase()) ? `<mark>${esc(word)}</mark>` : esc(word);
+    last = m.index + word.length;
+  }
+  out += esc(rawText.slice(last));
+  return out;
+}
+
+function intersectSets(a, b) {
+  const out = new Set();
+  for (const x of a) if (b.has(x)) out.add(x);
+  return out;
+}
+
+function unionSets(a, b) {
+  const out = new Set(a);
+  for (const x of b) out.add(x);
+  return out;
+}
+
+function postCardHtml(post, handle, matchScore, sharedSet) {
   return `
     <a class="post-card" href="${postUrl(post.uri, handle)}" target="_blank" rel="noopener">
-      <div class="post-text">${esc(post.text)}</div>
+      <div class="post-text">${highlightShared(post.text, sharedSet)}</div>
       <div class="post-meta">
         <span>${esc(fmtDate(post.createdAt))}</span>
         ${matchScore != null ? `<span class="other-score">${matchScore}% vs the pair</span>` : "<span></span>"}
@@ -113,8 +147,10 @@ function postCardHtml(post, handle, matchScore) {
 
 function clusterHtml(cluster, rank, handle) {
   const [a, b] = cluster.pair;
+  const sharedAB = intersectSets(a.contentSet, b.contentSet);
+  const pairUnion = unionSets(a.contentSet, b.contentSet);
   const othersHtml = cluster.others.length
-    ? `<div class="others-label">also echoed in this cluster${cluster.size > 2 + cluster.others.length ? ` (top ${cluster.others.length} of ${cluster.size - 2} more)` : ""}</div>${cluster.others.map((o) => postCardHtml(o.post, handle, o.score)).join("")}`
+    ? `<div class="others-label">also echoed in this cluster${cluster.size > 2 + cluster.others.length ? ` (top ${cluster.others.length} of ${cluster.size - 2} more)` : ""}</div>${cluster.others.map((o) => postCardHtml(o.post, handle, o.score, intersectSets(o.post.contentSet, pairUnion))).join("")}`
     : "";
   return `
     <div class="cluster">
@@ -124,9 +160,9 @@ function clusterHtml(cluster, rank, handle) {
         <span class="cluster-size">${cluster.size} posts in this group</span>
       </div>
       <div class="pair-wrap">
-        ${postCardHtml(a, handle)}
-        <div class="vs-line">↕ strongest pair in this cluster</div>
-        ${postCardHtml(b, handle)}
+        ${postCardHtml(a, handle, null, sharedAB)}
+        <div class="vs-line">↕ strongest pair in this cluster — shared words highlighted</div>
+        ${postCardHtml(b, handle, null, sharedAB)}
       </div>
       ${othersHtml}
     </div>`;
