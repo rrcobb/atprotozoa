@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>gpuburn — is your inference business printing money or eating it?</title>
+<meta name="description" content="Tune price, traffic, GPU cost, and utilization. Watch the furnace tell you whether your LLM inference is profitable or lighting cash on fire." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="gpuburn — is your inference business printing money or eating it?" />
+<meta property="og:description" content="A cute little furnace that runs the inference P&L for you. Tune price, traffic, GPU cost, utilization — watch it print or burn." />
+<meta property="og:url" content="https://gpuburn.bisks.net/" />
+<meta property="og:image" content="https://gpuburn.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="gpuburn: a little furnace character next to a profit/loss readout for LLM inference." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="gpuburn — is your inference business printing money or eating it?" />
+<meta name="twitter:description" content="Tune price, traffic, GPU cost, and utilization. Watch the furnace print money or eat it." />
+<meta name="twitter:image" content="https://gpuburn.bisks.net/og.png" />
+
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #12151a;
+    --panel2: #171b21;
+    --line: #262c35;
+    --ink: #e9edf2;
+    --dim: #8a94a3;
+    --good: #56e39f;
+    --good-dim: #1e3d31;
+    --bad: #ff6b6b;
+    --bad-dim: #3d2020;
+    --amber: #f5b942;
+    --mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--mono);
+    min-height: 100vh;
+    padding: 32px 16px 80px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+
+  header { text-align: center; margin-bottom: 28px; }
+  h1 {
+    font-size: clamp(28px, 5vw, 42px);
+    margin: 0 0 6px;
+    letter-spacing: -0.5px;
+  }
+  h1 span { color: var(--amber); }
+  header p {
+    color: var(--dim);
+    margin: 0;
+    font-size: 14px;
+  }
+
+  .stage {
+    background: radial-gradient(ellipse at top, #171d24, var(--panel) 70%);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 28px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 22px;
+    position: relative;
+    overflow: hidden;
+    min-height: 260px;
+  }
+
+  .furnace-zone {
+    position: relative;
+    width: 200px;
+    height: 170px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .furnace { width: 150px; height: 150px; position: relative; z-index: 2; transition: transform 0.25s ease; }
+  .furnace svg { width: 100%; height: 100%; display: block; }
+  .stage.profitable .furnace { animation: bounce 1.6s ease-in-out infinite; }
+  .stage.burning .furnace { animation: shake 0.35s ease-in-out infinite; }
+  @keyframes bounce {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50% { transform: translateY(-6px) rotate(-1.5deg); }
+  }
+  @keyframes shake {
+    0%, 100% { transform: translate(0, 0) rotate(0deg); }
+    25% { transform: translate(-2px, 1px) rotate(-1deg); }
+    75% { transform: translate(2px, -1px) rotate(1deg); }
+  }
+
+  .particles { position: absolute; inset: 0; pointer-events: none; z-index: 1; overflow: visible; }
+  .particle {
+    position: absolute;
+    bottom: 20px;
+    font-size: 20px;
+    opacity: 0;
+    animation: rise 2.6s linear forwards;
+    will-change: transform, opacity;
+  }
+  @keyframes rise {
+    0% { opacity: 0; transform: translate(0, 0) scale(0.6) rotate(0deg); }
+    10% { opacity: 1; }
+    85% { opacity: 1; }
+    100% { opacity: 0; transform: translate(var(--dx, 0px), -170px) scale(1.05) rotate(var(--rot, 20deg)); }
+  }
+
+  .verdict {
+    font-size: 15px;
+    font-weight: 700;
+    text-align: center;
+    min-height: 20px;
+  }
+  .verdict.good { color: var(--good); }
+  .verdict.bad { color: var(--bad); }
+
+  .ticker {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--dim);
+    text-align: center;
+  }
+  .ticker b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    width: 100%;
+    margin-top: 4px;
+  }
+  .stat {
+    background: var(--panel2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+  .stat .k { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.4px; }
+  .stat .v { font-size: 18px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stat .v.good { color: var(--good); }
+  .stat .v.bad { color: var(--bad); }
+
+  .presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 22px;
+  }
+  .preset-btn {
+    background: var(--panel2);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .preset-btn:hover { border-color: var(--amber); background: #1c1710; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 22px 20px;
+    margin-bottom: 22px;
+  }
+  .panel h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--dim);
+    margin: 0 0 16px;
+  }
+  .field { margin-bottom: 18px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+  .field label .name { color: var(--ink); }
+  .field label .val { color: var(--amber); font-weight: 700; }
+  input[type="range"] {
+    width: 100%;
+    accent-color: var(--amber);
+    height: 4px;
+  }
+  .hint { font-size: 11.5px; color: var(--dim); margin-top: 4px; }
+
+  .share-panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 20px;
+    text-align: center;
+  }
+  .share-panel h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--dim);
+    margin: 0 0 14px;
+  }
+  #shareCanvas { display: none; }
+  .share-preview {
+    width: 100%;
+    max-width: 480px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    margin: 0 auto 14px;
+    display: block;
+  }
+  .share-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+  }
+  .share-actions a, .share-actions button {
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 10px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--panel2);
+    color: var(--ink);
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .share-actions a.primary { background: #0d3b28; border-color: #1c6b46; color: var(--good); }
+  .share-actions a:hover, .share-actions button:hover { border-color: var(--amber); }
+
+  footer {
+    text-align: center;
+    margin-top: 30px;
+    color: var(--dim);
+    font-size: 12px;
+  }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>gpu<span>burn</span></h1>
+    <p>tune the knobs on your imaginary inference business, watch the furnace tell you the truth</p>
+  </header>
+
+  <div class="stage" id="stage">
+    <div class="furnace-zone">
+      <div class="particles" id="particles"></div>
+      <div class="furnace" id="furnace">
+        <svg viewBox="0 0 200 200">
+          <rect x="30" y="40" width="140" height="120" rx="18" fill="#20262f" stroke="#3a4250" stroke-width="3"/>
+          <rect x="46" y="26" width="14" height="20" rx="4" fill="#3a4250"/>
+          <rect x="140" y="26" width="14" height="20" rx="4" fill="#3a4250"/>
+          <rect x="90" y="18" width="20" height="20" rx="4" fill="#3a4250"/>
+          <circle cx="70" cy="95" r="14" fill="#0b0d10" id="eyeL"/>
+          <circle cx="130" cy="95" r="14" fill="#0b0d10" id="eyeR"/>
+          <circle cx="74" cy="91" r="4" fill="#e9edf2" id="pupilL"/>
+          <circle cx="134" cy="91" r="4" fill="#e9edf2" id="pupilR"/>
+          <path id="mouth" d="M 75 130 Q 100 145 125 130" stroke="#e9edf2" stroke-width="4" fill="none" stroke-linecap="round"/>
+          <rect x="40" y="150" width="10" height="14" rx="2" fill="#3a4250"/>
+          <rect x="150" y="150" width="10" height="14" rx="2" fill="#3a4250"/>
+          <text x="100" y="112" text-anchor="middle" font-family="ui-monospace, monospace" font-size="9" fill="#4a5566" font-weight="700">GPU</text>
+        </svg>
+      </div>
+    </div>
+    <div class="verdict" id="verdict">crunching the numbers...</div>
+    <div class="ticker">running total since you opened this: <b id="ticker">$0.00</b></div>
+    <div class="stats">
+      <div class="stat"><div class="k">revenue / day</div><div class="v" id="statRevenue">$0</div></div>
+      <div class="stat"><div class="k">compute cost / day</div><div class="v" id="statCost">$0</div></div>
+      <div class="stat"><div class="k">profit / day</div><div class="v" id="statProfit">$0</div></div>
+      <div class="stat"><div class="k">margin</div><div class="v" id="statMargin">0%</div></div>
+      <div class="stat"><div class="k">gpus needed</div><div class="v" id="statGpus">0</div></div>
+    </div>
+  </div>
+
+  <div class="presets" id="presets">
+    <button class="preset-btn" data-preset="flagship">frontier flagship</button>
+    <button class="preset-btn" data-preset="selfhost">cheap self-host</button>
+    <button class="preset-btn" data-preset="lossleader">loss-leader free tier</button>
+    <button class="preset-btn" data-preset="overprovisioned">overprovisioned startup</button>
+  </div>
+
+  <div class="panel">
+    <h2>the knobs</h2>
+    <div class="field">
+      <label><span class="name">price you charge</span><span class="val" id="valPrice">$3.00 / 1M tok</span></label>
+      <input type="range" id="price" min="0" max="1000" value="300" step="1" />
+      <div class="hint">what you bill customers per million output tokens</div>
+    </div>
+    <div class="field">
+      <label><span class="name">tokens served per day</span><span class="val" id="valTokens">500M / day</span></label>
+      <input type="range" id="tokens" min="0" max="4000" value="500" step="1" />
+      <div class="hint">total output tokens your API ships in a day, in millions</div>
+    </div>
+    <div class="field">
+      <label><span class="name">gpu throughput</span><span class="val" id="valThroughput">3000 tok/s</span></label>
+      <input type="range" id="throughput" min="200" max="10000" value="3000" step="50" />
+      <div class="hint">tokens/sec one GPU produces flat-out for this model</div>
+    </div>
+    <div class="field">
+      <label><span class="name">effective utilization</span><span class="val" id="valUtil">55%</span></label>
+      <input type="range" id="util" min="1" max="100" value="55" step="1" />
+      <div class="hint">how much of that throughput you actually capture — batching, bursty traffic, cold starts all eat this</div>
+    </div>
+    <div class="field">
+      <label><span class="name">gpu cost</span><span class="val" id="valGpuCost">$2.50 / hr</span></label>
+      <input type="range" id="gpuCost" min="10" max="900" value="250" step="5" />
+      <div class="hint">what you pay per GPU-hour, on-demand or amortized reserved</div>
+    </div>
+  </div>
+
+  <div class="share-panel">
+    <h2>brag or confess</h2>
+    <canvas id="shareCanvas" width="1200" height="630"></canvas>
+    <img class="share-preview" id="sharePreview" alt="share card preview" />
+    <div class="share-actions">
+      <a href="#" id="shareBluesky" class="primary" target="_blank" rel="noopener">share on bluesky</a>
+      <button id="shareDownload" type="button">download card</button>
+      <button id="shareNative" type="button" style="display:none">share...</button>
+    </div>
+  </div>
+
+  <footer>
+    built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+    for <a href="https://bsky.app/profile/fubarchitect.com" target="_blank" rel="noopener">@fubarchitect.com</a>
+    — a toy P&L, not financial advice, GPUs are not actually alive (probably)
+  </footer>
+</div>
+
+<script>
+const els = {
+  stage: document.getElementById("stage"),
+  furnace: document.getElementById("furnace"),
+  particles: document.getElementById("particles"),
+  verdict: document.getElementById("verdict"),
+  ticker: document.getElementById("ticker"),
+  eyeL: document.getElementById("pupilL"),
+  eyeR: document.getElementById("pupilR"),
+  mouth: document.getElementById("mouth"),
+  statRevenue: document.getElementById("statRevenue"),
+  statCost: document.getElementById("statCost"),
+  statProfit: document.getElementById("statProfit"),
+  statMargin: document.getElementById("statMargin"),
+  statGpus: document.getElementById("statGpus"),
+  price: document.getElementById("price"),
+  tokens: document.getElementById("tokens"),
+  throughput: document.getElementById("throughput"),
+  util: document.getElementById("util"),
+  gpuCost: document.getElementById("gpuCost"),
+  valPrice: document.getElementById("valPrice"),
+  valTokens: document.getElementById("valTokens"),
+  valThroughput: document.getElementById("valThroughput"),
+  valUtil: document.getElementById("valUtil"),
+  valGpuCost: document.getElementById("valGpuCost"),
+  presets: document.getElementById("presets"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  sharePreview: document.getElementById("sharePreview"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+  shareNative: document.getElementById("shareNative"),
+};
+
+const PRESETS = {
+  flagship:        { price: 300,  tokens: 2000, throughput: 3000, util: 45, gpuCost: 250 },
+  selfhost:        { price: 20,   tokens: 50,   throughput: 6000, util: 70, gpuCost: 110 },
+  lossleader:      { price: 0,    tokens: 800,  throughput: 3500, util: 50, gpuCost: 300 },
+  overprovisioned: { price: 500,  tokens: 20,   throughput: 2500, util: 8,  gpuCost: 450 },
+};
+
+function fmtUSD(n, opts) {
+  const abs = Math.abs(n);
+  const digits = abs >= 1000 ? 0 : abs >= 10 ? 1 : 2;
+  const s = "$" + abs.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: 0 });
+  return (n < 0 ? "-" : "") + s;
+}
+
+let state = { revenuePerDay: 0, costPerDay: 0, profitPerDay: 0, marginPct: 0, gpus: 0 };
+
+function compute() {
+  const priceUsd = els.price.value / 100; // stored in cents/1M for slider precision
+  const tokensM = Number(els.tokens.value);
+  const throughputPerGpu = Number(els.throughput.value);
+  const util = Number(els.util.value) / 100;
+  const gpuCostHr = els.gpuCost.value / 100;
+
+  els.valPrice.textContent = fmtUSD(priceUsd) + " / 1M tok";
+  els.valTokens.textContent = tokensM.toLocaleString() + "M / day";
+  els.valThroughput.textContent = throughputPerGpu.toLocaleString() + " tok/s";
+  els.valUtil.textContent = Math.round(util * 100) + "%";
+  els.valGpuCost.textContent = fmtUSD(gpuCostHr) + " / hr";
+
+  const tokensPerDay = tokensM * 1e6;
+  const revenuePerDay = tokensM * priceUsd;
+  const neededTokPerSec = tokensPerDay / 86400;
+  const effectiveTokPerSecPerGpu = throughputPerGpu * util;
+  const gpusNeeded = effectiveTokPerSecPerGpu > 0 ? neededTokPerSec / effectiveTokPerSecPerGpu : 0;
+  const costPerDay = gpusNeeded * gpuCostHr * 24;
+  const profitPerDay = revenuePerDay - costPerDay;
+  const marginPct = revenuePerDay > 0 ? (profitPerDay / revenuePerDay) * 100 : (profitPerDay < 0 ? -100 : 0);
+
+  state = { revenuePerDay, costPerDay, profitPerDay, marginPct, gpus: gpusNeeded };
+
+  els.statRevenue.textContent = fmtUSD(revenuePerDay);
+  els.statCost.textContent = fmtUSD(costPerDay);
+  els.statProfit.textContent = (profitPerDay >= 0 ? "+" : "") + fmtUSD(profitPerDay);
+  els.statProfit.className = "v " + (profitPerDay >= 0 ? "good" : "bad");
+  els.statMargin.textContent = (marginPct >= 0 ? "+" : "") + marginPct.toFixed(0) + "%";
+  els.statMargin.className = "v " + (marginPct >= 0 ? "good" : "bad");
+  els.statGpus.textContent = gpusNeeded < 1 ? gpusNeeded.toFixed(2) : Math.ceil(gpusNeeded).toLocaleString();
+
+  updateFurnace(profitPerDay, marginPct);
+  buildShareCard();
+  rebuildShareLinks();
+}
+
+function verdictText(profitPerDay, marginPct) {
+  if (profitPerDay >= 5000) return ["printing money. absurdly so.", "good"];
+  if (profitPerDay > 0) return ["net positive — the furnace is content.", "good"];
+  if (profitPerDay > -50) return ["basically break-even. nervous, but standing.", "good"];
+  if (profitPerDay > -1000) return ["bleeding cash, politely.", "bad"];
+  return ["fully engulfed. call someone.", "bad"];
+}
+
+let particleTimer = null;
+
+function updateFurnace(profitPerDay, marginPct) {
+  const [text, cls] = verdictText(profitPerDay, marginPct);
+  els.verdict.textContent = text;
+  els.verdict.className = "verdict " + cls;
+
+  const profitable = profitPerDay >= -50;
+  const burning = profitPerDay < -50;
+  els.stage.classList.toggle("profitable", profitable);
+  els.stage.classList.toggle("burning", burning);
+
+  // eyes: happy squint when very profitable, wide when burning, neutral otherwise
+  if (profitPerDay >= 1000) {
+    els.mouth.setAttribute("d", "M 75 128 Q 100 150 125 128");
+  } else if (profitPerDay >= -50) {
+    els.mouth.setAttribute("d", "M 78 132 L 122 132");
+  } else if (profitPerDay >= -1000) {
+    els.mouth.setAttribute("d", "M 78 138 Q 100 122 122 138");
+  } else {
+    els.mouth.setAttribute("d", "M 75 140 Q 100 115 125 140");
+  }
+  const pupilY = burning ? 88 : 91;
+  els.eyeL.setAttribute("cy", pupilY);
+  els.eyeR.setAttribute("cy", pupilY);
+
+  const rate = Math.min(2200, Math.max(280, 2200 - Math.abs(profitPerDay) / 8));
+  clearInterval(particleTimer);
+  particleTimer = setInterval(() => spawnParticle(profitable), rate);
+}
+
+function spawnParticle(profitable) {
+  const p = document.createElement("div");
+  p.className = "particle";
+  p.textContent = profitable
+    ? ["💰", "💵", "✨"][Math.floor(Math.random() * 3)]
+    : ["🔥", "💸", "💨"][Math.floor(Math.random() * 3)];
+  const dx = (Math.random() - 0.5) * 80;
+  const rot = (Math.random() - 0.5) * 60;
+  p.style.left = 70 + Math.random() * 60 + "px";
+  p.style.setProperty("--dx", dx + "px");
+  p.style.setProperty("--rot", rot + "deg");
+  p.style.animationDuration = 2 + Math.random() * 0.8 + "s";
+  els.particles.appendChild(p);
+  setTimeout(() => p.remove(), 3000);
+}
+
+// running ticker: accumulates at profitPerDay / 86400 per second, purely for fun
+let accumulated = 0;
+let lastTick = null;
+function tickTotal(ts) {
+  if (lastTick != null) {
+    const dt = (ts - lastTick) / 1000;
+    accumulated += (state.profitPerDay / 86400) * dt;
+  }
+  lastTick = ts;
+  els.ticker.innerHTML = (accumulated >= 0 ? "+" : "") + fmtUSD(accumulated);
+  requestAnimationFrame(tickTotal);
+}
+requestAnimationFrame(tickTotal);
+
+["price", "tokens", "throughput", "util", "gpuCost"].forEach((id) => {
+  els[id].addEventListener("input", compute);
+});
+
+els.presets.addEventListener("click", (e) => {
+  const btn = e.target.closest(".preset-btn");
+  if (!btn) return;
+  const p = PRESETS[btn.dataset.preset];
+  if (!p) return;
+  els.price.value = p.price;
+  els.tokens.value = p.tokens;
+  els.throughput.value = p.throughput;
+  els.util.value = p.util;
+  els.gpuCost.value = p.gpuCost;
+  accumulated = 0;
+  compute();
+});
+
+// ---- share card ------------------------------------------------------------
+
+function shareText() {
+  const verb = state.profitPerDay >= 0 ? "printing" : "burning";
+  const amt = fmtUSD(Math.abs(state.profitPerDay));
+  return (
+    `my imaginary inference business is ${verb} ${amt}/day (${state.marginPct >= 0 ? "+" : ""}${state.marginPct.toFixed(0)}% margin). ` +
+    `run your own numbers → https://gpuburn.bisks.net/`
+  );
+}
+
+function buildShareCard() {
+  const ctx = els.shareCanvas.getContext("2d");
+  const W = els.shareCanvas.width, H = els.shareCanvas.height;
+  const mono = "ui-monospace, monospace";
+  const good = state.profitPerDay >= 0;
+  const accent = good ? "#56e39f" : "#ff6b6b";
+
+  ctx.fillStyle = "#0b0d10";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.5, H * 0.15, 0, W * 0.5, H * 0.15, W * 0.6);
+  glow.addColorStop(0, good ? "#12301f" : "#301414");
+  glow.addColorStop(1, "rgba(11,13,16,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#f5b942";
+  ctx.font = `800 52px ${mono}`;
+  ctx.fillText("gpuburn", 60, 100);
+  ctx.fillStyle = "#8a94a3";
+  ctx.font = `400 20px ${mono}`;
+  ctx.fillText("is this inference business printing money or eating it?", 60, 134);
+
+  const cardX = 60, cardY = 180, cardW = W - 120, cardH = H - 260;
+  ctx.fillStyle = "#12151a";
+  ctx.strokeStyle = "#262c35";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = accent;
+  ctx.font = `800 64px ${mono}`;
+  const sign = state.profitPerDay >= 0 ? "+" : "-";
+  ctx.fillText(sign + fmtUSD(Math.abs(state.profitPerDay)) + " / day", W / 2, cardY + 100);
+
+  ctx.fillStyle = "#e9edf2";
+  ctx.font = `700 26px ${mono}`;
+  ctx.fillText(
+    (state.marginPct >= 0 ? "+" : "") + state.marginPct.toFixed(0) + "% margin",
+    W / 2,
+    cardY + 148
+  );
+
+  ctx.font = `400 18px ${mono}`;
+  ctx.fillStyle = "#8a94a3";
+  const rev = "revenue " + fmtUSD(state.revenuePerDay) + "/day";
+  const cost = "compute " + fmtUSD(state.costPerDay) + "/day";
+  const gpus = Math.ceil(state.gpus).toLocaleString() + " gpus";
+  ctx.fillText(rev + "   ·   " + cost + "   ·   " + gpus, W / 2, cardY + 190);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#f5b942";
+  ctx.font = `700 22px ${mono}`;
+  ctx.fillText("gpuburn.bisks.net", 60, H - 40);
+
+  els.sharePreview.src = els.shareCanvas.toDataURL("image/png");
+}
+
+function rebuildShareLinks() {
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText());
+}
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "gpuburn.png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "gpuburn.png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: shareText(), title: "gpuburn" });
+      } catch (_) {
+        // cancelled or unsupported — no-op
+      }
+    }, "image/png");
+  });
+}
+
+compute();
+</script>
+</body>
+</html>
