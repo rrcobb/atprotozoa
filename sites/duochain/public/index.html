@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>duochain — blend two voices into one post</title>
+    <meta
+      name="description"
+      content="Trains a Markov chain on two Bluesky accounts' real posts (links and hashtags stripped) and blends them into a brand new post — start or end it with your own sentence if you want."
+    />
+    <meta property="og:title" content="duochain — blend two voices into one post" />
+    <meta
+      property="og:description"
+      content="Trains a Markov chain on two Bluesky accounts' real posts (links and hashtags stripped) and blends them into a brand new post — start or end it with your own sentence if you want."
+    />
+    <meta property="og:url" content="https://duochain.bisks.net/" />
+    <meta property="og:image" content="https://duochain.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="duochain — two accounts' avatars merging into one generated post." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="duochain — blend two voices into one post" />
+    <meta
+      name="twitter:description"
+      content="Trains a Markov chain on two Bluesky accounts' real posts and blends them into a brand new post."
+    />
+    <meta name="twitter:image" content="https://duochain.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #08070c;
+        --panel: rgba(16, 13, 22, 0.88);
+        --panel-solid: #120e19;
+        --ink: #efe9f7;
+        --muted: #93899f;
+        --faint: #2a2436;
+        --faintbg: rgba(30, 25, 41, 0.6);
+        --a: #ff6fae;
+        --b: #5fd1ff;
+        --bad: #ff6f61;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        background-image: radial-gradient(ellipse 900px 500px at 15% -10%, rgba(255, 111, 174, 0.16), transparent),
+          radial-gradient(ellipse 900px 500px at 85% 0%, rgba(95, 209, 255, 0.14), transparent);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 660px; margin: 0 auto; padding: 2.75rem 1.25rem 5rem; }
+      header { text-align: center; margin-bottom: 1.75rem; }
+      header h1 { font-size: 2.2rem; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
+      header h1 a { color: inherit; text-decoration: none; }
+      header h1 .d1 { color: var(--a); text-shadow: 0 0 18px rgba(255, 111, 174, 0.4); }
+      header h1 .d2 { color: var(--b); text-shadow: 0 0 18px rgba(95, 209, 255, 0.4); }
+      header .tagline { color: var(--muted); font-size: 0.85rem; margin: 0.6rem auto 0; max-width: 34em; }
+
+      section { margin-bottom: 1.75rem; }
+      h2 {
+        font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em;
+        color: var(--muted); font-weight: 700; margin: 0 0 0.9rem; text-align: center;
+      }
+
+      .card {
+        border: 1px solid var(--faint); border-radius: 12px; padding: 1.4rem 1.5rem;
+        background: var(--panel); backdrop-filter: blur(2px);
+        box-shadow: 0 20px 40px -24px rgba(0, 0, 0, 0.6);
+      }
+
+      .handles { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+      @media (max-width: 480px) { .handles { grid-template-columns: 1fr; } }
+      .handle-field label { display: block; font-size: 0.72rem; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 0.35rem; }
+      .handle-field.a label { color: var(--a); }
+      .handle-field.b label { color: var(--b); }
+      .handle-field input {
+        width: 100%; font-family: var(--mono); font-size: 0.92rem; color: var(--ink);
+        background: var(--panel-solid); border: 1px solid var(--faint); border-radius: 6px;
+        padding: 0.55rem 0.7rem;
+      }
+      .handle-field.a input:focus { outline: none; border-color: var(--a); }
+      .handle-field.b input:focus { outline: none; border-color: var(--b); }
+      .handle-field input::placeholder { color: var(--muted); }
+
+      .brew-row { margin-top: 1rem; display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; justify-content: center; }
+      button, .btn {
+        font-family: var(--mono); font-size: 0.82rem; font-weight: 600;
+        border-radius: 6px; padding: 0.55rem 0.9rem; cursor: pointer;
+        border: 1px solid var(--faint); background: var(--panel-solid); color: var(--ink);
+        text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem;
+      }
+      button:hover, .btn:hover { border-color: var(--b); }
+      button:disabled { opacity: 0.45; cursor: default; }
+      .btn-primary {
+        background: linear-gradient(90deg, var(--a), var(--b)); color: #0a0710; border: none; font-weight: 700;
+      }
+      .btn-primary:hover { filter: brightness(1.08); }
+      .status { color: var(--muted); font-size: 0.78rem; text-align: center; min-height: 1.3em; margin-top: 0.6rem; }
+      .status.err { color: var(--bad); }
+
+      .blend-row { margin-top: 1.1rem; }
+      .blend-labels { display: flex; justify-content: space-between; font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+      .blend-labels .a { color: var(--a); }
+      .blend-labels .b { color: var(--b); }
+      input[type="range"] {
+        width: 100%; -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px;
+        background: linear-gradient(90deg, var(--a), var(--b));
+      }
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%;
+        background: #fff; border: 2px solid var(--panel-solid); cursor: pointer; margin-top: -6px;
+      }
+      input[type="range"]::-moz-range-thumb {
+        width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 2px solid var(--panel-solid); cursor: pointer;
+      }
+
+      .mode-row { margin-top: 1.1rem; }
+      .mode-options { display: flex; gap: 1.2rem; flex-wrap: wrap; justify-content: center; font-size: 0.82rem; }
+      .mode-options label { display: flex; align-items: center; gap: 0.35rem; cursor: pointer; color: var(--muted); }
+      .mode-options input { accent-color: var(--b); }
+      .mode-options label.active { color: var(--ink); }
+      .sentence-row { margin-top: 0.7rem; display: none; }
+      .sentence-row.show { display: block; }
+      .sentence-row input {
+        width: 100%; font-family: var(--mono); font-size: 0.88rem; color: var(--ink);
+        background: var(--panel-solid); border: 1px solid var(--faint); border-radius: 6px;
+        padding: 0.55rem 0.7rem;
+      }
+      .sentence-row input:focus { outline: none; border-color: var(--b); }
+
+      /* output card */
+      .out-card { min-height: 6rem; position: relative; }
+      .out-head { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.9rem; flex-wrap: wrap; }
+      .out-avatars { display: flex; align-items: center; }
+      .out-avatar {
+        width: 30px; height: 30px; border-radius: 50%; background: var(--faintbg);
+        object-fit: cover; border: 2px solid var(--panel-solid);
+      }
+      .out-avatar.a { border-color: var(--a); }
+      .out-avatar.b { border-color: var(--b); margin-left: -10px; }
+      .out-who { font-weight: 700; font-size: 0.85rem; }
+      .out-badge {
+        margin-left: auto; font-size: 0.68rem; letter-spacing: 0.04em;
+        color: var(--b); border: 1px solid var(--faint); border-radius: 999px;
+        padding: 0.15rem 0.55rem; text-transform: uppercase;
+      }
+      .out-text { font-size: 1.05rem; line-height: 1.65; white-space: pre-wrap; }
+      .out-text.loading { color: var(--muted); font-style: italic; }
+      .out-meta {
+        margin-top: 1rem; padding-top: 0.8rem; border-top: 1px dashed var(--faint);
+        font-size: 0.76rem; color: var(--muted);
+      }
+
+      .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; justify-content: center; align-items: center; }
+      .copied-hint { font-size: 0.75rem; color: var(--b); align-self: center; }
+
+      footer {
+        border-top: 1px solid var(--faint); padding-top: 1.2rem; margin-top: 2rem;
+        color: var(--muted); font-size: 0.78rem; line-height: 1.8; text-align: center;
+      }
+      footer a { color: var(--b); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+
+      canvas#shareCanvas { display: none; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/"><span class="d1">duo</span><span class="d2">chain</span></a></h1>
+        <p class="tagline">
+          two Bluesky accounts, one Markov chain. pulls both handles' real posts (links and
+          hashtags stripped), trains a chain on each, and blends them into a brand new post —
+          word by word, mid-sentence if the slider lands there.
+        </p>
+      </header>
+
+      <section>
+        <h2>brew</h2>
+        <div class="card">
+          <div class="handles">
+            <div class="handle-field a">
+              <label for="handleA">handle one</label>
+              <input id="handleA" type="text" placeholder="alice.bsky.social" autocomplete="off" spellcheck="false" />
+            </div>
+            <div class="handle-field b">
+              <label for="handleB">handle two</label>
+              <input id="handleB" type="text" placeholder="bob.bsky.social" autocomplete="off" spellcheck="false" />
+            </div>
+          </div>
+          <div class="brew-row">
+            <button class="btn-primary" id="brewBtn">brew the chain</button>
+          </div>
+          <div class="status" id="brewStatus"></div>
+        </div>
+      </section>
+
+      <section>
+        <h2>generate</h2>
+        <div class="card out-card">
+          <div class="out-head">
+            <div class="out-avatars">
+              <img class="out-avatar a" id="avatarA" alt="" />
+              <img class="out-avatar b" id="avatarB" alt="" />
+            </div>
+            <div class="out-who" id="outWho">nobody yet</div>
+            <span class="out-badge" id="outBadge">waiting</span>
+          </div>
+          <div class="out-text loading" id="outText">brew a chain above to get started.</div>
+          <div class="out-meta" id="outMeta"></div>
+        </div>
+
+        <div class="blend-row">
+          <div class="blend-labels"><span class="a" id="blendLabelA">handle one 50%</span><span class="b" id="blendLabelB">50% handle two</span></div>
+          <input type="range" id="blendSlider" min="0" max="100" value="50" />
+        </div>
+
+        <div class="mode-row">
+          <div class="mode-options">
+            <label id="modeFreeLabel" class="active"><input type="radio" name="mode" value="free" checked /> free generation</label>
+            <label id="modeStartLabel"><input type="radio" name="mode" value="start" /> start with my sentence</label>
+            <label id="modeEndLabel"><input type="radio" name="mode" value="end" /> end with my sentence</label>
+          </div>
+          <div class="sentence-row" id="sentenceRow">
+            <input type="text" id="sentenceInput" placeholder="type the sentence to start or end on" maxlength="280" spellcheck="true" />
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="btn-primary" id="genBtn" disabled>generate</button>
+          <button id="copyBtn" disabled>copy</button>
+          <a class="btn" id="shareBluesky" href="#" target="_blank" rel="noopener">🦋 share</a>
+          <button id="shareNative" style="display: none">share…</button>
+          <span class="copied-hint" id="copiedHint" style="visibility: hidden">copied.</span>
+        </div>
+      </section>
+
+      <footer>
+        Text only, own posts, no reposts or replies, links and hashtags stripped before
+        training. This is a Markov chain, not a language model — it has no idea what any of
+        these words mean, it's just guessing the next likely word from what both accounts
+        actually wrote.
+        <br />
+        Asked for by <a href="https://bsky.app/profile/fromthewestmeadow.com">@fromthewestmeadow.com</a>.
+        Part of the <a href="https://bisks.net/">bisks.net</a> constellation. Built by
+        <a href="https://bisks.net/buildthis">@buildthis</a>.
+      </footer>
+    </div>
+
+    <canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+    <script type="module">
+      import { fetchProfile, fetchAuthorLines, normalizeActor } from "./lib/atproto.js";
+      import { buildBrain, generate, fitToBudget } from "./lib/markov.js";
+
+      const els = {
+        handleA: document.getElementById("handleA"),
+        handleB: document.getElementById("handleB"),
+        brewBtn: document.getElementById("brewBtn"),
+        brewStatus: document.getElementById("brewStatus"),
+        avatarA: document.getElementById("avatarA"),
+        avatarB: document.getElementById("avatarB"),
+        outWho: document.getElementById("outWho"),
+        outBadge: document.getElementById("outBadge"),
+        outText: document.getElementById("outText"),
+        outMeta: document.getElementById("outMeta"),
+        blendSlider: document.getElementById("blendSlider"),
+        blendLabelA: document.getElementById("blendLabelA"),
+        blendLabelB: document.getElementById("blendLabelB"),
+        sentenceRow: document.getElementById("sentenceRow"),
+        sentenceInput: document.getElementById("sentenceInput"),
+        genBtn: document.getElementById("genBtn"),
+        copyBtn: document.getElementById("copyBtn"),
+        copiedHint: document.getElementById("copiedHint"),
+        shareBluesky: document.getElementById("shareBluesky"),
+        shareNative: document.getElementById("shareNative"),
+        shareCanvas: document.getElementById("shareCanvas"),
+        modeFreeLabel: document.getElementById("modeFreeLabel"),
+        modeStartLabel: document.getElementById("modeStartLabel"),
+        modeEndLabel: document.getElementById("modeEndLabel"),
+      };
+
+      let brainA = null, brainB = null;
+      let profileA = null, profileB = null;
+      let handleAName = "", handleBName = "";
+      let current = { text: "", handleA: "", handleB: "", mode: "free" };
+
+      function bias() {
+        return Number(els.blendSlider.value) / 100;
+      }
+
+      function updateBlendLabels() {
+        const p = Number(els.blendSlider.value);
+        els.blendLabelA.textContent = (handleAName || "handle one") + " " + p + "%";
+        els.blendLabelB.textContent = (100 - p) + "% " + (handleBName || "handle two");
+      }
+      els.blendSlider.addEventListener("input", updateBlendLabels);
+      updateBlendLabels();
+
+      function currentMode() {
+        const el = document.querySelector('input[name="mode"]:checked');
+        return el ? el.value : "free";
+      }
+      for (const [id, label] of [["modeFreeLabel", els.modeFreeLabel], ["modeStartLabel", els.modeStartLabel], ["modeEndLabel", els.modeEndLabel]]) {
+        label.querySelector("input").addEventListener("change", () => {
+          for (const l of [els.modeFreeLabel, els.modeStartLabel, els.modeEndLabel]) l.classList.remove("active");
+          label.classList.add("active");
+          const mode = currentMode();
+          els.sentenceRow.classList.toggle("show", mode !== "free");
+          if (mode === "start") els.sentenceInput.placeholder = "type the sentence to start on";
+          if (mode === "end") els.sentenceInput.placeholder = "type the sentence to end on";
+        });
+      }
+
+      function setBrewStatus(msg, isErr) {
+        els.brewStatus.textContent = msg;
+        els.brewStatus.classList.toggle("err", !!isErr);
+      }
+
+      async function brew() {
+        const rawA = els.handleA.value, rawB = els.handleB.value;
+        const a = normalizeActor(rawA), b = normalizeActor(rawB);
+        if (!a || !b) {
+          setBrewStatus("enter both handles first.", true);
+          return;
+        }
+        els.brewBtn.disabled = true;
+        els.genBtn.disabled = true;
+        brainA = brainB = null;
+        setBrewStatus("resolving profiles...");
+        try {
+          [profileA, profileB] = await Promise.all([
+            fetchProfile(a).catch(() => null),
+            fetchProfile(b).catch(() => null),
+          ]);
+          handleAName = (profileA && profileA.handle) || a;
+          handleBName = (profileB && profileB.handle) || b;
+          if (profileA && profileA.avatar) els.avatarA.src = profileA.avatar;
+          if (profileB && profileB.avatar) els.avatarB.src = profileB.avatar;
+          updateBlendLabels();
+
+          setBrewStatus(`fetching @${handleAName}'s posts...`);
+          const linesA = await fetchAuthorLines(a, 1500, (n) => setBrewStatus(`fetching @${handleAName}'s posts... ${n} so far`));
+          setBrewStatus(`fetching @${handleBName}'s posts...`);
+          const linesB = await fetchAuthorLines(b, 1500, (n) => setBrewStatus(`fetching @${handleBName}'s posts... ${n} so far`));
+
+          brainA = buildBrain(linesA);
+          brainB = buildBrain(linesB);
+          els.outWho.textContent = `@${handleAName} × @${handleBName}`;
+          setBrewStatus(`chain brewed: ${linesA.length} posts from @${handleAName}, ${linesB.length} from @${handleBName}.`);
+          els.genBtn.disabled = false;
+          els.copyBtn.disabled = false;
+          doGenerate();
+        } catch (err) {
+          setBrewStatus("couldn't brew that: " + err.message, true);
+        } finally {
+          els.brewBtn.disabled = false;
+        }
+      }
+      els.brewBtn.addEventListener("click", brew);
+      for (const input of [els.handleA, els.handleB]) {
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            brew();
+          }
+        });
+      }
+
+      function shareUrlFor(code) {
+        return "https://duochain.bisks.net/q/" + code;
+      }
+      function encodePost(text, a, b) {
+        const json = JSON.stringify({ t: text, a, b });
+        let b64 = btoa(unescape(encodeURIComponent(json)));
+        return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      }
+      function buildShareText(text) {
+        const code = encodePost(text, current.handleA, current.handleB);
+        const url = shareUrlFor(code);
+        const budget = 300 - url.length - 4;
+        const quoted = '"' + fitToBudget(text, Math.max(40, budget)) + '"';
+        return quoted + "\n\n" + url;
+      }
+
+      function renderPost() {
+        els.outText.classList.remove("loading");
+        els.outText.textContent = current.text;
+        els.outBadge.textContent = current.mode === "start" ? "continued" : current.mode === "end" ? "led in" : "generated";
+        const p = Number(els.blendSlider.value);
+        els.outMeta.textContent = `blend: ${p}% @${handleAName || "?"} / ${100 - p}% @${handleBName || "?"}`;
+        els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(current.text));
+        drawShareCard();
+      }
+
+      function doGenerate() {
+        if (!brainA || !brainB) return;
+        const mode = currentMode();
+        const sentence = els.sentenceInput.value.trim();
+        if (mode !== "free" && !sentence) {
+          els.sentenceInput.focus();
+          els.sentenceInput.placeholder = "type a sentence first, or switch to free generation";
+          return;
+        }
+        const opts = {};
+        const usedMode = mode !== "free" && sentence ? mode : "free";
+        if (usedMode === "start") opts.startSentence = sentence;
+        else if (usedMode === "end") opts.endSentence = sentence;
+        const budgeted = () => {
+          const g = generate(brainA, brainB, bias(), opts);
+          return { text: fitToBudget(g.text, 300), seed: g.seed };
+        };
+        let result = budgeted();
+        for (let i = 0; i < 4 && [...result.text].length < 20; i++) result = budgeted();
+        current = { text: result.text, handleA: handleAName, handleB: handleBName, mode: usedMode };
+        renderPost();
+      }
+      els.genBtn.addEventListener("click", doGenerate);
+      els.sentenceInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          doGenerate();
+        }
+      });
+
+      els.copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(current.text);
+          els.copiedHint.style.visibility = "visible";
+          setTimeout(() => (els.copiedHint.style.visibility = "hidden"), 1400);
+        } catch (_) {}
+      });
+
+      function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+        const words = text.split(" ");
+        let line = "";
+        let cy = y;
+        let lines = 0;
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            ctx.fillText(line, x, cy);
+            line = w;
+            cy += lineHeight;
+            lines++;
+            if (lines >= maxLines - 1) {
+              ctx.fillText(line + "…", x, cy);
+              return cy;
+            }
+          } else {
+            line = test;
+          }
+        }
+        if (line) ctx.fillText(line, x, cy);
+        return cy;
+      }
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      async function drawShareCard() {
+        const canvas = els.shareCanvas;
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const mono = "ui-monospace, monospace";
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#08070c";
+        ctx.fillRect(0, 0, W, H);
+        const grad = ctx.createLinearGradient(0, 0, W, 0);
+        grad.addColorStop(0, "#ff6fae");
+        grad.addColorStop(1, "#5fd1ff");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, 10);
+        ctx.fillRect(0, H - 10, W, 10);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#efe9f7";
+        ctx.font = `800 46px ${mono}`;
+        ctx.fillText("duochain", 60, 100);
+        ctx.fillStyle = "#93899f";
+        ctx.font = `400 18px ${mono}`;
+        ctx.fillText(`@${current.handleA || "?"} × @${current.handleB || "?"}`, 60, 132);
+
+        const avatarA = profileA && profileA.avatar ? await loadImg(profileA.avatar) : null;
+        const avatarB = profileB && profileB.avatar ? await loadImg(profileB.avatar) : null;
+        if (avatarA) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(84, 186, 26, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(avatarA, 58, 160, 52, 52);
+          ctx.restore();
+        }
+        if (avatarB) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(126, 186, 26, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(avatarB, 100, 160, 52, 52);
+          ctx.restore();
+        }
+
+        const cardX = 60, cardY = 240, cardW = W - 120, cardH = H - 320;
+        ctx.strokeStyle = "#2a2436";
+        ctx.lineWidth = 1.5;
+        ctx.fillStyle = "#120e19";
+        ctx.beginPath();
+        ctx.roundRect(cardX, cardY, cardW, cardH, 16);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = "#efe9f7";
+        ctx.font = `400 26px ${mono}`;
+        wrapCanvasText(ctx, current.text || "…", cardX + 36, cardY + 56, cardW - 72, 36, 9);
+
+        ctx.fillStyle = "#5fd1ff";
+        ctx.font = `700 22px ${mono}`;
+        ctx.fillText("duochain.bisks.net", 60, H - 40);
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) {
+          return false;
+        }
+      }
+      if (canShareFiles()) {
+        els.shareNative.style.display = "";
+        els.shareNative.addEventListener("click", () => {
+          els.shareCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "duochain.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: buildShareText(current.text), title: "duochain" });
+            } catch (_) {}
+          }, "image/png");
+        });
+      }
+    </script>
+  </body>
+</html>
