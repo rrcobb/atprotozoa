@@ -1,9 +1,10 @@
 // rotcast Worker — rotcast.bisks.net
 //
-// Everything real happens client-side (public/index.html): fetch the two
-// fixed cohosts off the public AppView, book a random live post off
-// Jetstream as the "surprise special guest," and generate a transcript
-// around it. Two things needed a server:
+// Everything real happens client-side (public/index.html): fetch two
+// user-chosen cohosts (defaulting to the OGs, antiali.as and
+// fromthewestmeadow.com) off the public AppView, book a surprise guest
+// either off the live Jetstream firehose or from the cohosts' colikes, and
+// generate a transcript around it. Two things needed a server:
 //
 // 1. /e/<ep>/<guestHandle>/<line> — a plain static site serves the *same*
 //    index.html no matter what episode got generated, so every share
@@ -106,7 +107,10 @@ async function renderEpisode(
   }
   if (!guestHandle) return new Response(html, { headers: base.headers });
 
-  const title = `rotcast ep. ${ep}: alias & Dr. West Meadow ft. @${guestHandle}`;
+  // Cohosts are now user-editable client-side and the share URL doesn't
+  // encode who they were for a given episode, so this title stays
+  // host-name-agnostic rather than hardcoding the OG lineup.
+  const title = `rotcast ep. ${ep} ft. @${guestHandle}`;
   const desc = line
     ? truncate(`Surprise guest @${guestHandle} showed up mid-episode. Their opener: "${line}"`, 300)
     : `Surprise guest @${guestHandle} showed up mid-episode. Generate your own episode of maximum rot.`;

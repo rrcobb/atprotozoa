@@ -82,6 +82,67 @@
   .lineup .plus { color: var(--dim); font-size: 0.9rem; flex: none; }
   .lineup .amp { color: var(--accent); font-weight: 800; flex: none; }
 
+  .lineup-edit {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.9rem;
+  }
+  .lineup-edit .amp { color: var(--dim); font-weight: 800; flex: none; }
+  .host-input {
+    flex: 1;
+    min-width: 110px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--fg);
+    font: inherit;
+    font-size: 0.8rem;
+    padding: 0.5rem 0.6rem;
+  }
+  .host-input:focus { outline: none; border-color: var(--accent); }
+  .lineup-edit button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .lineup-edit button:hover { border-color: var(--accent); color: var(--fg); }
+  #setHosts { color: var(--accent); }
+
+  .guest-source {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1.1rem;
+  }
+  .gs-label { color: var(--dim); font-size: 0.78rem; }
+  .gs-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 999px;
+    padding: 0.35rem 0.75rem;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .gs-btn:hover { border-color: var(--accent); color: var(--fg); }
+  .gs-btn.active {
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: #0b1104;
+    border-color: transparent;
+  }
+
   .epbar {
     display: flex;
     align-items: center;
@@ -232,10 +293,11 @@
   <div class="wrap">
     <h1>SHUT UP NERD</h1>
     <p class="tag">
-      A podcast that does not exist, cohosted by <b>alias</b> and
-      <b>Dr. From The West Meadow</b>. Every episode kidnaps a third
-      cohost live off the atproto firehose and never asks their permission.
-      Requested by @antiali.as. Maximum rot, as ordered.
+      A podcast that does not exist. OG lineup: <b>alias</b> and
+      <b>Dr. From The West Meadow</b>, requested by @antiali.as — swap in
+      any two accounts below. Every episode kidnaps a third cohost, either
+      random off the live atproto firehose or from the hosts' colikes, and
+      never asks their permission. Maximum rot, as ordered.
     </p>
 
     <div class="lineup" id="lineup">
@@ -243,6 +305,20 @@
       <span class="amp">&amp;</span>
       <div class="who"><img id="host2Av" class="av" alt="" /><span class="name" id="host2Name">Dr. From The West Meadow</span></div>
       <span class="plus">+ a surprise guest, every time</span>
+    </div>
+
+    <div class="lineup-edit" id="lineupEdit">
+      <input id="host1Input" class="host-input" type="text" placeholder="cohost 1 handle" autocomplete="off" />
+      <span class="amp">&amp;</span>
+      <input id="host2Input" class="host-input" type="text" placeholder="cohost 2 handle" autocomplete="off" />
+      <button id="setHosts" type="button">set lineup</button>
+      <button id="resetHosts" type="button" title="back to the OGs: antiali.as &amp; fromthewestmeadow.com">↺ OGs</button>
+    </div>
+
+    <div class="guest-source" id="guestSource">
+      <span class="gs-label">special guest via</span>
+      <button class="gs-btn" id="gsFirehose" data-src="firehose" type="button">🔥 firehose</button>
+      <button class="gs-btn" id="gsColikes" data-src="colikes" type="button">❤️ colikes</button>
     </div>
 
     <div class="epbar">
@@ -279,9 +355,37 @@
 <script>
 const API = "https://public.api.bsky.app/xrpc/";
 const JETSTREAM = "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
-const HOST1_HANDLE = "antiali.as";
-const HOST2_HANDLE = "fromthewestmeadow.com";
+// The OGs — antiali.as asked for this show, fromthewestmeadow.com is the
+// "shut up nerd" half. Default lineup and what "↺ OGs" resets back to.
+const OG_HOST1 = "antiali.as";
+const OG_HOST2 = "fromthewestmeadow.com";
 const EP_KEY = "rotcast-ep";
+const HOSTS_KEY = "rotcast-hosts";
+const GUEST_SRC_KEY = "rotcast-guest-source";
+
+function loadHostHandles() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(HOSTS_KEY) || "null");
+    if (raw && raw.h1 && raw.h2) return raw;
+  } catch (_) {}
+  return { h1: OG_HOST1, h2: OG_HOST2 };
+}
+function saveHostHandles(h1, h2) {
+  try { localStorage.setItem(HOSTS_KEY, JSON.stringify({ h1, h2 })); } catch (_) {}
+}
+function loadGuestSource() {
+  try {
+    const v = localStorage.getItem(GUEST_SRC_KEY);
+    if (v === "firehose" || v === "colikes") return v;
+  } catch (_) {}
+  return "firehose";
+}
+function saveGuestSource(src) {
+  try { localStorage.setItem(GUEST_SRC_KEY, src); } catch (_) {}
+}
+
+let currentHosts = loadHostHandles();
+let guestSource = loadGuestSource();
 
 async function xrpc(method, params) {
   const qs = new URLSearchParams(params).toString();
@@ -433,15 +537,17 @@ const HOT_TAKE = [
 async function loadHosts() {
   const els1 = { av: document.getElementById("host1Av"), name: document.getElementById("host1Name") };
   const els2 = { av: document.getElementById("host2Av"), name: document.getElementById("host2Name") };
-  const fallback = { h1: { displayName: "alias", handle: HOST1_HANDLE, avatar: "" },
-                      h2: { displayName: "Dr. From The West Meadow", handle: HOST2_HANDLE, avatar: "" } };
+  const fallback = { h1: { displayName: currentHosts.h1, handle: currentHosts.h1, avatar: "" },
+                      h2: { displayName: currentHosts.h2, handle: currentHosts.h2, avatar: "" } };
   let h1, h2;
-  try { h1 = await getProfile(HOST1_HANDLE); } catch (_) { h1 = fallback.h1; }
-  try { h2 = await getProfile(HOST2_HANDLE); } catch (_) { h2 = fallback.h2; }
+  try { h1 = await getProfile(currentHosts.h1); } catch (_) { h1 = fallback.h1; }
+  try { h2 = await getProfile(currentHosts.h2); } catch (_) { h2 = fallback.h2; }
   els1.name.textContent = h1.displayName || h1.handle;
   els2.name.textContent = h2.displayName || h2.handle;
-  if (h1.avatar) { els1.av.src = h1.avatar; els1.av.style.visibility = "visible"; }
-  if (h2.avatar) { els2.av.src = h2.avatar; els2.av.style.visibility = "visible"; }
+  els1.av.style.visibility = h1.avatar ? "visible" : "hidden";
+  els2.av.style.visibility = h2.avatar ? "visible" : "hidden";
+  if (h1.avatar) els1.av.src = h1.avatar;
+  if (h2.avatar) els2.av.src = h2.avatar;
   return { h1, h2 };
 }
 
@@ -494,13 +600,124 @@ function bookGuestPost(excludeDids) {
   });
 }
 
-async function resolveGuest(hostDids) {
+async function resolveGuestFromFirehose(hostDids) {
   const post = await bookGuestPost(hostDids);
   if (!post) return null;
   let profile = { handle: post.did, displayName: "", avatar: "" };
   try { profile = await getProfile(post.did); } catch (_) {}
   return { did: post.did, text: post.text, handle: profile.handle || post.did,
            displayName: profile.displayName || profile.handle || post.did, avatar: profile.avatar || "" };
+}
+
+// --- colikes guest booking ------------------------------------------------
+// "Colikes" guest: someone who liked the same post one of the cohosts liked.
+// Repo records (including likes) are public, unauthenticated reads straight
+// off a PDS — app.bsky.feed.getActorLikes is locked to the actor's own
+// session, so this reads com.atproto.repo.listRecords on each host's PDS
+// directly instead. Every hop here (plc.directory, the PDS, the AppView)
+// serves permissive CORS, confirmed by hand with curl -I.
+
+async function resolvePds(did) {
+  try {
+    if (did.startsWith("did:plc:")) {
+      const res = await fetch("https://plc.directory/" + did);
+      if (!res.ok) return null;
+      const doc = await res.json();
+      const svc = (doc.service || []).find((s) => s.id === "#atproto_pds");
+      return (svc && svc.serviceEndpoint) || null;
+    }
+    if (did.startsWith("did:web:")) {
+      const host = did.slice("did:web:".length).split(":")[0];
+      const res = await fetch("https://" + host + "/.well-known/did.json");
+      if (!res.ok) return null;
+      const doc = await res.json();
+      const svc = (doc.service || []).find((s) => s.id === "#atproto_pds");
+      return (svc && svc.serviceEndpoint) || null;
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function listRecentLikedUris(did, pds, limit) {
+  try {
+    const qs = new URLSearchParams({ repo: did, collection: "app.bsky.feed.like", limit: String(limit || 30) });
+    const res = await fetch(pds + "/xrpc/com.atproto.repo.listRecords?" + qs.toString());
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.records || [])
+      .map((r) => r.value && r.value.subject && r.value.subject.uri)
+      .filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+}
+
+async function getPostLikers(uri) {
+  try {
+    const data = await xrpc("app.bsky.feed.getLikes", { uri, limit: 100 });
+    return (data.likes || []).map((l) => l.actor).filter(Boolean);
+  } catch (_) {
+    return [];
+  }
+}
+
+async function grabRecentPostText(did) {
+  try {
+    const data = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: 20 });
+    const posts = (data.feed || [])
+      .map((f) => f.post)
+      .filter((p) => p && p.record && typeof p.record.text === "string" &&
+        p.record.text.trim().length >= 8 && !p.record.reply);
+    if (!posts.length) return null;
+    return pick(posts).record.text.trim();
+  } catch (_) {
+    return null;
+  }
+}
+
+async function resolveGuestFromColikes(hostDids) {
+  const pdsList = await Promise.all(hostDids.map((did) => resolvePds(did)));
+  const likeLists = await Promise.all(
+    hostDids.map((did, i) => (pdsList[i] ? listRecentLikedUris(did, pdsList[i], 30) : []))
+  );
+  const allLiked = likeLists.flat();
+  if (!allLiked.length) return null;
+
+  // Prefer posts liked by BOTH hosts (genuine "colikes") when there's overlap.
+  let candidates = allLiked;
+  if (likeLists.length === 2 && likeLists[0].length && likeLists[1].length) {
+    const set2 = new Set(likeLists[1]);
+    const overlap = likeLists[0].filter((u) => set2.has(u));
+    if (overlap.length) candidates = overlap;
+  }
+
+  const tried = new Set();
+  for (let i = 0; i < 6 && tried.size < candidates.length; i++) {
+    const uri = pick(candidates);
+    if (tried.has(uri)) continue;
+    tried.add(uri);
+    const likers = await getPostLikers(uri);
+    const pool = likers.filter((a) => a.did && !hostDids.includes(a.did));
+    if (!pool.length) continue;
+    const chosen = pick(pool);
+    const text = await grabRecentPostText(chosen.did);
+    if (!text) continue;
+    return {
+      did: chosen.did, text, handle: chosen.handle || chosen.did,
+      displayName: chosen.displayName || chosen.handle || chosen.did, avatar: chosen.avatar || "",
+    };
+  }
+  return null;
+}
+
+async function resolveGuest(hostDids, source) {
+  if (source === "colikes") {
+    const guest = await resolveGuestFromColikes(hostDids);
+    if (guest) return guest;
+    // Colikes came up empty (private likes, no overlap, dead PDS) — fall
+    // back to the firehose rather than forcing a no-show on a source pick.
+  }
+  return resolveGuestFromFirehose(hostDids);
 }
 
 // --- script building ------------------------------------------------------
@@ -583,11 +800,12 @@ function shareUrlFor(ep, guest) {
   return "https://rotcast.bisks.net/e/" + ep + "/" + encodeURIComponent(guest.handle) + "/" + encodeURIComponent(truncate(guest.text, 80));
 }
 
-function buildShareText(ep, guest) {
+function buildShareText(ep, hosts, guest) {
   const url = shareUrlFor(ep, guest);
+  const names = `@${hosts.h1.handle} & @${hosts.h2.handle}`;
   const head = guest
-    ? `rotcast ep. ${ep}: alias & Dr. West Meadow ft. surprise guest @${guest.handle}`
-    : `rotcast ep. ${ep}: alias & Dr. West Meadow (the surprise guest never showed)`;
+    ? `rotcast ep. ${ep}: ${names} ft. surprise guest @${guest.handle}`
+    : `rotcast ep. ${ep}: ${names} (the surprise guest never showed)`;
   const budget = 300 - url.length - 4; // leave room for the two blank lines
   let body = head;
   if (guest) {
@@ -764,7 +982,7 @@ function renderArchive(list) {
 // --- generate an episode ------------------------------------------------
 
 let hostsCache = null;
-let lastEp = null, lastGuest = null;
+let lastEp = null, lastGuest = null, lastHosts = null;
 
 async function generateEpisode() {
   const status = document.getElementById("status");
@@ -779,9 +997,11 @@ async function generateEpisode() {
       status.textContent = "loading cohosts off the appview...";
       hostsCache = await loadHosts();
     }
-    status.textContent = "booking a surprise guest off the live firehose...";
+    status.textContent = guestSource === "colikes"
+      ? "digging through the cohosts' colikes for a guest..."
+      : "booking a surprise guest off the live firehose...";
     const hostDids = [hostsCache.h1.did, hostsCache.h2.did].filter(Boolean);
-    const guest = await resolveGuest(hostDids);
+    const guest = await resolveGuest(hostDids, guestSource);
 
     const ep = nextEpisode();
     const topic = pick(TOPICS);
@@ -795,8 +1015,9 @@ async function generateEpisode() {
 
     lastEp = ep;
     lastGuest = guest;
+    lastHosts = hostsCache;
     document.getElementById("shareBluesky").href =
-      "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(ep, guest));
+      "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(ep, hostsCache, guest));
     await buildShareCard(ep, hostsCache, guest);
 
     const archived = saveArchiveEntry({
@@ -813,6 +1034,58 @@ async function generateEpisode() {
     go.disabled = false;
   }
 }
+
+// --- lineup + guest-source controls --------------------------------------
+
+function applyHostInputs() {
+  document.getElementById("host1Input").value = currentHosts.h1;
+  document.getElementById("host2Input").value = currentHosts.h2;
+}
+
+function applyGuestSourceButtons() {
+  document.getElementById("gsFirehose").classList.toggle("active", guestSource === "firehose");
+  document.getElementById("gsColikes").classList.toggle("active", guestSource === "colikes");
+}
+
+function setLineup(h1, h2) {
+  h1 = (h1 || "").trim().replace(/^@/, "");
+  h2 = (h2 || "").trim().replace(/^@/, "");
+  if (!h1 || !h2) {
+    document.getElementById("status").textContent = "need two handles to set the lineup.";
+    document.getElementById("status").className = "status err";
+    return;
+  }
+  currentHosts = { h1, h2 };
+  saveHostHandles(h1, h2);
+  hostsCache = null;
+  generateEpisode();
+}
+
+document.getElementById("setHosts").addEventListener("click", () => {
+  setLineup(document.getElementById("host1Input").value, document.getElementById("host2Input").value);
+});
+["host1Input", "host2Input"].forEach((id) => {
+  document.getElementById(id).addEventListener("keydown", (e) => {
+    if (e.key === "Enter") document.getElementById("setHosts").click();
+  });
+});
+document.getElementById("resetHosts").addEventListener("click", () => {
+  currentHosts = { h1: OG_HOST1, h2: OG_HOST2 };
+  saveHostHandles(currentHosts.h1, currentHosts.h2);
+  applyHostInputs();
+  hostsCache = null;
+  generateEpisode();
+});
+document.querySelectorAll(".gs-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    guestSource = btn.dataset.src;
+    saveGuestSource(guestSource);
+    applyGuestSourceButtons();
+  });
+});
+
+applyHostInputs();
+applyGuestSourceButtons();
 
 document.getElementById("go").addEventListener("click", generateEpisode);
 renderArchive(loadArchive());
@@ -845,7 +1118,7 @@ if (canShareFiles()) {
       if (!blob) return;
       const file = new File([blob], "rotcast-ep" + (lastEp || "0") + ".png", { type: "image/png" });
       try {
-        await navigator.share({ files: [file], text: buildShareText(lastEp || 0, lastGuest), title: "SHUT UP NERD" });
+        await navigator.share({ files: [file], text: buildShareText(lastEp || 0, lastHosts || hostsCache, lastGuest), title: "SHUT UP NERD" });
       } catch (_) {}
     }, "image/png");
   });
