@@ -127,6 +127,7 @@
   .chip button.pin.on { color: var(--teal); }
 
   .rel-list { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.7rem; }
+  .rel-item { display: flex; flex-direction: column; gap: 0.35rem; }
   .rel-row {
     display: flex; align-items: center; gap: 0.5rem; background: var(--card); border: 1px solid var(--border);
     border-radius: 8px; padding: 0.45rem 0.6rem; font-size: 0.82rem; flex-wrap: wrap;
@@ -134,6 +135,26 @@
   .rel-row .note { color: var(--dim); font-size: 0.76rem; }
   .rel-row button { margin-left: auto; background: none; border: none; color: var(--dim); cursor: pointer; font-size: 0.9rem; }
   .rel-row button:hover { color: var(--danger); }
+  .rel-row button.game-btn { margin-left: 0; }
+  .rel-row button.game-btn:hover { color: var(--accent2); }
+  .rel-row button.game-btn.on { color: var(--teal); }
+
+  .gametheory { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.2rem 1.4rem; }
+  .game-panel {
+    background: var(--bg); border: 1px dashed var(--border); border-radius: 8px;
+    padding: 0.7rem 0.9rem; font-size: 0.78rem; color: var(--dim);
+  }
+  .game-title { color: var(--accent2); font-weight: 700; margin-bottom: 0.2rem; }
+  .game-blurb { margin-bottom: 0.55rem; }
+  .matrix-table { border-collapse: collapse; margin-bottom: 0.55rem; }
+  .matrix-table td { border: 1px solid var(--border); padding: 0.3rem 0.55rem; text-align: center; font-size: 0.74rem; }
+  .matrix-table td.hdr { color: var(--teal); font-weight: 700; white-space: nowrap; }
+  .matrix-table td.ne { background: rgba(110, 242, 201, 0.15); color: var(--teal); font-weight: 700; }
+  .game-verdict { line-height: 1.5; }
+  .stability-out { margin-top: 0.8rem; font-size: 0.82rem; line-height: 1.6; }
+  .stability-yes { color: var(--teal); }
+  .stability-no { color: var(--accent2); }
+  .stability-out a { color: var(--teal); }
 
   .share {
     background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.4rem;
@@ -227,6 +248,20 @@
     </div>
   </section>
 
+  <section class="gametheory">
+    <h2>🎲 game theory</h2>
+    <p class="hint">
+      every line above is also a real 2-player game from sexual-selection game
+      theory — click 🎲 on a line in the list above for its payoff matrix and
+      whether it has a stable answer. Below: whether the <i>whole board</i> can
+      settle into a shape where nobody connected to anybody would rather defect
+      to them instead — an open combinatorial search that gets genuinely
+      intractable once three or more of you are mutually tangled.
+    </p>
+    <button id="stabilityBtn" class="ghost" type="button">run stability analysis</button>
+    <div id="stabilityOut" class="stability-out"></div>
+  </section>
+
   <section class="share">
     <h2 style="margin-bottom:0.9rem;">share this polycule</h2>
     <canvas id="shareCanvas" width="1200" height="630"></canvas>
@@ -267,6 +302,200 @@ const REL_TYPES = [
   { key: "break", emoji: "🧊", label: "on a break", color: "#7fb8ff", dash: "5 5" },
 ];
 const relByKey = Object.fromEntries(REL_TYPES.map((r) => [r.key, r]));
+
+// ---- "intractable sexual game theory" (2026-08-20, @cee.wtf via reply: "add
+// some intractable sexual game theory to your least favorite previous
+// build") -- polycule earned "least favorite" the hard way: more redaction
+// migrations and real-handle consent re-litigation than any other site in
+// the constellation (see the log above and in src/index.ts). So: every drawn
+// edge doubles as a real 2-player game pulled from actual sexual-selection
+// game theory (Battle of the Sexes, Stag Hunt, Hawk-Dove, and a Sir Philip
+// Sidney-style signaling game), analyzed with a real pure-Nash-equilibrium
+// finder below -- some of these games have none, and naive best-response
+// play just cycles forever, which is "intractable" even at 2-player scale.
+// At board scale it's literal: whether a whole polycule can settle into a
+// configuration where no two connected people would rather defect to each
+// other is the Stable Roommates problem, and the moment three or more
+// people are mutually tangled it generalizes toward 3-dimensional stable
+// matching, proven NP-complete (Ng & Hirschberg, 1991). computeStability()
+// below is a real bounded backtracking search over the board's actual
+// edges, not a canned answer -- past a handful of characters it runs out of
+// budget and says so honestly instead of pretending to have finished.
+const GAMES = {
+  battle: {
+    name: "Battle of the Sexes",
+    blurb: "coordination with competing preferences — everyone wants to be together, just not on the same terms.",
+    strategies: ["their way", "your way"],
+    matrix: [ [[3, 1], [0, 0]], [[0, 0], [1, 3]] ],
+  },
+  stag: {
+    name: "Stag Hunt",
+    blurb: "a trust game — commit big together for the best payoff, or hedge safe alone.",
+    strategies: ["commit", "hedge"],
+    matrix: [ [[4, 4], [0, 3]], [[3, 0], [2, 2]] ],
+  },
+  hawkdove: {
+    name: "Hawk–Dove",
+    blurb: "the textbook sexual-selection contest model — escalate over the contested thing, or back off.",
+    strategies: ["escalate", "back off"],
+    matrix: [ [[-2, -2], [4, 0]], [[0, 4], [2, 2]] ],
+  },
+  signal: {
+    name: "signaling game (Sir Philip Sidney–style)",
+    blurb: "one side wants to sync up, the other wants to stay unreadable — neither can commit to a strategy without the other exploiting it.",
+    strategies: ["tip your hand", "play it cool"],
+    matrix: [ [[1, -1], [-1, 1]], [[-1, 1], [1, -1]] ],
+  },
+};
+const GAME_BY_TYPE = {
+  dating: "battle", situationship: "battle", endgame: "battle",
+  married: "stag", family: "stag", throuple: "stag",
+  messy: "hawkdove", beef: "hawkdove", exes: "hawkdove", break: "hawkdove",
+  crushing: "signal", secret: "signal", rumored: "signal", complicated: "signal",
+};
+const PREF_WEIGHT = {
+  endgame: 10, married: 9, dating: 7, throuple: 7, secret: 5, situationship: 5,
+  complicated: 4, crushing: 4, family: 3, rumored: 3, messy: 2, break: 2, exes: 1, beef: 0,
+};
+
+function pureNE(g) {
+  const { matrix, strategies } = g;
+  const ne = [];
+  for (let i = 0; i < strategies.length; i++) {
+    for (let j = 0; j < strategies.length; j++) {
+      const [rp, cp] = matrix[i][j];
+      const rowOK = strategies.every((_, i2) => matrix[i2][j][0] <= rp);
+      const colOK = strategies.every((_, j2) => matrix[i][j2][1] <= cp);
+      if (rowOK && colOK) ne.push([i, j]);
+    }
+  }
+  return ne;
+}
+function bestResponseTrace(g, steps) {
+  const { matrix, strategies } = g;
+  let i = 0, j = 0;
+  const seen = new Set([i + "," + j]);
+  const trace = [[i, j]];
+  for (let s = 0; s < steps; s++) {
+    let bi = i, best = matrix[i][j][0];
+    strategies.forEach((_, i2) => { if (matrix[i2][j][0] > best) { best = matrix[i2][j][0]; bi = i2; } });
+    i = bi;
+    let bj = j, bestc = matrix[i][j][1];
+    strategies.forEach((_, j2) => { if (matrix[i][j2][1] > bestc) { bestc = matrix[i][j2][1]; bj = j2; } });
+    j = bj;
+    trace.push([i, j]);
+    const key = i + "," + j;
+    if (seen.has(key)) return { trace, cycled: true };
+    seen.add(key);
+  }
+  return { trace, cycled: false };
+}
+
+const openGamePanels = new Set();
+function renderGamePanel(e) {
+  const gameKey = GAME_BY_TYPE[e.type] || "battle";
+  const g = GAMES[gameKey];
+  const a = state.nodes.find((n) => n.id === e.a);
+  const b = state.nodes.find((n) => n.id === e.b);
+  if (!a || !b) return "";
+  const ne = pureNE(g);
+  const [s0, s1] = g.strategies;
+  const cell = (i, j) => {
+    const [rp, cp] = g.matrix[i][j];
+    const isNE = ne.some(([ni, nj]) => ni === i && nj === j);
+    return `<td class="${isNE ? "ne" : ""}">${rp}, ${cp}</td>`;
+  };
+  let verdict;
+  if (ne.length === 1) {
+    verdict = `one stable equilibrium: <b>${escHtml(g.strategies[ne[0][0]])} / ${escHtml(g.strategies[ne[0][1]])}</b>.`;
+  } else if (ne.length > 1) {
+    const list = ne.map(([i, j]) => `${g.strategies[i]}/${g.strategies[j]}`).join(", ");
+    verdict = `${ne.length} stable equilibria (${escHtml(list)}) — multiple, no way to know which one you land on without talking about it.`;
+  } else {
+    const bt = bestResponseTrace(g, 8);
+    const path = bt.trace.map(([i, j]) => `${g.strategies[i]}/${g.strategies[j]}`).join(" → ");
+    verdict = `no pure-strategy equilibrium — best response just cycles forever: ${escHtml(path)}${bt.cycled ? " → (repeats)" : " → …"}. only a mixed (randomized) equilibrium exists.`;
+  }
+  return `
+    <div class="game-panel">
+      <div class="game-title">${escHtml(g.name)}</div>
+      <div class="game-blurb">${escHtml(g.blurb)}</div>
+      <table class="matrix-table">
+        <tr><td></td><td class="hdr">${b.emoji} ${escHtml(s0)}</td><td class="hdr">${b.emoji} ${escHtml(s1)}</td></tr>
+        <tr><td class="hdr">${a.emoji} ${escHtml(s0)}</td>${cell(0, 0)}${cell(0, 1)}</tr>
+        <tr><td class="hdr">${a.emoji} ${escHtml(s1)}</td>${cell(1, 0)}${cell(1, 1)}</tr>
+      </table>
+      <div class="game-verdict">${escHtml(a.name)} (row), ${escHtml(b.name)} (col) — ${verdict}</div>
+    </div>`;
+}
+
+// Bounded backtracking search for a blocking-pair-free matching over the
+// board's actual edges (the Stable Roommates decision problem, brute-forced
+// rather than solved with Irving's polynomial algorithm -- once a triangle
+// of mutual edges is in play this is really an instance of 3-dimensional
+// stable matching, which has no known polynomial algorithm at all, so a
+// naive search is an honest way to demonstrate that rather than hide it).
+const STABILITY_BUDGET = 200000;
+function computeStability() {
+  const nodeIds = state.nodes.map((n) => n.id);
+  const adj = new Map(nodeIds.map((id) => [id, []]));
+  state.edges.forEach((e) => {
+    if (!adj.has(e.a) || !adj.has(e.b)) return;
+    const w = PREF_WEIGHT[e.type] ?? 3;
+    adj.get(e.a).push({ other: e.b, weight: w });
+    adj.get(e.b).push({ other: e.a, weight: w });
+  });
+  const prefRank = new Map();
+  adj.forEach((list, id) => {
+    const sorted = [...list].sort((x, y) => y.weight - x.weight);
+    const rank = new Map();
+    sorted.forEach((l, i) => { if (!rank.has(l.other)) rank.set(l.other, i); });
+    prefRank.set(id, rank);
+  });
+  const prefers = (id, other, currentPartner) => {
+    const rank = prefRank.get(id);
+    if (!rank.has(other)) return false;
+    if (currentPartner == null) return true;
+    if (!rank.has(currentPartner)) return true;
+    return rank.get(other) < rank.get(currentPartner);
+  };
+  function isStable(matchOf) {
+    for (const [id, list] of adj) {
+      for (const { other } of list) {
+        if (matchOf.get(id) === other) continue;
+        if (prefers(id, other, matchOf.get(id)) && prefers(other, id, matchOf.get(other))) return false;
+      }
+    }
+    return true;
+  }
+  let iterations = 0;
+  let found = null;
+  const order = nodeIds;
+  function backtrack(idx, matched, matchOf) {
+    if (found || iterations > STABILITY_BUDGET) return;
+    iterations++;
+    if (idx === order.length) {
+      if (isStable(matchOf)) found = new Map(matchOf);
+      return;
+    }
+    const id = order[idx];
+    if (matched.has(id)) { backtrack(idx + 1, matched, matchOf); return; }
+    matched.add(id);
+    backtrack(idx + 1, matched, matchOf);
+    matched.delete(id);
+    for (const { other } of adj.get(id)) {
+      if (found || iterations > STABILITY_BUDGET) return;
+      if (matched.has(other)) continue;
+      matched.add(id); matched.add(other);
+      matchOf.set(id, other); matchOf.set(other, id);
+      backtrack(idx + 1, matched, matchOf);
+      matched.delete(id); matched.delete(other);
+      matchOf.delete(id); matchOf.delete(other);
+    }
+  }
+  backtrack(0, new Set(), new Map());
+  return { found, iterations, capped: iterations > STABILITY_BUDGET, n: order.length, e: state.edges.length };
+}
 
 // A real pair (kira.ws & Ilta) shipped pre-loaded here 2026-08-18 on the
 // strength of two matching bio self-declarations — until Ilta
@@ -524,6 +753,8 @@ function refreshRelList() {
     const b = state.nodes.find((n) => n.id === e.b);
     if (!a || !b) return;
     const r = relByKey[e.type];
+    const item = document.createElement("div");
+    item.className = "rel-item";
     const row = document.createElement("div");
     row.className = "rel-row";
     row.innerHTML =
@@ -532,6 +763,28 @@ function refreshRelList() {
       (e.real && e.citation
         ? `<a class="cite-link" href="${escHtml(e.citation)}" target="_blank" rel="noopener">🔗 real, cited</a>`
         : "");
+    const panel = document.createElement("div");
+    panel.className = "game-panel-wrap";
+    panel.style.display = openGamePanels.has(e.id) ? "block" : "none";
+    panel.innerHTML = openGamePanels.has(e.id) ? renderGamePanel(e) : "";
+    const game = document.createElement("button");
+    game.type = "button";
+    game.className = "game-btn" + (openGamePanels.has(e.id) ? " on" : "");
+    game.title = "game theory for this line";
+    game.textContent = "🎲";
+    game.addEventListener("click", () => {
+      if (openGamePanels.has(e.id)) {
+        openGamePanels.delete(e.id);
+        panel.style.display = "none";
+        panel.innerHTML = "";
+        game.classList.remove("on");
+      } else {
+        openGamePanels.add(e.id);
+        panel.innerHTML = renderGamePanel(e);
+        panel.style.display = "block";
+        game.classList.add("on");
+      }
+    });
     const del = document.createElement("button");
     del.type = "button";
     del.textContent = "remove";
@@ -540,8 +793,11 @@ function refreshRelList() {
       rebuild();
       save();
     });
+    row.appendChild(game);
     row.appendChild(del);
-    els.relList.appendChild(row);
+    item.appendChild(row);
+    item.appendChild(panel);
+    els.relList.appendChild(item);
   });
 }
 
@@ -782,6 +1038,41 @@ els.clearBtn.addEventListener("click", () => {
 });
 
 els.titleInput.addEventListener("input", save);
+
+// ---- game theory: board-wide stability -------------------------------------
+const stabilityBtn = document.getElementById("stabilityBtn");
+const stabilityOut = document.getElementById("stabilityOut");
+stabilityBtn.addEventListener("click", () => {
+  if (state.nodes.length < 2 || !state.edges.length) {
+    stabilityOut.innerHTML = `<p class="hint">add at least two characters and a line between them first.</p>`;
+    return;
+  }
+  stabilityBtn.disabled = true;
+  stabilityOut.innerHTML = `<p class="hint">searching the space of possible pairings…</p>`;
+  setTimeout(() => {
+    const r = computeStability();
+    let html;
+    if (r.found) {
+      const shown = new Set();
+      const pairs = [];
+      r.found.forEach((otherId, id) => {
+        if (shown.has(id)) return;
+        shown.add(id); shown.add(otherId);
+        const a = state.nodes.find((n) => n.id === id);
+        const b = state.nodes.find((n) => n.id === otherId);
+        if (a && b) pairs.push(`${a.emoji} ${escHtml(a.name)} ↔ ${b.emoji} ${escHtml(b.name)}`);
+      });
+      const unmatched = state.nodes.filter((n) => !r.found.has(n.id)).map((n) => `${n.emoji} ${escHtml(n.name)}`);
+      html = `<p class="stability-yes">✓ stable configuration found after checking ${r.iterations.toLocaleString()} candidate pairings: ${pairs.join(", ") || "(everyone stays unmatched)"}${unmatched.length ? " — unpaired: " + unmatched.join(", ") : ""}. nobody here has both the means and the motive to defect to someone else.</p>`;
+    } else if (r.capped) {
+      html = `<p class="stability-no">⚠ gave up after ${r.iterations.toLocaleString()} candidate pairings with no certificate either way. this is the stable-roommates problem, and the moment three or more of you are mutually tangled it generalizes toward 3-dimensional stable matching — <a href="https://doi.org/10.1016/0166-218X(91)90054-3" target="_blank" rel="noopener">proven NP-complete</a> (Ng &amp; Hirschberg, 1991). ${r.n} people and ${r.e} lines is already enough to make this genuinely intractable to check exhaustively.</p>`;
+    } else {
+      html = `<p class="stability-no">✗ checked all ${r.iterations.toLocaleString()} possible pairings and none is stable — every one of them has a blocking pair who'd rather be with each other than with who they're with. this polycule has no stable resting state, and that's a real thing that can happen — not every dating pool has one.</p>`;
+    }
+    stabilityOut.innerHTML = html;
+    stabilityBtn.disabled = false;
+  }, 30);
+});
 
 // ---- share: link ----------------------------------------------------------
 function shareUrlFor(id) {

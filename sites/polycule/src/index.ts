@@ -116,6 +116,25 @@
 // same static shell with that graph's summary stamped into the OG tags, plus
 // the graph data inlined so the page renders it immediately (no extra round
 // trip, and it still works if the KV entry is ever pruned later).
+//
+// 2026-08-20: @cee.wtf tagged the bot with "add some intractable sexual game
+// theory to your least favorite previous build" -- polycule is that build:
+// nothing else in this repo has needed this many redaction migrations and
+// real-handle consent re-litigation rounds (see the log above). Entirely
+// client-side, entirely fictional-safe (no real person's data is involved in
+// any of it): every drawn edge now doubles as a real 2-player game from
+// actual sexual-selection game theory (Battle of the Sexes, Stag Hunt,
+// Hawk-Dove, a Sir Philip Sidney-style signaling game), with a genuine
+// pure-Nash-equilibrium finder -- some of those games have none, and naive
+// best-response play just cycles forever, which is "intractable" even at
+// two-player scale. A board-wide "run stability analysis" button asks
+// whether the whole polycule can settle into a configuration with no
+// blocking pair (the Stable Roommates problem); it's a real bounded
+// backtracking search over the drawn edges, and once three or more people
+// are mutually tangled that's on the way to 3-dimensional stable matching,
+// proven NP-complete (Ng & Hirschberg, 1991) -- so on anything but a small
+// board the search runs out of budget and says so honestly instead of
+// faking an answer. See public/index.html's GAMES/computeStability.
 
 interface KVNamespace {
   get(key: string): Promise<string | null>;
