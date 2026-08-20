@@ -19,7 +19,13 @@ const SAFE_DIM = "#1c3a5c";
 const PANEL = "#15141b";
 
 export function canRecordVideo() {
-  return typeof MediaRecorder !== "undefined" && typeof HTMLCanvasElement.prototype.captureStream === "function";
+  if (typeof MediaRecorder === "undefined" || typeof HTMLCanvasElement.prototype.captureStream !== "function") {
+    return false;
+  }
+  // Safari has captureStream but no webm MediaRecorder support at all — check
+  // for a usable mimeType up front so the button reflects reality instead of
+  // failing mid-recording with a confusing "no supported recording format".
+  return pickMimeType() !== null;
 }
 
 function pickMimeType() {
@@ -267,6 +273,48 @@ function drawOutro(ctx, p, { phrase, total, shareUrl }) {
     centerText(ctx, shareUrl, W / 2, H - 60, "15px ui-monospace,monospace", SAFE);
     ctx.restore();
   }
+}
+
+// ---- static share card -----------------------------------------------
+//
+// Not every browser that can *view* a case file can *record* one — Safari
+// exposes canvas.captureStream() but ships no webm MediaRecorder support at
+// all, so canRecordVideo() (correctly) returns false there and the hype
+// video is simply unavailable. This gives those visitors — and anyone who
+// wants something shareable without waiting out the ~8s recording — a real
+// downloadable PNG case card instead of nothing. Draws a single full-opacity
+// frame of the same "global patient zero" card the video opens with, plus a
+// phrase/count/URL footer.
+//
+// opts: { phrase, globalZero, cases, shareUrl }
+export async function generateShareCard(opts) {
+  const { phrase, globalZero, cases, shareUrl } = opts;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  const avatarImg = globalZero?.author?.avatar
+    ? await loadImage(`/api/avatar?u=${encodeURIComponent(globalZero.author.avatar)}`)
+    : null;
+
+  drawPatientCard(ctx, 1, {
+    label: "GLOBAL PATIENT ZERO",
+    color: HAZARD,
+    dim: HAZARD_DIM,
+    post: globalZero,
+    avatarImg,
+    caseNo: 1,
+    empty: !globalZero,
+    emptyText: "no confirmed cases found (yet)",
+  });
+
+  const total = cases.length;
+  centerText(ctx, `"${truncate(phrase, 44)}" — ${total} confirmed case${total === 1 ? "" : "s"}`, W / 2, 480, "700 20px system-ui,sans-serif", INK, W - 100);
+  centerText(ctx, shareUrl, W / 2, 512, "15px ui-monospace,monospace", SAFE);
+
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
 }
 
 // ---- driver ---------------------------------------------------------------

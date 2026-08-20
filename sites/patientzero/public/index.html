@@ -514,6 +514,13 @@
               <button class="btn" id="makeVideo" type="button">generate hype video</button>
               <a class="btn secondary" id="downloadVideo" download="patientzero-outbreak.webm" style="display:none">download .webm</a>
             </div>
+            <div class="btn-row">
+              <button class="btn secondary" id="makeCard" type="button">download case card (.png)</button>
+              <a class="btn secondary" id="downloadCard" download="patientzero-case-card.png" style="display:none">download .png</a>
+            </div>
+            <p style="color:var(--muted);font-size:0.78rem;margin:0.2rem 0 0">
+              No video support in this browser (looking at you, Safari)? The case card still works everywhere.
+            </p>
             <p class="video-status" id="videoStatus"></p>
           </div>
         </section>
@@ -538,7 +545,7 @@
       import { searchAll, postTime } from "./lib/search.js";
       import { socialGraph } from "./lib/graph.js";
       import { escapeHtml, truncate, timeAgo, fmtClock, postUrl } from "./lib/util.js";
-      import { generateHypeVideo, canRecordVideo } from "./lib/video.js";
+      import { generateHypeVideo, canRecordVideo, generateShareCard } from "./lib/video.js";
 
       const $ = (id) => document.getElementById(id);
       const form = $("form");
@@ -586,6 +593,7 @@
         $("video").removeAttribute("src");
         $("downloadVideo").style.display = "none";
         $("shareVideo").style.display = "none";
+        $("downloadCard").style.display = "none";
         $("videoStatus").textContent = "";
 
         const url = new URL(location.href);
@@ -781,10 +789,15 @@
       }
 
       // ---- hype video ----------------------------------------------------
+      if (!canRecordVideo()) {
+        $("makeVideo").disabled = true;
+        $("makeVideo").textContent = "hype video unsupported here";
+      }
+
       $("makeVideo").addEventListener("click", async () => {
         if (!state) return;
         if (!canRecordVideo()) {
-          $("videoStatus").textContent = "this browser can't record canvas video — try a recent Chrome/Firefox/Edge.";
+          $("videoStatus").textContent = "this browser can't record canvas video — try a recent Chrome/Firefox/Edge, or grab the case card below instead.";
           return;
         }
         $("makeVideo").disabled = true;
@@ -833,6 +846,29 @@
             text: buildShareText(state),
           });
         } catch {}
+      });
+
+      $("makeCard").addEventListener("click", async () => {
+        if (!state) return;
+        $("makeCard").disabled = true;
+        $("videoStatus").textContent = "drawing case card…";
+        try {
+          const shareUrl = `patientzero.bisks.net/s/${encodeURIComponent(state.phrase)}`;
+          const blob = await generateShareCard({
+            phrase: state.phrase,
+            globalZero: state.globalZero,
+            cases: state.cases,
+            shareUrl,
+          });
+          const url = URL.createObjectURL(blob);
+          $("downloadCard").href = url;
+          $("downloadCard").style.display = "";
+          $("videoStatus").textContent = "case card ready — download it below.";
+        } catch (e) {
+          $("videoStatus").textContent = `couldn't draw case card: ${e.message}`;
+        } finally {
+          $("makeCard").disabled = false;
+        }
       });
 
       function buildShareText(s) {
