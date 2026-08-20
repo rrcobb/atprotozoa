@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>phonepile — throw every phone ever made</title>
+    <meta
+      name="description"
+      content="147 phones, real dimensions, one big pile. Every major iPhone, Galaxy, Pixel, Nexus and a pile of historic Androids/BlackBerrys/etc, scaled to their true millimeters and dropped into a real WebGL physics sandbox. Click and drag to throw them around."
+    />
+
+    <!-- Open Graph / Twitter -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://phonepile.bisks.net/" />
+    <meta property="og:title" content="phonepile — throw every phone ever made" />
+    <meta
+      property="og:description"
+      content="Every major phone since the 2007 iPhone, modeled at its real millimeter dimensions, dumped into one physics pile. Grab one and throw it."
+    />
+    <meta property="og:image" content="https://phonepile.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="phonepile" />
+    <meta
+      name="twitter:description"
+      content="147 phones, real dimensions, real physics. Click and drag to throw them."
+    />
+    <meta name="twitter:image" content="https://phonepile.bisks.net/og.png" />
+
+    <style>
+      :root {
+        --bg: #0a0c10;
+        --panel: #12161d;
+        --ink: #eef1f6;
+        --muted: #8b93a3;
+        --faint: #1e2430;
+        --accent: #5fb8ff;
+        --accent2: #ff9f5f;
+        --green: #6bc476;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 14px;
+        -webkit-font-smoothing: antialiased;
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
+      #app { position: fixed; inset: 0; }
+      #stage { position: absolute; inset: 0; touch-action: none; }
+      canvas { display: block; width: 100%; height: 100%; }
+
+      #hud {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        padding: 0.8rem 0.9rem;
+        pointer-events: none;
+        gap: 0.6rem;
+      }
+      #hud .card {
+        pointer-events: auto;
+        background: rgba(18, 22, 29, 0.82);
+        border: 1px solid var(--faint);
+        border-radius: 10px;
+        backdrop-filter: blur(6px);
+        padding: 0.6rem 0.75rem;
+      }
+      #title-card { max-width: 22rem; }
+      #title-card h1 {
+        margin: 0 0 0.2rem;
+        font-size: 1rem;
+        letter-spacing: -0.01em;
+      }
+      #title-card h1 span { color: var(--accent); }
+      #title-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.76rem;
+        line-height: 1.45;
+      }
+      #title-card p.credit { margin-top: 0.35rem; font-size: 0.7rem; }
+      #title-card p.credit a { color: var(--accent2); }
+
+      #picked-card {
+        min-width: 12rem;
+        max-width: 15rem;
+        font-size: 0.78rem;
+        line-height: 1.5;
+        opacity: 0;
+        transform: translateY(-4px);
+        transition: opacity 0.15s ease, transform 0.15s ease;
+      }
+      #picked-card.show { opacity: 1; transform: translateY(0); }
+      #picked-card .name { font-weight: 700; color: var(--ink); }
+      #picked-card .maker { color: var(--accent); }
+      #picked-card .dims { color: var(--muted); }
+
+      #controls {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.9rem;
+        flex-wrap: wrap;
+      }
+      #controls button {
+        pointer-events: auto;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: var(--ink);
+        background: rgba(18, 22, 29, 0.86);
+        border: 1px solid var(--faint);
+        border-radius: 999px;
+        padding: 0.55rem 1rem;
+        cursor: pointer;
+        backdrop-filter: blur(6px);
+      }
+      #controls button:hover { border-color: var(--accent); color: var(--accent); }
+      #controls button:active { transform: scale(0.97); }
+      #controls a.share-btn {
+        pointer-events: auto;
+        text-decoration: none;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #06121c;
+        background: var(--accent);
+        border: 1px solid var(--accent);
+        border-radius: 999px;
+        padding: 0.55rem 1rem;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+      }
+      #controls a.share-btn:hover { filter: brightness(1.08); }
+
+      #loading {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 0.6rem;
+        background: var(--bg);
+        z-index: 5;
+        transition: opacity 0.3s ease;
+      }
+      #loading.hide { opacity: 0; pointer-events: none; }
+      #loading .spin {
+        width: 2rem;
+        height: 2rem;
+        border-radius: 50%;
+        border: 3px solid var(--faint);
+        border-top-color: var(--accent);
+        animation: spin 0.8s linear infinite;
+      }
+      #loading p { color: var(--muted); font-size: 0.8rem; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      #fallback {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 2rem;
+        background: var(--bg);
+        z-index: 6;
+      }
+      #fallback.show { display: flex; }
+      #fallback .box {
+        max-width: 26rem;
+        color: var(--muted);
+        font-size: 0.85rem;
+        line-height: 1.6;
+      }
+      #fallback .box h2 { color: var(--ink); margin-top: 0; }
+
+      #hint {
+        position: absolute;
+        left: 50%;
+        bottom: 4.6rem;
+        transform: translateX(-50%);
+        pointer-events: none;
+        color: var(--muted);
+        font-size: 0.72rem;
+        background: rgba(18, 22, 29, 0.7);
+        border: 1px solid var(--faint);
+        border-radius: 999px;
+        padding: 0.3rem 0.7rem;
+        transition: opacity 0.4s ease;
+      }
+      #hint.hide { opacity: 0; }
+
+      @media (max-width: 640px) {
+        #title-card { max-width: 12.5rem; }
+        #title-card p:not(.credit) { display: none; }
+        #picked-card { max-width: 10rem; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="stage"></div>
+
+      <div id="loading">
+        <div class="spin"></div>
+        <p>dropping 147 phones…</p>
+      </div>
+
+      <div id="fallback">
+        <div class="box">
+          <h2>no WebGL here</h2>
+          <p>
+            phonepile needs a browser with WebGL to render the physics pile.
+            Try a recent desktop or mobile browser — most phones from the
+            last decade can run it, which is a little on the nose.
+          </p>
+        </div>
+      </div>
+
+      <div id="hud">
+        <div class="card" id="title-card">
+          <h1>phone<span>pile</span></h1>
+          <p>
+            147 phones, original 2007 iPhone through 2026, every box scaled
+            to its real millimeter dimensions. Click and drag one to throw
+            it — drag empty space to look around.
+          </p>
+          <p class="credit">
+            built for <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>
+            by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis</a>
+          </p>
+        </div>
+        <div class="card" id="picked-card">
+          <div class="name" id="picked-name">—</div>
+          <div class="maker" id="picked-maker">—</div>
+          <div class="dims" id="picked-dims">—</div>
+        </div>
+      </div>
+
+      <div id="hint">click + drag any phone to throw it</div>
+
+      <div id="controls">
+        <button id="btn-reset">drop again</button>
+        <button id="btn-throw">throw them all</button>
+        <a class="share-btn" id="btn-share" href="#">share the pile</a>
+      </div>
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+          "cannon-es": "https://esm.sh/cannon-es@0.20.0"
+        }
+      }
+    </script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
