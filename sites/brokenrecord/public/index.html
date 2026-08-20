@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>brokenrecord — find out what you keep repeating</title>
+<meta name="description" content="Enter a Bluesky handle. brokenrecord downloads their whole repo and clusters their own posts against each other — near-duplicates, paraphrases, reused jokes, opinions, and stories — ranked by how strong the echo is." />
+<meta property="og:title" content="brokenrecord — find out what you keep repeating" />
+<meta property="og:description" content="Enter a Bluesky handle. brokenrecord downloads their whole repo and clusters their own posts against each other — near-duplicates, paraphrases, reused jokes, opinions, and stories — ranked by how strong the echo is." />
+<meta property="og:url" content="https://brokenrecord.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://brokenrecord.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="brokenrecord: two nearly-identical posts side by side with a match score between them." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="brokenrecord — find out what you keep repeating" />
+<meta name="twitter:description" content="Enter a Bluesky handle. brokenrecord downloads their whole repo and clusters their own posts against each other — near-duplicates, paraphrases, reused jokes, opinions, and stories — ranked by how strong the echo is." />
+<meta name="twitter:image" content="https://brokenrecord.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0908;
+    --fg: #f5efe6;
+    --dim: #a89a86;
+    --accent: #ff5c3d;
+    --accent2: #ffd23f;
+    --good: #6ee7a8;
+    --card: #17130f;
+    --card2: #1e1a14;
+    --border: #332a1f;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 10% -10%, #3a1608 0%, transparent 55%),
+      radial-gradient(ellipse at 95% 0%, #2a2005 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 4rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 780px; }
+  h1 {
+    font-size: 2.1rem; line-height: 1.2; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 0.6rem; line-height: 1.55; }
+  .tag b { color: var(--fg); }
+  .credit { color: var(--dim); font-size: 0.76rem; margin: 0 0 2rem; line-height: 1.5; }
+  .credit a { color: var(--accent); text-decoration: none; }
+
+  form { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 0.4rem; }
+  .handle-row { display: flex; gap: 0.5rem; }
+  .handle-row input[type="text"] {
+    flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.7rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  .handle-row input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button[type="submit"] {
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: #1a0e07; border: none; border-radius: 8px; padding: 0.8rem 1.2rem;
+    font: inherit; font-weight: 700; font-size: 0.95rem; cursor: pointer;
+  }
+  button[type="submit"]:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; line-height: 1.5; }
+
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: #ff6b6b; }
+
+  .sensitivity {
+    display: none; align-items: center; gap: 0.7rem; margin: -0.4rem 0 1.3rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 0.7rem 0.9rem;
+  }
+  .sensitivity.show { display: flex; }
+  .sensitivity label { color: var(--dim); font-size: 0.78rem; flex-shrink: 0; }
+  .sensitivity input[type="range"] { flex: 1; accent-color: var(--accent); }
+  .sensitivity .val { color: var(--accent2); font-weight: 700; font-size: 0.82rem; width: 3rem; text-align: right; flex-shrink: 0; }
+
+  .summary { color: var(--dim); font-size: 0.84rem; margin: -0.6rem 0 1.4rem; }
+  .summary b { color: var(--fg); }
+
+  #results { display: none; flex-direction: column; gap: 1.4rem; }
+  #results.show { display: flex; }
+  .empty { color: var(--dim); font-size: 0.9rem; text-align: center; padding: 2rem 0; }
+
+  .cluster { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.5rem; box-shadow: 0 0 60px -34px var(--accent); animation: rise 0.35s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  .cluster-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; margin-bottom: 1rem; flex-wrap: wrap; }
+  .cluster-rank { font-size: 0.78rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .cluster-score { font-size: 1.4rem; font-weight: 800; color: var(--accent2); }
+  .cluster-size { color: var(--dim); font-size: 0.78rem; }
+
+  .post-card { background: var(--card2); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem 0.9rem; text-decoration: none; color: inherit; display: block; margin-bottom: 0.6rem; }
+  .post-card:hover { border-color: var(--accent); }
+  .post-text { color: var(--fg); font-size: 0.88rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .post-meta { color: var(--dim); font-size: 0.72rem; margin-top: 0.4rem; display: flex; justify-content: space-between; gap: 0.5rem; }
+
+  .pair-wrap { display: grid; grid-template-columns: 1fr; gap: 0.1rem; margin-bottom: 1rem; }
+  .vs-line { text-align: center; color: var(--accent); font-size: 0.76rem; font-weight: 700; letter-spacing: 0.04em; margin: -0.15rem 0 0.35rem; }
+
+  .others-label { color: var(--dim); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.06em; margin: 0.4rem 0 0.5rem; }
+  .other-score { color: var(--accent2); font-weight: 700; }
+
+  .share { border-top: 1px dashed var(--border); margin-top: 1rem; padding-top: 1rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #1a0e07; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>brokenrecord</h1>
+    <p class="tag">
+      Enter a Bluesky handle. brokenrecord downloads their <b>whole repo</b>
+      straight from their PDS — every post they've ever made, not a recent
+      sample — and compares every post against every other for
+      near-duplicates, paraphrases, reused jokes, opinions, stories, and
+      phrases. Matches get grouped into clusters (so three echoes of the same
+      bit show up as one group, not three pair spam), ranked by how strong
+      the closest match in each group is.
+    </p>
+    <p class="credit">
+      asked for by <a href="https://bsky.app/profile/fromthewestmeadow.com" target="_blank" rel="noopener">@fromthewestmeadow.com</a>:
+      strip links, ignore empty posts, compare wording and meaning, dedupe
+      overlapping pairs into clusters. built by <a href="https://buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
+    </p>
+
+    <form id="f">
+      <div class="handle-row">
+        <input type="text" id="h" class="h-input" placeholder="e.g. alice.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <button id="go" type="submit">find the echoes</button>
+      </div>
+    </form>
+    <p class="hint">reads the account's whole post history from their PDS, so prolific posters take longer. no login, nothing written anywhere — a read-only pass over public AT Protocol data.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="sensitivity" class="sensitivity">
+      <label for="threshold">sensitivity</label>
+      <input type="range" id="threshold" min="35" max="85" value="55" step="1" />
+      <span class="val" id="thresholdVal">55%</span>
+    </div>
+
+    <p id="summary" class="summary"></p>
+
+    <div id="results"></div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
