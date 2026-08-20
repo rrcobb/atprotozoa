@@ -297,7 +297,9 @@
       <b>Dr. From The West Meadow</b>, requested by @antiali.as — swap in
       any two accounts below. Every episode kidnaps a third cohost, either
       random off the live atproto firehose or from the hosts' colikes, and
-      never asks their permission. Maximum rot, as ordered.
+      never asks their permission. The banter now runs on a madlib +
+      megahal blend seeded from the cohosts' own posts mixed with the rot.
+      Maximum rot, as ordered.
     </p>
 
     <div class="lineup" id="lineup">
@@ -532,6 +534,141 @@ const HOT_TAKE = [
   "hot take: every villain arc starts with someone saying 'no notes.'",
 ];
 
+// --- dialogue engine: madlib + megahal, fed by the hosts' own posts ------
+// A blend of two classic bots: madlib (fill a template's blanks from a word
+// pool) and megahal (walk a word-level markov chain built from a text
+// corpus). The corpus is the existing rot banks (BANTER/HOT_TAKE/SPONSOR/
+// GUEST_REACT) PLUS whatever the current cohosts have actually posted, so
+// generated banter is a genuine mashup of their own voice and the slop.
+
+function stripNoise(text) {
+  return (text || "")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/@[a-zA-Z0-9._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function tokenize(text) {
+  const s = stripNoise(text);
+  return s ? s.split(" ").filter(Boolean) : [];
+}
+function cleanWord(w) {
+  return w.replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, "");
+}
+function wordPool(lines) {
+  const set = new Set();
+  for (const line of lines) {
+    for (const raw of tokenize(line)) {
+      const w = cleanWord(raw);
+      if (w.length >= 3 && !/^\d+$/.test(w)) set.add(w);
+    }
+  }
+  return Array.from(set);
+}
+
+// order-1 word chain: word -> possible next words, plus a pool of sentence
+// starters, built across every line in the corpus.
+function buildChain(lines) {
+  const chain = new Map();
+  const starts = [];
+  for (const line of lines) {
+    const words = tokenize(line);
+    if (!words.length) continue;
+    starts.push(words[0]);
+    for (let i = 0; i < words.length - 1; i++) {
+      const w = words[i], next = words[i + 1];
+      if (!chain.has(w)) chain.set(w, []);
+      chain.get(w).push(next);
+    }
+  }
+  return { chain, starts };
+}
+function walkChain(built, minWords, maxWords) {
+  if (!built || !built.starts.length) return "";
+  let word = pick(built.starts);
+  const out = [word];
+  const target = minWords + Math.floor(Math.random() * (maxWords - minWords + 1));
+  for (let i = 1; i < target; i++) {
+    const nexts = built.chain.get(word);
+    word = nexts && nexts.length ? pick(nexts) : pick(built.starts);
+    out.push(word);
+  }
+  return out.join(" ");
+}
+function finishSentence(s) {
+  if (!s) return s;
+  s = s.trim();
+  s = s.charAt(0).toLowerCase() + s.slice(1);
+  if (!/[.!?…]$/.test(s)) s += pick([".", "...", "!", "?"]);
+  return s;
+}
+
+const MADLIB_TEMPLATES = [
+  "not to make this about {hostname} but {rotphrase}",
+  "{hostword} is just {rotword} with better lighting",
+  "if {hostword} was a personality trait it'd be diagnosable",
+  "chat said \"{hostword}\" and i still haven't recovered",
+  "we've upgraded from {rotword} to full {hostword} energy",
+  "{hostword}, but make it {rotword}",
+  "honestly? {rotphrase} — but swap in \"{hostword}\" and it still checks out",
+  "{otherhostname} really said \"{hostword}\" like it was nothing",
+  "i workshopped \"{hostword}\" for a week and this is the best i've got",
+  "the {rotword}-to-{hostword} pipeline is never not funny",
+  "somewhere between {hostword} and {rotword} is where i live now",
+  "{hostname}'s whole personality is \"{hostword}\" and honestly? valid",
+];
+
+function fillMadlib(hosts, hostWords, rotWords, rotLines) {
+  const t = pick(MADLIB_TEMPLATES);
+  const hostword = (hostWords.length ? pick(hostWords) : pick(rotWords)) || "vibes";
+  const rotword = pick(rotWords) || "rot";
+  const rotphrase = truncate(pick(rotLines) || "we're so cooked", 60);
+  const names = [hosts.h1.displayName || hosts.h1.handle, hosts.h2.displayName || hosts.h2.handle];
+  return t
+    .replace("{hostname}", pick(names))
+    .replace("{otherhostname}", pick(names))
+    .replace(/\{hostword\}/g, hostword)
+    .replace(/\{rotword\}/g, rotword)
+    .replace("{rotphrase}", rotphrase);
+}
+
+// picks a source for each dialogue line, weighted across curated bank lines,
+// madlib fills, and raw markov output — the "blend" the show now runs on.
+function generateHostLine(kind, hosts, dialogue) {
+  const bank = kind === "hottake" ? HOT_TAKE : BANTER;
+  if (!dialogue) return pick(bank);
+  const roll = Math.random();
+  if (roll < 0.4) return pick(bank);
+  if (roll < 0.7) return fillMadlib(hosts, dialogue.hostWords, dialogue.rotWords, dialogue.rotLines);
+  return finishSentence(walkChain(dialogue.chain, 6, 13)) || pick(bank);
+}
+
+async function grabPostTexts(did, limit) {
+  try {
+    const data = await xrpc("app.bsky.feed.getAuthorFeed", { actor: did, limit: limit || 30 });
+    return (data.feed || [])
+      .map((f) => f.post)
+      .filter((p) => p && p.record && typeof p.record.text === "string" &&
+        p.record.text.trim().length >= 8 && !p.record.reply)
+      .map((p) => p.record.text.trim());
+  } catch (_) {
+    return [];
+  }
+}
+
+async function buildDialogueCache(hosts) {
+  const dids = [hosts.h1.did, hosts.h2.did].filter(Boolean);
+  const texts = await Promise.all(dids.map((d) => grabPostTexts(d, 30)));
+  const hostLines = [].concat(...texts);
+  const rotLines = [].concat(BANTER, HOT_TAKE, SPONSOR, GUEST_REACT);
+  return {
+    chain: buildChain(hostLines.concat(rotLines)),
+    hostWords: wordPool(hostLines),
+    rotWords: wordPool(rotLines),
+    rotLines,
+  };
+}
+
 // --- profile + guest booking ---------------------------------------------
 
 async function loadHosts() {
@@ -732,15 +869,17 @@ const RATING_TAKES = [
   "we regret everything and nothing",
 ];
 
-function buildBeats(ep, hosts, guest, topic) {
+function buildBeats(ep, hosts, guest, topic, dialogue) {
   const beats = [];
   beats.push({ speaker: "host1", text: pick(INTRO1).replace("{ep}", ep) });
   beats.push({ speaker: "host2", text: pick(INTRO2).replace("{ep}", ep) });
   beats.push({ speaker: "note", text: "TONIGHT'S TOPIC" });
   beats.push({ speaker: pick(["host1", "host2"]), text: "so tonight we're getting into: " + topic + "." });
-  pickN(BANTER, 4).forEach((line, i) => beats.push({ speaker: i % 2 === 0 ? "host1" : "host2", text: line }));
+  for (let i = 0; i < 4; i++) {
+    beats.push({ speaker: i % 2 === 0 ? "host1" : "host2", text: generateHostLine("banter", hosts, dialogue) });
+  }
   beats.push({ speaker: "note", text: "HOT TAKE CORNER" });
-  beats.push({ speaker: pick(["host1", "host2"]), text: pick(HOT_TAKE) });
+  beats.push({ speaker: pick(["host1", "host2"]), text: generateHostLine("hottake", hosts, dialogue) });
   beats.push({ speaker: "note", text: "SPONSOR BREAK" });
   beats.push({ speaker: pick(["host1", "host2"]), text: pick(SPONSOR) });
 
@@ -982,6 +1121,7 @@ function renderArchive(list) {
 // --- generate an episode ------------------------------------------------
 
 let hostsCache = null;
+let dialogueCache = null;
 let lastEp = null, lastGuest = null, lastHosts = null;
 
 async function generateEpisode() {
@@ -997,6 +1137,10 @@ async function generateEpisode() {
       status.textContent = "loading cohosts off the appview...";
       hostsCache = await loadHosts();
     }
+    if (!dialogueCache) {
+      status.textContent = "raiding the cohosts' own posts for dialogue material...";
+      dialogueCache = await buildDialogueCache(hostsCache);
+    }
     status.textContent = guestSource === "colikes"
       ? "digging through the cohosts' colikes for a guest..."
       : "booking a surprise guest off the live firehose...";
@@ -1007,7 +1151,7 @@ async function generateEpisode() {
     const topic = pick(TOPICS);
     document.getElementById("epBadge").textContent = "episode #" + ep.toLocaleString();
 
-    const beats = buildBeats(ep, hostsCache, guest, topic);
+    const beats = buildBeats(ep, hostsCache, guest, topic, dialogueCache);
     renderBeats(beats, hostsCache, guest);
 
     status.textContent = "";
@@ -1058,6 +1202,7 @@ function setLineup(h1, h2) {
   currentHosts = { h1, h2 };
   saveHostHandles(h1, h2);
   hostsCache = null;
+  dialogueCache = null;
   generateEpisode();
 }
 
@@ -1074,6 +1219,7 @@ document.getElementById("resetHosts").addEventListener("click", () => {
   saveHostHandles(currentHosts.h1, currentHosts.h2);
   applyHostInputs();
   hostsCache = null;
+  dialogueCache = null;
   generateEpisode();
 });
 document.querySelectorAll(".gs-btn").forEach((btn) => {
