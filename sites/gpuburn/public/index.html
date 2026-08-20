@@ -294,17 +294,24 @@
   </div>
 
   <div class="presets" id="presets">
-    <button class="preset-btn" data-preset="flagship">frontier flagship</button>
-    <button class="preset-btn" data-preset="selfhost">cheap self-host</button>
-    <button class="preset-btn" data-preset="lossleader">loss-leader free tier</button>
-    <button class="preset-btn" data-preset="overprovisioned">overprovisioned startup</button>
+    <button class="preset-btn" data-preset="kimik3" title="2.8T-param MoE, needs a B200/GB200 cluster — API charges $15/1M output tok">kimi k3</button>
+    <button class="preset-btn" data-preset="qwen" title="Qwen3.5-27B MoE, comfortably serves off a single H100">qwen3.5-27b</button>
+    <button class="preset-btn" data-preset="deepseek" title="DeepSeek V3/R1, 671B MoE on an 8×H100 node — API charges $2.19/1M output tok">deepseek v3/r1</button>
   </div>
+  <p class="hint" style="text-align:center; margin: -12px 0 22px;">
+    real GPU rental + published API prices, Aug 2026 —
+    <a href="https://intuitionlabs.ai/articles/h100-rental-prices-cloud-comparison" target="_blank" rel="noopener">H100 pricing</a>,
+    <a href="https://www.spheron.network/blog/nvidia-b200-cloud-pricing-2026/" target="_blank" rel="noopener">B200 pricing</a>,
+    <a href="https://inferencex.semianalysis.com/compare/deepseek-r1-b200-vs-h100" target="_blank" rel="noopener">DeepSeek throughput</a>,
+    <a href="https://deepseek.ai/pricing" target="_blank" rel="noopener">DeepSeek API</a>,
+    <a href="https://vllm.ai/blog/2026-07-27-k3" target="_blank" rel="noopener">Kimi K3 on vLLM</a>
+  </p>
 
   <div class="panel">
     <h2>the knobs</h2>
     <div class="field">
       <label><span class="name">price you charge</span><span class="val" id="valPrice">$3.00 / 1M tok</span></label>
-      <input type="range" id="price" min="0" max="1000" value="300" step="1" />
+      <input type="range" id="price" min="0" max="2000" value="300" step="1" />
       <div class="hint">what you bill customers per million output tokens</div>
     </div>
     <div class="field">
@@ -314,7 +321,7 @@
     </div>
     <div class="field">
       <label><span class="name">gpu throughput</span><span class="val" id="valThroughput">3000 tok/s</span></label>
-      <input type="range" id="throughput" min="200" max="10000" value="3000" step="50" />
+      <input type="range" id="throughput" min="100" max="10000" value="3000" step="50" />
       <div class="hint">tokens/sec one GPU produces flat-out for this model</div>
     </div>
     <div class="field">
@@ -380,11 +387,21 @@ const els = {
   shareNative: document.getElementById("shareNative"),
 };
 
+// GPU cost = $/GPU-hr, throughput = tok/s per GPU, price = API rate the model's own
+// provider actually charges per 1M output tok. Sourced Aug 2026, see links above.
 const PRESETS = {
-  flagship:        { price: 300,  tokens: 2000, throughput: 3000, util: 45, gpuCost: 250 },
-  selfhost:        { price: 20,   tokens: 50,   throughput: 6000, util: 70, gpuCost: 110 },
-  lossleader:      { price: 0,    tokens: 800,  throughput: 3500, util: 50, gpuCost: 300 },
-  overprovisioned: { price: 500,  tokens: 20,   throughput: 2500, util: 8,  gpuCost: 450 },
+  // Kimi K3 (Moonshot, 2.8T-param MoE): needs 16+ B200/GB200 to even load, so it's
+  // priced on B200 rental (~$7/hr median) and Moonshot's own $15/1M output rate.
+  // Batched aggregate throughput per GPU isn't published; 150 tok/s/GPU is a
+  // conservative estimate in line with DeepSeek's similarly-shaped MoE at scale.
+  kimik3:   { price: 1500, tokens: 200,  throughput: 150,  util: 35, gpuCost: 700 },
+  // Qwen3.5-27B: MoE, dense-sized-comparable, fits on a single H100. Throughput
+  // extrapolated from Gemma3-27B's ~5,500 tok/s/GPU on H100 (same weight class);
+  // price is a typical cheap open-weight hosting rate (Together/Fireworks-style).
+  qwen:     { price: 30,   tokens: 1500, throughput: 6000, util: 60, gpuCost: 250 },
+  // DeepSeek V3/R1: 671B-param MoE, standard 8xH100 SXM node. Throughput and API
+  // price are both from published DeepSeek/SemiAnalysis benchmarks.
+  deepseek: { price: 219,  tokens: 500,  throughput: 200,  util: 55, gpuCost: 250 },
 };
 
 function fmtUSD(n, opts) {
