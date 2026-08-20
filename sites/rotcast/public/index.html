@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SHUT UP NERD — a rotcast episode generator</title>
+<meta name="description" content="alias and Dr. From The West Meadow co-host. a surprise guest gets kidnapped live off the firehose every episode. generate the transcript." />
+<meta property="og:title" content="SHUT UP NERD — a rotcast episode generator" />
+<meta property="og:description" content="alias and Dr. From The West Meadow co-host. a surprise guest gets kidnapped live off the firehose every episode. generate the transcript." />
+<meta property="og:url" content="https://rotcast.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://rotcast.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="rotcast: a fake podcast cover with alias, Dr. From The West Meadow, and a mystery third guest ripped straight off the firehose." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="SHUT UP NERD — a rotcast episode generator" />
+<meta name="twitter:description" content="alias and Dr. From The West Meadow co-host. a surprise guest gets kidnapped live off the firehose every episode. generate the transcript." />
+<meta name="twitter:image" content="https://rotcast.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0b0f08;
+    --bg2: #121c0c;
+    --fg: #eafbdc;
+    --dim: #9db98a;
+    --accent: #b6ff3c;
+    --accent2: #ff6b3c;
+    --card: #151f0f;
+    --border: #2c3d21;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #234312 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #3a1c08 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3.5rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 620px; }
+  h1 {
+    font-size: 2.1rem;
+    line-height: 1.15;
+    margin: 0 0 0.35rem;
+    letter-spacing: 0.01em;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 1.6rem;
+    line-height: 1.55;
+  }
+  .tag b { color: var(--fg); }
+
+  .lineup {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    margin-bottom: 1.6rem;
+    padding: 0.9rem 1rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .lineup .who { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+  .lineup img {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 1px solid var(--border); background: var(--bg2); flex: none;
+  }
+  .lineup .name { font-size: 0.8rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lineup .plus { color: var(--dim); font-size: 0.9rem; flex: none; }
+  .lineup .amp { color: var(--accent); font-weight: 800; flex: none; }
+
+  .epbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+  .ep-badge {
+    font-size: 0.78rem;
+    color: var(--accent2);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+  button#go {
+    background: linear-gradient(90deg, var(--accent), #7fe000);
+    color: #0b1104;
+    border: none;
+    border-radius: 8px;
+    padding: 0.7rem 1.1rem;
+    font: inherit;
+    font-weight: 800;
+    font-size: 0.85rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button#go:disabled { opacity: 0.55; cursor: wait; }
+
+  .status { color: var(--dim); font-size: 0.85rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: #ff8a8a; }
+
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem 1.5rem 1.75rem;
+    box-shadow: 0 0 60px -24px var(--accent);
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .transcript { display: flex; flex-direction: column; gap: 0.9rem; }
+  .line { display: flex; gap: 0.6rem; align-items: flex-start; }
+  .line img.av {
+    width: 30px; height: 30px; border-radius: 50%; flex: none;
+    border: 1px solid var(--border); margin-top: 0.1rem; background: var(--bg2);
+  }
+  .line .body { min-width: 0; }
+  .line .speaker {
+    font-size: 0.68rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.06em; margin-bottom: 0.15rem;
+  }
+  .line.host1 .speaker { color: var(--accent); }
+  .line.host2 .speaker { color: #7fc8ff; }
+  .line.guest .speaker { color: var(--accent2); }
+  .line .text { font-size: 0.94rem; line-height: 1.5; }
+  .line.guest .text {
+    padding: 0.6rem 0.75rem;
+    background: var(--bg2);
+    border: 1px solid var(--accent2);
+    border-radius: 8px;
+    animation: guestpulse 2.4s ease-in-out infinite;
+  }
+  @keyframes guestpulse {
+    0%, 100% { box-shadow: 0 0 0 rgba(255,107,60,0); }
+    50% { box-shadow: 0 0 22px -4px rgba(255,107,60,0.55); }
+  }
+  .line.note {
+    justify-content: center;
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    margin: 0.2rem 0;
+  }
+  .line.note .text { font-style: normal; }
+
+  .share {
+    border-top: 1px dashed var(--border);
+    margin-top: 1.6rem;
+    padding-top: 1.2rem;
+  }
+  #shareCanvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 0.8rem;
+  }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #0b1104; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.6;
+  }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>SHUT UP NERD</h1>
+    <p class="tag">
+      A podcast that does not exist, cohosted by <b>alias</b> and
+      <b>Dr. From The West Meadow</b>. Every episode kidnaps a third
+      cohost live off the atproto firehose and never asks their permission.
+      Requested by @antiali.as. Maximum rot, as ordered.
+    </p>
+
+    <div class="lineup" id="lineup">
+      <div class="who"><img id="host1Av" class="av" alt="" /><span class="name" id="host1Name">alias</span></div>
+      <span class="amp">&amp;</span>
+      <div class="who"><img id="host2Av" class="av" alt="" /><span class="name" id="host2Name">Dr. From The West Meadow</span></div>
+      <span class="plus">+ a surprise guest, every time</span>
+    </div>
+
+    <div class="epbar">
+      <span class="ep-badge" id="epBadge">episode —</span>
+      <button id="go" type="button">🎙️ new episode</button>
+    </div>
+
+    <p id="status" class="status">booting the studio...</p>
+
+    <div id="card" class="card">
+      <div class="transcript" id="transcript"></div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share this episode</a>
+          <button id="shareDownload" type="button">⬇ download cover</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script>
+const API = "https://public.api.bsky.app/xrpc/";
+const JETSTREAM = "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+const HOST1_HANDLE = "antiali.as";
+const HOST2_HANDLE = "fromthewestmeadow.com";
+const EP_KEY = "rotcast-ep";
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) throw new Error(res.statusText);
+  return res.json();
+}
+
+async function getProfile(actor) {
+  return xrpc("app.bsky.actor.getProfile", { actor });
+}
+
+function esc(s) {
+  return (s || "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function truncate(s, max) {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1).trimEnd() + "…";
+}
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+function pickN(arr, n) {
+  const copy = arr.slice();
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, n);
+}
+
+// --- brainrot word banks -------------------------------------------------
+
+const INTRO1 = [
+  "yo yo yo welcome back to the pod, episode {ep}, we are so back",
+  "chat, chat, CHAT. it's happening again. episode {ep}. sit down.",
+  "okay so today — episode {ep} — we are cooking something deeply unwell",
+  "welcome to the most important podcast in your feed, episode {ep}, no skips",
+];
+const INTRO2 = [
+  "i genuinely cannot believe we are still doing this. episode {ep}, everyone.",
+  "i said i'd never do this again and yet, here we are, episode {ep}",
+  "my god. my GOD. episode {ep} already. time is not real anymore",
+  "i have prepared absolutely nothing for episode {ep} and it shows",
+];
+const BANTER = [
+  "ok real talk, is anyone even locked in rn",
+  "i fumbled the bag so hard today it filed for divorce",
+  "the rizz was not it, chief. the rizz was NOT it.",
+  "i'm not gonna lie i am extremely mid today",
+  "we are so cooked, and i mean that with my whole skibidi chest",
+  "gyatt. that's the whole thought. gyatt.",
+  "no cap this segment is certified Ohio content",
+  "i touched grass once this week and i think it touched back, aggressively",
+  "the sigma grindset has left me with negative rizz and great posture",
+  "someone in the chat just called me an NPC and honestly? valid",
+  "i'm delulu but the solulu is trulu just closing the app",
+  "my fanum tax collection rate is at an all-time high this week",
+  "i went mewing for four days straight and now my jaw has opinions",
+  "this segment is brought to you by unresolved feelings and a caffeine drip",
+  "i have never been more sure of anything, and less sure of everything",
+  "the aura points were deducted so fast i heard a sound effect",
+  "i am not a rizzler, i am a cautionary tale with good lighting",
+  "brain rot isn't a diagnosis, it's a lifestyle, and i am THRIVING",
+];
+const SPONSOR = [
+  "today's episode is sponsored by 'Skibidi Insurance™' — we don't cover the toilet, only what comes after.",
+  "shoutout to 'Ohio Realty' — every listing is either a cornfield or a warning.",
+  "thanks to 'Rizz Bank' for floating this episode — zero percent APR, one hundred percent aura.",
+  "today's sponsor is 'Fanum Tax LLC,' now collecting on your fries AND your feelings.",
+  "big thanks to 'Gyatt & Sons Structural Engineering' — they built this whole podcast, load-bearing and everything.",
+  "shoutout to 'Mewing Dental,' the only orthodontist that bills you in vibes.",
+];
+const GUEST_INTRO = [
+  "okay okay okay — we've got a SURPRISE GUEST. security did not stop them. please welcome, straight off the timeline, {guest}.",
+  "chat is NOT ready for this. we reached into the live firehose and pulled out {guest}. no context. no consent. let's go.",
+  "BREAKING: we kidnapped {guest} off the feed thirty seconds ago and they are now, legally, a cohost.",
+];
+const GUEST_REACT = [
+  "...okay i don't know what that means but i respect it completely.",
+  "see, THIS is why we don't screen guests.",
+  "chat, put that in the show notes. put it on a plaque.",
+  "i have no notes. that was perfect. that was cinema.",
+  "we are never getting sponsors again after that one.",
+  "this is the realest thing said on this podcast all year and they weren't even invited.",
+  "i felt that in my whole skeletal system.",
+  "and scene. nobody talk. let it breathe.",
+];
+const NO_SHOW = [
+  "the surprise guest never showed up. we suspect they saw the lineup and left.",
+  "we reached into the firehose and came back with nothing. deeply on brand.",
+  "guest booking failed. the studio's wifi took the day off, same as our guest.",
+];
+const PRE_OUTRO = [
+  "anyway. episode {ep}. we said what we said.",
+  "that's genuinely everything we had prepared for episode {ep}. and some we didn't.",
+  "episode {ep}, in the books, in the ground, buried with honors.",
+];
+
+// --- profile + guest booking ---------------------------------------------
+
+async function loadHosts() {
+  const els1 = { av: document.getElementById("host1Av"), name: document.getElementById("host1Name") };
+  const els2 = { av: document.getElementById("host2Av"), name: document.getElementById("host2Name") };
+  const fallback = { h1: { displayName: "alias", handle: HOST1_HANDLE, avatar: "" },
+                      h2: { displayName: "Dr. From The West Meadow", handle: HOST2_HANDLE, avatar: "" } };
+  let h1, h2;
+  try { h1 = await getProfile(HOST1_HANDLE); } catch (_) { h1 = fallback.h1; }
+  try { h2 = await getProfile(HOST2_HANDLE); } catch (_) { h2 = fallback.h2; }
+  els1.name.textContent = h1.displayName || h1.handle;
+  els2.name.textContent = h2.displayName || h2.handle;
+  if (h1.avatar) { els1.av.src = h1.avatar; els1.av.style.visibility = "visible"; }
+  if (h2.avatar) { els2.av.src = h2.avatar; els2.av.style.visibility = "visible"; }
+  return { h1, h2 };
+}
+
+function pickCandidate(arr) {
+  if (!arr.length) return null;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+// Opens a short-lived Jetstream connection, buffers a handful of fresh,
+// non-reply posts from strangers, and picks one at random as the "surprise
+// guest." Resolves null if nothing usable shows up within the window —
+// the transcript builder turns that into its own no-show bit rather than
+// failing the page.
+function bookGuestPost(excludeDids) {
+  return new Promise((resolve) => {
+    let ws, done = false;
+    const candidates = [];
+    const finish = (result) => {
+      if (done) return;
+      done = true;
+      try { ws && ws.close(); } catch (_) {}
+      clearTimeout(hardTimeout);
+      resolve(result);
+    };
+    const hardTimeout = setTimeout(() => finish(pickCandidate(candidates)), 6000);
+    try {
+      ws = new WebSocket(JETSTREAM);
+    } catch (_) {
+      clearTimeout(hardTimeout);
+      resolve(null);
+      return;
+    }
+    ws.onmessage = (m) => {
+      if (done) return;
+      let evt;
+      try { evt = JSON.parse(m.data); } catch (_) { return; }
+      if (evt.kind !== "commit") return;
+      const commit = evt.commit;
+      if (!commit || commit.operation !== "create") return;
+      const rec = commit.record;
+      if (!rec || typeof rec.text !== "string" || rec.reply) return;
+      const text = rec.text.trim();
+      if (text.length < 15 || text.length > 260) return;
+      if (excludeDids.includes(evt.did)) return;
+      candidates.push({ did: evt.did, text });
+      if (candidates.length >= 14) finish(pickCandidate(candidates));
+    };
+    ws.onerror = () => finish(pickCandidate(candidates));
+    ws.onclose = () => finish(pickCandidate(candidates));
+  });
+}
+
+async function resolveGuest(hostDids) {
+  const post = await bookGuestPost(hostDids);
+  if (!post) return null;
+  let profile = { handle: post.did, displayName: "", avatar: "" };
+  try { profile = await getProfile(post.did); } catch (_) {}
+  return { did: post.did, text: post.text, handle: profile.handle || post.did,
+           displayName: profile.displayName || profile.handle || post.did, avatar: profile.avatar || "" };
+}
+
+// --- script building ------------------------------------------------------
+
+function buildBeats(ep, hosts, guest) {
+  const beats = [];
+  beats.push({ speaker: "host1", text: pick(INTRO1).replace("{ep}", ep) });
+  beats.push({ speaker: "host2", text: pick(INTRO2).replace("{ep}", ep) });
+  pickN(BANTER, 4).forEach((line, i) => beats.push({ speaker: i % 2 === 0 ? "host1" : "host2", text: line }));
+  beats.push({ speaker: "note", text: "SPONSOR BREAK" });
+  beats.push({ speaker: pick(["host1", "host2"]), text: pick(SPONSOR) });
+
+  if (guest) {
+    beats.push({ speaker: "host1", text: pick(GUEST_INTRO).replace("{guest}", "@" + guest.handle) });
+    beats.push({ speaker: "guest", text: guest.text });
+    pickN(GUEST_REACT, 2).forEach((line, i) => beats.push({ speaker: i % 2 === 0 ? "host2" : "host1", text: line }));
+  } else {
+    beats.push({ speaker: "note", text: "GUEST NO-SHOW" });
+    beats.push({ speaker: pick(["host1", "host2"]), text: pick(NO_SHOW) });
+  }
+
+  beats.push({ speaker: pick(["host1", "host2"]), text: pick(PRE_OUTRO).replace("{ep}", ep) });
+  beats.push({ speaker: "host1", text: "before we go — for the new listeners: last time this show existed, it ended with a hearty—" });
+  beats.push({ speaker: "host2", text: "shut up nerd." });
+  beats.push({ speaker: "note", text: "END OF EPISODE" });
+  return beats;
+}
+
+function renderBeats(beats, hosts, guest) {
+  const el = document.getElementById("transcript");
+  el.innerHTML = "";
+  for (const beat of beats) {
+    const row = document.createElement("div");
+    row.className = "line " + beat.speaker;
+    if (beat.speaker === "note") {
+      row.innerHTML = `<div class="text">— ${esc(beat.text)} —</div>`;
+    } else {
+      const av = beat.speaker === "host1" ? (hosts.h1.avatar || "")
+        : beat.speaker === "host2" ? (hosts.h2.avatar || "")
+        : (guest && guest.avatar) || "";
+      const name = beat.speaker === "host1" ? (hosts.h1.displayName || hosts.h1.handle)
+        : beat.speaker === "host2" ? (hosts.h2.displayName || hosts.h2.handle)
+        : "SURPRISE GUEST @" + ((guest && guest.handle) || "unknown");
+      row.innerHTML =
+        (av ? `<img class="av" src="${esc(av)}" alt="" />` : `<div class="av" style="visibility:hidden"></div>`) +
+        `<div class="body"><div class="speaker">${esc(name)}</div><div class="text">${esc(beat.text)}</div></div>`;
+    }
+    el.appendChild(row);
+  }
+}
+
+// --- share ------------------------------------------------------------
+
+function nextEpisode() {
+  let ep = parseInt(localStorage.getItem(EP_KEY) || "", 10);
+  if (!ep || isNaN(ep)) ep = 6000 + Math.floor(Math.random() * 3000);
+  else ep += 1;
+  try { localStorage.setItem(EP_KEY, String(ep)); } catch (_) {}
+  return ep;
+}
+
+function shareUrlFor(ep, guest) {
+  if (!guest) return "https://rotcast.bisks.net/";
+  return "https://rotcast.bisks.net/e/" + ep + "/" + encodeURIComponent(guest.handle) + "/" + encodeURIComponent(truncate(guest.text, 80));
+}
+
+function buildShareText(ep, guest) {
+  const url = shareUrlFor(ep, guest);
+  const head = guest
+    ? `rotcast ep. ${ep}: alias & Dr. West Meadow ft. surprise guest @${guest.handle}`
+    : `rotcast ep. ${ep}: alias & Dr. West Meadow (the surprise guest never showed)`;
+  const budget = 300 - url.length - 4; // leave room for the two blank lines
+  let body = head;
+  if (guest) {
+    const quote = ` — "${guest.text}"`;
+    body = truncate(head + quote, Math.max(budget, head.length));
+  } else {
+    body = truncate(head, budget);
+  }
+  return body + "\n\n" + url;
+}
+
+// cdn.bsky.app sends no Access-Control-Allow-Origin on any image variant, so
+// a cross-origin crossOrigin="anonymous" request to it always fails and the
+// canvas draw silently never happens. Route it through this site's own
+// /avatar proxy (src/index.ts) first, which re-serves the bytes same-origin
+// with an open CORS header, so the crossOrigin load actually succeeds.
+function canvasSafeUrl(url) {
+  return url ? "/avatar?u=" + encodeURIComponent(url) : "";
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = canvasSafeUrl(url);
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const words = text.split(" ");
+  let line = "", cy = y, lines = 0;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w; cy += lineHeight; lines++;
+      if (maxLines && lines >= maxLines - 1) { line = line + "…"; break; }
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+async function buildShareCard(ep, hosts, guest) {
+  const canvas = document.getElementById("shareCanvas");
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0b0f08";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.55);
+  glow.addColorStop(0, "#234312");
+  glow.addColorStop(1, "rgba(11,15,8,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#b6ff3c";
+  ctx.font = `800 58px ${mono}`;
+  ctx.fillText("SHUT UP NERD", 60, 110);
+  ctx.fillStyle = "#9db98a";
+  ctx.font = `400 20px ${mono}`;
+  ctx.fillText("a rotcast episode  ·  #" + ep, 60, 148);
+
+  const [av1, av2, av3] = await Promise.all([
+    loadImg(hosts.h1.avatar), loadImg(hosts.h2.avatar), loadImg(guest && guest.avatar),
+  ]);
+  const avs = [
+    { img: av1, label: "@" + (hosts.h1.handle || "") },
+    { img: av2, label: "@" + (hosts.h2.handle || "") },
+    { img: av3, label: guest ? "@" + guest.handle : "no-show" },
+  ];
+  let ax = 60;
+  for (const a of avs) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(ax + 40, 230, 40, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    if (a.img) {
+      ctx.drawImage(a.img, ax, 190, 80, 80);
+    } else {
+      ctx.fillStyle = "#151f0f";
+      ctx.fillRect(ax, 190, 80, 80);
+      ctx.fillStyle = "#b6ff3c";
+      ctx.font = `800 34px ${mono}`;
+      ctx.textAlign = "center";
+      ctx.fillText((a.label.replace(/^@/, "")[0] || "?").toUpperCase(), ax + 40, 243);
+      ctx.textAlign = "left";
+    }
+    ctx.restore();
+    ctx.strokeStyle = "#2c3d21";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(ax + 40, 230, 40, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#eafbdc";
+    ctx.font = `700 15px ${mono}`;
+    ctx.textAlign = "center";
+    ctx.fillText(a.label, ax + 40, 296);
+    ctx.textAlign = "left";
+    ax += 130;
+  }
+
+  const cardX = 60, cardY = 350, cardW = W - 120, cardH = H - 410;
+  ctx.fillStyle = "#151f0f";
+  ctx.strokeStyle = "#2c3d21";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 16);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#ff6b3c";
+  ctx.font = `700 14px ${mono}`;
+  ctx.fillText(guest ? "SURPRISE GUEST SAID" : "THE GUEST NEVER SHOWED", cardX + 32, cardY + 40);
+  ctx.fillStyle = "#eafbdc";
+  ctx.font = `italic 22px ${mono}`;
+  const line = guest ? "“" + guest.text + "”" : "we suspect they saw the lineup and left.";
+  wrapCanvasText(ctx, line, cardX + 32, cardY + 76, cardW - 64, 30, 4);
+
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillStyle = "#b6ff3c";
+  ctx.fillText("rotcast.bisks.net", 60, H - 40);
+}
+
+// --- generate an episode ------------------------------------------------
+
+let hostsCache = null;
+let lastEp = null, lastGuest = null;
+
+async function generateEpisode() {
+  const status = document.getElementById("status");
+  const go = document.getElementById("go");
+  const card = document.getElementById("card");
+  go.disabled = true;
+  card.classList.remove("show");
+  status.className = "status";
+
+  try {
+    if (!hostsCache) {
+      status.textContent = "loading cohosts off the appview...";
+      hostsCache = await loadHosts();
+    }
+    status.textContent = "booking a surprise guest off the live firehose...";
+    const hostDids = [hostsCache.h1.did, hostsCache.h2.did].filter(Boolean);
+    const guest = await resolveGuest(hostDids);
+
+    const ep = nextEpisode();
+    document.getElementById("epBadge").textContent = "episode #" + ep.toLocaleString();
+
+    const beats = buildBeats(ep, hostsCache, guest);
+    renderBeats(beats, hostsCache, guest);
+
+    status.textContent = "";
+    card.classList.add("show");
+
+    lastEp = ep;
+    lastGuest = guest;
+    document.getElementById("shareBluesky").href =
+      "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(ep, guest));
+    await buildShareCard(ep, hostsCache, guest);
+  } catch (err) {
+    status.textContent = "the studio caught fire: " + err.message;
+    status.className = "status err";
+  } finally {
+    go.disabled = false;
+  }
+}
+
+document.getElementById("go").addEventListener("click", generateEpisode);
+generateEpisode();
+
+document.getElementById("shareDownload").addEventListener("click", () => {
+  document.getElementById("shareCanvas").toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "rotcast-ep" + (lastEp || "0") + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  document.getElementById("shareNative").style.display = "";
+  document.getElementById("shareNative").addEventListener("click", () => {
+    document.getElementById("shareCanvas").toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "rotcast-ep" + (lastEp || "0") + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: buildShareText(lastEp || 0, lastGuest), title: "SHUT UP NERD" });
+      } catch (_) {}
+    }, "image/png");
+  });
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
