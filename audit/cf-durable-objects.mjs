@@ -108,6 +108,45 @@ function repoBoundClasses() {
   return bound;
 }
 
+// A [[migrations]] tag is applied once and then remembered by Cloudflare. That
+// makes rewriting an existing tag in place a silent no-op: editing `v1` from
+// new_sqlite_classes to deleted_classes means Cloudflare skips it (already seen
+// v1) and then rejects the deploy for dropping a class its live DOs still
+// depend on. The deletion must be a NEW tag. This caught five sites.
+function migrationLedgerProblems() {
+  const problems = [];
+  const sitesDir = new URL("./sites/", repoRoot);
+  for (const name of readdirSync(sitesDir)) {
+    const tomlUrl = new URL(`./${name}/wrangler.toml`, sitesDir);
+    if (!existsSync(tomlUrl)) continue;
+    const toml = readFileSync(tomlUrl, "utf8");
+    if (!toml.includes("deleted_classes")) continue;
+
+    const blocks = toml.split(/^\[\[migrations\]\]/m).slice(1);
+    const tags = [];
+    for (const b of blocks) {
+      const head = b.split(/^\[/m)[0];
+      const tag = head.match(/tag\s*=\s*"([^"]+)"/);
+      if (!tag) continue;
+      tags.push({
+        tag: tag[1],
+        creates: /new_sqlite_classes|new_classes/.test(head),
+        deletes: /deleted_classes/.test(head),
+      });
+    }
+    const names = tags.map((t) => t.tag);
+    if (new Set(names).size !== names.length) {
+      problems.push(`${name}: duplicate migration tag`);
+    } else if (tags.some((t) => t.deletes) && !tags.some((t) => t.creates)) {
+      problems.push(`${name}: deletes a class with no create tag — v1 was likely overwritten in place`);
+    } else {
+      const both = tags.find((t) => t.creates && t.deletes);
+      if (both) problems.push(`${name}: tag ${both.tag} both creates and deletes`);
+    }
+  }
+  return problems;
+}
+
 // A namespace is safe to delete only if no wrangler.toml in the repo still
 // binds its class. Cloudflare enforces the rest: the API refuses to delete a
 // namespace while any *deployed* Worker binds it, and names the Worker and
@@ -151,6 +190,12 @@ for (const r of rows) {
   console.log(`${r.state.padEnd(6)} ${r.id}  ${(r.script || "-").padEnd(28)} ${r.class || "-"}  (${r.reason})`);
 }
 console.log(`\n${namespaces.length} namespace(s): ${orphans.length} orphan, ${stillBound.length} still bound by the repo.`);
+
+const ledger = migrationLedgerProblems();
+if (ledger.length) {
+  console.log("\nMigration ledger problems (these break `wrangler deploy`):");
+  for (const line of ledger) console.log(`  ${line}`);
+}
 
 if (!PRUNE) {
   console.log("\nRe-run with --prune to dry-run deletion, --prune --apply to delete.");
