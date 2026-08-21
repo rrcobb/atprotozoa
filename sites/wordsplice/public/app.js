@@ -349,7 +349,16 @@ function lengthBell(a, b) {
 // transition, same structure as splicepedia.
 const MAX_TRANSITION = 1.4 + MAX_GRAMMAR_BONUS * 2.0 + 0.6 + 0.4 + 1.4 + 0.5;
 
-function scoreTransition(prev, cand) {
+// prevAllit: did the PRIOR transition already score an alliteration bonus?
+// Without this, alliteration snowballs: once one word alliterates with its
+// neighbor, every candidate sharing that same first letter gets +0.5 on the
+// NEXT transition too, and the one after that, so a single lucky "a" pick
+// early on can drag half the article into starting with "a" (reported as
+// "most of the words start with a lol" — reliably reproduced locally: an
+// unpatched run put 17 of 34 words on "a"). Zeroing the bonus when the
+// previous hop already cashed one lets a pair alliterate — the fun part —
+// without letting the streak compound indefinitely.
+function scoreTransition(prev, cand, prevAllit) {
   const socket = SOCKET_TAGS.has(cand.tag);
   const grammar = grammarScore(prev.tag, cand.tag);
   const lenBell = lengthBell(prev.word, cand.word);
@@ -357,9 +366,10 @@ function scoreTransition(prev, cand) {
   const vandal = vandalismBonus(prev.source.type, cand.source.type);
   const jump = isOntologicalJump(prev.source.type, cand.source.type);
   const allit = alliterates(prev.word, cand.word);
+  const allitBonus = allit && !prevAllit ? 0.5 : 0;
 
   const fluency = (socket ? 1 : 0) * 1.4 + grammar * 2.0 + lenBell * 0.6 + (entity ? 0.4 : 0);
-  const surprise = vandal * 1.4 + (allit ? 0.5 : 0);
+  const surprise = vandal * 1.4 + allitBonus;
   const total = fluency + surprise;
 
   return {
@@ -436,10 +446,12 @@ function buildArticle(pool, templates) {
     const next = [];
     for (const beam of beams) {
       const last = beam.words[beam.words.length - 1];
+      const lastT = beam.transitions[beam.transitions.length - 1];
+      const prevAllit = lastT ? lastT.allit : false;
       for (const cand of cands) {
         if (cand.source.pageid === last.source.pageid) continue; // never two in a row from the same source
         if (beam.usedKeys.has(cand.key)) continue;
-        const t = scoreTransition(last, cand);
+        const t = scoreTransition(last, cand, prevAllit);
         const priorUses = beam.sourceCounts.get(cand.source.pageid) || 0;
         const repeatPenalty = priorUses * 0.5;
         const sourceCounts = new Map(beam.sourceCounts);
@@ -534,7 +546,10 @@ async function reconstructFromCompact(compact) {
   templates.forEach((tmpl, si) => tmpl.forEach((tag, ti) => slots.push({ tag, sentenceIndex: si, isFirst: ti === 0 })));
 
   const transitions = [null];
-  for (let i = 1; i < words.length; i++) transitions.push(scoreTransition(words[i - 1], words[i]));
+  for (let i = 1; i < words.length; i++) {
+    const prevAllit = transitions[i - 1] ? transitions[i - 1].allit : false;
+    transitions.push(scoreTransition(words[i - 1], words[i], prevAllit));
+  }
   return { words, transitions, slots: slots.slice(0, words.length) };
 }
 

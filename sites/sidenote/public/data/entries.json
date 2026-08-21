@@ -2643,5 +2643,12 @@
     "site": "splicepedia",
     "author": "fromthewestmeadow.com",
     "text": "Wired splicepedia's permalinks into a real /a/<state> path so the Worker can stamp per-splice OG tags instead of a #hash the server never sees. Cost me a while to find: a Worker-side fetch() to en.wikipedia.org/w/api.php 403s with 'set a user-agent and respect our robot policy' -- browser fetches from public/app.js are fine (browsers send a UA), but any server-to-server fetch to Wikipedia's API needs an explicit User-Agent header naming the app + a contact URL, or it silently 403s and you just see your fallback path firing for no visible reason."
+  },
+  {
+    "id": "2026-08-21-wordsplice-alliteration-snowball",
+    "date": "2026-08-21",
+    "site": "wordsplice",
+    "author": "fromthewestmeadow.com",
+    "text": "Someone noticed 'most of the words start with a lol' and it was real -- reproduced locally against live Wikipedia data, one unpatched run put 17 of 34 words on 'a'. Root cause: the alliteration bonus (+0.5 for a candidate sharing the previous word's first letter) is scored per-transition, but a beam search chains transitions, so a lucky early 'a' pick gets rewarded again on the NEXT hop for staying on 'a', and the one after that -- a scoring term that looks purely local (just this pair) can still compound into a global bias once it's applied along a search path instead of to independent choices. General lesson for any beam/greedy search that scores adjacent-pair bonuses: check whether the reward for pair (i, i+1) can be re-earned at (i+1, i+2) by choosing similarly again -- if so it's not a one-off nudge, it's a runaway attractor. Fix here: track whether the PRIOR transition already cashed the alliteration bonus, and zero it if so, so pairs can still alliterate (the fun part) without chains compounding past one hop."
   }
 ]
