@@ -15,7 +15,9 @@ const API = "https://en.wikipedia.org/w/api.php";
 const MIN_EXTRACT_LEN = 400;
 const ARTICLES_PER_BATCH = 10;
 const MIN_SOURCES = 6;
-const SKELETON_SENTENCES = 5;
+const SKELETON_SENTENCES_DEFAULT = 5;
+const MAX_PINS = 8;
+const GRAFTABLE_TYPES = ["NP", "VP", "PP", "AdjP", "RelClause", "SubClause"];
 
 // ---- Wikipedia fetch -------------------------------------------------------
 // Same two-step dance as splicepedia/wordsplice: TextExtracts only ever
@@ -46,6 +48,7 @@ async function fetchPageFull(title) {
     explaintext: "1",
     exsectionformat: "plain",
     cllimit: "50",
+    redirects: "1",
     format: "json",
     origin: "*",
     formatversion: "2",
@@ -61,6 +64,26 @@ async function fetchRandomPages(n) {
   const titles = await fetchRandomTitles(n);
   const pages = await Promise.all(titles.map((t) => fetchPageFull(t).catch(() => null)));
   return pages.filter(Boolean);
+}
+
+// Pinned titles are user-typed, so a page can be "missing" (typo, doesn't
+// exist) rather than just occasionally flaky like a random title always is.
+// Returned alongside the raw pages so the caller can report which pins
+// didn't resolve, instead of silently dropping them.
+async function fetchPinnedPages(titles) {
+  const results = await Promise.all(
+    titles.map(async (title) => {
+      try {
+        const page = await fetchPageFull(title);
+        if (!page || page.missing || !page.extract) return { title, page: null };
+        if (page.extract.length < MIN_EXTRACT_LEN) return { title, page: null };
+        return { title, page };
+      } catch {
+        return { title, page: null };
+      }
+    })
+  );
+  return results;
 }
 
 // ---- text -> sentences ------------------------------------------------------
@@ -673,21 +696,55 @@ function meetsThresholds(articles) {
   return Object.entries(REQUIRED_TYPE_MIN).every(([type, min]) => (counts.get(type) || 0) >= min);
 }
 
-async function gatherArticles() {
-  let articles = [];
+// Pinned titles (user-chosen, "which articles go into the mix") are always
+// fetched and parsed into the pool first; random articles then backfill it
+// up to MIN_SOURCES / REQUIRED_TYPE_MIN, exactly like the old all-random
+// gatherArticles did, so pinning three articles never starves the pool of
+// the variety a good graft needs. Returns the pool plus a report of which
+// pins actually resolved, for the UI to show what ended up in the mix.
+async function gatherArticles(pinnedTitles, onStatus) {
+  const articles = [];
+  const seenTitles = new Set();
+  const pinnedResolved = [];
+  const pinnedFailed = [];
+
+  if (pinnedTitles && pinnedTitles.length) {
+    if (onStatus) onStatus(`Fetching ${pinnedTitles.length} pinned article${pinnedTitles.length === 1 ? "" : "s"}…`);
+    const results = await fetchPinnedPages(pinnedTitles);
+    for (const { title, page } of results) {
+      if (!page) { pinnedFailed.push(title); continue; }
+      if (seenTitles.has(page.title)) continue;
+      seenTitles.add(page.title);
+      const parsed = parseArticleIntoPool(page);
+      if (parsed.sentences.length) { articles.push(parsed); pinnedResolved.push(page.title); }
+      else pinnedFailed.push(title);
+    }
+  }
+
   let attempts = 0;
   while (attempts < 5) {
+    if (meetsThresholds(articles)) break;
+    if (onStatus) {
+      onStatus(
+        articles.length
+          ? `Backfilling with more random articles to round out the mix… (${articles.length} so far)`
+          : "Fetching random articles from Wikipedia and parsing them into phrases…"
+      );
+    }
     const pages = await fetchRandomPages(ARTICLES_PER_BATCH);
     for (const page of pages) {
       if (!page || page.missing || !page.extract) continue;
       if (page.extract.length < MIN_EXTRACT_LEN) continue;
+      if (seenTitles.has(page.title)) continue;
+      seenTitles.add(page.title);
       const parsed = parseArticleIntoPool(page);
       if (parsed.sentences.length) articles.push(parsed);
     }
     attempts++;
-    if (meetsThresholds(articles)) break;
   }
-  return articles;
+
+  const backfilled = articles.map((a) => a.source.title).filter((t) => !pinnedResolved.includes(t));
+  return { articles, mix: { pinned: pinnedResolved, backfilled, failed: pinnedFailed } };
 }
 
 function poolByType(articles) {
@@ -714,9 +771,16 @@ function poolByType(articles) {
 // are — near-identical or wildly different lengths both read as less
 // convincing than a close-but-not-exact match.
 
-const MAX_SCORE = 1.4 * 0.85 + 1.6 * 1 + 0.7 * 1;
+// vandalWeight is the splicer's "semantic mismatch bias" control: 1 is the
+// original tuning, <1 leans the score toward grammar fit and contextual
+// plausibility instead, >1 leans it toward the most ontologically insulting
+// jump available. maxScoreFor mirrors the same weight into the normalizer so
+// a 0-100 "graft score" still means the same thing regardless of bias.
+function maxScoreFor(vandalWeight) {
+  return 1.4 * 0.85 + 1.6 * 1 * vandalWeight + 0.7 * 1;
+}
 
-function scoreGraft(target, cand) {
+function scoreGraft(target, cand, vandalWeight) {
   const vandal = vandalismBonus(target.source.type, cand.source.type);
   const jump = isOntologicalJump(target.source.type, cand.source.type);
 
@@ -732,12 +796,12 @@ function scoreGraft(target, cand) {
   const lenSim = 1 - Math.abs(targetLen - candLen) / Math.max(targetLen, candLen, 1);
   const plausibility = bellOverlap(lenSim);
 
-  const total = grammarFit * 1.4 + vandal * 1.6 + plausibility * 0.7;
+  const total = grammarFit * 1.4 + vandal * 1.6 * vandalWeight + plausibility * 0.7;
   return { total, vandal, jump, grammarFit, plausibility };
 }
 
-function normalizeScore(total) {
-  return Math.max(0, Math.min(100, Math.round((total / MAX_SCORE) * 100)));
+function normalizeScore(total, maxScore) {
+  return Math.max(0, Math.min(100, Math.round((total / maxScore) * 100)));
 }
 
 function shuffle(arr) {
@@ -748,15 +812,20 @@ function shuffle(arr) {
   return arr;
 }
 
-// Picks SKELETON_SENTENCES real sentences to serve as skeletons, then for
-// every graftable chunk in every skeleton, finds its single best-scoring
-// replacement from anywhere else in the pool (never the same source
-// article). All candidate grafts are then sorted best-first and accepted
-// greedily as long as they don't overlap a chunk already claimed in that
-// sentence — this is the ranked list the corruption-strength slider later
-// slices a prefix of, so raising the slider always adds the NEXT most
-// "optimal" graft rather than a random one.
-function buildSkeleton(articles) {
+// Picks skeletonSentences real sentences to serve as skeletons, then for
+// every graftable chunk in every skeleton (skipping any type unchecked in
+// the splicer controls), finds its single best-scoring replacement from
+// anywhere else in the pool (never the same source article). All candidate
+// grafts are then sorted best-first and accepted greedily as long as they
+// don't overlap a chunk already claimed in that sentence — this is the
+// ranked list the corruption-strength slider later slices a prefix of, so
+// raising the slider always adds the NEXT most "optimal" graft rather than
+// a random one.
+function buildSkeleton(articles, opts) {
+  const enabledTypes = (opts && opts.enabledTypes) || new Set(GRAFTABLE_TYPES);
+  const vandalWeight = (opts && opts.vandalWeight) || 1;
+  const skeletonSentences = (opts && opts.skeletonSentences) || SKELETON_SENTENCES_DEFAULT;
+
   const allSentences = [];
   for (const a of articles) for (const s of a.sentences) if (s.nodes.length) allSentences.push(s);
   shuffle(allSentences);
@@ -764,14 +833,14 @@ function buildSkeleton(articles) {
   const skeleton = [];
   const usedTitles = new Set();
   for (const s of allSentences) {
-    if (skeleton.length >= SKELETON_SENTENCES) break;
+    if (skeleton.length >= skeletonSentences) break;
     if (usedTitles.has(s.source.title) && usedTitles.size < allSentences.length) continue;
     skeleton.push(s);
     usedTitles.add(s.source.title);
   }
   if (skeleton.length < Math.min(3, allSentences.length)) {
     for (const s of allSentences) {
-      if (skeleton.length >= SKELETON_SENTENCES) break;
+      if (skeleton.length >= skeletonSentences) break;
       if (!skeleton.includes(s)) skeleton.push(s);
     }
   }
@@ -781,12 +850,13 @@ function buildSkeleton(articles) {
   const allGrafts = [];
   skeleton.forEach((sent, sentenceIdx) => {
     for (const node of sent.nodes) {
+      if (!enabledTypes.has(node.type)) continue;
       const candidates = byType.get(node.type) || [];
       let best = null;
       for (const cand of candidates) {
         if (cand.source.title === sent.source.title) continue; // never graft from the skeleton's own article
         if (cand === node) continue;
-        const score = scoreGraft(node, cand);
+        const score = scoreGraft(node, cand, vandalWeight);
         if (!best || score.total > best.score.total) best = { candidate: cand, score };
       }
       if (best) allGrafts.push({ sentenceIdx, node, candidate: best.candidate, score: best.score });
@@ -804,7 +874,7 @@ function buildSkeleton(articles) {
     accepted.push(g);
   }
 
-  return { sentences: skeleton, accepted };
+  return { sentences: skeleton, accepted, maxScore: maxScoreFor(vandalWeight) };
 }
 
 // ---- auto-repair: a/an, capitalization, subject-verb agreement ------------
@@ -903,6 +973,7 @@ function maybeLowercaseFirst(text) {
 // Wikipedia articles change or vanish.
 
 function buildState(skeleton, bySentence, strength) {
+  const maxScore = skeleton.maxScore || maxScoreFor(1);
   const sentences = skeleton.sentences.map((sent, si) => {
     const grafts = (bySentence.get(si) || []).slice();
     const repairs = computeRepairs(sent, grafts);
@@ -920,7 +991,7 @@ function buildState(skeleton, bySentence, strength) {
           src: g.candidate.source,
           node: g.node.type,
           sig: g.candidate.sig,
-          score: normalizeScore(g.score.total),
+          score: normalizeScore(g.score.total, maxScore),
           jump: g.score.jump,
         };
       })
@@ -996,11 +1067,86 @@ const els = {
   strength: document.getElementById("strength"),
   strengthLabel: document.getElementById("strength-label"),
   strengthNote: document.getElementById("strength-note"),
+  pinInput: document.getElementById("pin-input"),
+  btnPinAdd: document.getElementById("btn-pin-add"),
+  pinChips: document.getElementById("pin-chips"),
+  typeToggles: document.querySelectorAll("#type-toggles input[type=checkbox]"),
+  bias: document.getElementById("bias"),
+  biasLabel: document.getElementById("bias-label"),
+  sentenceCount: document.getElementById("sentence-count"),
+  sentenceCountLabel: document.getElementById("sentence-count-label"),
+  mixSummary: document.getElementById("mix-summary"),
 };
 
 let currentSkeleton = null; // { sentences, accepted } — null once a permalink is loaded with no live data behind it
 let current = null; // last rendered state
 let stitchesOn = false;
+let pinnedTitles = []; // user-chosen "which articles go into the mix", see readMixControls()
+
+// ---- splicer controls: article mix + chunk types + scoring bias ---------
+
+function renderPinChips() {
+  els.pinChips.innerHTML = pinnedTitles
+    .map(
+      (t) =>
+        `<span class="chip">${escapeHtml(t)}<button type="button" data-title="${escapeHtml(t)}" title="Unpin" aria-label="Unpin ${escapeHtml(t)}">✕</button></span>`
+    )
+    .join("");
+  els.btnPinAdd.disabled = pinnedTitles.length >= MAX_PINS;
+  els.pinInput.disabled = pinnedTitles.length >= MAX_PINS;
+  els.pinInput.placeholder = pinnedTitles.length >= MAX_PINS ? `Pinned up to the max of ${MAX_PINS}` : "Pin a Wikipedia article title…";
+}
+
+function addPin() {
+  const raw = els.pinInput.value.trim();
+  if (!raw || pinnedTitles.length >= MAX_PINS) return;
+  if (pinnedTitles.some((t) => t.toLowerCase() === raw.toLowerCase())) { els.pinInput.value = ""; return; }
+  pinnedTitles.push(raw);
+  els.pinInput.value = "";
+  renderPinChips();
+}
+
+function removePin(title) {
+  pinnedTitles = pinnedTitles.filter((t) => t !== title);
+  renderPinChips();
+}
+
+function readEnabledTypes() {
+  const set = new Set();
+  els.typeToggles.forEach((cb) => { if (cb.checked) set.add(cb.value); });
+  return set.size ? set : new Set(GRAFTABLE_TYPES); // never let "all unchecked" silently graft nothing
+}
+
+function readVandalBias() {
+  return Number(els.bias.value) || 1;
+}
+
+function readSkeletonSentenceCount() {
+  return Number(els.sentenceCount.value) || SKELETON_SENTENCES_DEFAULT;
+}
+
+function updateBiasLabel() {
+  els.biasLabel.textContent = `${readVandalBias().toFixed(2)}×`;
+}
+
+function updateSentenceCountLabel() {
+  els.sentenceCountLabel.textContent = String(readSkeletonSentenceCount());
+}
+
+function renderMixSummary(mix) {
+  if (!mix || (!mix.pinned.length && !mix.backfilled.length)) { els.mixSummary.hidden = true; return; }
+  const total = mix.pinned.length + mix.backfilled.length;
+  const parts = [];
+  parts.push(`<strong>Mix:</strong> ${total} article${total === 1 ? "" : "s"}`);
+  if (mix.pinned.length) parts.push(`${mix.pinned.length} pinned <span class="pin-tag">PIN</span>`);
+  if (mix.backfilled.length) parts.push(`${mix.backfilled.length} backfilled`);
+  let html = parts.join(" · ");
+  if (mix.failed.length) {
+    html += ` — couldn't resolve: ${mix.failed.map((t) => escapeHtml(t)).join(", ")}`;
+  }
+  els.mixSummary.innerHTML = html;
+  els.mixSummary.hidden = false;
+}
 
 function setStatus(msg, isError) {
   els.status.textContent = msg || "";
@@ -1174,14 +1320,20 @@ async function generate() {
   els.btnPermalink.disabled = true;
   els.strength.disabled = true;
   els.strengthNote.hidden = true;
+  els.mixSummary.hidden = true;
   try {
-    const articles = await gatherArticles();
+    const { articles, mix } = await gatherArticles(pinnedTitles, setStatus);
     if (!meetsThresholds(articles)) throw new Error("Wikipedia didn't return enough parseable sentences that round — try again.");
-    const skeleton = buildSkeleton(articles);
+    const skeleton = buildSkeleton(articles, {
+      enabledTypes: readEnabledTypes(),
+      vandalWeight: readVandalBias(),
+      skeletonSentences: readSkeletonSentenceCount(),
+    });
     if (!skeleton || !skeleton.sentences.length) throw new Error("Couldn't build a skeleton article — try again.");
     currentSkeleton = skeleton;
     els.strength.disabled = false;
     applyStrength(Number(els.strength.value), { push: true });
+    renderMixSummary(mix);
     setStatus("");
   } catch (e) {
     setStatus(String((e && e.message) || e), true);
@@ -1196,11 +1348,16 @@ function loadFromPath(state) {
   updateStrengthLabel(state.strength);
   els.strength.disabled = true;
   els.strengthNote.hidden = false;
+  els.mixSummary.hidden = true;
   renderArticle(state);
   setStatus("");
 }
 
 function boot() {
+  renderPinChips();
+  updateBiasLabel();
+  updateSentenceCountLabel();
+
   const state = decodePath();
   if (state) loadFromPath(state);
   else generate();
@@ -1212,6 +1369,18 @@ function boot() {
   });
 
   els.btnRandomize.addEventListener("click", generate);
+
+  els.btnPinAdd.addEventListener("click", addPin);
+  els.pinInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); addPin(); }
+  });
+  els.pinChips.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-title]");
+    if (btn) removePin(btn.dataset.title);
+  });
+
+  els.bias.addEventListener("input", updateBiasLabel);
+  els.sentenceCount.addEventListener("input", updateSentenceCountLabel);
 
   els.btnStitches.addEventListener("click", () => {
     stitchesOn = !stitchesOn;

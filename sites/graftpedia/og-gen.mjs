@@ -1,8 +1,11 @@
 // Generates public/og.png — the static Open Graph preview card for
-// WordSplice. Hand-drawn SVG at the canonical OG size, rasterised with
+// GraftPedia. Hand-drawn SVG at the canonical OG size, rasterised with
 // @resvg/resvg-js (no system fonts in this box, so DejaVu Serif is bundled in
 // ./fonts and loaded explicitly). Copied and trimmed from
-// sites/splicepedia/og-gen.mjs, reskinned for the word-level ransom-note look.
+// sites/splicepedia/og-gen.mjs, reskinned to highlight grafted PHRASES within
+// a sentence (splicepedia highlights whole sentences; wordsplice highlights
+// single words) — each colored run is one grafted chunk, tagged with the
+// unrelated article it was cut from.
 //
 //   npm install @resvg/resvg-js --no-save   # one-time, not a project dependency
 //   node og-gen.mjs                         # writes ./public/og.png
@@ -12,63 +15,84 @@ import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const W = 1200, H = 630;
-const CORK = "#7a5a3a", CORK_DARK = "#5e4429";
-const INK = "#202122", MUTED = "#f3ead2", RED = "#ab1f24";
-const PAPERS = ["#fdf6e3", "#f3ead2", "#eee2c8"];
+const BG = "#ffffff", INK = "#202122", MUTED = "#54595d", BORDER = "#a2a9b1", BOXBG = "#f8f9fa";
+const RED = "#ab1f24", GOLD = "#b8710a", BLUE = "#0645ad";
 
-// A representative fake splice, hand-picked to sell the joke at a glance —
-// same idea as the sentence-level clippings on splicepedia's card, just one
-// word each, with the "torn from an article" caption underneath.
-const clips = [
-  { word: "The", rot: -4, source: "Beaver" },
-  { word: "reign", rot: 3, source: "Xu Pingjun" },
-  { word: "was", rot: -2, source: "Stoicism" },
-  { word: "widely", rot: 5, source: "Locomotive" },
-  { word: "spliced", rot: -3, source: "Malware" },
-  { word: "into", rot: 2, source: "Kimchi-jjigae" },
+// One sentence, broken into runs: plain skeleton text plus grafted phrases
+// (each tagged with its real, unrelated source article) — sells the "syntax
+// tree semantic vandalism" pitch at a glance, the way splicepedia's card
+// sells whole-sentence splicing and wordsplice's sells word clippings.
+const runs = [
+  { text: "The reign of ", graft: false },
+  { text: "a keystone species in wetland restoration", graft: true, source: "North American beaver", color: BLUE },
+  { text: " ended abruptly when it ", graft: false },
+  { text: "was later adapted into a widely exported instant noodle format", graft: true, source: "Kimchi-jjigae", color: GOLD },
+  { text: ".", graft: false },
 ];
 
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-const SLOT_W = (W - 128) / clips.length;
-const clipY = 300;
-const clipRows = clips
-  .map((c, i) => {
-    const paper = PAPERS[i % PAPERS.length];
-    const fontSize = 32;
-    const textW = c.word.length * fontSize * 0.56 + 32;
-    const cx = 64 + SLOT_W * i + SLOT_W / 2;
-    return `
-    <g transform="translate(${cx}, ${clipY}) rotate(${c.rot})">
-      <rect x="${-textW / 2}" y="-46" width="${textW}" height="58" rx="3" fill="${paper}" stroke="rgba(0,0,0,0.25)" stroke-width="1.5"/>
-      <text x="0" y="-8" text-anchor="middle" font-family="DejaVu Serif" font-weight="700" font-size="${fontSize}" fill="#1a1a1a">${esc(c.word)}</text>
-    </g>
-    <text x="${cx}" y="${clipY + 42}" text-anchor="middle" font-family="DejaVu Serif" font-size="12.5" fill="${MUTED}" opacity="0.85">from “${esc(c.source)}”</text>`;
+// Rough character-per-line budget for wrapping, good enough for a hand-rolled
+// SVG card (no real text measurement available at generation time). Coloring
+// grafted phrases by fill (rather than a background rect) sidesteps needing
+// accurate glyph widths at all — a single <text> per line with <tspan>s
+// flows naturally, so word spacing comes from the real font, not a guess.
+const FONT_SIZE = 25;
+const LINE_H = 42;
+const TEXT_X = 96;
+const CHARS_PER_LINE = 58;
+
+function wrapRuns(runs) {
+  const lines = [[]];
+  let lineLen = 0;
+  for (const run of runs) {
+    const words = run.text.split(/(?<=\s)/).filter(Boolean);
+    for (const w of words) {
+      if (lineLen + w.length > CHARS_PER_LINE && lineLen > 0) { lines.push([]); lineLen = 0; }
+      lines[lines.length - 1].push({ ...run, text: w });
+      lineLen += w.length;
+    }
+  }
+  return lines;
+}
+
+const lines = wrapRuns(runs);
+const graftTags = [];
+const bodySvg = lines
+  .map((line, li) => {
+    const y = 300 + li * LINE_H;
+    const tspans = line
+      .map((run) => {
+        if (run.graft && !graftTags.some((t) => t.source === run.source)) graftTags.push({ source: run.source, color: run.color });
+        const fill = run.graft ? run.color : INK;
+        const weight = run.graft ? ' font-weight="700"' : "";
+        return `<tspan fill="${fill}"${weight}>${esc(run.text)}</tspan>`;
+      })
+      .join("");
+    return `<text x="${TEXT_X}" y="${y}" xml:space="preserve" font-family="DejaVu Serif" font-size="${FONT_SIZE}">${tspans}</text>`;
   })
   .join("\n");
 
+const tagRows = graftTags
+  .map((t, i) => `<text x="${TEXT_X}" y="${300 + lines.length * LINE_H + 34 + i * 26}" font-family="DejaVu Serif" font-weight="700" font-size="15" fill="${t.color}">grafted from “${esc(t.source)}”</text>`)
+  .join("\n");
+
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-  <rect width="${W}" height="${H}" fill="${CORK}"/>
-  <rect width="${W}" height="${H}" fill="url(#texture)" opacity="0.5"/>
-  <defs>
-    <pattern id="texture" width="14" height="14" patternUnits="userSpaceOnUse">
-      <circle cx="3" cy="3" r="1.1" fill="rgba(0,0,0,0.18)"/>
-      <circle cx="9" cy="9" r="1.1" fill="rgba(255,255,255,0.06)"/>
-    </pattern>
-  </defs>
-  <rect width="${W}" height="10" fill="${CORK_DARK}"/>
+  <rect width="${W}" height="${H}" fill="${BG}"/>
+  <rect x="0" y="0" width="${W}" height="10" fill="${INK}"/>
 
-  <rect x="48" y="48" width="${W - 96}" height="112" rx="4" fill="#fdf6e3" stroke="rgba(0,0,0,0.25)" stroke-width="1.5" transform="rotate(-1 ${W / 2} 104)"/>
-  <text x="80" y="128" font-family="DejaVu Serif" font-weight="700" font-size="58" fill="${INK}" transform="rotate(-1 ${W / 2} 104)">WordSplice</text>
+  <text x="64" y="150" font-family="DejaVu Serif" font-weight="700" font-size="80" fill="${INK}">GraftPedia</text>
+  <text x="68" y="192" font-family="DejaVu Serif" font-size="26" fill="${MUTED}">syntax-tree semantic vandalism</text>
 
-  <text x="64" y="220" font-family="DejaVu Serif" font-size="24" fill="${MUTED}">splicepedia's successor, one level down — every WORD is real</text>
+  <line x1="64" y1="222" x2="${W - 64}" y2="222" stroke="${BORDER}" stroke-width="2"/>
 
-  ${clipRows}
+  <rect x="64" y="255" width="${W - 128}" height="245" rx="8" fill="${BOXBG}" stroke="${BORDER}" stroke-width="1.5"/>
+  ${bodySvg}
+  ${tagRows}
 
-  <text x="64" y="420" font-family="DejaVu Serif" font-size="20" fill="${MUTED}">Every word is verbatim from a different Wikipedia article, beam-searched into a real grammar slot.</text>
-  <text x="64" y="452" font-family="DejaVu Serif" font-size="20" fill="${MUTED}">Click “show clippings” to see where each one was cut from.</text>
+  <text x="96" y="536" font-family="DejaVu Serif" font-size="20" fill="${MUTED}">Every phrase is real. The grammar is perfect. Nothing belongs together.</text>
 
-  <text x="64" y="560" font-family="DejaVu Serif" font-weight="700" font-size="30" fill="#ffd27a">wordsplice.bisks.net</text>
+  <text x="64" y="590" font-family="DejaVu Serif" font-weight="700" font-size="26" fill="${RED}">graftpedia.bisks.net</text>
 </svg>`;
 
 const fontRegular = fileURLToPath(new URL("./fonts/DejaVuSerif.ttf", import.meta.url));
