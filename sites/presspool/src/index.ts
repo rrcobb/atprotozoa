@@ -28,10 +28,12 @@
 // returns { roundNumber, currentName, roundStartedAt, futileClicks, visits,
 // totalGraduated, graduated }.
 //
-// One Durable Object ("global") holds pools, bets, balances, and round
-// tracking, checked defensively on every request (so a quiet market still
-// advances promptly once someone loads the page) plus a backup alarm every
-// few minutes so it can advance even with zero traffic. No login: the page
+// One KV key holds pools, bets, balances, and round tracking, re-checked
+// defensively on every request so a quiet market still advances promptly once
+// someone loads the page. Per notes/11-durable-objects.md this is explicitly
+// best-effort: concurrent bets are last-write-wins, and a bet placed in the
+// same instant as another can be lost. Play money, so a race is a shrug
+// rather than a bug. No login: the page
 // mints an opaque id into localStorage and sends it as X-Client-Id, same
 // anonymous-identity shape as sites/guestbet, which this was originally
 // copied from — closest lineage (a DO pari-mutuel market with repeating
@@ -60,7 +62,6 @@ export default {
 // ---- config --------------------------------------------------------------
 const SOURCE_STATE_URL = "https://dontpressit.bisks.net/api/state";
 const STATE_CACHE_MS = 15_000; // don't hammer the upstream DO on every poll
-const ALARM_INTERVAL_MS = 5 * 60 * 1000; // advance promptly even with zero visitors
 const START_BALANCE = 1000;
 const MIN_BET = 10;
 const BET_COOLDOWN_MS = 1500; // per-client, guards double-submit
@@ -325,8 +326,9 @@ export class MarketStore {
     this.activity = [];
   }
 
-  // Checked defensively on every request (in addition to the backup alarm)
-  // so a round change can't be missed by a late/cold-started alarm. Returns
+  // Checked on every request. Without a Durable Object there is no alarm to
+  // advance a quiet market on its own, so a round change is picked up by the
+  // next visitor rather than in the background. Returns
   // true if state changed and needs persisting.
   private async maybeAdvance(): Promise<boolean> {
     const { data: source, stale } = await this.fetchSourceState();
