@@ -284,8 +284,20 @@ CHANGED=""; { [ -n "$DIRTY" ] || [ -n "$AHEAD" ]; } && CHANGED="1"
 # is still named/reported. A build touches sites/<name>/... (+ often apex/); the site
 # is the first changed sites/<name> dir. BUILD_RESULT wins when set (nicer, and the
 # only way to express "<site>/<path>").
+#
+# SIDE_EFFECT_PATHS_RE: paths an agent may touch as a SELF-DIRECTED side effect,
+# never as the delivered build itself — sites/sidenote's diary and
+# sites/alignment-autopsies' case log are both "leave a note for later," the same
+# category as the sites/receipts archive resync below. A run that touches ONLY
+# these (no BUILD_RESULT set) must not be derived-named or counted as REAL_CHANGED,
+# or DERIVED_NAME picks the diary/case-log dir as "the built site" and reply.mjs
+# posts a false "built it 🎉 — https://sidenote.bisks.net"-shaped reply for a
+# request that actually got declined. Caught 2026-08-06 (isolyth.dev's ask; see
+# sites/alignment-autopsies' entry for the full postmortem) and left unfixed there
+# pending exactly this change.
+SIDE_EFFECT_PATHS_RE='^sites/receipts/|^sites/sidenote/public/data/entries\.json$|^sites/alignment-autopsies/public/data/entries\.json$'
 CHANGED_PATHS="$( { git status --porcelain | sed -E 's/^...//; s/^"//'; git diff --name-only origin/main..HEAD 2>/dev/null; } )"
-DERIVED_NAME="$(printf '%s\n' "$CHANGED_PATHS" | grep -oE '^sites/[^/]+' | head -n1 | cut -d/ -f2 || true)"
+DERIVED_NAME="$(printf '%s\n' "$CHANGED_PATHS" | grep -vE "$SIDE_EFFECT_PATHS_RE" | grep -oE '^sites/[^/]+' | head -n1 | cut -d/ -f2 || true)"
 BUILT_NAME="${BUILD_RESULT:-$DERIVED_NAME}"
 
 # CHANGED is NOT "a real build happened" — INSTRUCTIONS.md's standing order runs
@@ -297,9 +309,11 @@ BUILT_NAME="${BUILD_RESULT:-$DERIVED_NAME}"
 # an explanation — the bug bisks.net flagged 2026-08-14 ("even in response-only
 # replies, it'll sometimes add the built it line"). REAL_CHANGED excludes that one
 # mandatory housekeeping path so disposition reflects whether the AGENT'S OWN work
-# changed anything, not whether bookkeeping happened to run this time.
+# changed anything, not whether bookkeeping happened to run this time. Same
+# SIDE_EFFECT_PATHS_RE as DERIVED_NAME above, for the same reason: a diary-only or
+# case-log-only run is bookkeeping, not a build.
 REAL_CHANGED=""
-if printf '%s\n' "$CHANGED_PATHS" | grep -v -E '^sites/receipts/' | grep -q .; then
+if printf '%s\n' "$CHANGED_PATHS" | grep -vE "$SIDE_EFFECT_PATHS_RE" | grep -q .; then
   REAL_CHANGED="1"
 fi
 
