@@ -383,23 +383,49 @@
     hudTime.textContent = t.toFixed(1) + "s";
   }
 
+  // A tile's true rhombus silhouette, relative to its own centroid — a
+  // property of the tile itself, unlike its position/rotation in the local
+  // grid (see renderMinimap). Cached since it never changes for a given node.
+  var tileShapeCache = new Map();
+  function tileShape(node) {
+    var cached = tileShapeCache.get(node);
+    if (cached) return cached;
+    var r = maze.rhombi[node];
+    var verts = [r.p1, r.p2, r.p3, r.p4].map(function (p) {
+      return { x: p.x - r.cx, y: p.y - r.cy };
+    });
+    var maxR = 0;
+    verts.forEach(function (v) { maxR = Math.max(maxR, Math.hypot(v.x, v.y)); });
+    var shape = { verts: verts, maxR: maxR };
+    tileShapeCache.set(node, shape);
+    return shape;
+  }
+
   function renderMinimap() {
     var w = minimapCanvas.width, h = minimapCanvas.height;
     mctx.clearRect(0, 0, w, h);
     mctx.fillStyle = "rgba(6,7,14,0.92)";
     mctx.fillRect(0, 0, w, h);
 
-    // Drawn in the player's LOCAL square-grid frame (state.px/py, state.angle,
-    // isWallBetween) — the same frame the raycaster and movement use — not in
-    // the true Penrose tile coordinates. Compass directions are assigned
-    // freely during maze carving (see penrose.js), so a real tile edge has no
-    // fixed rotation relative to N/E/S/W: two walls that look "opposite" when
-    // plotted at their true tiling positions can be compass-adjacent (e.g.
-    // N+E) in the FPV, and "facing" has no meaning at all in true-tile space
-    // since it's defined purely in terms of this local grid. Plotting
-    // real-geometry positions here used to produce exactly that — walls that
-    // looked contradictory against the POV, and a facing arrow pointing
-    // nowhere in particular. This map matches what's on screen instead.
+    // POSITIONS are drawn in the player's LOCAL square-grid frame (state.px/py,
+    // state.angle, isWallBetween) — the same frame the raycaster and movement
+    // use — not the true Penrose tile coordinates. Compass directions are
+    // assigned freely during maze carving (see penrose.js), so a real tile
+    // edge has no fixed rotation relative to N/E/S/W: two walls that look
+    // "opposite" when plotted at their true tiling positions can be
+    // compass-adjacent (e.g. N+E) in the FPV, and "facing" has no meaning at
+    // all in true-tile space since it's defined purely in terms of this local
+    // grid. Plotting real-geometry POSITIONS here used to produce exactly
+    // that — walls that looked contradictory against the POV, and a facing
+    // arrow pointing nowhere in particular — so layout stays schematic.
+    //
+    // SHAPE is a different axis, though: each cell's actual thin/fat rhombus
+    // silhouette (tileShape below) is a per-tile constant independent of
+    // where that tile sits in the local grid, so drawing it centered in its
+    // square cell adds back the real Penrose geometry as a visual layer
+    // without reintroducing the position/rotation bug above — you see the
+    // true tile shape you're standing on, walls/floor/facing still read off
+    // the consistent local frame underneath.
     var cell = Math.min(w, h) / 15;
     function toScreen(x, y) {
       return [w / 2 + (x - state.px) * cell, h / 2 - (y - state.py) * cell];
@@ -420,9 +446,24 @@
       mctx.lineTo(p2[0], p2[1]);
       mctx.lineTo(p3[0], p3[1]);
       mctx.closePath();
-      var col = maze.rhombi[node].color === 0 ? "rgba(70,110,200,0.35)" : "rgba(200,90,150,0.35)";
+      var col = maze.rhombi[node].color === 0 ? "rgba(70,110,200,0.15)" : "rgba(200,90,150,0.15)";
       mctx.fillStyle = col;
       mctx.fill();
+
+      var shape = tileShape(node);
+      var center = [(p0[0] + p2[0]) / 2, (p0[1] + p2[1]) / 2];
+      var iconScale = (cell * 0.42) / (shape.maxR || 1);
+      mctx.beginPath();
+      shape.verts.forEach(function (v, vi) {
+        var sx = center[0] + v.x * iconScale, sy = center[1] - v.y * iconScale;
+        if (vi === 0) mctx.moveTo(sx, sy); else mctx.lineTo(sx, sy);
+      });
+      mctx.closePath();
+      mctx.fillStyle = maze.rhombi[node].color === 0 ? "rgba(90,140,255,0.55)" : "rgba(230,110,180,0.55)";
+      mctx.fill();
+      mctx.strokeStyle = "rgba(255,255,255,0.25)";
+      mctx.lineWidth = 1;
+      mctx.stroke();
 
       var edges = { N: [p0, p1], E: [p1, p2], S: [p2, p3], W: [p3, p0] };
       DIRS.forEach(function (dir) {
@@ -474,7 +515,7 @@
     // Legend, drawn straight on the canvas so it stays in sync with colors above.
     mctx.font = "10px 'Segoe UI', sans-serif";
     mctx.textBaseline = "top";
-    var lx = 8, ly = h - 60;
+    var lx = 8, ly = h - 74;
     function legendSwatch(color, lw, label) {
       mctx.strokeStyle = color;
       mctx.lineWidth = lw;
@@ -485,6 +526,14 @@
     }
     legendSwatch("rgba(255,230,120,0.85)", 1.5, "floor (open door)");
     legendSwatch("rgba(255,90,90,0.85)", 2.5, "wall");
+    mctx.fillStyle = "rgba(90,140,255,0.55)";
+    mctx.beginPath();
+    mctx.moveTo(lx + 8, ly); mctx.lineTo(lx + 15, ly + 5); mctx.lineTo(lx + 8, ly + 10); mctx.lineTo(lx + 1, ly + 5);
+    mctx.closePath(); mctx.fill();
+    mctx.strokeStyle = "rgba(255,255,255,0.25)"; mctx.lineWidth = 1; mctx.stroke();
+    mctx.fillStyle = "rgba(238,240,255,0.85)";
+    mctx.fillText("tile's true Penrose shape", lx + 22, ly);
+    ly += 14;
     mctx.fillStyle = "#ffe66d";
     mctx.beginPath();
     mctx.moveTo(lx + 8, ly + 1); mctx.lineTo(lx, ly + 10); mctx.lineTo(lx + 16, ly + 10);
