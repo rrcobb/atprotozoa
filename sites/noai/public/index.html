@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>noai — a Bluesky feed with no A and no I</title>
+    <meta
+      name="description"
+      content="A live Bluesky feed of only the posts that manage to avoid the letters A and I entirely — no 'a', no 'i', not one, anywhere in the text. Filtered live off the firehose."
+    />
+    <meta property="og:title" content="noai" />
+    <meta
+      property="og:description"
+      content="A live Bluesky feed of only the posts with zero A's and zero I's in them. Rare, and rarer than you'd think."
+    />
+    <meta property="og:image" content="https://noai.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="noai: a dark card with the letters A and I struck through, over 'a bluesky feed with no A and no I'."
+    />
+    <meta property="og:url" content="https://noai.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="noai — a Bluesky feed with no A and no I" />
+    <meta
+      name="twitter:description"
+      content="Live off the firehose: only posts with zero A's and zero I's make it through."
+    />
+    <meta name="twitter:image" content="https://noai.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #05060a;
+        --panel: #0c0f18;
+        --ink: #eaf2fb;
+        --muted: #7f93ac;
+        --faint: rgba(234, 242, 251, 0.12);
+        --ok: #7cffb2;
+        --bad: #ff6b6b;
+        --accent: #ffd166;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;
+      }
+      header h1 { font-size: 1.4rem; font-weight: 700; margin: 0; letter-spacing: 0.01em; }
+      header h1 a { color: inherit; text-decoration: none; }
+      header h1 .strike { position: relative; color: var(--bad); }
+      header h1 .strike::after {
+        content: ""; position: absolute; left: -0.05em; right: -0.05em; top: 50%;
+        border-top: 2px solid var(--bad); transform: rotate(-12deg);
+      }
+      .status { font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 0.4rem; }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: #333; transition: background 0.3s; }
+      .dot.live { background: var(--ok); animation: pulse 2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+      .intro { color: var(--muted); font-size: 0.9rem; line-height: 1.7; margin: 0 0 1.5rem; max-width: 60ch; }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro .a { color: var(--bad); font-weight: 700; }
+      .intro .i { color: var(--bad); font-weight: 700; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      .stats {
+        display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap;
+        margin: 0 0 1.25rem; font-size: 0.78rem; color: var(--muted);
+        border: 1px solid var(--faint); border-radius: 10px; padding: 0.75rem 1rem;
+        background: var(--panel);
+      }
+      .stat { display: inline-flex; align-items: center; gap: 0.35rem; }
+      .stat .n { color: var(--ink); font-weight: 700; font-size: 0.95rem; }
+      .stat.ok .n { color: var(--ok); }
+      .spacer { flex: 1 1 auto; }
+      button.pause {
+        font-family: var(--mono); font-size: 0.75rem; color: var(--ink);
+        background: none; border: 1px solid var(--faint); border-radius: 6px;
+        padding: 0.35rem 0.7rem; cursor: pointer;
+      }
+      button.pause:hover { border-color: var(--muted); }
+      #shareSite {
+        color: var(--accent); text-decoration: none; font-size: 0.78rem;
+        border: 1px solid var(--faint); border-radius: 4px; padding: 0.25rem 0.6rem;
+      }
+      #shareSite:hover { border-color: var(--accent); }
+
+      .compose {
+        border: 1px solid var(--faint); border-radius: 10px; padding: 1rem;
+        background: var(--panel); margin: 0 0 2rem;
+      }
+      .compose h2 { font-size: 0.85rem; margin: 0 0 0.6rem; color: var(--muted); font-weight: 600; }
+      .compose textarea {
+        width: 100%; min-height: 4.5em; resize: vertical;
+        font-family: var(--mono); font-size: 0.9rem; color: var(--ink);
+        background: var(--bg); border: 1px solid var(--faint); border-radius: 6px;
+        padding: 0.6rem 0.7rem;
+      }
+      .compose textarea:focus { outline: none; border-color: var(--accent); }
+      .preview {
+        margin-top: 0.6rem; font-size: 0.9rem; line-height: 1.6; min-height: 1.4em;
+        word-break: break-word; white-space: pre-wrap;
+      }
+      .preview mark { background: none; color: var(--bad); text-decoration: underline wavy var(--bad); font-weight: 700; }
+      .compose-foot { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.7rem; }
+      .verdict { font-size: 0.78rem; }
+      .verdict.ok { color: var(--ok); }
+      .verdict.bad { color: var(--bad); }
+      .verdict.empty { color: var(--muted); }
+      #composeShare {
+        margin-left: auto; font-family: var(--mono); font-size: 0.78rem; font-weight: 600;
+        color: var(--bg); background: var(--ok); border: none; border-radius: 6px;
+        padding: 0.45rem 0.9rem; cursor: pointer; text-decoration: none;
+        opacity: 0.4; pointer-events: none; transition: opacity 0.15s;
+      }
+      #composeShare.enabled { opacity: 1; pointer-events: auto; }
+      #composeShare:hover.enabled { filter: brightness(1.08); }
+
+      ul.feed { margin: 0; padding: 0; list-style: none; }
+      ul.feed li {
+        padding: 0.85rem 0; border-top: 1px solid var(--faint);
+        display: flex; gap: 0.65rem; animation: fade 0.3s ease both;
+      }
+      ul.feed li:first-child { border-top: none; }
+      @keyframes fade { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+      .avatar {
+        flex: none; width: 34px; height: 34px; border-radius: 50%;
+        background: var(--faint); object-fit: cover;
+      }
+      .post-body { flex: 1 1 auto; min-width: 0; }
+      .post-head { display: flex; align-items: baseline; gap: 0.4rem; font-size: 0.78rem; margin-bottom: 0.2rem; flex-wrap: wrap; }
+      .post-head .who { color: var(--ink); font-weight: 600; }
+      .post-head .handle { color: var(--muted); }
+      .post-head .time { margin-left: auto; color: var(--muted); white-space: nowrap; }
+      .post-text { font-size: 0.9rem; color: var(--ink); word-break: break-word; white-space: pre-wrap; }
+      .post-link { font-size: 0.72rem; color: var(--accent); text-decoration: none; }
+      .post-link:hover { text-decoration: underline; }
+      .empty-feed { color: var(--muted); font-size: 0.85rem; padding: 1.5rem 0; text-align: center; }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">no<span class="strike">a</span><span class="strike">i</span></a></h1>
+        <div class="status">
+          <span class="dot" id="dot"></span>
+          <span id="statusText">connecting…</span>
+        </div>
+      </header>
+
+      <p class="intro">
+        Every post on Bluesky that contains zero <span class="a">A</span>'s and
+        zero <span class="i">I</span>'s, live off the firehose — no capital, no
+        lowercase, no combination, in any word. Most posts fail on the first
+        clause or the first sentence; the ones that make it through are shown
+        below, unedited. <b>@words.bsky.social</b> asked for it in a reply about
+        LLM subscriptions, which makes the name a small bonus: this is also,
+        literally, "no AI." Nothing is stored — every post is filtered live in
+        your browser and forgotten once it scrolls off.
+      </p>
+
+      <div class="stats">
+        <span class="stat"><span class="n" id="seenCount">0</span> seen</span>
+        <span class="stat ok"><span class="n" id="qualCount">0</span> clean</span>
+        <span class="stat" id="rateStat" style="display:none">1 in <span class="n" id="rateVal">—</span></span>
+        <span class="spacer"></span>
+        <button class="pause" id="pauseBtn">⏸ pause</button>
+        <a id="shareSite" href="#" target="_blank" rel="noopener">share noai</a>
+      </div>
+
+      <div class="compose">
+        <h2>try writing one</h2>
+        <textarea id="draft" placeholder="Write something with no A and no I…" maxlength="300"></textarea>
+        <div class="preview" id="preview"></div>
+        <div class="compose-foot">
+          <span class="verdict empty" id="verdict">start typing</span>
+          <a id="composeShare" href="#" target="_blank" rel="noopener">post it →</a>
+        </div>
+      </div>
+
+      <ul class="feed" id="feed">
+        <li class="empty-feed" id="emptyFeed">waiting for the first clean post to go by…</li>
+      </ul>
+
+      <footer>
+        firehose via <a href="https://github.com/bluesky-social/jetstream">jetstream</a>
+        · a <a href="https://bisks.net">bisks.net</a> experiment
+      </footer>
+    </div>
+
+    <script src="/client.js"></script>
+    <script>
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const seenCount = document.getElementById("seenCount");
+      const qualCount = document.getElementById("qualCount");
+      const rateStat = document.getElementById("rateStat");
+      const rateVal = document.getElementById("rateVal");
+      const pauseBtn = document.getElementById("pauseBtn");
+      const shareSite = document.getElementById("shareSite");
+      const feedEl = document.getElementById("feed");
+      const emptyFeed = document.getElementById("emptyFeed");
+      const draft = document.getElementById("draft");
+      const preview = document.getElementById("preview");
+      const verdict = document.getElementById("verdict");
+      const composeShare = document.getElementById("composeShare");
+
+      shareSite.href =
+        "https://bsky.app/intent/compose?text=" +
+        encodeURIComponent(
+          "noai is a live Bluesky feed of only the posts with zero A's and zero I's in them — filtered straight off the firehose, and yes, also literally \"no AI\" 🅰️🚫 🇮🚫\n\nbisks.net/noai",
+        );
+
+      function esc(s) {
+        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function timeAgo(iso) {
+        const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+        if (s < 60) return s + "s";
+        if (s < 3600) return Math.floor(s / 60) + "m";
+        if (s < 86400) return Math.floor(s / 3600) + "h";
+        return Math.floor(s / 86400) + "d";
+      }
+
+      function render(snap) {
+        dot.classList.toggle("live", snap.connected && !snap.paused);
+        statusText.textContent = snap.paused ? "paused" : snap.connected ? "live" : "reconnecting…";
+        seenCount.textContent = snap.seen.toLocaleString();
+        qualCount.textContent = snap.qualified.toLocaleString();
+        if (snap.seen >= 200) {
+          rateStat.style.display = "";
+          rateVal.textContent = Math.round(snap.seen / Math.max(1, snap.qualified)).toLocaleString();
+        }
+        pauseBtn.textContent = snap.paused ? "▶ resume" : "⏸ pause";
+
+        if (!snap.feed.length) {
+          feedEl.innerHTML = "";
+          feedEl.appendChild(emptyFeed);
+          return;
+        }
+        feedEl.innerHTML = snap.feed
+          .map((p) => {
+            const handle = p.profile ? p.profile.handle : p.did.slice(0, 24) + "…";
+            const name = p.profile ? p.profile.displayName : handle;
+            const avatar = p.profile && p.profile.avatar ? p.profile.avatar : "";
+            const link = `https://bsky.app/profile/${p.did}/post/${p.rkey}`;
+            return `<li>
+              ${avatar ? `<img class="avatar" src="${esc(avatar)}" alt="" loading="lazy" />` : `<span class="avatar"></span>`}
+              <div class="post-body">
+                <div class="post-head">
+                  <span class="who">${esc(name)}</span>
+                  <span class="handle">@${esc(handle)}</span>
+                  <span class="time">${timeAgo(p.createdAt)}</span>
+                </div>
+                <div class="post-text">${esc(p.text)}</div>
+                <a class="post-link" href="${link}" target="_blank" rel="noopener">view on bluesky →</a>
+              </div>
+            </li>`;
+          })
+          .join("");
+      }
+
+      pauseBtn.addEventListener("click", () => {
+        const snap = window.noaiClient.snapshot();
+        window.noaiClient.setPaused(!snap.paused);
+      });
+
+      function updateCompose() {
+        const text = draft.value;
+        if (!text.trim()) {
+          preview.innerHTML = "";
+          verdict.textContent = "start typing";
+          verdict.className = "verdict empty";
+          composeShare.classList.remove("enabled");
+          return;
+        }
+        const { ok, offenders } = window.noaiClient.testText(text);
+        const offset = new Set(offenders);
+        let html = "";
+        for (let i = 0; i < text.length; i++) {
+          const ch = esc(text[i]);
+          html += offset.has(i) ? `<mark>${ch}</mark>` : ch;
+        }
+        preview.innerHTML = html;
+        if (ok) {
+          verdict.textContent = "clean — no A, no I";
+          verdict.className = "verdict ok";
+          composeShare.classList.add("enabled");
+          composeShare.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+        } else {
+          const n = offenders.length;
+          verdict.textContent = `${n} banned letter${n === 1 ? "" : "s"} — highlighted below`;
+          verdict.className = "verdict bad";
+          composeShare.classList.remove("enabled");
+        }
+      }
+      draft.addEventListener("input", updateCompose);
+
+      window.noaiClient.subscribe(render);
+      window.noaiClient.connect();
+    </script>
+  </body>
+</html>
