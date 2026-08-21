@@ -391,6 +391,15 @@
 
     var scale = Math.min(w, h) * 0.46;
     function toScreen(p) { return [w / 2 + p.x * scale, h / 2 - p.y * scale]; }
+    // Room markers/edges need each rhombus's centroid, not a tile corner —
+    // toScreen(maze.rhombi[idx]) used to be called directly on the rhombus
+    // object, which has .cx/.cy (not .x/.y), so every one of these (open-door
+    // lines, start/goal dots, the player marker) silently plotted at NaN and
+    // never actually appeared. Route through the centroid explicitly.
+    function centerScreen(idx) {
+      var r = maze.rhombi[idx];
+      return toScreen({ x: r.cx, y: r.cy });
+    }
 
     maze.rhombi.forEach(function (r, idx) {
       if (!maze.nodeSet.has(idx)) return;
@@ -406,6 +415,7 @@
       mctx.stroke();
     });
 
+    // Floor: open passages — a real door was carved between these two rooms.
     mctx.strokeStyle = "rgba(255,230,120,0.85)";
     mctx.lineWidth = 1.5;
     mctx.beginPath();
@@ -414,31 +424,86 @@
       DIRS.forEach(function (dir) {
         var n = d[dir];
         if (n == null || n < idx) return;
-        var a = toScreen(maze.rhombi[idx]);
-        var b = toScreen(maze.rhombi[n]);
+        var a = centerScreen(idx);
+        var b = centerScreen(n);
         mctx.moveTo(a[0], a[1]);
         mctx.lineTo(b[0], b[1]);
       });
     });
     mctx.stroke();
 
-    var startP = toScreen(maze.rhombi[maze.start]);
+    // Walls: rooms that physically share a tiling edge but got no door —
+    // maze.adjacency is every real neighbor, maze.doors is the carved subset.
+    mctx.strokeStyle = "rgba(255,90,90,0.85)";
+    mctx.lineWidth = 2.5;
+    mctx.beginPath();
+    maze.nodes.forEach(function (idx) {
+      var doorTargets = new Set();
+      var d = maze.doors.get(idx);
+      DIRS.forEach(function (dir) { if (d[dir] != null) doorTargets.add(d[dir]); });
+      maze.adjacency[idx].forEach(function (n) {
+        if (n < idx || !maze.nodeSet.has(n) || doorTargets.has(n)) return;
+        var a = centerScreen(idx), b = centerScreen(n);
+        var mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+        var dx = b[0] - a[0], dy = b[1] - a[1];
+        var len = Math.hypot(dx, dy) || 1;
+        var nx = -dy / len, ny = dx / len;
+        var half = 6;
+        mctx.moveTo(mx - nx * half, my - ny * half);
+        mctx.lineTo(mx + nx * half, my + ny * half);
+      });
+    });
+    mctx.stroke();
+
+    var startP = centerScreen(maze.start);
     mctx.fillStyle = "#7fd4ff";
     mctx.beginPath(); mctx.arc(startP[0], startP[1], 4, 0, 7); mctx.fill();
 
-    var goalP = toScreen(maze.rhombi[maze.goal]);
+    var goalP = centerScreen(maze.goal);
     mctx.fillStyle = "#3ddc84";
     mctx.beginPath(); mctx.arc(goalP[0], goalP[1], 5, 0, 7); mctx.fill();
 
-    var meP = toScreen(maze.rhombi[state.currentNode]);
-    mctx.fillStyle = "#ffe66d";
-    mctx.beginPath(); mctx.arc(meP[0], meP[1], 5, 0, 7); mctx.fill();
+    // Player marker: a facing arrowhead (not just a stub line) so the
+    // direction reads at a glance, plus a small dot pinning exact position.
+    var meP = centerScreen(state.currentNode);
     var ang = state.angle;
-    mctx.strokeStyle = "#ffe66d";
+    var fx = Math.cos(ang), fy = -Math.sin(ang);
+    var px2 = -fy, py2 = fx;
+    var tipLen = 11, backLen = 6, wing = 5;
+    var tipX = meP[0] + fx * tipLen, tipY = meP[1] + fy * tipLen;
+    var backX = meP[0] - fx * backLen, backY = meP[1] - fy * backLen;
+    mctx.fillStyle = "#ffe66d";
     mctx.beginPath();
-    mctx.moveTo(meP[0], meP[1]);
-    mctx.lineTo(meP[0] + Math.cos(ang) * 10, meP[1] - Math.sin(ang) * 10);
+    mctx.moveTo(tipX, tipY);
+    mctx.lineTo(backX + px2 * wing, backY + py2 * wing);
+    mctx.lineTo(backX - px2 * wing, backY - py2 * wing);
+    mctx.closePath();
+    mctx.fill();
+    mctx.strokeStyle = "rgba(10,10,20,0.65)";
+    mctx.lineWidth = 1;
     mctx.stroke();
+    mctx.beginPath(); mctx.arc(meP[0], meP[1], 3, 0, 7); mctx.fill();
+
+    // Legend, drawn straight on the canvas so it stays in sync with colors above.
+    mctx.font = "10px 'Segoe UI', sans-serif";
+    mctx.textBaseline = "top";
+    var lx = 8, ly = h - 60;
+    function legendSwatch(color, lw, label) {
+      mctx.strokeStyle = color;
+      mctx.lineWidth = lw;
+      mctx.beginPath(); mctx.moveTo(lx, ly + 5); mctx.lineTo(lx + 16, ly + 5); mctx.stroke();
+      mctx.fillStyle = "rgba(238,240,255,0.85)";
+      mctx.fillText(label, lx + 22, ly);
+      ly += 14;
+    }
+    legendSwatch("rgba(255,230,120,0.85)", 1.5, "floor (open door)");
+    legendSwatch("rgba(255,90,90,0.85)", 2.5, "wall");
+    mctx.fillStyle = "#ffe66d";
+    mctx.beginPath();
+    mctx.moveTo(lx + 8, ly + 1); mctx.lineTo(lx, ly + 10); mctx.lineTo(lx + 16, ly + 10);
+    mctx.closePath(); mctx.fill();
+    mctx.fillStyle = "rgba(238,240,255,0.85)";
+    mctx.fillText("you, facing", lx + 22, ly);
   }
 
   // ---- Win state -----------------------------------------------------------
