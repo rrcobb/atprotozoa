@@ -272,6 +272,20 @@
         white-space: pre-wrap;
         word-break: break-word;
       }
+      .card .img-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 0.4rem;
+        margin: 0 0 0.6rem;
+      }
+      .card .img-grid img {
+        width: 100%;
+        max-height: 220px;
+        object-fit: cover;
+        border-radius: 10px;
+        background: var(--faint);
+        display: block;
+      }
       .card .meta {
         display: flex;
         justify-content: space-between;
@@ -356,6 +370,21 @@
         color: var(--muted);
         font-size: 0.85rem;
         margin-top: 0.1rem;
+        flex: 1;
+        min-width: 0;
+      }
+      .timeline .row2 {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+      }
+      .timeline .thumb {
+        width: 40px;
+        height: 40px;
+        border-radius: 8px;
+        object-fit: cover;
+        flex: none;
+        background: var(--faint);
       }
       .timeline a.plink {
         color: inherit;
@@ -368,6 +397,33 @@
         color: var(--muted);
         font-size: 0.82rem;
         margin-top: 0.4rem;
+      }
+
+      .senses {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 0.7rem;
+      }
+      .sense-btn {
+        font-family: var(--mono);
+        font-size: 0.76rem;
+        padding: 0.4rem 0.7rem;
+        border-radius: 999px;
+        border: 1px solid var(--faint);
+        background: var(--panel);
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .sense-btn.active {
+        border-color: var(--hazard);
+        color: var(--ink);
+        background: rgba(227, 73, 72, 0.12);
+      }
+      .senses-note {
+        color: var(--muted);
+        font-size: 0.8rem;
+        margin: -0.3rem 0 1rem;
       }
 
       .video-box {
@@ -482,6 +538,16 @@
         </div>
         <p class="caveat" id="caveat"></p>
 
+        <section id="sensesSection" style="display: none">
+          <p class="section-label"><span class="dot"></span> possible senses</p>
+          <div class="senses" id="senses"></div>
+          <p class="senses-note">
+            "<span id="phraseEcho"></span>" might mean more than one thing — grouped by words that keep
+            showing up together, not by AI (no embeddings here, just keyword co-occurrence). Pick a
+            sense to re-run everything below against just that group.
+          </p>
+        </section>
+
         <section id="chartSection">
           <p class="section-label"><span class="dot"></span> spread over time</p>
           <div class="chart-wrap" id="chart"></div>
@@ -546,8 +612,9 @@
     <script type="module">
       import { searchAll, postTime } from "./lib/search.js";
       import { socialGraph } from "./lib/graph.js";
-      import { escapeHtml, truncate, timeAgo, fmtClock, postUrl } from "./lib/util.js";
+      import { escapeHtml, truncate, timeAgo, fmtClock, postUrl, postImages } from "./lib/util.js";
       import { generateHypeVideo, canRecordVideo, generateShareCard } from "./lib/video.js";
+      import { clusterPosts } from "./lib/disambiguate.js";
 
       const $ = (id) => document.getElementById(id);
       const form = $("form");
@@ -556,7 +623,7 @@
       const statusEl = $("status");
       const results = $("results");
 
-      let state = null; // { phrase, cases, globalZero, localZero, localChecked, graph }
+      let state = null; // { phrase, cases, localChecked, graph, senses, leftover, activeSense }
 
       document.querySelectorAll(".examples a[data-ex]").forEach((a) => {
         a.addEventListener("click", () => {
@@ -611,22 +678,30 @@
           });
 
           let graph = null;
-          let localZero = null;
           const localChecked = !!handle;
           if (handle) {
             try {
               setStatus("cross-referencing your social graph…");
               graph = await socialGraph(handle, { onStep: setStatus });
-              localZero = cases.find((c) => graph.poolDids.has(c.author.did) || c.author.did === graph.did) || null;
             } catch (e) {
               setStatus(`couldn't read that handle's social graph (${e.message}) — continuing without it`, true);
               await new Promise((r) => setTimeout(r, 1200));
             }
           }
 
-          const globalZero = cases[0] || null;
+          const clusters = clusterPosts(cases, phrase);
+          const senses = clusters.clustered ? clusters.senses : [];
 
-          state = { phrase, cases, globalZero, localZero, localChecked, graph, hitLimit, foundBaseline };
+          state = {
+            phrase,
+            cases,
+            localChecked,
+            graph,
+            hitLimit,
+            foundBaseline,
+            senses,
+            activeSense: null, // null = "all cases"
+          };
           render(state);
           setStatus(cases.length ? `investigation complete — ${cases.length} case${cases.length === 1 ? "" : "s"} found.` : "no cases found yet — this phrase hasn't hit search. try again in a bit.");
         } catch (e) {
@@ -636,18 +711,41 @@
         }
       }
 
+      // Which posts are "in scope" right now: everything, or just one detected
+      // sense. Recomputing globalZero/localZero per-view (rather than once at
+      // fetch time) is what makes picking a sense actually re-run the
+      // investigation instead of just re-filtering a timeline.
+      function activeCases(s) {
+        if (s.activeSense == null) return s.cases;
+        return s.senses[s.activeSense]?.posts || s.cases;
+      }
+
+      function buildView(s) {
+        const cases = activeCases(s);
+        const globalZero = cases[0] || null;
+        const localZero = s.graph ? cases.find((c) => s.graph.poolDids.has(c.author.did) || c.author.did === s.graph.did) || null : null;
+        return { cases, globalZero, localZero };
+      }
+
       function render(s) {
         results.classList.add("show");
+        renderSenses(s);
 
-        $("statCount").textContent = s.hitLimit ? `${s.cases.length}+` : String(s.cases.length);
-        $("statFirst").textContent = s.globalZero ? fmtClock(postTime(s.globalZero)) : "—";
-        if (s.cases.length > 1) {
-          const spanMs = postTime(s.cases[s.cases.length - 1]) - postTime(s.cases[0]);
+        const view = buildView(s);
+        s.view = view; // video/card/share handlers read the currently-active view
+        const { cases, globalZero, localZero } = view;
+
+        $("statCount").textContent = s.activeSense == null && s.hitLimit ? `${cases.length}+` : String(cases.length);
+        $("statFirst").textContent = globalZero ? fmtClock(postTime(globalZero)) : "—";
+        if (cases.length > 1) {
+          const spanMs = postTime(cases[cases.length - 1]) - postTime(cases[0]);
           $("statSpan").textContent = fmtDuration(spanMs);
         } else {
           $("statSpan").textContent = "—";
         }
-        if (s.hitLimit) {
+        if (s.activeSense != null) {
+          $("caveat").textContent = `Filtered to the "${s.senses[s.activeSense].label}" sense — patient zero and the timeline below only cover this group.`;
+        } else if (s.hitLimit) {
           $("caveat").textContent = "Paged deep into this phrase's history without ever finding a quiet period before it — treat patient zero as \"earliest we could still find,\" not a confirmed origin.";
         } else if (s.foundBaseline) {
           $("caveat").textContent = "Found a clear quiet stretch right before this — high confidence this is the real patient zero, not just where the search cap landed.";
@@ -655,24 +753,57 @@
           $("caveat").textContent = "This is the full run of what Bluesky's search index still has for this phrase.";
         }
 
-        renderChart(s.cases);
-        $("globalCard").innerHTML = s.globalZero ? patientCardHtml(s.globalZero, "global", 1) : `<p class="empty-note">No confirmed cases found yet.</p>`;
+        renderChart(cases);
+        $("globalCard").innerHTML = globalZero ? patientCardHtml(globalZero, "global", 1) : `<p class="empty-note">No confirmed cases found yet.</p>`;
 
         const localSection = $("localSection");
         if (!s.localChecked) {
           localSection.style.display = "none";
         } else {
           localSection.style.display = "";
-          if (s.localZero) {
-            const caseNo = s.cases.indexOf(s.localZero) + 1;
-            $("localCard").innerHTML = patientCardHtml(s.localZero, "local", caseNo);
+          if (localZero) {
+            const caseNo = cases.indexOf(localZero) + 1;
+            $("localCard").innerHTML = patientCardHtml(localZero, "local", caseNo);
           } else {
             $("localCard").innerHTML = `<p class="empty-note">Nobody in your ${escapeHtml(s.graph?.kind || "circle")} has caught it yet. You might be patient zero.</p>`;
           }
         }
 
-        renderTimeline(s);
-        renderShare(s);
+        renderTimeline(s, view);
+        renderShare(s, view);
+      }
+
+      function renderSenses(s) {
+        const section = $("sensesSection");
+        if (!s.senses.length) {
+          section.style.display = "none";
+          return;
+        }
+        section.style.display = "";
+        $("phraseEcho").textContent = s.phrase;
+        const total = s.cases.length;
+        const allBtn = `<button type="button" class="sense-btn${s.activeSense == null ? " active" : ""}" data-sense="">all (${total})</button>`;
+        const senseBtns = s.senses
+          .map(
+            (sense, i) =>
+              `<button type="button" class="sense-btn${s.activeSense === i ? " active" : ""}" data-sense="${i}">${escapeHtml(sense.label)} (${sense.posts.length})</button>`,
+          )
+          .join("");
+        $("senses").innerHTML = allBtn + senseBtns;
+        $("senses")
+          .querySelectorAll(".sense-btn")
+          .forEach((btn) => {
+            btn.addEventListener("click", () => {
+              s.activeSense = btn.dataset.sense === "" ? null : Number(btn.dataset.sense);
+              $("video").classList.remove("ready");
+              $("video").removeAttribute("src");
+              $("downloadVideo").style.display = "none";
+              $("shareVideo").style.display = "none";
+              $("downloadCard").style.display = "none";
+              $("videoStatus").textContent = "";
+              render(s);
+            });
+          });
       }
 
       function fmtDuration(ms) {
@@ -685,6 +816,12 @@
 
       function patientCardHtml(post, kind, caseNo) {
         const av = post.author.avatar ? `/api/avatar?u=${encodeURIComponent(post.author.avatar)}` : "";
+        const images = postImages(post);
+        const imgGrid = images.length
+          ? `<div class="img-grid">${images
+              .map((img) => `<img src="${escapeHtml(img.thumb)}" alt="${escapeHtml(img.alt || "")}" loading="lazy" />`)
+              .join("")}</div>`
+          : "";
         return `
           <div class="card ${kind}">
             <div class="who">
@@ -695,6 +832,7 @@
               </div>
             </div>
             <div class="text">${escapeHtml(truncate(post.record?.text || "", 280))}</div>
+            ${imgGrid}
             <div class="meta">
               <a href="${escapeHtml(postUrl(post))}" target="_blank" rel="noopener">case #${caseNo} · ${escapeHtml(fmtClock(postTime(post)))}</a>
               <span>${escapeHtml(timeAgo(postTime(post)))}</span>
@@ -702,12 +840,15 @@
           </div>`;
       }
 
-      function renderTimeline(s) {
+      function renderTimeline(s, view) {
         const MAX_SHOWN = 40;
-        const shown = s.cases.slice(0, MAX_SHOWN);
+        const cases = view.cases;
+        const shown = cases.slice(0, MAX_SHOWN);
         $("timeline").innerHTML = shown
           .map((post, i) => {
-            const cls = post === s.globalZero ? "mark-global" : post === s.localZero ? "mark-local" : "";
+            const cls = post === view.globalZero ? "mark-global" : post === view.localZero ? "mark-local" : "";
+            const images = postImages(post);
+            const thumb = images.length ? `<img class="thumb" src="${escapeHtml(images[0].thumb)}" alt="${escapeHtml(images[0].alt || "")}" loading="lazy" />` : "";
             return `
               <li class="${cls}">
                 <a class="plink" href="${escapeHtml(postUrl(post))}" target="_blank" rel="noopener">
@@ -716,12 +857,15 @@
                     <span class="handle">@${escapeHtml(post.author.handle)}</span>
                     <span class="when">${escapeHtml(timeAgo(postTime(post)))}</span>
                   </div>
-                  <div class="snippet">${escapeHtml(truncate(post.record?.text || "", 100))}</div>
+                  <div class="row2">
+                    ${thumb}
+                    <div class="snippet">${escapeHtml(truncate(post.record?.text || "", 100))}</div>
+                  </div>
                 </a>
               </li>`;
           })
           .join("");
-        $("moreNote").textContent = s.cases.length > MAX_SHOWN ? `+ ${s.cases.length - MAX_SHOWN} more cases not shown` : "";
+        $("moreNote").textContent = cases.length > MAX_SHOWN ? `+ ${cases.length - MAX_SHOWN} more cases not shown` : "";
       }
 
       // ---- chart: cases over time, single-hue sequential bars ----------------
@@ -829,10 +973,10 @@
           const shareUrl = `patientzero.bisks.net/s/${encodeURIComponent(state.phrase)}`;
           const blob = await generateHypeVideo({
             phrase: state.phrase,
-            globalZero: state.globalZero,
-            localZero: state.localZero,
+            globalZero: state.view.globalZero,
+            localZero: state.view.localZero,
             localChecked: state.localChecked,
-            cases: state.cases,
+            cases: state.view.cases,
             shareUrl,
             onProgress: (p) => ($("videoStatus").textContent = `recording… ${Math.round(p * 100)}%`),
           });
@@ -866,7 +1010,7 @@
           await navigator.share({
             files: [file],
             title: "patient zero",
-            text: buildShareText(state),
+            text: buildShareText(state, state.view),
           });
         } catch {}
       });
@@ -879,8 +1023,8 @@
           const shareUrl = `patientzero.bisks.net/s/${encodeURIComponent(state.phrase)}`;
           const blob = await generateShareCard({
             phrase: state.phrase,
-            globalZero: state.globalZero,
-            cases: state.cases,
+            globalZero: state.view.globalZero,
+            cases: state.view.cases,
             shareUrl,
           });
           const url = URL.createObjectURL(blob);
@@ -894,18 +1038,19 @@
         }
       });
 
-      function buildShareText(s) {
+      function buildShareText(s, view) {
         const url = `https://patientzero.bisks.net/s/${encodeURIComponent(s.phrase)}`;
-        const count = s.hitLimit ? `${s.cases.length}+` : s.cases.length;
-        let text = `🦠 outbreak report: "${s.phrase}" — ${count} confirmed case${s.cases.length === 1 ? "" : "s"}`;
-        if (s.globalZero) text += `, patient zero: @${s.globalZero.author.handle}`;
+        const count = s.activeSense == null && s.hitLimit ? `${view.cases.length}+` : view.cases.length;
+        const sense = s.activeSense != null ? ` (${s.senses[s.activeSense].label} sense)` : "";
+        let text = `🦠 outbreak report: "${s.phrase}"${sense} — ${count} confirmed case${view.cases.length === 1 ? "" : "s"}`;
+        if (view.globalZero) text += `, patient zero: @${view.globalZero.author.handle}`;
         text += `\nfull case file: ${url}`;
         if (text.length > 295) text = text.slice(0, 292) + "…";
         return text;
       }
 
-      function renderShare(s) {
-        $("shareBluesky").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(s));
+      function renderShare(s, view) {
+        $("shareBluesky").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(s, view));
       }
     </script>
   </body>

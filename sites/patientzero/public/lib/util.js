@@ -43,6 +43,27 @@ export function postUrl(post) {
   return `https://bsky.app/profile/${post.author.handle}/post/${rkey}`;
 }
 
+// Pull image thumbnails out of a hydrated post's embed, if any.
+// searchPosts returns the AppView's hydrated view embed
+// (app.bsky.embed.images#view, possibly nested inside
+// app.bsky.embed.recordWithMedia#view when a post quotes something and also
+// attaches its own images), not the raw record embed — so thumb/fullsize are
+// already-resolved cdn.bsky.app URLs, no extra fetch needed. Added so meme
+// phrases (image macros, not just text posts) actually show the image in a
+// case card instead of just the caption — @fieldleveltech.org asked for
+// "memes not just chat."
+export function postImages(post) {
+  const embed = post?.embed;
+  if (!embed) return [];
+  if (embed.$type === "app.bsky.embed.images#view" && Array.isArray(embed.images)) {
+    return embed.images;
+  }
+  if (embed.$type === "app.bsky.embed.recordWithMedia#view" && embed.media) {
+    return postImages({ embed: embed.media });
+  }
+  return [];
+}
+
 // Load an image through a same-origin proxy path so it doesn't taint a
 // canvas (cdn.bsky.app sends no CORS headers of its own). Resolves to null
 // on any failure so callers can fall back to a placeholder.
