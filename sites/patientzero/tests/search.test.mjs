@@ -4,10 +4,10 @@
 // Run with `node --test tests/`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { normalizeDate, postTime, pageRate, makeQuietDetector } from "../public/lib/search.js";
+import { normalizeDate, postTime, pageRate, makeQuietDetector, matchesPhrase, searchAll } from "../public/lib/search.js";
 
-function post(iso) {
-  return { record: { createdAt: iso } };
+function post(iso, text) {
+  return { record: { createdAt: iso, text: text ?? "" } };
 }
 
 // A synthetic "page" of `count` posts evenly spread across `spanMs`,
@@ -122,4 +122,77 @@ test("detector ignores pages with no usable rate signal (keeps paging through th
   // A too-short-span page (below MIN_SPAN_MS) shouldn't count as quiet or reset anything.
   const noisy = d.feed(pageOf(10, 60_000, new Date(end - 3600_000).toISOString()));
   assert.equal(noisy, false);
+});
+
+// ---- matchesPhrase -----------------------------------------------------------
+// @bisks.net's fourth-round bug report: the displayed patient zero didn't
+// contain the phrase at all, and the origin was found ~10 days before the
+// visible spike, "which doesn't seem related." searchPosts ranks by
+// relevance, not literal containment, so unfiltered results can include
+// posts that never said the phrase — and one of those, happening to be rare
+// and old, can look exactly like the pre-spike baseline the quiet detector
+// is hunting for.
+
+test("matchesPhrase accepts a literal, case-insensitive substring match", () => {
+  assert.equal(matchesPhrase(post("2026-08-21T10:00:00Z", "everyone is saying ZORPTASTIC today"), "zorptastic"), true);
+});
+test("matchesPhrase rejects a post that never says the phrase", () => {
+  assert.equal(matchesPhrase(post("2026-08-21T10:00:00Z", "just vibing, unrelated post"), "zorptastic"), false);
+});
+test("matchesPhrase rejects a post that only shares one word of a multi-word phrase", () => {
+  assert.equal(matchesPhrase(post("2026-08-21T10:00:00Z", "the weird part is true"), "weird phrase"), false);
+});
+test("matchesPhrase treats a missing/empty post text as no match", () => {
+  assert.equal(matchesPhrase({ record: {} }, "zorptastic"), false);
+  assert.equal(matchesPhrase(null, "zorptastic"), false);
+});
+
+// ---- searchAll: the end-to-end regression -----------------------------------
+
+let uriCounter = 0;
+function fullPost(iso, text) {
+  uriCounter++;
+  return {
+    uri: `at://did:example:alice/app.bsky.feed.post/${uriCounter}`,
+    author: { did: "did:example:alice", handle: "alice.test" },
+    record: { createdAt: iso, text },
+  };
+}
+function fullPageOf(count, spanMs, endIso, text) {
+  const end = Date.parse(endIso);
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    out.push(fullPost(new Date(end - (spanMs * i) / Math.max(1, count - 1)).toISOString(), text));
+  }
+  return out;
+}
+
+test("searchAll drops posts that don't literally contain the phrase, so unrelated noise can't surface as patient zero", async () => {
+  const end = Date.parse("2026-08-21T12:00:00Z");
+  // Page 0: the real spike — 100 posts/hour, all genuinely saying the phrase.
+  const spike = fullPageOf(100, 3600_000, new Date(end).toISOString(), "everyone is saying zorptastic today");
+  // Page 1: relevance ranking drags in unrelated posts that share a word but
+  // not the phrase, spread across 10 days. Pre-fix, the raw batch's rate
+  // over that span would read as a quiet pre-spike lull; none of these
+  // should reach the results or the rate calc at all.
+  const noise = fullPageOf(50, 10 * 24 * 3600_000, new Date(end - 2 * 3600_000).toISOString(), "just talking about zorp, unrelated");
+  const pages = [
+    { posts: spike, cursor: "c1" },
+    { posts: noise, cursor: undefined },
+  ];
+  let call = 0;
+  const originalFetch = global.fetch;
+  global.fetch = async () => {
+    const body = pages[Math.min(call, pages.length - 1)];
+    call++;
+    return { ok: true, status: 200, json: async () => body };
+  };
+
+  try {
+    const { posts } = await searchAll("zorptastic");
+    assert.equal(posts.length, 100);
+    assert.ok(posts.every((p) => p.record.text.toLowerCase().includes("zorptastic")));
+  } finally {
+    global.fetch = originalFetch;
+  }
 });

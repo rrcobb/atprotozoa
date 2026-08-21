@@ -24,6 +24,16 @@
 // done in code instead of by eyeballing a chart. MAX_PAGES is now just the
 // backstop for phrases that never show that quiet baseline at all (a slow
 // burn, or a genuinely bottomless spike) — see foundBaseline/hitLimit below.
+//
+// Exact-phrase filter (added 2026-08-21, see sites/sidenote): searchPosts
+// ranks by relevance, not literal containment, so a page can come back with
+// posts that don't actually have the phrase in them at all. @bisks.net hit
+// this two ways at once: the displayed patient zero didn't contain the
+// phrase, and the quiet detector locked onto an unrelated post's own rare
+// usage ~10 days before the real spike, mistaking that lull for the
+// pre-spike baseline. matchesPhrase() drops anything that isn't a literal
+// (case-insensitive) substring match before it reaches results, dedup, or
+// the rate calc that feeds the detector.
 
 const SEARCH_API = "https://trigrams.bisks.net/api/search";
 const PAGE_LIMIT = 100;
@@ -42,6 +52,21 @@ export function normalizeDate(iso) {
 
 export function postTime(post) {
   return new Date(normalizeDate(post?.record?.createdAt || post?.indexedAt));
+}
+
+// searchPosts does relevance ranking, not exact-phrase matching — a
+// multi-word query can come back with posts that only share some of the
+// words (or a stemmed/tokenized variant), not the literal phrase. Left
+// unfiltered, those loosely-related posts pollute both "patient zero" (shows
+// a post that doesn't actually contain the phrase) and the quiet-boundary
+// detector (an unrelated post's own rare, unrelated usage looks like a quiet
+// pre-spike page, so the detector locks onto it instead of the real origin —
+// @bisks.net caught this live, patient zero ~10 days before the real spike).
+// Case-insensitive substring check is enough: it's a strictly narrower set
+// than what the API returned, never wider, so it can only remove noise.
+export function matchesPhrase(post, phraseLower) {
+  const text = (post?.record?.text || "").toLowerCase();
+  return text.includes(phraseLower);
 }
 
 // A page's post rate, in posts/ms. `batch` is one page of search results
@@ -107,6 +132,7 @@ export function makeQuietDetector() {
 export async function searchAll(phrase, { onPage } = {}) {
   const posts = [];
   const seen = new Set();
+  const phraseLower = phrase.toLowerCase();
   let cursor = "";
   let hitLimit = false;
   let foundBaseline = false;
@@ -130,7 +156,10 @@ export async function searchAll(phrase, { onPage } = {}) {
 
     const data = await res.json();
     const batch = data.posts || [];
-    for (const post of batch) {
+    // Only the posts that actually contain the phrase feed the results, the
+    // dedup set, and the quiet-boundary rate — see matchesPhrase() above.
+    const matched = batch.filter((post) => matchesPhrase(post, phraseLower));
+    for (const post of matched) {
       if (!post?.uri || seen.has(post.uri)) continue;
       seen.add(post.uri);
       posts.push(post);
@@ -140,11 +169,11 @@ export async function searchAll(phrase, { onPage } = {}) {
       onPage({
         page: p + 1,
         totalSoFar: posts.length,
-        oldestSoFar: batch.length ? postTime(batch[batch.length - 1]) : null,
+        oldestSoFar: matched.length ? postTime(matched[matched.length - 1]) : null,
       });
     }
 
-    if (quiet.feed(batch)) {
+    if (quiet.feed(matched)) {
       foundBaseline = true;
       break;
     }
