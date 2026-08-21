@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>tonolingo — duolingo for telling tones apart</title>
+<meta name="description" content="An ear-trainer for tonal languages: Mandarin, Vietnamese, and Cantonese pitch contours, synthesized live. Lessons, hearts, streaks, XP." />
+<meta property="og:title" content="tonolingo — duolingo for telling tones apart" />
+<meta property="og:description" content="An ear-trainer for tonal languages: Mandarin, Vietnamese, and Cantonese pitch contours, synthesized live. Lessons, hearts, streaks, XP." />
+<meta property="og:url" content="https://tonolingo.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://tonolingo.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="tonolingo: a duolingo-style ear-trainer for tonal languages, playing synthesized pitch contours for Mandarin, Vietnamese, and Cantonese tones." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="tonolingo — duolingo for telling tones apart" />
+<meta name="twitter:description" content="An ear-trainer for tonal languages: Mandarin, Vietnamese, and Cantonese pitch contours, synthesized live." />
+<meta name="twitter:image" content="https://tonolingo.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #f4faf9;
+    --bg2: #e3f0ee;
+    --card: #ffffff;
+    --ink: #17302d;
+    --dim: #6b8582;
+    --border: #d9e8e5;
+    --accent: #0e7c86;
+    --accent-dim: #a9d3d3;
+    --green: #58cc02;
+    --green-dim: #d7ffb8;
+    --red: #ff4b4b;
+    --gold: #ffb703;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding-bottom: 3rem; }
+  .wrap { width: 100%; max-width: 620px; padding: 0 1.1rem; }
+
+  header.top {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+    position: sticky; top: 0; z-index: 5;
+  }
+  header.top .inner {
+    width: 100%; max-width: 620px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.85rem 1.1rem;
+  }
+  .brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.05rem; }
+  .brand .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--accent); }
+  .stats { display: flex; align-items: center; gap: 0.9rem; font-size: 0.85rem; font-weight: 700; color: var(--dim); }
+  .stats .streak { color: #ff9500; }
+  .stats .xp { color: var(--accent); }
+  .stats .sfx {
+    background: none; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--dim); font: inherit; font-size: 0.72rem; font-weight: 700;
+    padding: 0.3rem 0.5rem; cursor: pointer;
+  }
+  .stats .sfx:hover { border-color: var(--accent-dim); color: var(--ink); }
+
+  h1.title { font-size: 1.5rem; margin: 1.6rem 0 0.15rem; }
+  p.sub { color: var(--dim); font-size: 0.92rem; line-height: 1.5; margin: 0 0 1.6rem; }
+  p.sub b { color: var(--ink); }
+  p.sub a { color: var(--accent); }
+
+  /* --- lesson path --- */
+  .path { display: flex; flex-direction: column; gap: 0.9rem; margin-top: 0.5rem; }
+  .node {
+    display: flex; align-items: center; gap: 0.9rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 0.9rem 1.05rem;
+    cursor: pointer;
+    text-align: left;
+  }
+  .node:disabled, .node.locked { opacity: 0.5; cursor: not-allowed; }
+  .node .icon {
+    width: 42px; height: 42px; flex: none;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.15rem;
+    background: var(--green-dim);
+    border: 2px solid var(--green);
+  }
+  .node.locked .icon { background: var(--bg2); border-color: var(--border); }
+  .node.done .icon { background: var(--accent-dim); border-color: var(--accent); }
+  .node .meta { flex: 1; min-width: 0; }
+  .node .meta .t { font-weight: 800; font-size: 0.98rem; }
+  .node .meta .b { color: var(--dim); font-size: 0.78rem; margin-top: 0.15rem; line-height: 1.35; }
+  .node .stars { font-size: 0.85rem; color: var(--gold); white-space: nowrap; }
+
+  .cert-node {
+    background: linear-gradient(90deg, var(--accent), #0a5a62);
+    color: #eafffb;
+    border: none;
+  }
+  .cert-node .icon { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.5); }
+  .cert-node .meta .b { color: #cdece8; }
+  .cert-node.locked { background: var(--card); color: inherit; }
+  .cert-node.locked .meta .b { color: var(--dim); }
+
+  footer.reset {
+    margin-top: 2rem; text-align: center;
+  }
+  footer.reset button {
+    background: none; border: none; color: var(--dim);
+    font: inherit; font-size: 0.72rem; text-decoration: underline; cursor: pointer;
+  }
+  footer.reset .sep { color: var(--border); font-size: 0.72rem; margin: 0 0.15rem; }
+
+  /* --- lesson view --- */
+  .lesson { display: none; }
+  .lesson.show { display: block; }
+  .path-view.hide, .lesson.hide { display: none; }
+
+  .lbar {
+    display: flex; align-items: center; gap: 0.75rem;
+    margin: 1.2rem 0 1.6rem;
+  }
+  .lbar .quit { background: none; border: none; color: var(--dim); font: inherit; font-size: 1.1rem; cursor: pointer; padding: 0 0.2rem; }
+  .lbar .track { flex: 1; height: 12px; background: var(--bg2); border-radius: 8px; overflow: hidden; }
+  .lbar .fill { height: 100%; background: var(--green); width: 0%; transition: width 0.3s ease; }
+  .lbar .hearts { display: flex; gap: 0.15rem; font-size: 1.05rem; }
+
+  .qcard { text-align: center; }
+  .qcard .prompt-label { color: var(--dim); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.9rem; }
+  .playbtn {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 0.3rem;
+    width: 96px; height: 96px; margin: 0 auto 1.6rem;
+    border-radius: 50%; border: 2px solid var(--accent);
+    background: var(--accent-dim);
+    color: var(--accent);
+    font-size: 2.1rem;
+    cursor: pointer;
+  }
+  .playbtn:hover { background: #bfe1e1; }
+  .playbtn .hint { font-size: 0.6rem; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
+  .choices { display: grid; gap: 0.65rem; }
+  .choice {
+    display: flex; align-items: center; gap: 0.8rem;
+    background: var(--card); border: 2px solid var(--border); border-radius: 12px;
+    padding: 0.7rem 1rem; font: inherit; font-size: 0.92rem; text-align: left;
+    cursor: pointer; line-height: 1.4; width: 100%;
+    color: var(--dim);
+  }
+  .choice .cicon { flex: none; color: var(--accent); }
+  .choice .ctext { display: flex; flex-direction: column; }
+  .choice .clabel { font-weight: 800; color: var(--ink); font-size: 0.95rem; }
+  .choice .csub { font-size: 0.76rem; color: var(--dim); margin-top: 0.1rem; }
+  .choice:hover:not(:disabled) { border-color: var(--accent-dim); }
+  .choice.correct { border-color: var(--green); background: var(--green-dim); }
+  .choice.correct .cicon { color: #2c6b00; }
+  .choice.wrong { border-color: var(--red); background: #ffe1e1; }
+  .choice:disabled { cursor: default; }
+
+  .fbar {
+    margin-top: 1.4rem; border-radius: 12px; padding: 1rem 1.1rem;
+    display: none; align-items: center; justify-content: space-between; gap: 1rem;
+  }
+  .fbar.show { display: flex; }
+  .fbar.ok { background: var(--green-dim); }
+  .fbar.bad { background: #ffe1e1; }
+  .fbar .flabel { font-weight: 800; font-size: 0.92rem; text-align: left; }
+  .fbar.ok .flabel { color: #2c6b00; }
+  .fbar.bad .flabel { color: #a30000; }
+  .fbar button {
+    border: none; border-radius: 10px; padding: 0.65rem 1.3rem; font: inherit; font-weight: 800;
+    font-size: 0.85rem; cursor: pointer; color: #fff; flex: none;
+  }
+  .fbar.ok button { background: var(--green); }
+  .fbar.bad button { background: var(--red); }
+
+  /* --- result / cert screens --- */
+  .screen { display: none; text-align: center; padding-top: 2.5rem; }
+  .screen.show { display: block; }
+  .screen .big { font-size: 3rem; margin-bottom: 0.4rem; }
+  .screen h2 { font-size: 1.4rem; margin: 0 0 0.3rem; }
+  .screen p { color: var(--dim); font-size: 0.9rem; margin: 0 0 1.5rem; line-height: 1.5; }
+  .screen .rowstats { display: flex; justify-content: center; gap: 1.6rem; margin-bottom: 1.8rem; }
+  .screen .rowstats div { text-align: center; }
+  .screen .rowstats .n { font-size: 1.4rem; font-weight: 800; }
+  .screen .rowstats .l { font-size: 0.7rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .btnrow { display: flex; gap: 0.7rem; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    border: none; border-radius: 10px; padding: 0.8rem 1.4rem; font: inherit; font-weight: 800;
+    font-size: 0.85rem; cursor: pointer; text-decoration: none; display: inline-block;
+  }
+  .btn.primary { background: var(--accent); color: #eafffb; }
+  .btn.secondary { background: var(--card); color: var(--ink); border: 1px solid var(--border); }
+  .btn.bsky { background: #1185fe; color: #fff; }
+
+  canvas#shareCanvas { display: none; }
+  .cardpreview { margin: 0 auto 1.5rem; max-width: 420px; width: 100%; border-radius: 14px; border: 1px solid var(--border); }
+
+  @media (max-width: 420px) {
+    h1.title { font-size: 1.3rem; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="inner">
+    <div class="brand"><span class="dot"></span> tonolingo</div>
+    <div class="stats">
+      <span class="streak" id="streakStat">🔥 0</span>
+      <span class="xp" id="xpStat">✦ 0 xp</span>
+      <button class="sfx" id="sfxBtn" type="button">🔊 sound</button>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="path-view" id="pathView">
+    <h1 class="title">duolingo for telling tones apart</h1>
+    <p class="sub">Tonal languages use pitch to distinguish words that otherwise
+      sound identical. tonolingo synthesizes each tone contour live — no audio
+      files — and drills your ear on Mandarin, Vietnamese, and Cantonese, plus a
+      warm-up on abstract rise/fall/dip shapes. Earn XP, keep your streak, get
+      certified. <b>Riffing on the "duolingo for X" thread that started with
+      <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies</a>.</b></p>
+    <div class="path" id="pathList"></div>
+    <button class="node cert-node locked" id="certNode" type="button">
+      <div class="icon">🎓</div>
+      <div class="meta">
+        <div class="t">Get Certified</div>
+        <div class="b">Finish every unit to sit the tonolingo ear exam.</div>
+      </div>
+    </button>
+    <footer class="reset">
+      <button id="cheatBtn" type="button">🪄 cheat: unlock everything</button>
+      <span class="sep">·</span>
+      <button id="resetBtn" type="button">reset progress</button>
+    </footer>
+  </div>
+
+  <div class="lesson" id="lessonView">
+    <div class="lbar">
+      <button class="quit" id="quitBtn" type="button" aria-label="quit lesson">✕</button>
+      <div class="track"><div class="fill" id="lessonFill"></div></div>
+      <div class="hearts" id="lessonHearts"></div>
+    </div>
+    <div class="qcard">
+      <div class="prompt-label" id="qLabel">Listen, then pick the tone you heard</div>
+      <button class="playbtn" id="qPlayBtn" type="button" aria-label="play tone">
+        <span>▶</span>
+        <span class="hint">replay</span>
+      </button>
+      <div class="choices" id="qChoices"></div>
+    </div>
+    <div class="fbar" id="fbar">
+      <div class="flabel" id="fLabel"></div>
+      <button id="fNext" type="button">Continue</button>
+    </div>
+  </div>
+
+  <div class="screen" id="resultScreen">
+    <div class="big" id="resultEmoji">🎉</div>
+    <h2 id="resultTitle">Lesson complete!</h2>
+    <p id="resultSub"></p>
+    <div class="rowstats">
+      <div><div class="n" id="resultXp">+0</div><div class="l">XP earned</div></div>
+      <div><div class="n" id="resultStars">☆☆☆</div><div class="l">stars</div></div>
+    </div>
+    <div class="btnrow">
+      <button class="btn primary" id="resultContinue" type="button">Continue</button>
+      <button class="btn secondary" id="resultRetry" type="button">Retry</button>
+    </div>
+  </div>
+
+  <div class="screen" id="certScreen">
+    <div class="big">🎓</div>
+    <h2>Certified: Tone Perception</h2>
+    <p id="certSub">Certified after finishing every unit in the course.</p>
+    <img class="cardpreview" id="certImg" alt="tonolingo certificate of tone perception" />
+    <div class="rowstats">
+      <div><div class="n" id="certXp">0</div><div class="l">total XP</div></div>
+      <div><div class="n" id="certStreak">0</div><div class="l">day streak</div></div>
+    </div>
+    <div class="btnrow">
+      <a class="btn bsky" id="certShareBsky" href="#" target="_blank" rel="noopener">Share on Bluesky</a>
+      <button class="btn secondary" id="certDownload" type="button">Download card</button>
+      <button class="btn secondary" id="certNative" type="button" style="display:none">Share…</button>
+      <button class="btn secondary" id="certBack" type="button">Back to path</button>
+    </div>
+  </div>
+
+</div>
+
+<canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+<script src="/lib/lessons.js"></script>
+<script src="/lib/app.js"></script>
+</body>
+</html>
