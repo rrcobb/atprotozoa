@@ -35,9 +35,12 @@
   var seed = seedParam ? parseInt(seedParam, 10) : Math.floor(Math.random() * 2 ** 31);
   if (!Number.isFinite(seed)) seed = Math.floor(Math.random() * 2 ** 31);
 
-  var maze = window.PenroseMaze.generate({ seed: seed, generations: 6, radiusFrac: 0.55 });
+  var genParam = parseInt(params.get("gen"), 10);
+  var generations = [5, 6, 7].indexOf(genParam) !== -1 ? genParam : 6;
 
-  history.replaceState(null, "", location.pathname + "?seed=" + seed);
+  var maze = window.PenroseMaze.generate({ seed: seed, generations: generations, radiusFrac: 0.55 });
+
+  history.replaceState(null, "", location.pathname + "?seed=" + seed + "&gen=" + generations);
 
   var state = {
     currentNode: maze.start,
@@ -218,6 +221,7 @@
           state.px -= i;
           state.steps++;
           rebuildView(target);
+          window.MazeAudio && window.MazeAudio.doorChime();
           moved = true;
         }
       }
@@ -229,6 +233,7 @@
           state.py -= j;
           state.steps++;
           rebuildView(target2);
+          window.MazeAudio && window.MazeAudio.doorChime();
           moved = true;
         }
       }
@@ -275,6 +280,8 @@
     tryMoveAxis(vx, 0);
     tryMoveAxis(0, vy);
     reRootIfNeeded();
+
+    if (mag2 > 0.15 && window.MazeAudio) window.MazeAudio.footstep();
   }
 
   // ---- Raycasting ----------------------------------------------------------
@@ -443,14 +450,15 @@
     document.getElementById("winStats").textContent =
       state.steps + " rooms, " + elapsed + "s";
     overlay.classList.add("show");
-    window.buildShare && window.buildShare(seed, state.steps, elapsed);
+    window.MazeAudio && window.MazeAudio.win();
+    window.buildShare && window.buildShare(seed, state.steps, elapsed, generations);
   }
 
   document.getElementById("retryBtn").addEventListener("click", function () {
-    location.href = location.pathname + "?seed=" + seed;
+    location.href = location.pathname + "?seed=" + seed + "&gen=" + generations;
   });
   document.getElementById("newMazeBtn").addEventListener("click", function () {
-    location.href = location.pathname;
+    location.href = location.pathname + "?gen=" + generations;
   });
 
   // ---- Loop ------------------------------------------------------------

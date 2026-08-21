@@ -45,11 +45,15 @@
     pointer-events: none;
   }
   #hud b { color: var(--accent); }
-  #minimapToggle {
+  #toolbar {
     position: fixed; top: 14px; right: 14px; z-index: 5;
+    display: flex; gap: 8px;
+  }
+  #minimapToggle, #muteToggle {
     background: var(--panel); color: var(--ink);
     border: 1px solid #23263c; border-radius: 10px;
     padding: 8px 12px; font-size: 13px; cursor: pointer;
+    white-space: nowrap;
   }
   #minimap {
     position: fixed; top: 60px; right: 14px;
@@ -99,6 +103,19 @@
     padding: 11px 18px; font-size: 14px; cursor: pointer; text-decoration: none;
   }
   #winStats { color: var(--accent2); font-size: 18px; font-weight: 700; margin: 14px 0; }
+  #winBest { color: var(--accent); font-size: 13px; margin: -8px 0 14px; min-height: 1.2em; }
+  .sizerow {
+    display: flex; align-items: center; justify-content: center;
+    gap: 8px; flex-wrap: wrap; margin: 16px 0 4px;
+  }
+  .sizeLabel { color: var(--dim); font-size: 12.5px; }
+  .sizeBtn {
+    background: transparent; color: var(--dim);
+    border: 1px solid #33375a; border-radius: 8px;
+    padding: 6px 12px; font-size: 13px; cursor: pointer;
+  }
+  .sizeBtn.active { color: var(--ink); border-color: #6f8fe8; background: rgba(111,143,232,0.15); }
+  #bestLine { color: var(--dim); font-size: 12.5px; margin: 2px 0 0; min-height: 1.2em; }
   #shareCard { display: none; }
   .touch-hint { display: none; }
   @media (pointer: coarse) {
@@ -116,7 +133,10 @@
 <canvas id="view"></canvas>
 <canvas id="minimap" width="720" height="720"></canvas>
 <div id="minimapCaption">true tiling geometry — the maze graph, overlaid on the actual Penrose rhombi. this is what the game hides from you.</div>
-<button id="minimapToggle">map (M)</button>
+<div id="toolbar">
+  <button id="muteToggle" title="mute sound (N)">sound: on</button>
+  <button id="minimapToggle">map (M)</button>
+</div>
 
 <div id="hud"><b id="hudSteps">0</b> rooms crossed · <b id="hudTime">0.0s</b></div>
 
@@ -129,6 +149,13 @@
     <p>The floor plan folds on itself in ways a normal building can't. You will never see the seam — walk it, and it always looks locally ordinary. Peek behind the curtain any time with the map button.</p>
     <p class="mouse-hint"><span class="kbd">W A S D</span> to move · click + drag to look · <span class="kbd">M</span> for the true map</p>
     <p class="touch-hint">left side: drag to move · right side: drag to look · tap the map button for the true map</p>
+    <div class="sizerow">
+      <span class="sizeLabel">size</span>
+      <button class="sizeBtn" data-gen="5">small</button>
+      <button class="sizeBtn" data-gen="6">medium</button>
+      <button class="sizeBtn" data-gen="7">large</button>
+    </div>
+    <p id="bestLine"></p>
     <div class="btnrow">
       <button class="primary" id="enterBtn">enter the maze</button>
     </div>
@@ -140,6 +167,7 @@
     <h1>you're out</h1>
     <p>You crossed the tiling and never once saw where it folded.</p>
     <div id="winStats">— rooms, —s</div>
+    <p id="winBest"></p>
     <canvas id="shareCard" width="1200" height="630"></canvas>
     <div class="btnrow">
       <a class="primary" id="shareBluesky" target="_blank" rel="noopener">share on bluesky</a>
@@ -153,18 +181,87 @@
 </div>
 
 <script src="penrose.js"></script>
+<script src="audio.js"></script>
 <script src="game.js"></script>
 <script>
 (function () {
   var startOverlay = document.getElementById("startOverlay");
+
+  var GEN_DEFAULT = 6;
+  var GEN_NAMES = { 5: "small", 6: "medium", 7: "large" };
+  var curGen = parseInt(new URLSearchParams(location.search).get("gen"), 10);
+  if (!GEN_NAMES[curGen]) curGen = GEN_DEFAULT;
+
+  var sizeBtns = document.querySelectorAll(".sizeBtn");
+  for (var i = 0; i < sizeBtns.length; i++) {
+    (function (btn) {
+      var g = parseInt(btn.dataset.gen, 10);
+      if (g === curGen) btn.classList.add("active");
+      btn.addEventListener("click", function () {
+        if (g === curGen) return;
+        location.href = location.pathname + "?gen=" + g;
+      });
+    })(sizeBtns[i]);
+  }
+
+  function readBest(gen) {
+    try {
+      var raw = localStorage.getItem("penrose-maze:best:" + gen);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+  window.__penroseMazeReadBest = readBest;
+
+  var bestLine = document.getElementById("bestLine");
+  var b = readBest(curGen);
+  bestLine.textContent = b
+    ? "your best (" + GEN_NAMES[curGen] + "): " + b.steps + " rooms, " + b.time.toFixed(1) + "s"
+    : "no best time yet on " + GEN_NAMES[curGen];
+
+  var muteBtn = document.getElementById("muteToggle");
+  var muted = false;
+  try { muted = localStorage.getItem("penrose-maze:muted") === "1"; } catch (e) {}
+  function applyMuted() {
+    muteBtn.textContent = muted ? "sound: off" : "sound: on";
+    window.MazeAudio && window.MazeAudio.setMuted(muted);
+  }
+  applyMuted();
+  muteBtn.addEventListener("click", function () {
+    muted = !muted;
+    try { localStorage.setItem("penrose-maze:muted", muted ? "1" : "0"); } catch (e) {}
+    applyMuted();
+  });
+  window.addEventListener("keydown", function (e) {
+    if (e.code === "KeyN") muteBtn.click();
+  });
+
   document.getElementById("enterBtn").addEventListener("click", function () {
+    window.MazeAudio && window.MazeAudio.init();
+    applyMuted();
     startOverlay.classList.remove("show");
     var view = document.getElementById("view");
     view.requestPointerLock && view.requestPointerLock();
   });
 
-  window.buildShare = function (seed, steps, elapsed) {
-    var url = "https://penrose-maze.bisks.net/?seed=" + seed;
+  function recordBest(gen, steps, elapsed) {
+    var key = "penrose-maze:best:" + gen;
+    var prev = readBest(gen);
+    var isNew = !prev || elapsed < prev.time;
+    if (isNew) {
+      try { localStorage.setItem(key, JSON.stringify({ steps: steps, time: elapsed })); } catch (e) {}
+    }
+    return isNew;
+  }
+
+  window.buildShare = function (seed, steps, elapsed, gen) {
+    var isNew = recordBest(gen, steps, parseFloat(elapsed));
+    var winBest = document.getElementById("winBest");
+    winBest.textContent = isNew
+      ? "new personal best for " + (GEN_NAMES[gen] || "this size") + "!"
+      : "personal best on " + (GEN_NAMES[gen] || "this size") + ": " +
+        (function () { var b = readBest(gen); return b ? b.steps + " rooms, " + b.time.toFixed(1) + "s" : ""; })();
+
+    var url = "https://penrose-maze.bisks.net/?seed=" + seed + "&gen=" + gen;
     var text = "escaped the penrose-maze: " + steps + " rooms, " + elapsed + "s. " +
       "the floor plan is aperiodic and never once looked it. try my maze: " + url;
     document.getElementById("shareBluesky").href =
