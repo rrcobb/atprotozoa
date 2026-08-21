@@ -9,26 +9,19 @@ compatibility_date = "2025-01-01"
 # each one for a stats check a few minutes later (via the public, unauthenticated
 # AppView — no login, no secret needed), and scores replyCount vs likeCount. All
 # of that lives in the browser's local check queue +
-# the rolling ~1 hour leaderboard, same shape as sites/the-place's Canvas DO.
+# the rolling ~1 hour leaderboard.
 #
-# Path route on the shared bisks.net zone, not a dedicated custom domain —
-# ratioed.bisks.net never provisioned (the zone hit Cloudflare's custom-domain
-# cap, see notes/20-deploy.md), so it's mounted at bisks.net/ratioed. The Worker
-# strips the /ratioed prefix before routing to the DO / ASSETS (see src/index.ts).
+# Served at the root of its own hostname. The legacy bisks.net/ratioed path
+# route is gone: it only worked because a Worker stripped the prefix, and this
+# site is now static assets with no Worker entrypoint.
 #
 # routes MUST stay above [assets] — in TOML, keys after a table header join that
 # table, so a routes line below [assets] silently becomes assets.routes (same
 # gotcha called out in sites/logs, sites/didscope, sites/the-place).
 routes = [
   { pattern = "ratioed.bisks.net/*", zone_name = "bisks.net" },
-  { pattern = "bisks.net/ratioed", zone_name = "bisks.net" },
-  { pattern = "bisks.net/ratioed/*", zone_name = "bisks.net" },
 ]
 
-# The Worker runs first for everything now: it must strip the /ratioed mount
-# prefix before the asset router (which has no idea it isn't at the domain root)
-# ever sees the request. (The old implementation used a Worker route here;
-# subdomain; those root-relative patterns don't match the mounted paths.)
 [assets]
 directory = "./public"
 
