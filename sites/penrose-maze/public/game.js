@@ -389,83 +389,70 @@
     mctx.fillStyle = "rgba(6,7,14,0.92)";
     mctx.fillRect(0, 0, w, h);
 
-    var scale = Math.min(w, h) * 0.46;
-    function toScreen(p) { return [w / 2 + p.x * scale, h / 2 - p.y * scale]; }
-    // Room markers/edges need each rhombus's centroid, not a tile corner —
-    // toScreen(maze.rhombi[idx]) used to be called directly on the rhombus
-    // object, which has .cx/.cy (not .x/.y), so every one of these (open-door
-    // lines, start/goal dots, the player marker) silently plotted at NaN and
-    // never actually appeared. Route through the centroid explicitly.
-    function centerScreen(idx) {
-      var r = maze.rhombi[idx];
-      return toScreen({ x: r.cx, y: r.cy });
+    // Drawn in the player's LOCAL square-grid frame (state.px/py, state.angle,
+    // isWallBetween) — the same frame the raycaster and movement use — not in
+    // the true Penrose tile coordinates. Compass directions are assigned
+    // freely during maze carving (see penrose.js), so a real tile edge has no
+    // fixed rotation relative to N/E/S/W: two walls that look "opposite" when
+    // plotted at their true tiling positions can be compass-adjacent (e.g.
+    // N+E) in the FPV, and "facing" has no meaning at all in true-tile space
+    // since it's defined purely in terms of this local grid. Plotting
+    // real-geometry positions here used to produce exactly that — walls that
+    // looked contradictory against the POV, and a facing arrow pointing
+    // nowhere in particular. This map matches what's on screen instead.
+    var cell = Math.min(w, h) / 15;
+    function toScreen(x, y) {
+      return [w / 2 + (x - state.px) * cell, h / 2 - (y - state.py) * cell];
     }
 
-    maze.rhombi.forEach(function (r, idx) {
-      if (!maze.nodeSet.has(idx)) return;
-      var pts = [r.p1, r.p2, r.p3, r.p4].map(toScreen);
+    state.roomAt.forEach(function (node, key) {
+      var comma = key.indexOf(",");
+      var i = parseInt(key.slice(0, comma), 10), j = parseInt(key.slice(comma + 1), 10);
+      var p0 = toScreen(i, j + 1), p1 = toScreen(i + 1, j + 1);
+      var p2 = toScreen(i + 1, j), p3 = toScreen(i, j);
+      var minX = Math.min(p0[0], p1[0], p2[0], p3[0]), maxX = Math.max(p0[0], p1[0], p2[0], p3[0]);
+      var minY = Math.min(p0[1], p1[1], p2[1], p3[1]), maxY = Math.max(p0[1], p1[1], p2[1], p3[1]);
+      if (maxX < 0 || minX > w || maxY < 0 || minY > h) return;
+
       mctx.beginPath();
-      mctx.moveTo(pts[0][0], pts[0][1]);
-      for (var k = 1; k < 4; k++) mctx.lineTo(pts[k][0], pts[k][1]);
+      mctx.moveTo(p0[0], p0[1]);
+      mctx.lineTo(p1[0], p1[1]);
+      mctx.lineTo(p2[0], p2[1]);
+      mctx.lineTo(p3[0], p3[1]);
       mctx.closePath();
-      var col = r.color === 0 ? "rgba(70,110,200,0.35)" : "rgba(200,90,150,0.35)";
+      var col = maze.rhombi[node].color === 0 ? "rgba(70,110,200,0.35)" : "rgba(200,90,150,0.35)";
       mctx.fillStyle = col;
       mctx.fill();
-      mctx.strokeStyle = "rgba(255,255,255,0.06)";
-      mctx.stroke();
-    });
 
-    // Floor: open passages — a real door was carved between these two rooms.
-    mctx.strokeStyle = "rgba(255,230,120,0.85)";
-    mctx.lineWidth = 1.5;
-    mctx.beginPath();
-    maze.nodes.forEach(function (idx) {
-      var d = maze.doors.get(idx);
+      var edges = { N: [p0, p1], E: [p1, p2], S: [p2, p3], W: [p3, p0] };
       DIRS.forEach(function (dir) {
-        var n = d[dir];
-        if (n == null || n < idx) return;
-        var a = centerScreen(idx);
-        var b = centerScreen(n);
-        mctx.moveTo(a[0], a[1]);
-        mctx.lineTo(b[0], b[1]);
+        var isWall = isWallBetween(i, j, dir);
+        mctx.strokeStyle = isWall ? "rgba(255,90,90,0.85)" : "rgba(255,230,120,0.85)";
+        mctx.lineWidth = isWall ? 2.5 : 1.5;
+        mctx.beginPath();
+        mctx.moveTo(edges[dir][0][0], edges[dir][0][1]);
+        mctx.lineTo(edges[dir][1][0], edges[dir][1][1]);
+        mctx.stroke();
       });
     });
-    mctx.stroke();
 
-    // Walls: rooms that physically share a tiling edge but got no door —
-    // maze.adjacency is every real neighbor, maze.doors is the carved subset.
-    mctx.strokeStyle = "rgba(255,90,90,0.85)";
-    mctx.lineWidth = 2.5;
-    mctx.beginPath();
-    maze.nodes.forEach(function (idx) {
-      var doorTargets = new Set();
-      var d = maze.doors.get(idx);
-      DIRS.forEach(function (dir) { if (d[dir] != null) doorTargets.add(d[dir]); });
-      maze.adjacency[idx].forEach(function (n) {
-        if (n < idx || !maze.nodeSet.has(n) || doorTargets.has(n)) return;
-        var a = centerScreen(idx), b = centerScreen(n);
-        var mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
-        var dx = b[0] - a[0], dy = b[1] - a[1];
-        var len = Math.hypot(dx, dy) || 1;
-        var nx = -dy / len, ny = dx / len;
-        var half = 6;
-        mctx.moveTo(mx - nx * half, my - ny * half);
-        mctx.lineTo(mx + nx * half, my + ny * half);
-      });
-    });
-    mctx.stroke();
+    if (state.invRoomAt.has(maze.start)) {
+      var sp = state.invRoomAt.get(maze.start);
+      var startP = toScreen(sp[0] + 0.5, sp[1] + 0.5);
+      mctx.fillStyle = "#7fd4ff";
+      mctx.beginPath(); mctx.arc(startP[0], startP[1], 4, 0, 7); mctx.fill();
+    }
 
-    var startP = centerScreen(maze.start);
-    mctx.fillStyle = "#7fd4ff";
-    mctx.beginPath(); mctx.arc(startP[0], startP[1], 4, 0, 7); mctx.fill();
-
-    var goalP = centerScreen(maze.goal);
-    mctx.fillStyle = "#3ddc84";
-    mctx.beginPath(); mctx.arc(goalP[0], goalP[1], 5, 0, 7); mctx.fill();
+    if (state.invRoomAt.has(maze.goal)) {
+      var gp = state.invRoomAt.get(maze.goal);
+      var goalP = toScreen(gp[0] + 0.5, gp[1] + 0.5);
+      mctx.fillStyle = "#3ddc84";
+      mctx.beginPath(); mctx.arc(goalP[0], goalP[1], 5, 0, 7); mctx.fill();
+    }
 
     // Player marker: a facing arrowhead (not just a stub line) so the
     // direction reads at a glance, plus a small dot pinning exact position.
-    var meP = centerScreen(state.currentNode);
+    var meP = toScreen(state.px, state.py);
     var ang = state.angle;
     var fx = Math.cos(ang), fy = -Math.sin(ang);
     var px2 = -fy, py2 = fx;
