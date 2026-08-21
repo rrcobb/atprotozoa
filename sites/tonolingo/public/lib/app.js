@@ -265,6 +265,84 @@
     const t0 = ctx.currentTime;
     [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(ctx, t0 + i * 0.09, f, 0.3, 0.16, "triangle"));
   }
+  // long, bright stereo reverb bus for the level-up shimmer — decays slower
+  // than the "correct" bus above so the tail keeps ringing under the climb
+  function getLevelupReverbBus(ctx) {
+    if (sfx.levelupReverbNode && sfx.levelupReverbCtx === ctx) return sfx.levelupReverbNode;
+    const convolver = ctx.createConvolver();
+    const rate = ctx.sampleRate;
+    const len = Math.floor(rate * 2.6);
+    const impulse = ctx.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = impulse.getChannelData(ch);
+      let hp = 0;
+      for (let i = 0; i < len; i++) {
+        const env = Math.pow(1 - i / len, 1.6);
+        const n = (Math.random() * 2 - 1) * env;
+        const out = n - hp;
+        hp += 0.35 * out;
+        data[i] = out;
+      }
+    }
+    convolver.buffer = impulse;
+    const wet = ctx.createGain();
+    wet.gain.value = 0.34;
+    convolver.connect(wet).connect(ctx.destination);
+    sfx.levelupReverbNode = convolver;
+    sfx.levelupReverbCtx = ctx;
+    return convolver;
+  }
+  // tiny high-passed noise tick at the onset of each shimmer strike
+  function shimmerClick(ctx, reverb, t0, freq, gainPeak) {
+    const dur = 0.006;
+    const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = freq * 2;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(gainPeak, t0);
+    gain.gain.exponentialRampToValueAtTime(0.0008, t0 + dur);
+    src.connect(hp).connect(gain);
+    gain.connect(ctx.destination);
+    gain.connect(reverb);
+    src.start(t0);
+    src.stop(t0 + dur + 0.005);
+  }
+  // one shimmer strike: a click, a damped sine fundamental, a quiet
+  // sub-octave for body, and five detuned upper partials for dense sparkle —
+  // all fed through the long bright reverb bus above
+  function shimmerStrike(ctx, t0, freq, gainPeak) {
+    const reverb = getLevelupReverbBus(ctx);
+    shimmerClick(ctx, reverb, t0, freq, gainPeak * 0.5);
+    pingVoice(ctx, reverb, t0, freq, 0.45, gainPeak, 0, 0.002);
+    pingVoice(ctx, reverb, t0, freq / 2, 0.5, gainPeak * 0.16, 0, 0.005);
+    [
+      [2.76, 11, 0.11, 0.16],
+      [3.41, -16, 0.09, 0.14],
+      [4.2, 7, 0.07, 0.11],
+      [5.19, -9, 0.05, 0.09],
+      [6.1, 13, 0.035, 0.07],
+    ].forEach(([mult, cents, level, dur]) => {
+      pingVoice(ctx, reverb, t0, freq * mult, dur, gainPeak * level, cents, 0.002);
+    });
+  }
+  // level-up: a rapid F#-major arpeggio (F#-A#-C#) climbing across three
+  // octaves, ~55-80ms staggered strikes overlapping into a rising shimmer
+  function playLevelUp() {
+    if (!sfx.on) return;
+    const ctx = actx();
+    const notes = [369.99, 466.16, 554.37, 739.99, 932.33, 1108.73, 1479.98];
+    const gaps = [0, 0.055, 0.06, 0.065, 0.07, 0.075, 0.08];
+    let t = ctx.currentTime;
+    notes.forEach((freq, i) => {
+      t += gaps[i];
+      shimmerStrike(ctx, t, freq, Math.max(0.16 - i * 0.008, 0.07));
+    });
+  }
   function playFail() {
     if (!sfx.on) return;
     const ctx = actx();
@@ -521,7 +599,8 @@
       els.resultStars.textContent = "★".repeat(lesson.hearts) + "☆".repeat(3 - lesson.hearts);
       els.resultRetry.style.display = "none";
       els.resultContinue.textContent = "Continue";
-      playFanfare();
+      if (perfect) playLevelUp();
+      else playFanfare();
     } else {
       els.resultEmoji.textContent = "\u{1F494}";
       els.resultTitle.textContent = "Out of hearts";
