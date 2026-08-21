@@ -37,8 +37,9 @@ project. Reasons:
   assets, OAuth callbacks, and small CORS or protocol adapters. When a toy needs
   shared or global persistence, KV is the normal low-cost compromise: it is
   intentionally best-effort and eventually consistent, which is fine for most
-  experiment state. Durable Objects, alarms, and cron loops are reserved for
-  invariants that really need exact coordination or server-side processing.
+  experiment state. Durable Objects are not used here at all; where an
+  invariant looks like it needs exact coordination, soften the semantics
+  instead (notes/11-durable-objects.md).
 - **Closer to the mino.mobi model** (a shared OAuth worker + many surfaces).
 
 A fully static site still ships as a Worker: `public/` via the assets binding, and
@@ -79,17 +80,15 @@ browser-local by default when shared persistence would make the site more useful
   and derived indexes are all reasonable uses.
 - Use a Worker for static assets, OAuth, a narrow upstream proxy, or a share
   route that cannot run in the browser.
-- Do not reach for a Durable Object merely because the state is global. Start
-  with KV unless the product truly needs atomic updates, a single authoritative
-  ordering, a first-writer claim, a live socket coordinator, or server-only
-  processing.
+- Global state means KV, not a Durable Object. If the product seems to need
+  atomic updates, a single authoritative ordering, or a first-writer claim,
+  that is a signal to change the product, not the backend.
 
 KV-backed shared state is part of the normal frontend-first toolbox. A short
 note in the site or its config should say what may be stale, duplicated, or
-overwritten. A Durable Object still needs a manually curated exception naming
-the invariant that cannot be handled by the browser, atproto, or best-effort
-KV. A new site should not copy a Durable Object from an older site merely
-because the older site has one.
+overwritten. This repo does not use Durable Objects at all — the migration off
+them is finished, and a new site must not copy one from an older site's git
+history. See notes/11-durable-objects.md.
 
 ## The "copy, don't abstract" rule in practice
 
@@ -118,8 +117,7 @@ an enforced dependency.
 - **Firehose:** Jetstream (`wss://jetstream2.us-east.bsky.network/subscribe`) is
   the easy path — filtered, JSON, no CBOR decoding. Prefer a browser WebSocket
   and a client-side rolling window. If the window should be shared across
-  visitors, a KV snapshot or event log is usually enough; a Durable Object or
-  cron is for the smaller set of features that needs exact server coordination.
+  visitors, a KV snapshot or event log is enough.
 - **Identity resolution:** resolve a handle → DID via the AppView or the PLC
   directory (`https://plc.directory/<did>`).
 - **OAuth (when a site acts on the user's behalf):** atproto OAuth. This is the

@@ -89,24 +89,25 @@ best-effort boards, anonymous event logs, caches, and derived indexes are all
 appropriate. If a race would make the result materially wrong, soften the
 semantics before reaching for a Durable Object.
 
-## Durable Objects need the SQLite storage backend
+## Durable Objects (historical)
 
-This account is on Workers Free, which doesn't support the legacy KV-backed
-Durable Object storage. The migration must say:
+This repo no longer uses Durable Objects; see notes/11-durable-objects.md for
+the policy and `audit/cf-durable-objects.mjs` for namespace cleanup. Two things
+are worth keeping, because they still explain old `wrangler.toml` blocks and
+old incidents:
 
-```toml
-[[migrations]]
-tag = "v1"
-new_sqlite_classes = ["YourClassName"]   # not new_classes
-```
+The account is on Workers Free, which doesn't support the legacy KV-backed DO
+storage, so surviving migrations say `new_sqlite_classes`, not `new_classes`.
+`new_classes` passes TOML validation and then fails at `wrangler deploy`, and
+because the deploy dies before the route step runs, the hostname never resolves
+— indistinguishable from an unrelated deploy failure.
 
-`new_classes` passes TOML validation and then fails at `wrangler deploy` on this
-account. Because the deploy dies before the route step runs, the site's hostname
-never resolves — which looks identical to an unrelated deploy failure. The
-`state.storage` API is the same on SQLite-backed DOs, so nothing else changes.
-
-DO cold-start can return a one-off 404 or empty response on the first request
-after a deploy; retry before concluding it broke.
+`deleted_classes` only applies if the class still exists. `wrangler dev` on a
+site with a `deleted_classes` migration fails locally with "Cannot apply
+deleted_classes migration to non-existent class", because local state never had
+it. That is a local-only artifact; the production deploy is fine while the
+namespace still exists. Use `--dry-run`, or a config copy without the migration
+block, to run such a site locally.
 
 ## Checks
 
@@ -117,6 +118,10 @@ after a deploy; retry before concluding it broke.
   mount prefix" class of bug. Skips protocol/data URLs, runtime-built template
   paths, and specifiers covered by a page's own importmap.
 - `audit/cf-custom-domains.mjs` — inventory / prune Cloudflare custom domains.
+- `audit/cf-durable-objects.mjs` — inventory / prune leftover Durable Object
+  namespaces. A delete refused by Cloudflare means a deployed Worker still
+  binds it, which is the reliable way to spot a site whose live build has
+  drifted from the repo.
 - `audit/build-gallery.mjs --apply` — regenerate the apex gallery from the
   `site.json` manifests. CI fails the push if the gallery and manifests
   disagree. `box-build.sh` runs `--apply` before every build push, so bot
