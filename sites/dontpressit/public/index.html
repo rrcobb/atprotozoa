@@ -260,6 +260,9 @@
 
       function renderOver(justGraduated, nextState) {
         stageEl.classList.add("over");
+        // futileClicks only ever comes from the shared counter (someone else's
+        // late press against the crowd round). A browser-local round can't
+        // produce one: the button is disabled the instant it's pressed.
         const clicksLine = justGraduated.futileClicks > 0
           ? `<p class="note">${justGraduated.futileClicks} ${justGraduated.futileClicks === 1 ? "click" : "clicks"} landed after that one, too late to matter.</p>`
           : "";
@@ -337,7 +340,9 @@
         try {
            const state = readState() || await initialState();
            const graduated = { ...state.currentName, roundNumber: state.roundNumber, endedAt: Date.now(), visits: state.visits, futileClicks: state.futileClicks };
-           state.graduated = [...(state.graduated || []), graduated].slice(-200);
+           // Newest first: renderHof lists in array order, and the poll path
+           // below reads graduated[0] as the round that just ended.
+           state.graduated = [graduated, ...(state.graduated || [])].slice(0, 200);
            state.totalGraduated = (state.totalGraduated || 0) + 1;
            state.roundNumber += 1; state.currentName = { handle: `round-${state.roundNumber}`, displayName: `round ${state.roundNumber}`, avatar: "" };
            state.roundStartedAt = Date.now(); state.visits = 0; state.futileClicks = 0; writeState(state);
