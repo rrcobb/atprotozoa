@@ -366,26 +366,43 @@ function buildArticle(pool, targetLen) {
 }
 
 // ---- permalink: encode/decode which exact sentences were used -------------
+//
+// Lives in the path (/a/<state>), not a #hash: a fragment never reaches the
+// server, so a Worker can't tell splices apart to stamp per-result OG tags —
+// every share would unfurl as the same generic card forever (see
+// notes/45-sharing-and-virality.md, tier 4). src/index.ts decodes this same
+// state server-side to personalize the title/description before serving.
+
+function b64urlEncode(str) {
+  return btoa(unescape(encodeURIComponent(str)))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function b64urlDecode(str) {
+  let s = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (s.length % 4) s += "=";
+  return decodeURIComponent(escape(atob(s)));
+}
 
 function encodeState(result) {
   const compact = result.sentences.map((s) => [s.source.title, s.position]);
-  const json = JSON.stringify(compact);
-  return "s=" + btoa(unescape(encodeURIComponent(json)));
+  return b64urlEncode(JSON.stringify(compact));
 }
 
-function decodeState(hash) {
-  const m = /^#?s=(.+)$/.exec(hash);
+function decodePath() {
+  const m = /^\/a\/([A-Za-z0-9\-_]+)\/?$/.exec(location.pathname);
   if (!m) return null;
   try {
-    const json = decodeURIComponent(escape(atob(m[1])));
-    const compact = JSON.parse(json);
+    const compact = JSON.parse(b64urlDecode(m[1]));
     return Array.isArray(compact) && compact.length ? compact : null;
   } catch {
     return null;
   }
 }
 
-async function reconstructFromHash(compact) {
+async function reconstructFromCompact(compact) {
   const titles = [...new Set(compact.map(([t]) => t))];
   const pages = await fetchPagesByTitles(titles);
   const byTitle = new Map();
@@ -561,13 +578,13 @@ function buildShareText(headline, url) {
 }
 
 function currentUrl() {
-  return `${location.origin}${location.pathname}${location.hash}`;
+  return `${location.origin}${location.pathname}`;
 }
 
 // ---- boot ----------------------------------------------------------------
 
 async function generate() {
-  history.replaceState(null, "", location.pathname);
+  history.replaceState(null, "", "/");
   setStatus("Fetching random articles from Wikipedia…");
   setBusy(true);
   els.btnStitches.disabled = true;
@@ -580,7 +597,7 @@ async function generate() {
     const result = buildArticle(pool, targetLen);
     if (!result || result.sentences.length < 4) throw new Error("Couldn't stitch together enough sentences — try again.");
     renderResult(result);
-    location.hash = encodeState(result);
+    history.pushState(null, "", "/a/" + encodeState(result));
     setStatus("");
   } catch (e) {
     setStatus(String((e && e.message) || e), true);
@@ -589,24 +606,33 @@ async function generate() {
   }
 }
 
+async function loadFromPath(compact) {
+  setStatus("Rebuilding the exact splice from this link…");
+  setBusy(true);
+  try {
+    const result = await reconstructFromCompact(compact);
+    renderResult(result);
+    setStatus("");
+  } catch (e) {
+    setStatus(`${(e && e.message) || e} Generating a fresh one instead.`, true);
+    await generate();
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function boot() {
-  const compact = decodeState(location.hash);
+  const compact = decodePath();
   if (compact) {
-    setStatus("Rebuilding the exact splice from this link…");
-    setBusy(true);
-    try {
-      const result = await reconstructFromHash(compact);
-      renderResult(result);
-      setStatus("");
-    } catch (e) {
-      setStatus(`${(e && e.message) || e} Generating a fresh one instead.`, true);
-      await generate();
-    } finally {
-      setBusy(false);
-    }
+    await loadFromPath(compact);
   } else {
     await generate();
   }
+
+  window.addEventListener("popstate", () => {
+    const c = decodePath();
+    if (c) loadFromPath(c);
+  });
 
   els.btnRandomize.addEventListener("click", generate);
 
