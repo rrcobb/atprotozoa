@@ -72,6 +72,7 @@
     streakStat: document.getElementById("streakStat"),
     xpStat: document.getElementById("xpStat"),
     resetBtn: document.getElementById("resetBtn"),
+    cheatBtn: document.getElementById("cheatBtn"),
     shareCanvas: document.getElementById("shareCanvas"),
   };
 
@@ -278,6 +279,17 @@
   els.resetBtn.addEventListener("click", () => {
     if (!confirm("Reset all Claudlish progress? This can't be undone.")) return;
     state = { xp: 0, streak: { count: 0, last: null }, completed: {} };
+    saveState();
+    renderPath();
+  });
+
+  els.cheatBtn.addEventListener("click", () => {
+    for (const u of UNITS) {
+      const prevStars = (state.completed[u.id] && state.completed[u.id].stars) || 0;
+      state.completed[u.id] = { stars: Math.max(prevStars, STARTING_HEARTS) };
+    }
+    state.xp = (state.xp || 0) + UNITS.length * (QUESTIONS_PER_LESSON * XP_PER_CORRECT + XP_PERFECT_BONUS);
+    bumpStreak();
     saveState();
     renderPath();
   });
