@@ -121,7 +121,22 @@ function classify(ns, bound) {
   return { state: "ORPHAN", reason: "no wrangler.toml binds this class" };
 }
 
-const namespaces = await listNamespaces();
+let namespaces;
+try {
+  namespaces = await listNamespaces();
+} catch (err) {
+  // The stored wrangler OAuth token expires; a raw stack here reads like a bug
+  // in this script rather than "log in again".
+  if (/9109|Invalid access token|10000|Authentication/i.test(err.message)) {
+    console.error(
+      "Cloudflare rejected the credentials. The wrangler OAuth token expires —\n" +
+        "run `wrangler login`, or set CLOUDFLARE_API_TOKEN to a token with\n" +
+        "Workers Scripts:Edit on the account.",
+    );
+    process.exit(1);
+  }
+  throw err;
+}
 const bound = repoBoundClasses();
 
 const rows = namespaces.map((ns) => {
