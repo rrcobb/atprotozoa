@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>war / the front — bisks.net</title>
+    <meta
+      name="description"
+      content="Every net.bisks.war.state record on the network, aggregated: total games played, who's winning, who's mid-war right now, and how the house rules actually lean."
+    />
+    <meta property="og:title" content="war / the front" />
+    <meta property="og:description" content="Every game of WAR on the network, aggregated — records, rule popularity, and who's fighting right now." />
+    <meta property="og:image" content="https://war.bisks.net/og.png" />
+    <meta property="og:url" content="https://war.bisks.net/front/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://war.bisks.net/og.png" />
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        --felt: #0b3d24;
+        --felt2: #0f4d2c;
+        --ink: #eafff0;
+        --dim: #8fc9a6;
+        --faint: #175231;
+        --gold: #e0b23c;
+        --red: #e0574c;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 700px at 20% -10%, var(--felt2) 0%, var(--felt) 60%);
+        background-color: var(--felt);
+        color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 680px; margin: 0 auto; padding: 1.75rem 1rem 5rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem;
+      }
+      h1 { font-size: 1.4rem; font-weight: 800; margin: 0; letter-spacing: -0.02em; }
+      h1 a { color: var(--ink); text-decoration: none; }
+      h1 .slash { color: var(--dim); font-weight: 400; }
+      .home { font-size: 0.8rem; }
+      .home a { color: var(--gold); text-decoration: none; }
+      a { color: var(--gold); }
+      .intro { color: var(--dim); margin: 0 0 1.5rem; font-size: 0.9rem; line-height: 1.7; max-width: 60ch; }
+      .intro b { color: var(--ink); font-weight: 700; }
+      code { background: var(--faint); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.85em; }
+
+      .status { font-size: 0.78rem; color: var(--dim); margin-bottom: 1.5rem; }
+      .status .err { color: var(--red); }
+      .status .dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--faint); margin-right: 0.35rem; }
+      .status .dot.live { background: #4fd67a; }
+
+      .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 0.75rem; margin-bottom: 2rem; }
+      .stat { border: 1px solid var(--faint); border-radius: 8px; padding: 0.75rem 0.9rem; background: rgba(0,0,0,0.12); }
+      .stat .n { font-size: 1.3rem; font-weight: 800; color: var(--gold); }
+      .stat .l { font-size: 0.7rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.03em; }
+
+      section { margin-bottom: 2.25rem; }
+      h2 { font-size: 0.85rem; font-weight: 700; margin: 0 0 0.25rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--dim); }
+      .sub { font-size: 0.8rem; color: var(--dim); margin: 0 0 1rem; opacity: 0.85; }
+
+      .board { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+      @media (max-width: 540px) { .board { grid-template-columns: 1fr; } }
+      .board h3 { font-size: 0.78rem; margin: 0 0 0.5rem; color: var(--ink); }
+      ol.ranks { list-style: none; margin: 0; padding: 0; }
+      ol.ranks li { display: flex; justify-content: space-between; gap: 0.5rem; padding: 0.35rem 0; border-bottom: 1px solid var(--faint); font-size: 0.85rem; }
+      ol.ranks li:last-child { border-bottom: none; }
+      ol.ranks .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      ol.ranks .who a { color: var(--ink); text-decoration: none; }
+      ol.ranks .who a:hover { color: var(--gold); }
+      ol.ranks .figure { color: var(--dim); flex-shrink: 0; }
+
+      .rulebars { display: flex; flex-direction: column; gap: 1rem; }
+      .rulebar h3 { font-size: 0.8rem; margin: 0 0 0.4rem; color: var(--ink); }
+      .rulebar .segs { display: flex; height: 1.3rem; border-radius: 4px; overflow: hidden; background: var(--faint); }
+      .rulebar .seg { display: flex; align-items: center; justify-content: center; font-size: 0.68rem; color: var(--felt); font-weight: 700; white-space: nowrap; overflow: hidden; }
+      .rulebar .legend { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 0.35rem; font-size: 0.72rem; color: var(--dim); }
+      .rulebar .legend .sw { display: inline-block; width: 0.6rem; height: 0.6rem; border-radius: 2px; margin-right: 0.25rem; vertical-align: -1px; }
+
+      .empty { font-size: 0.85rem; color: var(--dim); font-style: italic; opacity: 0.85; }
+      footer { margin-top: 2.5rem; color: var(--dim); font-size: 0.78rem; }
+      footer a { color: var(--gold); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="../">war</a> <span class="slash">/</span> the front</h1>
+        <span class="home"><a href="../">play your own →</a></span>
+      </header>
+      <p class="intro">
+        Every <code>net.bisks.war.state</code> record anyone has ever written
+        to their own repo, pulled straight off the network — no login, nobody's
+        data but what they already published to their own PDS. <b>Every skirmish
+        at once:</b> the network's win/loss totals, who's mid-war right now,
+        which house rules people actually play with, and the leaderboard.
+      </p>
+
+      <div class="status" id="status">connecting…</div>
+
+      <div class="stats" id="stats"></div>
+
+      <section>
+        <h2>the field</h2>
+        <p class="sub">what the network's house rules actually look like, across every recorded or in-progress game.</p>
+        <div class="rulebars" id="rulebars"><p class="empty">counting…</p></div>
+      </section>
+
+      <section>
+        <h2>the leaderboard</h2>
+        <p class="sub">most active by games played, and best record among players with 5+ games.</p>
+        <div class="board">
+          <div>
+            <h3>most battle-hardened</h3>
+            <ol class="ranks" id="active"><li class="empty">counting…</li></ol>
+          </div>
+          <div>
+            <h3>best record</h3>
+            <ol class="ranks" id="record"><li class="empty">counting…</li></ol>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        <a href="../">war</a> · part of <a href="https://bisks.net">bisks.net</a> ·
+        reads <code>net.bisks.war.state</code> off every repo on the network via
+        <code>listReposByCollection</code> + a live Jetstream feed
+      </footer>
+    </div>
+
+    <script type="module">
+      import { GlobalIndex } from "../lib/network-index.js";
+      import { RULES_CATALOG } from "../lib/warengine.js";
+
+      const APPVIEW = "https://api.bsky.app/xrpc";
+      const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+      const profileCache = new Map();
+      async function jget(url) {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`${url} -> ${res.status}`);
+        return res.json();
+      }
+      function chunk(arr, size) {
+        const out = [];
+        for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+        return out;
+      }
+      async function loadProfiles(dids) {
+        const missing = dids.filter((d) => !profileCache.has(d));
+        for (const batch of chunk(missing, 25)) {
+          if (!batch.length) continue;
+          try {
+            const qs = batch.map((d) => `actors=${encodeURIComponent(d)}`).join("&");
+            const data = await jget(`${APPVIEW}/app.bsky.actor.getProfiles?${qs}`);
+            for (const p of data.profiles || []) profileCache.set(p.did, p);
+          } catch (_) {
+            // A profile lookup failure just falls back to the bare DID below.
+          }
+        }
+        for (const d of dids) if (!profileCache.has(d)) profileCache.set(d, null);
+      }
+      function playerLabel(did) {
+        const p = profileCache.get(did);
+        const handle = p?.handle || did;
+        return `<a href="https://bsky.app/profile/${encodeURIComponent(handle)}" target="_blank">@${esc(handle)}</a>`;
+      }
+
+      const RULE_COLORS = ["#e0b23c", "#4fd67a", "#e0574c", "#4c8ee0", "#c07be0", "#8fc9a6"];
+
+      const statusEl = document.getElementById("status");
+      const statsEl = document.getElementById("stats");
+      const rulebarsEl = document.getElementById("rulebars");
+      const activeEl = document.getElementById("active");
+      const recordEl = document.getElementById("record");
+
+      function renderStatus(snap) {
+        const dot = `<span class="dot ${snap.connected ? "live" : ""}"></span>`;
+        const phase = snap.backfillDone
+          ? "full history scanned"
+          : snap.backfillActive
+          ? "scanning network history…"
+          : "history scan paused";
+        const errPart = snap.error ? ` · <span class="err">${esc(snap.error)}</span>` : "";
+        statusEl.innerHTML = `${dot}${snap.connected ? "live" : "reconnecting…"} · ${phase} · ${snap.entryCount} scoreboards seen so far${errPart}`;
+      }
+
+      function renderStats(snap) {
+        const t = snap.totals;
+        statsEl.innerHTML = `
+          <div class="stat"><div class="n">${t.players}</div><div class="l">players</div></div>
+          <div class="stat"><div class="n">${t.gamesPlayed}</div><div class="l">games</div></div>
+          <div class="stat"><div class="n">${t.wins}</div><div class="l">player wins</div></div>
+          <div class="stat"><div class="n">${t.losses}</div><div class="l">computer wins</div></div>
+          <div class="stat"><div class="n">${t.draws}</div><div class="l">draws</div></div>
+          <div class="stat"><div class="n">${t.inProgress}</div><div class="l">mid-war now</div></div>
+        `;
+      }
+
+      function renderRulebars(snap) {
+        const cats = RULES_CATALOG.filter((c) => Object.keys(snap.ruleTally[c.key] || {}).length);
+        if (!cats.length) {
+          rulebarsEl.innerHTML = `<p class="empty">no completed or in-progress games with recorded rules yet.</p>`;
+          return;
+        }
+        rulebarsEl.innerHTML = cats
+          .map((c) => {
+            const tally = snap.ruleTally[c.key];
+            const total = Object.values(tally).reduce((a, b) => a + b, 0);
+            const segs = c.options
+              .filter((o) => tally[o.value])
+              .map((o, i) => {
+                const pct = Math.round((tally[o.value] / total) * 100);
+                return { label: o.label, value: o.value, pct, count: tally[o.value] };
+              });
+            const bar = segs
+              .map(
+                (s, i) =>
+                  `<div class="seg" style="width:${s.pct}%;background:${RULE_COLORS[i % RULE_COLORS.length]}" title="${esc(s.label)}: ${s.pct}%">${s.pct >= 12 ? s.pct + "%" : ""}</div>`
+              )
+              .join("");
+            const legend = segs
+              .map(
+                (s, i) =>
+                  `<span><span class="sw" style="background:${RULE_COLORS[i % RULE_COLORS.length]}"></span>${esc(s.label)} (${s.count})</span>`
+              )
+              .join("");
+            return `<div class="rulebar"><h3>${esc(c.label)}</h3><div class="segs">${bar}</div><div class="legend">${legend}</div></div>`;
+          })
+          .join("");
+      }
+
+      async function renderLeaderboards(snap) {
+        const dids = [...snap.mostActive, ...snap.bestRecord].map((p) => p.did);
+        if (dids.length) await loadProfiles(dids);
+
+        activeEl.innerHTML = snap.mostActive.length
+          ? snap.mostActive
+              .map(
+                (p) =>
+                  `<li><span class="who">${playerLabel(p.did)}</span><span class="figure">${p.gamesPlayed} games</span></li>`
+              )
+              .join("")
+          : `<li class="empty">no games recorded yet</li>`;
+
+        recordEl.innerHTML = snap.bestRecord.length
+          ? snap.bestRecord
+              .map((p) => {
+                const pct = Math.round((p.wins / p.gamesPlayed) * 100);
+                return `<li><span class="who">${playerLabel(p.did)}</span><span class="figure">${pct}% · ${p.wins}-${p.losses}${p.draws ? `-${p.draws}` : ""}</span></li>`;
+              })
+              .join("")
+          : `<li class="empty">nobody with 5+ games yet</li>`;
+      }
+
+      let rendering = false;
+      let pendingSnap = null;
+      async function render(snap) {
+        renderStatus(snap);
+        renderStats(snap);
+        renderRulebars(snap);
+        if (rendering) {
+          pendingSnap = snap;
+          return;
+        }
+        rendering = true;
+        try {
+          await renderLeaderboards(snap);
+        } finally {
+          rendering = false;
+          if (pendingSnap) {
+            const next = pendingSnap;
+            pendingSnap = null;
+            render(next);
+          }
+        }
+      }
+
+      const index = new GlobalIndex({ onUpdate: render });
+      index.start();
+    </script>
+  </body>
+</html>
