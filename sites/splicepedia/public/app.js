@@ -160,7 +160,17 @@ const VANDAL_PAIRS = new Set(
 function vandalismBonus(typeA, typeB) {
   if (typeA === typeB) return 0;
   if (typeA === "other" || typeB === "other") return 0.25;
-  return VANDAL_PAIRS.has([typeA, typeB].sort().join("|")) ? 1 : 0.45;
+  return VANDAL_PAIRS.has([typeA, typeB].sort().join("|")) ? 1 : 0.65;
+}
+
+// Any splice between two *known* (non-"other") types is a real ontological
+// jump — the curated VANDAL_PAIRS above are just the flagship combos that
+// score extra spicy, not the only ones that count. Gating the "jumps"
+// stat on the top score (vandal >= 1) meant only those 5 exact pairs out
+// of ~105 possible cross-type combos ever registered, so the counter read
+// 0 on almost every real run.
+function isOntologicalJump(typeA, typeB) {
+  return typeA !== typeB && typeA !== "other" && typeB !== "other";
 }
 
 // ---- lexical scoring --------------------------------------------------------
@@ -257,6 +267,7 @@ function scoreTransition(prev, next) {
   const entity = hasSharedEntity(prev.proper, next.proper);
   const grammar = grammarScore(prev.text, next.text);
   const vandal = vandalismBonus(prev.source.type, next.source.type);
+  const jump = isOntologicalJump(prev.source.type, next.source.type);
   const surpriseOverlap = 1 - Math.min(j * 3, 1);
 
   const fluency = socket * 1.6 + overlap * 1.0 + (entity ? 0.6 : 0) + grammar * 0.4;
@@ -270,6 +281,7 @@ function scoreTransition(prev, next) {
     jaccard: j,
     entity,
     vandal,
+    jump,
     fromType: prev.source.type,
     toType: next.source.type,
   };
@@ -516,7 +528,7 @@ function renderInfobox(result) {
   const uniqueSources = new Set(sentences.map((s) => s.source.pageid));
   const scored = transitions.filter(Boolean);
   const avg = scored.length ? Math.round(scored.reduce((a, t) => a + t.normalized, 0) / scored.length) : 0;
-  const vandalCount = scored.filter((t) => t.vandal >= 1).length;
+  const vandalCount = scored.filter((t) => t.jump).length;
   const socketCount = scored.filter((t) => t.socket).length;
   const types = [...new Set(sentences.map((s) => s.source.type))];
 
@@ -549,7 +561,7 @@ function renderStitchNotes(result) {
       const bits = [];
       if (t.socket) bits.push("socket opener");
       if (t.entity) bits.push("shared name/entity");
-      if (t.vandal >= 1) bits.push(`ontological vandalism: ${fromMeta.label} → ${meta.label}`);
+      if (t.jump) bits.push(`ontological vandalism: ${fromMeta.label} → ${meta.label}`);
       bits.push(`lexical overlap ${(t.jaccard * 100).toFixed(0)}%`);
       return (
         `<li id="note-${i}"><strong>[${i + 1}]</strong> <span class="score-tag ${cls}">${t.normalized}/100</span> ` +
