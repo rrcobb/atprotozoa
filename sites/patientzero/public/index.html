@@ -647,9 +647,13 @@
         } else {
           $("statSpan").textContent = "—";
         }
-        $("caveat").textContent = s.hitLimit
-          ? "Search coverage caps out around here — treat patient zero as \"earliest we could still find,\" not an absolute origin."
-          : "This is the full run of what Bluesky's search index still has for this phrase.";
+        if (s.hitLimit) {
+          $("caveat").textContent = "Paged deep into this phrase's history without ever finding a quiet period before it — treat patient zero as \"earliest we could still find,\" not a confirmed origin.";
+        } else if (s.foundBaseline) {
+          $("caveat").textContent = "Found a clear quiet stretch right before this — high confidence this is the real patient zero, not just where the search cap landed.";
+        } else {
+          $("caveat").textContent = "This is the full run of what Bluesky's search index still has for this phrase.";
+        }
 
         renderChart(s.cases);
         $("globalCard").innerHTML = s.globalZero ? patientCardHtml(s.globalZero, "global", 1) : `<p class="empty-note">No confirmed cases found yet.</p>`;
@@ -766,6 +770,8 @@
           return ramp[i];
         };
 
+        const baselineY = padT + plotH;
+
         let bars = "";
         for (let i = 0; i < nBuckets; i++) {
           const v = counts[i];
@@ -777,7 +783,21 @@
           bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(1, h).toFixed(1)}" rx="2" fill="${colorFor(v)}"><title>${escapeHtml(title)}</title></rect>`;
         }
 
-        const baselineY = padT + plotH;
+        // Mark the earliest bucket that already looks like "the outbreak" —
+        // first bucket (reading left/oldest to right) at or above 20% of
+        // peak volume. If there's quieter bars before it, that's the sharp
+        // recent increase itself, drawn right on the chart instead of left
+        // for the reader to eyeball.
+        const spikeThreshold = max * 0.2;
+        const spikeIdx = counts.findIndex((v) => v >= spikeThreshold);
+        let spikeMarker = "";
+        if (spikeIdx > 0) {
+          const sx = padL + spikeIdx * (plotW / nBuckets);
+          spikeMarker = `
+            <line x1="${sx.toFixed(1)}" y1="${padT}" x2="${sx.toFixed(1)}" y2="${baselineY}" stroke="#e34948" stroke-width="1" stroke-dasharray="3,2" />
+            <text class="chart-axis-label" x="${sx.toFixed(1)}" y="${(padT + 9).toFixed(1)}" fill="#e34948">spread begins</text>`;
+        }
+
         const startLabel = new Date(t0).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
         const endLabel = new Date(t1).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
@@ -785,6 +805,7 @@
           <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Case count over time, from ${escapeHtml(startLabel)} to ${escapeHtml(endLabel)}">
             <line x1="${padL}" y1="${baselineY}" x2="${W - padR}" y2="${baselineY}" stroke="#383835" stroke-width="1" />
             ${bars}
+            ${spikeMarker}
             <text class="chart-axis-label" x="${padL}" y="${H - 4}">${escapeHtml(startLabel)}</text>
             <text class="chart-axis-label" x="${W - padR}" y="${H - 4}" text-anchor="end">${escapeHtml(endLabel)}</text>
           </svg>`;
