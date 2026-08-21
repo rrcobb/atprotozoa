@@ -113,12 +113,78 @@
     modalPing(ctx, t0, 1484, 0.2); // F#6
     modalPing(ctx, t0 + 0.125, 1871, 0.2); // A#6, 125ms later
   }
+  // long, dull-toned stereo reverb bus for the "wrong" clang — a slower,
+  // darker decay than the bright plate bus above (lowpassed instead of
+  // highpassed, ~2x the tail length) so it reads as a duller, roomier space
+  function getWrongReverbBus(ctx) {
+    if (sfx.wrongReverbNode && sfx.wrongReverbCtx === ctx) return sfx.wrongReverbNode;
+    const convolver = ctx.createConvolver();
+    const rate = ctx.sampleRate;
+    const len = Math.floor(rate * 2.4);
+    const impulse = ctx.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = impulse.getChannelData(ch);
+      let lp = 0;
+      for (let i = 0; i < len; i++) {
+        const env = Math.pow(1 - i / len, 1.3); // slow decay -> long tail
+        const n = (Math.random() * 2 - 1) * env;
+        lp += 0.18 * (n - lp); // one-pole lowpass: keeps the tail dull, not bright
+        data[i] = lp;
+      }
+    }
+    convolver.buffer = impulse;
+    const wet = ctx.createGain();
+    wet.gain.value = 0.32;
+    convolver.connect(wet).connect(ctx.destination);
+    sfx.wrongReverbNode = convolver;
+    sfx.wrongReverbCtx = ctx;
+    return convolver;
+  }
+  // a short burst of bandpassed noise at the onset of a ping — the "tiny
+  // noisy attack" that gives the clang a bit of grit before it rings out
+  function noiseAttack(ctx, reverb, t0, freq, gainPeak) {
+    const dur = 0.012;
+    const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = freq;
+    bp.Q.value = 1.1;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(gainPeak, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    src.connect(bp).connect(gain);
+    gain.connect(ctx.destination);
+    gain.connect(reverb);
+    src.start(t0);
+    src.stop(t0 + dur + 0.01);
+  }
+  // one dull modal clang: fast-decaying sine fundamental, quiet subharmonics
+  // for body, a couple of slightly-detuned (inharmonic) upper partials kept
+  // low and close-to-integer for dullness rather than sparkle, plus a tiny
+  // noisy attack — all fed through the long dull reverb bus above
+  function dullClang(ctx, t0, freq, gainPeak) {
+    const reverb = getWrongReverbBus(ctx);
+    noiseAttack(ctx, reverb, t0, freq, gainPeak * 0.3);
+    pingVoice(ctx, reverb, t0, freq, 0.2, gainPeak, 0, 0.004);
+    pingVoice(ctx, reverb, t0, freq / 2, 0.24, gainPeak * 0.16, 0, 0.008);
+    pingVoice(ctx, reverb, t0, freq / 3, 0.2, gainPeak * 0.08, 0, 0.01);
+    [
+      [2.03, -22, 0.09, 0.09],
+      [3.12, 27, 0.06, 0.07],
+    ].forEach(([mult, cents, level, dur]) => {
+      pingVoice(ctx, reverb, t0, freq * mult, dur, gainPeak * level, cents, 0.006);
+    });
+  }
   function playWrong() {
     if (!sfx.on) return;
     const ctx = actx();
     const t0 = ctx.currentTime;
-    tone(ctx, t0, 196, 0.22, 0.16, "sawtooth");
-    tone(ctx, t0 + 0.05, 174.6, 0.26, 0.14, "sawtooth");
+    dullClang(ctx, t0, 740, 0.19); // F#5
+    dullClang(ctx, t0 + 0.128, 523.25, 0.19); // C5, 128ms later
   }
   function playFanfare() {
     if (!sfx.on) return;
