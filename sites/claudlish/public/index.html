@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>claudlish — duolingo for the AI assistant dialect</title>
+<meta name="description" content="Learn to speak fluent Claudlish: the warm, hedged, over-disclaimed dialect every AI assistant seems to share. Lessons, hearts, streaks, XP." />
+<meta property="og:title" content="claudlish — duolingo for the AI assistant dialect" />
+<meta property="og:description" content="Learn to speak fluent Claudlish: the warm, hedged, over-disclaimed dialect every AI assistant seems to share. Lessons, hearts, streaks, XP." />
+<meta property="og:url" content="https://claudlish.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://claudlish.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="claudlish: a language-learning app for the AI assistant dialect, translating 'No.' into 'I cannot and will not proceed with that request.'" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="claudlish — duolingo for the AI assistant dialect" />
+<meta name="twitter:description" content="Learn to speak fluent Claudlish: the warm, hedged, over-disclaimed dialect every AI assistant seems to share." />
+<meta name="twitter:image" content="https://claudlish.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #faf6ee;
+    --bg2: #f1e8d8;
+    --card: #ffffff;
+    --ink: #3d3929;
+    --dim: #8a8371;
+    --border: #e5ddc8;
+    --accent: #cc785c;
+    --accent-dim: #e3ab97;
+    --green: #58cc02;
+    --green-dim: #d7ffb8;
+    --red: #ff4b4b;
+    --gold: #ffb703;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding-bottom: 3rem; }
+  .wrap { width: 100%; max-width: 620px; padding: 0 1.1rem; }
+
+  header.top {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+    position: sticky; top: 0; z-index: 5;
+  }
+  header.top .inner {
+    width: 100%; max-width: 620px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.85rem 1.1rem;
+  }
+  .brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.05rem; }
+  .brand .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--accent); }
+  .stats { display: flex; gap: 0.9rem; font-size: 0.85rem; font-weight: 700; color: var(--dim); }
+  .stats .streak { color: #ff9500; }
+  .stats .xp { color: var(--accent); }
+
+  h1.title { font-size: 1.5rem; margin: 1.6rem 0 0.15rem; }
+  p.sub { color: var(--dim); font-size: 0.92rem; line-height: 1.5; margin: 0 0 1.6rem; }
+  p.sub b { color: var(--ink); }
+
+  /* --- lesson path --- */
+  .path { display: flex; flex-direction: column; gap: 0.9rem; margin-top: 0.5rem; }
+  .node {
+    display: flex; align-items: center; gap: 0.9rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 0.9rem 1.05rem;
+    cursor: pointer;
+    text-align: left;
+  }
+  .node:disabled, .node.locked { opacity: 0.5; cursor: not-allowed; }
+  .node .icon {
+    width: 42px; height: 42px; flex: none;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.25rem;
+    background: var(--green-dim);
+    border: 2px solid var(--green);
+  }
+  .node.locked .icon { background: var(--bg2); border-color: var(--border); }
+  .node.done .icon { background: var(--accent-dim); border-color: var(--accent); }
+  .node .meta { flex: 1; min-width: 0; }
+  .node .meta .t { font-weight: 800; font-size: 0.98rem; }
+  .node .meta .b { color: var(--dim); font-size: 0.78rem; margin-top: 0.15rem; line-height: 1.35; }
+  .node .stars { font-size: 0.85rem; color: var(--gold); white-space: nowrap; }
+
+  .cert-node {
+    background: linear-gradient(90deg, var(--accent), #b5573d);
+    color: #fff8f2;
+    border: none;
+  }
+  .cert-node .icon { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.5); }
+  .cert-node .meta .b { color: #ffe4d8; }
+  .cert-node.locked { background: var(--card); color: inherit; }
+  .cert-node.locked .meta .b { color: var(--dim); }
+
+  footer.reset {
+    margin-top: 2rem; text-align: center;
+  }
+  footer.reset button {
+    background: none; border: none; color: var(--dim);
+    font: inherit; font-size: 0.72rem; text-decoration: underline; cursor: pointer;
+  }
+
+  /* --- lesson view --- */
+  .lesson { display: none; }
+  .lesson.show { display: block; }
+  .path-view.hide, .lesson.hide { display: none; }
+
+  .lbar {
+    display: flex; align-items: center; gap: 0.75rem;
+    margin: 1.2rem 0 1.6rem;
+  }
+  .lbar .quit { background: none; border: none; color: var(--dim); font: inherit; font-size: 1.1rem; cursor: pointer; padding: 0 0.2rem; }
+  .lbar .track { flex: 1; height: 12px; background: var(--bg2); border-radius: 8px; overflow: hidden; }
+  .lbar .fill { height: 100%; background: var(--green); width: 0%; transition: width 0.3s ease; }
+  .lbar .hearts { display: flex; gap: 0.15rem; font-size: 1.05rem; }
+
+  .qcard { text-align: center; }
+  .qcard .prompt-label { color: var(--dim); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.6rem; }
+  .qcard .prompt {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 1.4rem 1.2rem; font-size: 1.15rem; font-weight: 700; line-height: 1.4;
+    margin-bottom: 1.4rem;
+  }
+  .choices { display: grid; gap: 0.65rem; }
+  .choice {
+    background: var(--card); border: 2px solid var(--border); border-radius: 12px;
+    padding: 0.85rem 1rem; font: inherit; font-size: 0.92rem; text-align: left;
+    cursor: pointer; line-height: 1.4;
+  }
+  .choice:hover:not(:disabled) { border-color: var(--accent-dim); }
+  .choice.correct { border-color: var(--green); background: var(--green-dim); }
+  .choice.wrong { border-color: var(--red); background: #ffe1e1; }
+  .choice:disabled { cursor: default; }
+
+  .fbar {
+    margin-top: 1.4rem; border-radius: 12px; padding: 1rem 1.1rem;
+    display: none; align-items: center; justify-content: space-between; gap: 1rem;
+  }
+  .fbar.show { display: flex; }
+  .fbar.ok { background: var(--green-dim); }
+  .fbar.bad { background: #ffe1e1; }
+  .fbar .flabel { font-weight: 800; font-size: 0.92rem; }
+  .fbar.ok .flabel { color: #2c6b00; }
+  .fbar.bad .flabel { color: #a30000; }
+  .fbar button {
+    border: none; border-radius: 10px; padding: 0.65rem 1.3rem; font: inherit; font-weight: 800;
+    font-size: 0.85rem; cursor: pointer; color: #fff;
+  }
+  .fbar.ok button { background: var(--green); }
+  .fbar.bad button { background: var(--red); }
+
+  /* --- result / cert screens --- */
+  .screen { display: none; text-align: center; padding-top: 2.5rem; }
+  .screen.show { display: block; }
+  .screen .big { font-size: 3rem; margin-bottom: 0.4rem; }
+  .screen h2 { font-size: 1.4rem; margin: 0 0 0.3rem; }
+  .screen p { color: var(--dim); font-size: 0.9rem; margin: 0 0 1.5rem; line-height: 1.5; }
+  .screen .rowstats { display: flex; justify-content: center; gap: 1.6rem; margin-bottom: 1.8rem; }
+  .screen .rowstats div { text-align: center; }
+  .screen .rowstats .n { font-size: 1.4rem; font-weight: 800; }
+  .screen .rowstats .l { font-size: 0.7rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .btnrow { display: flex; gap: 0.7rem; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    border: none; border-radius: 10px; padding: 0.8rem 1.4rem; font: inherit; font-weight: 800;
+    font-size: 0.85rem; cursor: pointer; text-decoration: none; display: inline-block;
+  }
+  .btn.primary { background: var(--accent); color: #fff8f2; }
+  .btn.secondary { background: var(--card); color: var(--ink); border: 1px solid var(--border); }
+  .btn.bsky { background: #1185fe; color: #fff; }
+
+  canvas#shareCanvas { display: none; }
+  .cardpreview { margin: 0 auto 1.5rem; max-width: 420px; width: 100%; border-radius: 14px; border: 1px solid var(--border); }
+
+  @media (max-width: 420px) {
+    h1.title { font-size: 1.3rem; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="inner">
+    <div class="brand"><span class="dot"></span> claudlish</div>
+    <div class="stats">
+      <span class="streak" id="streakStat">🔥 0</span>
+      <span class="xp" id="xpStat">✦ 0 xp</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="path-view" id="pathView">
+    <h1 class="title">learn to speak fluent Claudlish</h1>
+    <p class="sub">Claudlish is the warm, hedged, disclaimer-heavy dialect every AI
+      assistant seems to speak. Translate plain English into Claudlish (and back)
+      to earn XP, keep your streak, and get certified. <b>Riffing on
+      <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies</a>'s
+      "Duolingo for Claudlish."</b></p>
+    <div class="path" id="pathList"></div>
+    <button class="node cert-node locked" id="certNode" type="button">
+      <div class="icon">🎓</div>
+      <div class="meta">
+        <div class="t">Get Certified</div>
+        <div class="b">Finish every unit to sit the Claudlish fluency exam.</div>
+      </div>
+    </button>
+    <footer class="reset"><button id="resetBtn" type="button">reset progress</button></footer>
+  </div>
+
+  <div class="lesson" id="lessonView">
+    <div class="lbar">
+      <button class="quit" id="quitBtn" type="button" aria-label="quit lesson">✕</button>
+      <div class="track"><div class="fill" id="lessonFill"></div></div>
+      <div class="hearts" id="lessonHearts"></div>
+    </div>
+    <div class="qcard">
+      <div class="prompt-label" id="qLabel">Translate to Claudlish</div>
+      <div class="prompt" id="qPrompt"></div>
+      <div class="choices" id="qChoices"></div>
+    </div>
+    <div class="fbar" id="fbar">
+      <div class="flabel" id="fLabel"></div>
+      <button id="fNext" type="button">Continue</button>
+    </div>
+  </div>
+
+  <div class="screen" id="resultScreen">
+    <div class="big" id="resultEmoji">🎉</div>
+    <h2 id="resultTitle">Lesson complete!</h2>
+    <p id="resultSub"></p>
+    <div class="rowstats">
+      <div><div class="n" id="resultXp">+0</div><div class="l">XP earned</div></div>
+      <div><div class="n" id="resultStars">☆☆☆</div><div class="l">stars</div></div>
+    </div>
+    <div class="btnrow">
+      <button class="btn primary" id="resultContinue" type="button">Continue</button>
+      <button class="btn secondary" id="resultRetry" type="button">Retry</button>
+    </div>
+  </div>
+
+  <div class="screen" id="certScreen">
+    <div class="big">🎓</div>
+    <h2>Fluent in Claudlish</h2>
+    <p id="certSub">Certified after finishing every unit in the course.</p>
+    <img class="cardpreview" id="certImg" alt="Claudlish fluency certificate" />
+    <div class="rowstats">
+      <div><div class="n" id="certXp">0</div><div class="l">total XP</div></div>
+      <div><div class="n" id="certStreak">0</div><div class="l">day streak</div></div>
+    </div>
+    <div class="btnrow">
+      <a class="btn bsky" id="certShareBsky" href="#" target="_blank" rel="noopener">Share on Bluesky</a>
+      <button class="btn secondary" id="certDownload" type="button">Download card</button>
+      <button class="btn secondary" id="certNative" type="button" style="display:none">Share…</button>
+      <button class="btn secondary" id="certBack" type="button">Back to path</button>
+    </div>
+  </div>
+
+</div>
+
+<canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+<script src="/lib/lessons.js"></script>
+<script src="/lib/app.js"></script>
+</body>
+</html>

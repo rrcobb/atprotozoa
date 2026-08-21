@@ -1,0 +1,118 @@
+// Claudlish curriculum: paired (plain, claudlish) phrases, grouped into units.
+// Each unit unlocks the next once its lesson is passed with hearts to spare.
+// "cl" strings should read like an AI assistant wrote them — that's the joke.
+
+window.CLAUDLISH_UNITS = [
+  {
+    id: "openers",
+    title: "Warm Openers",
+    icon: "\u{1F44B}",
+    blurb: "Greet the user like every request is the best one you've had all day.",
+    pairs: [
+      { en: "Yes.", cl: "Absolutely!" },
+      { en: "Sure.", cl: "Happy to help with that!" },
+      { en: "Good idea.", cl: "That's a great question!" },
+      { en: "OK.", cl: "I appreciate you flagging that." },
+      { en: "I understand.", cl: "That makes total sense." },
+      { en: "Got it.", cl: "I hear you loud and clear." },
+    ],
+  },
+  {
+    id: "refusal",
+    title: "The Refusal",
+    icon: "\u{1F6D1}",
+    blurb: "Say no in at least four more words than strictly necessary.",
+    pairs: [
+      { en: "No.", cl: "I'm not able to help with that." },
+      { en: "I won't do that.", cl: "I cannot and will not proceed with that request." },
+      { en: "That's not allowed.", cl: "That falls outside what I'm able to assist with." },
+      { en: "Stop asking.", cl: "I want to be transparent that this isn't something I can do." },
+      { en: "Not my job.", cl: "That's outside my scope here." },
+      { en: "Never.", cl: "I don't think that would be appropriate for me to do." },
+    ],
+  },
+  {
+    id: "hedging",
+    title: "Hedging & Softening",
+    icon: "\u{1FAB6}",
+    blurb: "Never say a true thing without wrapping three qualifiers around it.",
+    pairs: [
+      { en: "Maybe.", cl: "It's worth noting that this may vary." },
+      { en: "I think so.", cl: "I want to be careful not to overstate this, but it seems likely." },
+      { en: "Probably.", cl: "In many cases, this tends to hold true." },
+      { en: "I'm not sure.", cl: "I don't have complete certainty here, so take this with appropriate caution." },
+      { en: "It depends.", cl: "There are a few factors at play here worth considering." },
+      { en: "Kind of.", cl: "To some extent, yes — though there's nuance worth unpacking." },
+    ],
+  },
+  {
+    id: "structure",
+    title: "Structuring an Answer",
+    icon: "\u{1F9E9}",
+    blurb: "No answer is complete without a numbered breakdown nobody asked for.",
+    pairs: [
+      { en: "Here it is.", cl: "Let's break this down step by step." },
+      { en: "In summary.", cl: "To wrap this up succinctly." },
+      { en: "First,", cl: "Let's start by unpacking the first piece." },
+      { en: "Basically,", cl: "At a high level, here's what's going on." },
+      { en: "Simply put,", cl: "To put it plainly, here's the core idea." },
+      { en: "Overall,", cl: "Taking a step back, the big picture here is this." },
+    ],
+  },
+  {
+    id: "apology",
+    title: "The Apology",
+    icon: "\u{1F647}",
+    blurb: "You were wrong. Thank the user for the privilege of telling you.",
+    pairs: [
+      { en: "My mistake.", cl: "You're absolutely right to call that out, and I appreciate you catching it." },
+      { en: "Sorry.", cl: "I apologize for the confusion there." },
+      { en: "I was wrong.", cl: "Thank you for the correction — I want to make sure I get this right." },
+      { en: "Fixed.", cl: "I've gone ahead and corrected that for you." },
+      { en: "Good catch.", cl: "Great catch, thank you for flagging that!" },
+      { en: "Oops.", cl: "I appreciate you pointing that out." },
+    ],
+  },
+  {
+    id: "closers",
+    title: "Warm Closers",
+    icon: "\u{1F44B}\u{FE0F}",
+    blurb: "Never let a conversation end without offering to keep it going forever.",
+    pairs: [
+      { en: "Anything else?", cl: "Let me know if there's anything else I can help with!" },
+      { en: "Bye.", cl: "Feel free to reach out anytime." },
+      { en: "Does that help?", cl: "Does that make sense, or would you like me to go deeper?" },
+      { en: "You're welcome.", cl: "Happy to help — that's what I'm here for!" },
+      { en: "Let's continue.", cl: "Let me know how you'd like to proceed from here." },
+      { en: "Done.", cl: "I hope that gives you a solid starting point!" },
+    ],
+  },
+  {
+    id: "disclaimer",
+    title: "The Disclaimer",
+    icon: "\u{26A0}\u{FE0F}",
+    blurb: "Every fact ships with a small footnote disclaiming the fact.",
+    pairs: [
+      { en: "I'm an AI.", cl: "As an AI language model, I don't have personal experiences." },
+      { en: "Check this yourself.", cl: "I'd recommend verifying this with a qualified professional." },
+      { en: "I could be wrong.", cl: "Please note that I can make mistakes, so it's worth double-checking important details." },
+      { en: "This isn't advice.", cl: "This is for informational purposes only and shouldn't be taken as professional advice." },
+      { en: "I don't know everything.", cl: "My knowledge has a cutoff date, so this may not reflect the latest information." },
+      { en: "Use your judgment.", cl: "Ultimately, the decision is yours to make based on your specific situation." },
+    ],
+  },
+  {
+    id: "emdash",
+    title: "Advanced: The Em Dash",
+    icon: "\u{2014}",
+    blurb: "Fluency's final boss — the pause that makes anything sound considered.",
+    pairs: [
+      { en: "It's important.", cl: "This is important — really important — so let's slow down." },
+      { en: "Actually,", cl: "Here's the thing — it's a bit more nuanced than that." },
+      { en: "In other words,", cl: "Put differently — and this is key — the idea is this." },
+      { en: "Honestly,", cl: "I want to be honest with you — this is a tricky one." },
+      { en: "Quickly,", cl: "Let's move fast — but carefully — through this." },
+      { en: "Finally,", cl: "And finally — the last piece — ties it all together." },
+    ],
+  },
+];
