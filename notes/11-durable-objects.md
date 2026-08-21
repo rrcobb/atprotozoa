@@ -76,9 +76,13 @@ state that used to advance on its own now advances on the next request. For
 
 ## Account cleanup
 
+As of 2026-08-21 the account holds **zero** Durable Object namespaces. Keep it
+that way.
+
 Removing a `[[durable_objects]]` binding does not delete the namespace it
 pointed at. Namespaces outlive their bindings and keep sitting on the account,
-so the code being clean is only half the job.
+so the code being clean is only half the job — this repo sat at 36 orphaned
+namespaces for weeks after the code was already DO-free.
 
 `audit/cf-durable-objects.mjs` is the tool for this. There is no
 `wrangler durable-objects namespace list`, which is why the state of the account
@@ -99,6 +103,28 @@ than it was.
 
 Deleting a namespace destroys its stored data. That is the intent here: the
 rewrites rebuild their state in the browser or in KV.
+
+### Assets-only sites need a temporary Worker
+
+`wrangler deploy` skips `[[migrations]]` entirely when a config has no `main`.
+An assets-only site whose *deployed* Worker still binds a DO is therefore stuck:
+the repo has the right `deleted_classes` tag, but nothing ever applies it, so
+Cloudflare keeps refusing to delete the namespace.
+
+The way out is to give the site a temporary no-op Worker, deploy once so the
+migration runs, then put the config back:
+
+```
+# add to wrangler.toml:  main = "src/index.ts"  and  binding = "ASSETS" under [assets]
+# src/index.ts:
+export default { fetch(request, env) { return env.ASSETS.fetch(request); } };
+wrangler deploy
+git restore wrangler.toml && rm -r src
+```
+
+Cloudflare deletes the namespace itself as the migration applies — no separate
+API call. Seven sites needed this: `bangerwatch`, `intrigue`, `meadowecho`,
+`mootrider`, `peakposting`, `runnerup`, `thrashmeter`.
 
 Leave the `[[migrations]]` blocks in `wrangler.toml` alone. They are inert once
 the namespace is gone.
@@ -134,6 +160,29 @@ the most reliable way to find drift.
 
 `watchtower` checks that sites respond, not that the deployed build matches the
 repo, so it would not catch this.
+
+## Three things that bit us
+
+**A migration tag is applied once.** Rewriting an existing `[[migrations]]` tag
+in place is a silent no-op — Cloudflare skips a tag it has already applied. The
+refactor that removed the DOs edited `v1` from `new_sqlite_classes` to
+`deleted_classes` on five sites, so the deletion never ran and the deploy failed
+with "New version of script does not export class X which is depended on by
+existing Durable Objects." The deletion must go on a NEW tag, with the old one
+left saying what it originally said. `audit/cf-durable-objects.mjs` now checks
+for this.
+
+**An on-zone Worker cannot fetch its own zone.** `presspool` polled
+`https://dontpressit.bisks.net/api/state`; both are Workers on `bisks.net`, so
+the subrequest came back 522 and the market sat permanently at
+`sourceStale`. This is the same constraint that keeps `watchtower` off-zone.
+Worker-to-Worker calls need a `[[services]]` binding, not a public URL.
+
+**KV.put only accepts strings.** The DO-to-KV port kept passing plain objects to
+`put()`, and each site's hand-written `KVNamespace` interface typed the value as
+`unknown`, so it compiled and threw at runtime on every write. `presspool`,
+`guestbet`, and `derivatives` all had it. The interface now says
+`value: string`. If you copy a KV site, keep that type honest.
 
 ## Infrastructure, not site state
 
