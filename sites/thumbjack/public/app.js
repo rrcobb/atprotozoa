@@ -48,6 +48,77 @@ const THEMES = [
   { bg: ["#ff9d00", "#ff3d00"], accent: "#111111", textFill: "#ffffff", textStroke: "#000000", badgeBg: "#111111", badgeFg: "#ffe000" },
 ];
 
+// --- layouts ---------------------------------------------------------------
+// Each layout places the same cast (avatar, reaction cam, burst badge, title
+// box, subscribe button, stat pill) in a different arrangement, plus a set of
+// arrow specs: an arrow tail point + which element it points at. The tip and
+// angle are computed at render time (see buildArrows) so arrows always land
+// on the thing they're supposedly pointing at, with a little jitter per
+// render for variety even on repeat shuffles of the same layout.
+const W = 1280, H = 720;
+const LAYOUTS = [
+  {
+    id: "classic-right",
+    avatar: { cx: 950, cy: 370, r: 250, rotate: -0.05 },
+    reactionCam: { cx: 690, cy: 590, r: 92 },
+    badge: { cx: 740, cy: 110, r: 92, spikes: 10 },
+    title: { x: 56, y: 60, w: 560, h: 460, align: "left" },
+    subscribe: { x: W - 214, y: H - 84 },
+    stats: { x: W - 360, y: 58 },
+    watermark: "left",
+    arrows: [
+      { tail: { x: 520, y: 660 }, target: "avatar" },
+      { tail: { x: 120, y: 560 }, target: "badge" },
+      { tail: { x: 420, y: 640 }, target: "reactionCam" },
+    ],
+  },
+  {
+    id: "mirror-left",
+    avatar: { cx: 330, cy: 370, r: 250, rotate: 0.05 },
+    reactionCam: { cx: 590, cy: 590, r: 92 },
+    badge: { cx: 540, cy: 110, r: 92, spikes: 9 },
+    title: { x: 664, y: 60, w: 560, h: 460, align: "right" },
+    subscribe: { x: 24, y: H - 84 },
+    stats: { x: 40, y: 58 },
+    watermark: "right",
+    arrows: [
+      { tail: { x: 760, y: 660 }, target: "avatar" },
+      { tail: { x: 1160, y: 560 }, target: "badge" },
+      { tail: { x: 860, y: 640 }, target: "reactionCam" },
+    ],
+  },
+  {
+    id: "top-banner",
+    avatar: { cx: 640, cy: 230, r: 185, rotate: -0.03 },
+    reactionCam: { cx: 1090, cy: 330, r: 90 },
+    badge: { cx: 170, cy: 170, r: 105, spikes: 11 },
+    title: { x: 50, y: 460, w: 1180, h: 200, align: "center" },
+    subscribe: { x: W - 214, y: 40 },
+    stats: { x: 850, y: 58 },
+    watermark: "left",
+    arrows: [
+      { tail: { x: 420, y: 340 }, target: "avatar" },
+      { tail: { x: 640, y: 660 }, target: "badge" },
+      { tail: { x: 900, y: 660 }, target: "reactionCam" },
+    ],
+  },
+  {
+    id: "diagonal-corners",
+    avatar: { cx: 280, cy: 210, r: 190, rotate: 0.04 },
+    reactionCam: { cx: 1120, cy: 560, r: 100 },
+    badge: { cx: 1080, cy: 150, r: 95, spikes: 10 },
+    title: { x: 40, y: 430, w: 760, h: 190, align: "left" },
+    subscribe: { x: 40, y: H - 84 },
+    stats: { x: 550, y: 58 },
+    watermark: "right",
+    arrows: [
+      { tail: { x: 560, y: 230 }, target: "avatar" },
+      { tail: { x: 820, y: 120 }, target: "badge" },
+      { tail: { x: 820, y: 640 }, target: "reactionCam" },
+    ],
+  },
+];
+
 // --- dom + state -----------------------------------------------------------
 
 const els = {
@@ -71,6 +142,7 @@ const state = {
   postIndex: -1,
   frameIndex: 0,
   themeIndex: 0,
+  layoutIndex: 0,
   badge: BADGES[0],
   emoji: EMOJIS[0],
   viewsK: 240,
@@ -205,10 +277,10 @@ function drawRays(ctx, cx, cy, count, theme) {
   ctx.restore();
 }
 
-function drawBigAvatar(ctx, cx, cy, R, img, profile, theme) {
+function drawBigAvatar(ctx, cx, cy, R, img, profile, theme, rotate) {
   ctx.save();
   ctx.translate(cx, cy);
-  ctx.rotate(-0.05);
+  ctx.rotate(rotate || 0);
   ctx.shadowColor = "rgba(0,0,0,0.55)";
   ctx.shadowBlur = 40;
   ctx.shadowOffsetY = 14;
@@ -384,12 +456,13 @@ function drawStats(ctx, x, y, viewsK) {
 }
 
 function drawTitle(ctx, title, box, theme) {
-  const { x, y, w, h } = box;
+  const { x, y, w, h, align = "left" } = box;
   const fit = fitTitleText(ctx, title, w, h);
   ctx.save();
-  ctx.textAlign = "left";
+  ctx.textAlign = align;
   ctx.textBaseline = "alphabetic";
   ctx.lineJoin = "round";
+  const lineX = align === "right" ? x + w : align === "center" ? x + w / 2 : x;
   const startY = y + (h - fit.lines.length * fit.lineHeight) / 2 + fit.fontPx * 0.78;
   ctx.font = `400 ${fit.fontPx}px Anton, Impact, sans-serif`;
   fit.lines.forEach((line, i) => {
@@ -399,25 +472,46 @@ function drawTitle(ctx, title, box, theme) {
     ctx.shadowOffsetY = 6;
     ctx.lineWidth = Math.max(6, fit.fontPx * 0.16);
     ctx.strokeStyle = theme.textStroke;
-    ctx.strokeText(line, x, ly);
+    ctx.strokeText(line, lineX, ly);
     ctx.shadowColor = "transparent";
     ctx.fillStyle = theme.textFill;
-    ctx.fillText(line, x, ly);
+    ctx.fillText(line, lineX, ly);
   });
   ctx.restore();
 }
 
-function drawWatermark(ctx, handleText) {
+// Turns a layout's arrow specs (a tail point + a named target) into concrete
+// draw calls: aim from the tail at the target's center, stop the tip just
+// short of its edge, and jitter angle/length a little so re-shuffling the
+// same layout doesn't draw pixel-identical arrows every time.
+function buildArrows(layout) {
+  const targets = { avatar: layout.avatar, badge: layout.badge, reactionCam: layout.reactionCam };
+  return layout.arrows
+    .map((spec) => {
+      const t = targets[spec.target];
+      if (!t) return null;
+      const dx = t.cx - spec.tail.x;
+      const dy = t.cy - spec.tail.y;
+      const angle = Math.atan2(dy, dx) + (Math.random() - 0.5) * 0.06;
+      const dist = Math.hypot(dx, dy) - t.r * 0.85;
+      const length = Math.max(90, Math.min(260, dist)) * (1 + (Math.random() - 0.5) * 0.12);
+      return { x: spec.tail.x, y: spec.tail.y, angleRad: angle, length };
+    })
+    .filter(Boolean);
+}
+
+function drawWatermark(ctx, handleText, side) {
   ctx.save();
   ctx.font = `700 22px ui-sans-serif, Arial, sans-serif`;
   const text = `${handleText} · thumbjack.bisks.net`;
   const w = ctx.measureText(text).width + 24;
-  roundRectPath(ctx, 24, 720 - 24 - 38, w, 38, 8);
+  const x = side === "right" ? W - 24 - w : 24;
+  roundRectPath(ctx, x, 720 - 24 - 38, w, 38, 8);
   ctx.fillStyle = "rgba(0,0,0,0.6)";
   ctx.fill();
   ctx.fillStyle = "#fff";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, 24 + 12, 720 - 24 - 38 / 2 + 1);
+  ctx.fillText(text, x + 12, 720 - 24 - 38 / 2 + 1);
   ctx.restore();
 }
 
@@ -434,8 +528,8 @@ function composeTitle() {
 async function renderThumb() {
   await fontReadyPromise;
   const ctx = els.canvas.getContext("2d");
-  const W = 1280, H = 720;
   const theme = THEMES[state.themeIndex];
+  const layout = LAYOUTS[state.layoutIndex];
 
   ctx.clearRect(0, 0, W, H);
   const grad = ctx.createLinearGradient(0, 0, W, H);
@@ -444,18 +538,18 @@ async function renderThumb() {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
-  const avatarCX = 950, avatarCY = 370, avatarR = 250;
-  drawRays(ctx, avatarCX, avatarCY, 26, theme);
-  drawBigAvatar(ctx, avatarCX, avatarCY, avatarR, state.avatarImg, state.profile, theme);
-  drawArrow(ctx, 560, 640, -0.7, 190, theme);
-  drawReactionCam(ctx, 690, 590, 92, state.avatarImg, state.emoji);
-  drawBurstBadge(ctx, 740, 110, 92, 10, theme, state.badge);
-  drawSubscribeButton(ctx, W - 214, H - 84);
-  drawStats(ctx, W - 360, 58, state.viewsK);
+  const { avatar, reactionCam, badge, title: titleBox, subscribe, stats } = layout;
+  drawRays(ctx, avatar.cx, avatar.cy, 26, theme);
+  drawBigAvatar(ctx, avatar.cx, avatar.cy, avatar.r, state.avatarImg, state.profile, theme, avatar.rotate);
+  buildArrows(layout).forEach((a) => drawArrow(ctx, a.x, a.y, a.angleRad, a.length, theme));
+  drawReactionCam(ctx, reactionCam.cx, reactionCam.cy, reactionCam.r, state.avatarImg, state.emoji);
+  drawBurstBadge(ctx, badge.cx, badge.cy, badge.r, badge.spikes, theme, state.badge);
+  drawSubscribeButton(ctx, subscribe.x, subscribe.y);
+  drawStats(ctx, stats.x, stats.y, state.viewsK);
 
   const title = composeTitle();
-  drawTitle(ctx, title, { x: 56, y: 70, w: 560, h: 520 }, theme);
-  drawWatermark(ctx, "@" + (state.profile?.handle || "?"));
+  drawTitle(ctx, title, titleBox, theme);
+  drawWatermark(ctx, "@" + (state.profile?.handle || "?"), layout.watermark);
 
   updateSharing(title);
 }
@@ -517,6 +611,7 @@ async function generate(handleRaw) {
     state.postIndex = candidates.length ? Math.floor(Math.random() * candidates.length) : -1;
     state.frameIndex = pickFrameIndex(state.postIndex >= 0);
     state.themeIndex = Math.floor(Math.random() * THEMES.length);
+    state.layoutIndex = Math.floor(Math.random() * LAYOUTS.length);
     state.badge = choice(BADGES);
     state.emoji = choice(EMOJIS);
     state.viewsK = Math.floor(Math.random() * 900 + 80);
@@ -563,6 +658,7 @@ els.shuffle.addEventListener("click", () => {
   }
   state.frameIndex = pickFrameIndex(state.postIndex >= 0);
   state.themeIndex = Math.floor(Math.random() * THEMES.length);
+  state.layoutIndex = Math.floor(Math.random() * LAYOUTS.length);
   state.badge = choice(BADGES);
   state.emoji = choice(EMOJIS);
   state.viewsK = Math.floor(Math.random() * 900 + 80);
