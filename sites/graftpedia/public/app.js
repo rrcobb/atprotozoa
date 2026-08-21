@@ -8,8 +8,9 @@
 // a plausible replacement and to explain the splice in "show stitches" mode.
 // Every scrap of text in the output is still copied verbatim from a real
 // article; the only things this site writes itself are tiny repairs (a/an,
-// capitalization, subject-verb agreement) at the graft seams. Runs entirely
-// client-side against Wikipedia's CORS-enabled action API. No backend.
+// capitalization, subject-verb agreement, pronoun number agreement) at the
+// graft seams. Runs entirely client-side against Wikipedia's CORS-enabled
+// action API. No backend.
 
 const API = "https://en.wikipedia.org/w/api.php";
 const MIN_EXTRACT_LEN = 400;
@@ -228,7 +229,8 @@ const FUNCTION_TAGS = {
   not: "ADV", also: "ADV", very: "ADV", too: "ADV", then: "ADV", there: "ADV",
   here: "ADV", now: "ADV", often: "ADV", always: "ADV", never: "ADV", quite: "ADV",
   rather: "ADV", almost: "ADV", still: "ADV", later: "ADV", soon: "ADV", widely: "ADV",
-  more: "ADV", most: "ADV",
+  more: "ADV", most: "ADV", again: "ADV", ago: "ADV", instead: "ADV", together: "ADV",
+  away: "ADV", back: "ADV", forward: "ADV", afterward: "ADV", afterwards: "ADV",
 };
 
 // "-er/-est/-ent/-ant" are deliberately left OUT of the suffix guess below:
@@ -877,15 +879,47 @@ function buildSkeleton(articles, opts) {
   return { sentences: skeleton, accepted, maxScore: maxScoreFor(vandalWeight) };
 }
 
-// ---- auto-repair: a/an, capitalization, subject-verb agreement ------------
+// ---- auto-repair: a/an, capitalization, subject-verb agreement, pronouns --
 //
 // "Auto-repair tiny joins... never rewrite the actual source phrases beyond
 // what is needed." Every repair below touches at most one existing word
-// (the sentence's own article or its own verb) — never the grafted text
-// itself, which is always used exactly as copied.
+// (the sentence's own article, verb, or a bare pronoun) — never the grafted
+// text itself, which is always used exactly as copied.
 
 function matchCase(original, replacement) {
   return /^[A-Z]/.test(original) ? replacement[0].toUpperCase() + replacement.slice(1) : replacement;
+}
+
+// Personal/possessive pronouns only — deliberately excludes relativizers
+// ("who"/"which"/"that"), which are tagged PRON too but travel as part of
+// whatever RelClause they open, not as standalone back-references.
+const PERSONAL_PRONOUNS_SING = new Set(["it", "its", "itself", "he", "him", "his", "himself", "she", "her", "hers", "herself"]);
+const PERSONAL_PRONOUNS_PLUR = new Set(["they", "them", "their", "theirs", "themselves"]);
+
+// Going singular -> plural never requires a gender guess (every singular
+// personal pronoun collapses onto the same plural set), so this direction is
+// always safe. "her" alone is ambiguous between object ("saw her" -> "saw
+// them") and possessive determiner ("her book" -> "their book"); resolved by
+// peeking at whether the next token starts a noun phrase.
+function pluralPronounFor(word, nextTok) {
+  const w = word.toLowerCase();
+  if (w === "her") return nextTok && ["NOUN", "PROPN", "ADJ"].includes(nextTok.tag) ? "their" : "them";
+  const map = {
+    it: "they", its: "their", itself: "themselves",
+    he: "they", him: "them", his: "their", himself: "themselves",
+    she: "they", hers: "theirs", herself: "themselves",
+  };
+  return map[w] || null;
+}
+
+// Plural -> singular DOES require picking a gender, which nothing here can
+// know — so this only ever resolves to the gender-neutral "it" family, and
+// callers skip it entirely when the grafted subject's source article is
+// classified as a person (better to leave a plural pronoun slightly
+// mismatched than confidently degender someone).
+function singularNeutralPronounFor(word) {
+  const map = { they: "it", them: "it", their: "its", theirs: "its", themselves: "itself" };
+  return map[word.toLowerCase()] || null;
 }
 
 function repairVerbForNumber(text, number) {
@@ -947,6 +981,44 @@ function computeRepairs(sent, grafts) {
         text: matchCase(detTok.word, needed),
         reason: "article auto-repaired (a/an) to match the grafted adjective",
       });
+    }
+  }
+
+  // Pronoun back-references: if the subject NP itself got grafted, any bare
+  // personal/possessive pronoun later in the SAME sentence that still points
+  // at it ("...and it later collapsed") needs to agree in number with the
+  // new subject, not the old one. Only touches pronouns that survived as
+  // literal skeleton text — one inside another accepted graft's span came
+  // along with that graft's own (already-consistent) source text.
+  if (sent.subjectNode && grafts.length) {
+    const subjGraft = grafts.find((g) => g.node === sent.subjectNode);
+    if (subjGraft) {
+      const newNumber = subjGraft.candidate.sig.number;
+      const isPersonSource = subjGraft.candidate.source.type === "person";
+      if (newNumber === "sing" || newNumber === "plur") {
+        for (let ti = 0; ti < sent.tokens.length; ti++) {
+          const tok = sent.tokens[ti];
+          if (tok.tag !== "PRON") continue;
+          if (tok.start < sent.subjectNode.end) continue; // only back-references AFTER the subject
+          const overlapsGraft = grafts.some((g) => tok.start < g.node.end && g.node.start < tok.end);
+          if (overlapsGraft) continue;
+          const lower = tok.word.toLowerCase();
+          let fixed = null;
+          if (newNumber === "plur" && PERSONAL_PRONOUNS_SING.has(lower)) {
+            fixed = pluralPronounFor(tok.word, sent.tokens[ti + 1]);
+          } else if (newNumber === "sing" && !isPersonSource && PERSONAL_PRONOUNS_PLUR.has(lower)) {
+            fixed = singularNeutralPronounFor(tok.word);
+          }
+          if (fixed && fixed !== lower) {
+            repairs.push({
+              start: tok.start,
+              end: tok.end,
+              text: matchCase(tok.word, fixed),
+              reason: `pronoun auto-repaired to agree in number with the grafted ${newNumber === "plur" ? "plural" : "singular"} subject`,
+            });
+          }
+        }
+      }
     }
   }
 
