@@ -37,7 +37,7 @@ import CANDIDATES from "./candidates.json";
 
 interface KVNamespace {
   get<T = unknown>(key: string, type: "json"): Promise<T | null>;
-  put(key: string, value: unknown): Promise<void>;
+  put(key: string, value: string): Promise<void>;
 }
 
 export interface Env {
@@ -200,13 +200,14 @@ export class MarketStore {
   }
 
   private async persist(): Promise<void> {
-    await this.state.put("state", {
+    // KV.put only accepts strings/buffers; passing an object throws.
+    await this.state.put("state", JSON.stringify({
       balances: Array.from(this.balances.entries()),
       markets: Array.from(this.markets.entries()),
       knownSiteDirs: Array.from(this.knownSiteDirs),
       lastStipend: Array.from(this.lastStipend.entries()),
       lastScanAt: this.lastScanAt,
-    });
+    }));
   }
 
   private getBalance(clientId: string): number {

@@ -43,7 +43,7 @@
 
 interface KVNamespace {
   get<T = unknown>(key: string, type: "json"): Promise<T | null>;
-  put(key: string, value: unknown): Promise<void>;
+  put(key: string, value: string): Promise<void>;
 }
 
 export interface Env {
@@ -234,7 +234,10 @@ export class MarketStore {
   }
 
   private async persist(): Promise<void> {
-    await this.state.put("state", {
+    // KV.put only accepts strings/buffers. The local KVNamespace interface
+    // below used to type `value` as unknown, so passing an object typechecked
+    // and then threw at runtime.
+    await this.state.put("state", JSON.stringify({
       trackedRoundNumber: this.trackedRoundNumber,
       trackedRoundStartedAt: this.trackedRoundStartedAt,
       trackedName: this.trackedName,
@@ -246,7 +249,7 @@ export class MarketStore {
       activity: this.activity,
       lastResult: this.lastResult,
       resultsHistory: this.resultsHistory,
-    });
+    }));
   }
 
   private getBalance(clientId: string): number {

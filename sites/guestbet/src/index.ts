@@ -34,7 +34,7 @@
 
 interface KVNamespace {
   get<T = unknown>(key: string, type: "json"): Promise<T | null>;
-  put(key: string, value: unknown): Promise<void>;
+  put(key: string, value: string): Promise<void>;
 }
 
 export interface Env {
@@ -163,14 +163,15 @@ export class MarketStore {
   }
 
   private async persist(): Promise<void> {
-    await this.state.put("state", {
+    // KV.put only accepts strings/buffers; passing an object throws.
+    await this.state.put("state", JSON.stringify({
       balances: Array.from(this.balances.entries()),
       round: this.round,
       history: this.history,
       lastStipend: Array.from(this.lastStipend.entries()),
       lifetime: Array.from(this.lifetime.entries()),
       activity: this.activity,
-    });
+    }));
   }
 
   private getBalance(clientId: string): number {
