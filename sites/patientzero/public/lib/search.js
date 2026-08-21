@@ -5,6 +5,12 @@
 // it's CORS-open by design for exactly this (see sites/trigrams/src/index.ts
 // and sites/gracewasright's diary entry in sites/sidenote). No credentials
 // of our own needed.
+//
+// searchPosts already returns replies mixed in with top-level posts — there's
+// no reply-only/root-only filter to apply here. Verified live (2026-08-21):
+// a 50-post page for a common phrase came back ~40% replies. If "patient
+// zero" ever looks wrong, the search index's coverage window is the likelier
+// culprit (see the hitLimit caveat in index.html), not a reply exclusion.
 
 const SEARCH_API = "https://trigrams.bisks.net/api/search";
 const PAGE_LIMIT = 100;
