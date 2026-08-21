@@ -187,13 +187,43 @@
         shareWrap.hidden = false;
       }
 
+      let sharedRound = 0;
       function setRoundTag(roundNumber) {
         roundTagEl.hidden = false;
-         roundTagEl.innerHTML = `round <b>#${roundNumber}</b> — local to this browser`;
+        const shared = sharedRound > 0 ? ` · everyone is on round <b>#${sharedRound}</b>` : "";
+        roundTagEl.innerHTML = `round <b>#${roundNumber}</b> — local to this browser${shared}`;
       }
 
-       // The button is intentionally browser-local now. Every browser gets its
-       // own sequence; there is no shared round or server-side leaderboard.
+       // The button is browser-local: every browser gets its own sequence, and
+       // pressing it only graduates a name in here. Separately, the Worker
+       // keeps a best-effort shared round counter in KV so the page can show
+       // what round the crowd is on (and so presspool has a public round to
+       // bet on). Reporting to it is fire-and-forget — if it fails, local play
+       // is unaffected.
+       async function reportPress(graduated) {
+         try {
+           const r = await fetch("/api/press", {
+             method: "POST",
+             headers: { "content-type": "application/json" },
+             body: JSON.stringify({
+               handle: graduated.handle,
+               displayName: graduated.displayName,
+               avatar: graduated.avatar,
+             }),
+           }).then((x) => x.json());
+           if (r && r.roundNumber) sharedRound = r.roundNumber;
+         } catch (_) {}
+       }
+       async function reportTick(kind) {
+         try {
+           const r = await fetch("/api/tick", {
+             method: "POST",
+             headers: { "content-type": "application/json" },
+             body: JSON.stringify({ kind }),
+           }).then((x) => x.json());
+           if (r && r.roundNumber) sharedRound = r.roundNumber;
+         } catch (_) {}
+       }
        const STATE_KEY = "dontpressit.state";
        const PUB = "https://public.api.bsky.app/xrpc";
        function readState() { try { return JSON.parse(localStorage.getItem(STATE_KEY)) || null; } catch (_) { return null; } }
@@ -312,6 +342,7 @@
            state.roundNumber += 1; state.currentName = { handle: `round-${state.roundNumber}`, displayName: `round ${state.roundNumber}`, avatar: "" };
            state.roundStartedAt = Date.now(); state.visits = 0; state.futileClicks = 0; writeState(state);
            const data = { ...state, justGraduated: graduated };
+           reportPress(graduated);
           transitioning = true;
           knownRound = data.justGraduated.roundNumber;
           setRoundTag(data.justGraduated.roundNumber);
@@ -332,6 +363,9 @@
         try {
            const data = await initialState(); data.visits++ ; writeState(data);
           knownRound = data.roundNumber;
+          // Records the visit against the shared round and gives us the crowd
+          // number for the tag; re-tags once it lands.
+          reportTick("visit").then(() => setRoundTag(data.roundNumber));
           setRoundTag(data.roundNumber);
           renderArmed(data);
           renderCounter(data.visits);
