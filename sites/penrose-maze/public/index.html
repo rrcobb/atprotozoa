@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>penrose-maze</title>
+<meta name="description" content="A first-person maze carved into a real Penrose tiling. Every room renders as an ordinary square — the aperiodic, locally 5-fold geometry underneath is never let on screen.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="penrose-maze">
+<meta property="og:description" content="A first-person maze carved into a real Penrose tiling. Every room looks like an ordinary square room. It is lying to you.">
+<meta property="og:image" content="https://penrose-maze.bisks.net/og.png">
+<meta property="og:url" content="https://penrose-maze.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="penrose-maze">
+<meta name="twitter:description" content="A first-person maze carved into a real Penrose tiling, disguised as an ordinary square maze.">
+<meta name="twitter:image" content="https://penrose-maze.bisks.net/og.png">
+
+<style>
+  :root {
+    color-scheme: dark;
+    --ink: #eef0ff;
+    --dim: #9aa0c0;
+    --accent: #ffe66d;
+    --accent2: #3ddc84;
+    --panel: rgba(10, 11, 20, 0.88);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: #05050a; color: var(--ink);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    overflow: hidden; touch-action: none;
+  }
+  #view {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    display: block; cursor: crosshair;
+  }
+  #hud {
+    position: fixed; top: 14px; left: 14px;
+    background: var(--panel); border: 1px solid #23263c;
+    border-radius: 10px; padding: 8px 14px;
+    font-variant-numeric: tabular-nums;
+    font-size: 14px; letter-spacing: 0.02em;
+    pointer-events: none;
+  }
+  #hud b { color: var(--accent); }
+  #minimapToggle {
+    position: fixed; top: 14px; right: 14px; z-index: 5;
+    background: var(--panel); color: var(--ink);
+    border: 1px solid #23263c; border-radius: 10px;
+    padding: 8px 12px; font-size: 13px; cursor: pointer;
+  }
+  #minimap {
+    position: fixed; top: 60px; right: 14px;
+    width: min(46vw, 360px); height: min(46vw, 360px);
+    border-radius: 12px; border: 1px solid #2c2f4a;
+    background: #06070e;
+    display: none;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  }
+  #minimap.open { display: block; }
+  #minimapCaption {
+    position: fixed; top: calc(60px + min(46vw, 360px) + 8px); right: 14px;
+    width: min(46vw, 360px);
+    font-size: 11.5px; color: var(--dim); text-align: right;
+    display: none; line-height: 1.4;
+  }
+  #minimap.open ~ #minimapCaption { display: block; }
+
+  .overlay {
+    position: fixed; inset: 0; z-index: 20;
+    display: none; align-items: center; justify-content: center;
+    background: radial-gradient(circle at 50% 40%, rgba(20,22,40,0.92), rgba(3,3,8,0.97));
+    padding: 20px;
+  }
+  .overlay.show { display: flex; }
+  .card {
+    max-width: 480px; width: 100%;
+    background: var(--panel); border: 1px solid #2a2e4a;
+    border-radius: 16px; padding: 28px 26px;
+    text-align: center;
+  }
+  .card h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: -0.01em; }
+  .card h1 .thin { color: #6f8fe8; }
+  .card h1 .fat { color: #e88fc0; }
+  .card p { color: var(--dim); line-height: 1.55; font-size: 14.5px; margin: 10px 0; }
+  .card .kbd { background: #1c1f33; border: 1px solid #33375a; border-radius: 5px; padding: 1px 7px; font-family: monospace; color: var(--ink); }
+  .btnrow { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 18px; }
+  button.primary, a.primary {
+    background: linear-gradient(135deg, #6f8fe8, #a679e0);
+    color: #0a0a12; border: none; border-radius: 10px;
+    padding: 12px 22px; font-size: 15px; font-weight: 700;
+    cursor: pointer; text-decoration: none; display: inline-block;
+  }
+  button.secondary, a.secondary {
+    background: transparent; color: var(--ink);
+    border: 1px solid #3a3e5e; border-radius: 10px;
+    padding: 11px 18px; font-size: 14px; cursor: pointer; text-decoration: none;
+  }
+  #winStats { color: var(--accent2); font-size: 18px; font-weight: 700; margin: 14px 0; }
+  #shareCard { display: none; }
+  .touch-hint { display: none; }
+  @media (pointer: coarse) {
+    .mouse-hint { display: none; }
+    .touch-hint { display: inline; }
+  }
+  footer.byline {
+    position: fixed; bottom: 10px; left: 14px; z-index: 5;
+    font-size: 11px; color: #565a78; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="view"></canvas>
+<canvas id="minimap" width="720" height="720"></canvas>
+<div id="minimapCaption">true tiling geometry — the maze graph, overlaid on the actual Penrose rhombi. this is what the game hides from you.</div>
+<button id="minimapToggle">map (M)</button>
+
+<div id="hud"><b id="hudSteps">0</b> rooms crossed · <b id="hudTime">0.0s</b></div>
+
+<footer class="byline">penrose-maze · built for @shibbi.me</footer>
+
+<div class="overlay show" id="startOverlay">
+  <div class="card">
+    <h1><span class="thin">penrose</span>-<span class="fat">maze</span></h1>
+    <p>A maze carved into a real Penrose tiling — the aperiodic pattern that never repeats and can't tile the plane with ordinary 90° corners. Every rhombus tile has exactly four neighbors, so every room you stand in still looks like a plain square.</p>
+    <p>The floor plan folds on itself in ways a normal building can't. You will never see the seam — walk it, and it always looks locally ordinary. Peek behind the curtain any time with the map button.</p>
+    <p class="mouse-hint"><span class="kbd">W A S D</span> to move · click + drag to look · <span class="kbd">M</span> for the true map</p>
+    <p class="touch-hint">left side: drag to move · right side: drag to look · tap the map button for the true map</p>
+    <div class="btnrow">
+      <button class="primary" id="enterBtn">enter the maze</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="winOverlay">
+  <div class="card">
+    <h1>you're out</h1>
+    <p>You crossed the tiling and never once saw where it folded.</p>
+    <div id="winStats">— rooms, —s</div>
+    <canvas id="shareCard" width="1200" height="630"></canvas>
+    <div class="btnrow">
+      <a class="primary" id="shareBluesky" target="_blank" rel="noopener">share on bluesky</a>
+      <button class="secondary" id="shareNative">share image</button>
+    </div>
+    <div class="btnrow">
+      <button class="secondary" id="retryBtn">same maze again</button>
+      <button class="secondary" id="newMazeBtn">new maze</button>
+    </div>
+  </div>
+</div>
+
+<script src="penrose.js"></script>
+<script src="game.js"></script>
+<script>
+(function () {
+  var startOverlay = document.getElementById("startOverlay");
+  document.getElementById("enterBtn").addEventListener("click", function () {
+    startOverlay.classList.remove("show");
+    var view = document.getElementById("view");
+    view.requestPointerLock && view.requestPointerLock();
+  });
+
+  window.buildShare = function (seed, steps, elapsed) {
+    var url = "https://penrose-maze.bisks.net/?seed=" + seed;
+    var text = "escaped the penrose-maze: " + steps + " rooms, " + elapsed + "s. " +
+      "the floor plan is aperiodic and never once looked it. try my maze: " + url;
+    document.getElementById("shareBluesky").href =
+      "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+
+    var canvas = document.getElementById("shareCard");
+    var ctx = canvas.getContext("2d");
+    var w = canvas.width, h = canvas.height;
+    var g = ctx.createLinearGradient(0, 0, w, h);
+    g.addColorStop(0, "#0b0d18");
+    g.addColorStop(1, "#1c1430");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+
+    // faint rhombus motif
+    var maze = window.__penroseMazeDebug && window.__penroseMazeDebug.maze;
+    if (maze) {
+      var scale = 260;
+      ctx.save();
+      ctx.translate(w * 0.74, h * 0.5);
+      maze.nodes.forEach(function (idx) {
+        var r = maze.rhombi[idx];
+        ctx.beginPath();
+        ctx.moveTo(r.p1.x * scale, -r.p1.y * scale);
+        ctx.lineTo(r.p2.x * scale, -r.p2.y * scale);
+        ctx.lineTo(r.p3.x * scale, -r.p3.y * scale);
+        ctx.lineTo(r.p4.x * scale, -r.p4.y * scale);
+        ctx.closePath();
+        ctx.fillStyle = r.color === 0 ? "rgba(111,143,232,0.22)" : "rgba(232,143,192,0.22)";
+        ctx.fill();
+      });
+      ctx.restore();
+    }
+
+    ctx.fillStyle = "#eef0ff";
+    ctx.font = "700 58px 'Segoe UI', sans-serif";
+    ctx.fillText("penrose-maze", 60, 130);
+    ctx.fillStyle = "#3ddc84";
+    ctx.font = "700 44px 'Segoe UI', sans-serif";
+    ctx.fillText(steps + " rooms · " + elapsed + "s", 60, 200);
+    ctx.fillStyle = "#9aa0c0";
+    ctx.font = "24px 'Segoe UI', sans-serif";
+    wrapText(ctx, "a first-person maze carved into a real Penrose tiling.", 60, 250, 620, 30);
+    wrapText(ctx, "every room looks like an ordinary square. it never is.", 60, 285, 620, 30);
+    ctx.fillStyle = "#565a78";
+    ctx.font = "22px monospace";
+    ctx.fillText("penrose-maze.bisks.net", 60, 560);
+
+    function wrapText(ctx, str, x, y, maxW, lh) {
+      var words = str.split(" "), line = "", ly = y;
+      for (var i = 0; i < words.length; i++) {
+        var test = line + words[i] + " ";
+        if (ctx.measureText(test).width > maxW && line) {
+          ctx.fillText(line, x, ly); line = words[i] + " "; ly += lh;
+        } else line = test;
+      }
+      ctx.fillText(line, x, ly);
+    }
+
+    document.getElementById("shareNative").onclick = function () {
+      canvas.toBlob(function (blob) {
+        var file = new File([blob], "penrose-maze.png", { type: "image/png" });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          navigator.share({ files: [file], text: text, title: "penrose-maze" }).catch(function () {});
+        } else {
+          var a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "penrose-maze.png";
+          a.click();
+        }
+      });
+    };
+  };
+})();
+</script>
+</body>
+</html>
