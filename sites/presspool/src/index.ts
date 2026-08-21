@@ -19,14 +19,16 @@
 // terminal state to mirror anymore, so this market doesn't have one either:
 // it tracks whichever dontpressit round is currently live, takes bets on how
 // long THAT round survives, and the instant dontpressit's roundNumber
-// advances (detected by polling its public /api/state), resolves the round
-// that just ended pari-mutuel and opens a fresh board for the new one — same
-// balances and leaderboard carried forward, same six time buckets, just
-// looping instead of stopping. dontpressit.bisks.net/api/state is public and
-// CORS-open; this Worker polls it server-side (no CORS concerns for a
-// server-to-server fetch — that header only governs browser access) and now
-// returns { roundNumber, currentName, roundStartedAt, futileClicks, visits,
-// totalGraduated, graduated }.
+// advances (detected by polling its /api/state), resolves the round that just
+// ended pari-mutuel and opens a fresh board for the new one — same balances
+// and leaderboard carried forward, same six time buckets, just looping instead
+// of stopping. /api/state returns { roundNumber, currentName, roundStartedAt,
+// futileClicks, visits, totalGraduated, graduated }.
+//
+// It is reached through a service binding, not a fetch to its public hostname:
+// both Workers sit on the bisks.net zone, and an on-zone Worker's subrequest to
+// its own zone comes back 522 instead of reaching the other Worker (see
+// watchtower/wrangler.toml, which is off-zone for the same reason).
 //
 // One KV key holds pools, bets, balances, and round tracking, re-checked
 // defensively on every request so a quiet market still advances promptly once
@@ -47,13 +49,16 @@ interface KVNamespace {
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
   MARKET_STATE: KVNamespace;
+  // dontpressit, bound Worker-to-Worker. See wrangler.toml for why this can't
+  // be a plain fetch to its public hostname.
+  SOURCE: { fetch: (req: Request) => Promise<Response> };
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname.startsWith("/api/")) {
-      return new MarketStore(env.MARKET_STATE).fetch(request);
+      return new MarketStore(env.MARKET_STATE, env.SOURCE).fetch(request);
     }
     return env.ASSETS.fetch(request);
   },
@@ -158,6 +163,7 @@ function freshStats(): LifetimeStats {
 
 export class MarketStore {
   private state: KVNamespace;
+  private source: { fetch: (req: Request) => Promise<Response> };
   private ready: Promise<void>;
 
   // The dontpressit round this market is currently taking bets on.
@@ -182,8 +188,9 @@ export class MarketStore {
     stale: true,
   };
 
-  constructor(state: KVNamespace) {
+  constructor(state: KVNamespace, source: { fetch: (req: Request) => Promise<Response> }) {
     this.state = state;
+    this.source = source;
     this.ready = (async () => {
       const snapshot = await this.state.get<any>("state", "json");
       const trackedRoundNumber = snapshot?.trackedRoundNumber;
@@ -258,7 +265,7 @@ export class MarketStore {
       return { data: this.sourceCache.data, stale: this.sourceCache.stale };
     }
     try {
-      const r = await fetch(SOURCE_STATE_URL);
+      const r = await this.source.fetch(new Request(SOURCE_STATE_URL));
       if (!r.ok) throw new Error("http " + r.status);
       const body = await r.json<Partial<SourceState>>();
       const data: SourceState = {
