@@ -28,6 +28,58 @@
 
   let state = loadState();
 
+  // ---- sound effects (synthesized, no audio assets) ----
+  const SFX_KEY = "claudlish_sfx_v1";
+  const sfx = { on: localStorage.getItem(SFX_KEY) !== "off", ctx: null };
+  function actx() {
+    if (!sfx.ctx) sfx.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (sfx.ctx.state === "suspended") sfx.ctx.resume();
+    return sfx.ctx;
+  }
+  function tone(ctx, t0, freq, dur, gainPeak, type) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type || "sine";
+    osc.frequency.setValueAtTime(freq, t0);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(gainPeak, t0 + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  }
+  function playCorrect() {
+    if (!sfx.on) return;
+    const ctx = actx();
+    const t0 = ctx.currentTime;
+    tone(ctx, t0, 880, 0.14, 0.18, "sine");
+    tone(ctx, t0 + 0.09, 1318.5, 0.22, 0.18, "sine");
+  }
+  function playWrong() {
+    if (!sfx.on) return;
+    const ctx = actx();
+    const t0 = ctx.currentTime;
+    tone(ctx, t0, 196, 0.22, 0.16, "sawtooth");
+    tone(ctx, t0 + 0.05, 174.6, 0.26, 0.14, "sawtooth");
+  }
+  function playFanfare() {
+    if (!sfx.on) return;
+    const ctx = actx();
+    const t0 = ctx.currentTime;
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(ctx, t0 + i * 0.09, f, 0.3, 0.16, "triangle"));
+  }
+  function playFail() {
+    if (!sfx.on) return;
+    const ctx = actx();
+    const t0 = ctx.currentTime;
+    [392, 349.2, 293.7].forEach((f, i) => tone(ctx, t0 + i * 0.11, f, 0.32, 0.15, "sawtooth"));
+  }
+  function setSfx(on) {
+    sfx.on = on;
+    localStorage.setItem(SFX_KEY, on ? "on" : "off");
+    if (els.sfxBtn) els.sfxBtn.textContent = on ? "\u{1F50A} sound" : "\u{1F507} sound";
+  }
+
   function bumpStreak() {
     const today = todayStr();
     if (state.streak.last === today) return;
@@ -73,6 +125,7 @@
     xpStat: document.getElementById("xpStat"),
     resetBtn: document.getElementById("resetBtn"),
     cheatBtn: document.getElementById("cheatBtn"),
+    sfxBtn: document.getElementById("sfxBtn"),
     shareCanvas: document.getElementById("shareCanvas"),
   };
 
@@ -214,11 +267,13 @@
       lesson.correct++;
       els.fbar.classList.add("show", "ok");
       els.fLabel.textContent = "\u{1F389} That's fluent Claudlish.";
+      playCorrect();
     } else {
       lesson.hearts--;
       renderHearts();
       els.fbar.classList.add("show", "bad");
       els.fLabel.textContent = "Not quite — the correct answer is highlighted.";
+      playWrong();
     }
     els.fNext.textContent = lesson.hearts <= 0 ? "See results" : (lesson.qi + 1 >= lesson.questions.length ? "Finish" : "Continue");
   }
@@ -255,6 +310,7 @@
       els.resultStars.textContent = "★".repeat(lesson.hearts) + "☆".repeat(3 - lesson.hearts);
       els.resultRetry.style.display = "none";
       els.resultContinue.textContent = "Continue";
+      playFanfare();
     } else {
       els.resultEmoji.textContent = "\u{1F494}";
       els.resultTitle.textContent = "Out of hearts";
@@ -263,6 +319,7 @@
       els.resultStars.textContent = "☆☆☆";
       els.resultRetry.style.display = "";
       els.resultContinue.textContent = "Back to path";
+      playFail();
     }
     showOnly(els.resultScreen);
     renderTopStats();
@@ -400,6 +457,12 @@
     showOnly(els.pathView);
     renderPath();
   });
+
+  els.sfxBtn.addEventListener("click", () => {
+    setSfx(!sfx.on);
+    if (sfx.on) playCorrect();
+  });
+  setSfx(sfx.on);
 
   renderPath();
   showOnly(els.pathView);
