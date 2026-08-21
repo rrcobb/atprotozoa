@@ -48,12 +48,70 @@
     osc.start(t0);
     osc.stop(t0 + dur + 0.02);
   }
+  // shared plate-style reverb bus for the "correct" ping (convolution over a
+  // synthesized, highpass-shaped noise tail — no audio assets)
+  function getReverbBus(ctx) {
+    if (sfx.reverbNode && sfx.reverbCtx === ctx) return sfx.reverbNode;
+    const convolver = ctx.createConvolver();
+    const rate = ctx.sampleRate;
+    const len = Math.floor(rate * 1.1);
+    const impulse = ctx.createBuffer(2, len, rate);
+    for (let ch = 0; ch < 2; ch++) {
+      const data = impulse.getChannelData(ch);
+      let hp = 0;
+      for (let i = 0; i < len; i++) {
+        const env = Math.pow(1 - i / len, 2.2); // fairly fast, bright plate-style decay
+        const n = (Math.random() * 2 - 1) * env;
+        const out = n - hp; // one-pole highpass: keeps the tail bright, not muddy
+        hp += 0.35 * out;
+        data[i] = out;
+      }
+    }
+    convolver.buffer = impulse;
+    const wet = ctx.createGain();
+    wet.gain.value = 0.2; // ~20% bright plate reverb
+    convolver.connect(wet).connect(ctx.destination);
+    sfx.reverbNode = convolver;
+    sfx.reverbCtx = ctx;
+    return convolver;
+  }
+  function pingVoice(ctx, reverb, t0, freq, dur, gainPeak, detuneCents, attack) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq, t0);
+    if (detuneCents) osc.detune.setValueAtTime(detuneCents, t0);
+    gain.gain.setValueAtTime(0, t0);
+    gain.gain.linearRampToValueAtTime(gainPeak, t0 + (attack || 0.004));
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    gain.connect(reverb);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  }
+  // one bright modal ping: sine fundamental w/ fast exponential decay, quiet
+  // sub-octaves for body, a few short detuned (inharmonic) upper partials for
+  // metallic sparkle, all fed through the plate reverb bus above
+  function modalPing(ctx, t0, freq, gainPeak) {
+    const reverb = getReverbBus(ctx);
+    pingVoice(ctx, reverb, t0, freq, 0.19, gainPeak, 0, 0.003);
+    pingVoice(ctx, reverb, t0, freq / 2, 0.22, gainPeak * 0.22, 0, 0.006);
+    pingVoice(ctx, reverb, t0, freq / 4, 0.18, gainPeak * 0.1, 0, 0.008);
+    [
+      [2.76, 11, 0.09, 0.07],
+      [3.41, -16, 0.07, 0.05],
+      [4.2, 7, 0.05, 0.045],
+    ].forEach(([mult, cents, level, dur]) => {
+      pingVoice(ctx, reverb, t0, freq * mult, dur, gainPeak * level, cents, 0.002);
+    });
+  }
   function playCorrect() {
     if (!sfx.on) return;
     const ctx = actx();
     const t0 = ctx.currentTime;
-    tone(ctx, t0, 880, 0.14, 0.18, "sine");
-    tone(ctx, t0 + 0.09, 1318.5, 0.22, 0.18, "sine");
+    modalPing(ctx, t0, 1484, 0.2); // F#6
+    modalPing(ctx, t0 + 0.125, 1871, 0.2); // A#6, 125ms later
   }
   function playWrong() {
     if (!sfx.on) return;
