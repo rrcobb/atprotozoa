@@ -153,9 +153,40 @@
   .row .k { width: 6.5rem; flex: 0 0 auto; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .bar-wrap { flex: 1; background: var(--bar); border-radius: 5px; height: 10px; overflow: hidden; }
   .row .bar { height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); border-radius: 5px; }
-  .row .v { width: 2.5rem; flex: 0 0 auto; text-align: right; color: var(--dim); font-size: 0.78rem; }
+  .row .v { min-width: 2.5rem; flex: 0 0 auto; text-align: right; color: var(--dim); font-size: 0.78rem; white-space: nowrap; }
 
   .small-note { color: var(--dim); font-size: 0.76rem; line-height: 1.6; margin: 0.4rem 0 0; }
+
+  .tldToggle { display: flex; gap: 0.4rem; margin-bottom: 0.8rem; }
+  .tldToggle button {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 999px;
+    padding: 0.32rem 0.8rem;
+    font: inherit;
+    font-size: 0.72rem;
+    cursor: pointer;
+  }
+  .tldToggle button.active {
+    color: #0a0c10;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    border-color: transparent;
+    font-weight: 700;
+  }
+  .rarityNote { color: var(--dim); font-size: 0.76rem; line-height: 1.6; margin: 0 0 1rem; }
+
+  .highlight {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.8rem 0.95rem;
+    font-size: 0.8rem;
+    line-height: 1.55;
+    color: var(--fg);
+    margin: -0.6rem 0 1.4rem;
+  }
+  .highlight b { color: var(--accent2); }
 
   .lenblock p { font-size: 0.85rem; margin: 0.3rem 0; }
   .lenblock .lbl { color: var(--dim); }
@@ -212,9 +243,15 @@
     </div>
 
     <p class="note" id="capNote" style="display:none"></p>
+    <p class="highlight" id="rarityHighlight" style="display:none"></p>
 
     <section class="block">
       <h2>TLD breakdown</h2>
+      <div class="tldToggle">
+        <button type="button" id="tldModeCount" class="active">by count</button>
+        <button type="button" id="tldModeRarity">by internet rarity</button>
+      </div>
+      <p class="rarityNote" id="tldModeNote" style="display:none"></p>
       <div id="tldList"></div>
       <p class="small-note" id="singleTldNote"></p>
     </section>
@@ -248,6 +285,7 @@
 
 <script type="module">
 import { census, analyze, cleanHandle } from "./lib/census.js";
+import { rarityRank } from "./lib/tld-popularity.js";
 
 const els = {
   form: document.getElementById("form"),
@@ -262,6 +300,10 @@ const els = {
   statTlds: document.getElementById("statTlds"),
   statAvgLen: document.getElementById("statAvgLen"),
   capNote: document.getElementById("capNote"),
+  rarityHighlight: document.getElementById("rarityHighlight"),
+  tldModeCount: document.getElementById("tldModeCount"),
+  tldModeRarity: document.getElementById("tldModeRarity"),
+  tldModeNote: document.getElementById("tldModeNote"),
   tldList: document.getElementById("tldList"),
   singleTldNote: document.getElementById("singleTldNote"),
   segList: document.getElementById("segList"),
@@ -285,15 +327,97 @@ function formatHandleList(arr, max) {
   return arr.length > cap ? `${shown} +${arr.length - cap} more` : shown;
 }
 
-function barRow(label, count, max) {
-  const pct = max ? Math.max(4, Math.round((count / max) * 100)) : 0;
+function barRow(label, count, max, opts) {
+  const o = opts || {};
+  const pct = o.pct != null ? o.pct : max ? Math.max(4, Math.round((count / max) * 100)) : 0;
+  const valueText = o.valueText != null ? o.valueText : String(count);
   const wrap = document.createElement("div");
   wrap.className = "row";
   wrap.innerHTML =
     `<div class="k">${escapeHtml(label)}</div>` +
     `<div class="bar-wrap"><div class="bar" style="width:${pct}%"></div></div>` +
-    `<div class="v">${count}</div>`;
+    `<div class="v">${escapeHtml(valueText)}</div>`;
   return wrap;
+}
+
+// TLD rarity weighting (@equalnotequals.com's idea, added to the thread
+// mfzx.net originally hand-counted this from): rank TLDs not by raw mutual
+// count but by each TLD's mutual count as a share of every domain registered
+// under that TLD *worldwide* — see lib/tld-popularity.js.
+let tldMode = "count";
+
+function renderTldList(stats) {
+  els.tldList.innerHTML = "";
+  if (tldMode === "rarity") {
+    const ranked = rarityRank(stats.tldList);
+    const maxShare = ranked.length ? ranked[0].share : 0;
+    const top = ranked.slice(0, 20);
+    for (const { tld, count, share, estimated } of top) {
+      const per100k = share * 100000;
+      const label = per100k >= 100 ? per100k.toFixed(0) : per100k >= 1 ? per100k.toFixed(1) : per100k.toFixed(3);
+      els.tldList.appendChild(
+        barRow("." + tld, count, null, {
+          pct: maxShare ? Math.max(4, Math.round((share / maxShare) * 100)) : 0,
+          valueText: (estimated ? "~" : "") + label + "/100k",
+        }),
+      );
+    }
+    if (ranked.length > top.length) {
+      const more = document.createElement("p");
+      more.className = "small-note";
+      more.textContent = `+${ranked.length - top.length} more TLDs not shown.`;
+      els.tldList.appendChild(more);
+    }
+    els.tldModeNote.style.display = "";
+    els.tldModeNote.textContent =
+      "ranked by each TLD's mutual count as a share of every domain registered under that TLD worldwide — a tiny TLD with a few mutuals can outrank .com. “per 100k” = mutuals per 100,000 domains that exist under that TLD, globally. counts are rough 2025-2026 estimates (not a live feed); “~” marks a TLD too small/obscure to have a specific figure, assumed rare.";
+    els.singleTldNote.textContent = "";
+  } else {
+    const maxTldCount = stats.tldList.length ? stats.tldList[0].count : 0;
+    const top = stats.tldList.slice(0, 20);
+    for (const { tld, count } of top) {
+      els.tldList.appendChild(barRow("." + tld, count, maxTldCount));
+    }
+    if (stats.tldList.length > top.length) {
+      const more = document.createElement("p");
+      more.className = "small-note";
+      more.textContent = `+${stats.tldList.length - top.length} more TLDs not shown.`;
+      els.tldList.appendChild(more);
+    }
+    els.tldModeNote.style.display = "none";
+    els.singleTldNote.textContent = stats.singleTldCount
+      ? `${stats.singleTldCount} TLD${stats.singleTldCount === 1 ? "" : "s"} had exactly one handle: ${stats.singleTlds.map((t) => "." + t).join(", ")}`
+      : "";
+  }
+}
+
+// A one-line "did you know" that always shows regardless of toggle state:
+// whichever TLD climbs furthest when reweighted by internet-wide rarity, and
+// (if different) whichever falls furthest — makes the effect of the toggle
+// legible even before anyone clicks it.
+function computeRarityHighlight(stats) {
+  if (stats.tldList.length < 2) return null;
+  const ranked = rarityRank(stats.tldList);
+  const rarityIndex = new Map(ranked.map((r, i) => [r.tld, i]));
+  let riser = null, riserDelta = -Infinity;
+  let faller = null, fallerDelta = Infinity;
+  stats.tldList.forEach((entry, countIdx) => {
+    const rarityIdx = rarityIndex.get(entry.tld);
+    const delta = countIdx - rarityIdx;
+    if (delta > riserDelta) { riserDelta = delta; riser = { tld: entry.tld, countIdx, rarityIdx }; }
+    if (delta < fallerDelta) { fallerDelta = delta; faller = { tld: entry.tld, countIdx, rarityIdx }; }
+  });
+  if (!riser || riserDelta <= 0) return null;
+
+  const parts = [
+    `weighted by internet-wide rarity: <b>.${escapeHtml(riser.tld)}</b> climbs from raw rank #${riser.countIdx + 1} to rarity rank #${riser.rarityIdx + 1}.`,
+  ];
+  if (faller && faller.tld !== riser.tld && fallerDelta < 0) {
+    parts.push(
+      `<b>.${escapeHtml(faller.tld)}</b> falls from #${faller.countIdx + 1} to #${faller.rarityIdx + 1} — common enough worldwide that a pile of mutuals barely registers.`,
+    );
+  }
+  return parts.join(" ");
 }
 
 function escapeHtml(s) {
@@ -463,21 +587,14 @@ function renderResults(state) {
     els.capNote.style.display = "none";
   }
 
-  els.tldList.innerHTML = "";
-  const maxTldCount = stats.tldList.length ? stats.tldList[0].count : 0;
-  const topTlds = stats.tldList.slice(0, 20);
-  for (const { tld, count } of topTlds) {
-    els.tldList.appendChild(barRow("." + tld, count, maxTldCount));
+  const highlight = computeRarityHighlight(stats);
+  if (highlight) {
+    els.rarityHighlight.style.display = "";
+    els.rarityHighlight.innerHTML = highlight;
+  } else {
+    els.rarityHighlight.style.display = "none";
   }
-  if (stats.tldList.length > topTlds.length) {
-    const more = document.createElement("p");
-    more.className = "small-note";
-    more.textContent = `+${stats.tldList.length - topTlds.length} more TLDs not shown.`;
-    els.tldList.appendChild(more);
-  }
-  els.singleTldNote.textContent = stats.singleTldCount
-    ? `${stats.singleTldCount} TLD${stats.singleTldCount === 1 ? "" : "s"} had exactly one handle: ${stats.singleTlds.map((t) => "." + t).join(", ")}`
-    : "";
+  renderTldList(stats);
 
   els.segList.innerHTML = "";
   const maxSegCount = stats.segmentList.length ? Math.max(...stats.segmentList.map((s) => s.count)) : 0;
@@ -526,6 +643,21 @@ async function run(rawHandle) {
 els.form.addEventListener("submit", (e) => {
   e.preventDefault();
   run(els.input.value);
+});
+
+els.tldModeCount.addEventListener("click", () => {
+  if (tldMode === "count") return;
+  tldMode = "count";
+  els.tldModeCount.classList.add("active");
+  els.tldModeRarity.classList.remove("active");
+  if (lastState) renderTldList(lastState.stats);
+});
+els.tldModeRarity.addEventListener("click", () => {
+  if (tldMode === "rarity") return;
+  tldMode = "rarity";
+  els.tldModeRarity.classList.add("active");
+  els.tldModeCount.classList.remove("active");
+  if (lastState) renderTldList(lastState.stats);
 });
 
 els.shareDownload.addEventListener("click", () => {
