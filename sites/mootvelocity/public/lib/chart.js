@@ -128,7 +128,7 @@ export function renderChart(svg, points, { tooltip, onHover } = {}) {
     const mark = el("circle", {
       cx, cy,
       r: p.isSubject ? 9 : 6,
-      class: "mark" + (p.confidence === "floor" ? " estimate" : ""),
+      class: "mark" + (p.confidence === "floor" || p.confidence === "unreliable" ? " estimate" : ""),
     });
     g.appendChild(hit);
     g.appendChild(mark);
