@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mootvelocity — followers vs. real active time, not account age</title>
+    <meta
+      name="description"
+      content="Enter a Bluesky handle and mootvelocity charts you and your moots by followers vs. how long you've actually been posting — chunking out any long silent/lurking stretch instead of counting from account creation."
+    />
+    <meta property="og:title" content="mootvelocity — follower velocity, not account age" />
+    <meta
+      property="og:description"
+      content="Followers vs. real active posting time for you and your moots — a long silent lurking stretch doesn't count against you."
+    />
+    <meta property="og:url" content="https://mootvelocity.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://mootvelocity.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="mootvelocity — follower velocity, not account age" />
+    <meta
+      name="twitter:description"
+      content="Followers vs. real active posting time for you and your moots — a long silent lurking stretch doesn't count against you."
+    />
+    <meta name="twitter:image" content="https://mootvelocity.bisks.net/og.png" />
+    <style>
+      .viz-root {
+        color-scheme: light;
+        --surface-1: #fcfcfb;
+        --page: #f9f9f7;
+        --text-primary: #0b0b0b;
+        --text-secondary: #52514e;
+        --text-muted: #898781;
+        --grid: #e1e0d9;
+        --axis: #c3c2b7;
+        --series-1: #2a78d6;
+        --series-1-wash: rgba(42, 120, 214, 0.12);
+        --context: #b4b2a9;
+        --border: rgba(11, 11, 11, 0.1);
+        --err: #b3261e;
+        --good: #0d7a3f;
+      }
+      @media (prefers-color-scheme: dark) {
+        .viz-root {
+          color-scheme: dark;
+          --surface-1: #1a1a19;
+          --page: #0d0d0d;
+          --text-primary: #ffffff;
+          --text-secondary: #c3c2b7;
+          --text-muted: #898781;
+          --grid: #2c2c2a;
+          --axis: #383835;
+          --series-1: #3987e5;
+          --series-1-wash: rgba(57, 135, 229, 0.16);
+          --context: #55534c;
+          --border: rgba(255, 255, 255, 0.1);
+          --err: #ff8a8a;
+          --good: #4fd17a;
+        }
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: var(--page); }
+      body {
+        color: var(--text-primary);
+        font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+        font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 820px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      h1 { font-size: 1.55rem; margin: 0 0 0.4rem; font-weight: 700; }
+      h1 .slash { color: var(--text-muted); font-weight: 400; }
+      p.intro { color: var(--text-secondary); margin: 0 0 2rem; font-size: 0.88rem; max-width: 66ch; }
+      p.intro b { color: var(--text-primary); font-weight: 600; }
+      p.intro code { background: var(--surface-1); border: 1px solid var(--border); border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.85em; }
+
+      form { margin: 0 0 0.5rem; }
+      label.lbl {
+        display: block; font-size: 0.72rem; color: var(--text-muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      input[type="text"] {
+        flex: 1; min-width: 220px; font-family: inherit; font-size: 0.92rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--border); border-radius: 4px;
+        background: var(--surface-1); color: var(--text-primary);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--series-1); outline-offset: 1px; }
+      button {
+        font-family: inherit; cursor: pointer; font-size: 0.88rem;
+        padding: 0.6rem 1rem; border: 1px solid var(--text-primary); background: var(--text-primary);
+        color: var(--page); border-radius: 4px; font-weight: 600;
+      }
+      button:hover:not(:disabled) { opacity: 0.85; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      .btn2 {
+        background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border);
+        font-weight: 400; text-decoration: none; display: inline-block; font-size: 0.86rem;
+      }
+      .btn2:hover { border-color: var(--text-primary); }
+
+      .status { min-height: 1.3rem; font-size: 0.82rem; margin: 0.7rem 0 0; color: var(--text-muted); }
+      .status.err { color: var(--err); }
+      .status.ok { color: var(--good); }
+
+      section#result { display: none; margin-top: 2.2rem; }
+      section#result.on { display: block; }
+
+      .summary { font-size: 0.86rem; color: var(--text-secondary); margin-bottom: 1.4rem; line-height: 1.8; }
+      .summary b { color: var(--text-primary); }
+
+      .chartCard {
+        position: relative; background: var(--surface-1); border: 1px solid var(--border);
+        border-radius: 10px; padding: 1rem 1rem 0.5rem; margin-bottom: 1rem;
+      }
+      .legend { display: flex; gap: 1.2rem; font-size: 0.78rem; color: var(--text-secondary); padding: 0 0.2rem 0.6rem; }
+      .legend span { display: inline-flex; align-items: center; gap: 0.4rem; }
+      .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+      .legend i.you { background: var(--series-1); }
+      .legend i.moot { background: var(--context); }
+      svg#chart { width: 100%; height: auto; display: block; }
+      svg#chart .gridline { stroke: var(--grid); stroke-width: 1; }
+      svg#chart .axisline { stroke: var(--axis); stroke-width: 1; }
+      svg#chart .axistext { fill: var(--text-muted); font-size: 9px; font-family: inherit; }
+      svg#chart .axislabel { fill: var(--text-secondary); font-size: 10px; font-family: inherit; }
+      svg#chart .veloline { stroke: var(--axis); stroke-width: 1; stroke-dasharray: 3,3; opacity: 0.6; }
+      svg#chart .velolabel { fill: var(--text-muted); font-size: 9px; font-family: inherit; }
+      svg#chart .dot .hit { fill: transparent; cursor: pointer; }
+      svg#chart .dot .mark { fill: var(--context); stroke: var(--surface-1); stroke-width: 2; }
+      svg#chart .dot .mark.estimate { opacity: 0.55; }
+      svg#chart .dot.subject .mark { fill: var(--series-1); }
+      svg#chart .dot:focus { outline: none; }
+      svg#chart .dot:hover .mark, svg#chart .dot:focus .mark { filter: brightness(1.15); }
+
+      #tooltip {
+        position: absolute; pointer-events: none; background: var(--text-primary); color: var(--page);
+        font-size: 0.76rem; padding: 0.45rem 0.6rem; border-radius: 6px; line-height: 1.5;
+        transform: translate(-50%, -110%); white-space: nowrap; opacity: 0; transition: opacity 0.08s;
+        z-index: 5;
+      }
+      #tooltip.on { opacity: 1; }
+      #tooltip b { color: var(--page); }
+      #tooltip .dim { opacity: 0.7; }
+
+      details.tableWrap { margin: 0 0 1.4rem; }
+      details.tableWrap summary {
+        cursor: pointer; font-size: 0.82rem; color: var(--text-secondary); font-weight: 600;
+        padding: 0.3rem 0;
+      }
+      table { width: 100%; border-collapse: collapse; font-size: 0.83rem; margin-top: 0.6rem; }
+      thead th {
+        text-align: left; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em;
+        color: var(--text-muted); font-weight: 600; padding: 0 0.5rem 0.5rem 0; border-bottom: 1px solid var(--text-primary);
+      }
+      thead th.num, td.num { text-align: right; }
+      tbody td { padding: 0.5rem 0.5rem 0.5rem 0; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+      tbody tr.you { background: var(--series-1-wash); }
+      .who { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+      .who img { width: 22px; height: 22px; border-radius: 50%; flex: none; background: var(--grid); }
+      .who a { color: inherit; text-decoration: none; }
+      .who a:hover { color: var(--series-1); }
+      .who .hd { color: var(--text-muted); }
+      .flag { font-size: 0.7rem; color: var(--text-muted); }
+
+      .shareRow { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 1.2rem 0 0; }
+
+      details.how { margin-top: 2.5rem; font-size: 0.84rem; color: var(--text-secondary); }
+      details.how summary { cursor: pointer; color: var(--text-primary); font-weight: 600; }
+      details.how .body { margin-top: 0.8rem; line-height: 1.75; }
+      details.how b { color: var(--text-primary); }
+      details.how code { background: var(--surface-1); border: 1px solid var(--border); border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.9em; }
+
+      footer {
+        margin-top: 3rem; color: var(--text-muted); font-size: 0.78rem;
+        border-top: 1px solid var(--border); padding-top: 1rem;
+      }
+      footer a { color: var(--series-1); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap viz-root">
+      <h1>mootvelocity <span class="slash">· follower velocity, not account age</span></h1>
+      <p class="intro">
+        Paste a <b>Bluesky handle</b>. mootvelocity finds its <b>moots</b>
+        (mutuals — who it follows that follow it back), then charts everyone
+        by followers vs. <b>real active time</b>: not raw account age, but
+        time since each account's <em>current streak</em> of actually posting
+        began. A long silent/lurking stretch before that gets chunked out, so
+        someone who sat quiet for a year and then started posting isn't
+        penalized for the lurking year.
+      </p>
+
+      <form id="form" autocomplete="off">
+        <label class="lbl" for="q">bluesky handle</label>
+        <div class="row">
+          <input type="text" id="q" placeholder="e.g. cee.wtf" spellcheck="false" />
+          <button id="go" type="submit">chart velocity</button>
+        </div>
+      </form>
+      <p class="status" id="status">
+        reads Bluesky's public AppView, all in your browser — no login. scans up to 25 accounts' full post history to find where the silence ends.
+      </p>
+
+      <section id="result">
+        <div class="summary" id="summary"></div>
+
+        <div class="chartCard">
+          <div class="legend">
+            <span><i class="you"></i> you</span>
+            <span><i class="moot"></i> moots</span>
+          </div>
+          <svg id="chart" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
+
+        <details class="tableWrap" open>
+          <summary id="tableSummary">ranked by follower velocity</summary>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>who</th>
+                <th class="num">followers</th>
+                <th class="num">active since</th>
+                <th class="num">velocity</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </details>
+
+        <div class="shareRow">
+          <a class="btn2" id="shareBluesky" target="_blank" rel="noopener">post this chart →</a>
+          <a class="btn2" id="shareDownload" download>download card (.png)</a>
+          <a class="btn2" id="shareNative" style="display: none">share…</a>
+        </div>
+        <canvas id="shareCanvas" width="1200" height="630" style="display: none"></canvas>
+      </section>
+
+      <details class="how">
+        <summary>how "real active time" is measured</summary>
+        <div class="body">
+          For each account, mootvelocity pages backward through its own
+          authored posts (skipping reposts) via the public AppView, newest
+          first. The moment it finds two consecutive posts more than
+          <b>60 days</b> apart, that's a real silence — everything before it
+          belongs to a separate, earlier era. The account's <b>active
+          since</b> date is the oldest post in the streak that's still
+          unbroken all the way to now. <b>Velocity</b> is
+          <code>followers ÷ active days × 30.44</code> — followers per month
+          of that real active time, not per month since account creation.
+          Dimmer dots on the chart are estimates: the scan hit its cap
+          (20 pages / ~2,000 posts per account) before finding a gap, so the
+          streak may run further back than shown — velocity there is an
+          upper bound, not exact. moots are capped at the first 24 found;
+          accounts with zero original posts fall back to their account
+          creation date and are flagged as such. Idea and the "silent for
+          over a year" framing came straight from
+          <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>.
+        </div>
+      </details>
+
+      <footer>
+        active time = time since the current unbroken posting streak began
+        (60+ day gaps end a streak), not account age. reads Bluesky's public
+        AppView (getFollows / getFollowers / getProfiles / getAuthorFeed),
+        all anonymous, everything client-side, no login. mutuals logic
+        adapted from <a href="https://cloutgraph.bisks.net/">cloutgraph</a>.
+        sibling of <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+    <div id="tooltip"></div>
+
+    <script type="module">
+      import { resolveMoots, getProfiles, MAX_POOL } from "./lib/pool.js";
+      import { scanPool } from "./lib/scan.js";
+      import { computeVelocity, fmtDuration, fmtDate, fmtNum } from "./lib/velocity.js";
+      import { renderChart } from "./lib/chart.js";
+
+      const $ = (id) => document.getElementById(id);
+      const form = $("form"), input = $("q"), goBtn = $("go"), statusEl = $("status");
+      const result = $("result"), summaryEl = $("summary"), rowsEl = $("rows"), tableSummary = $("tableSummary");
+      const chartSvg = $("chart"), tooltip = $("tooltip");
+      const shareBluesky = $("shareBluesky"), shareDownload = $("shareDownload"), shareNative = $("shareNative");
+      const shareCanvas = $("shareCanvas");
+
+      const short = (h) => "@" + String(h || "").replace(/\.bsky\.social$/, "");
+      function setStatus(text, cls) {
+        statusEl.className = "status" + (cls ? " " + cls : "");
+        statusEl.textContent = text;
+      }
+      function escapeHtml(s) {
+        return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      let lastMetrics = null, lastSubjectHandle = "";
+
+      function velocityLabel(v) {
+        if (v == null) return "—";
+        if (v < 1) return v.toFixed(2) + "/mo";
+        return fmtNum(Math.round(v * 10) / 10) + "/mo";
+      }
+
+      function renderTable(metrics) {
+        rowsEl.innerHTML = "";
+        const ranked = metrics.slice().sort((a, b) => (b.velocityPerMonth || -1) - (a.velocityPerMonth || -1));
+        ranked.forEach((m, i) => {
+          const tr = document.createElement("tr");
+          if (m.isSubject) tr.className = "you";
+          const flag = m.confidence === "floor" ? '<span class="flag">~est</span>' : m.confidence === "no-posts" ? '<span class="flag">no posts</span>' : "";
+          tr.innerHTML =
+            `<td>${i + 1}</td>` +
+            `<td><div class="who">` +
+              (m.avatar ? `<img src="${m.avatar}" alt="" loading="lazy" />` : `<img alt="" />`) +
+              `<a href="https://bsky.app/profile/${encodeURIComponent(m.handle || m.did)}" target="_blank" rel="noopener">${escapeHtml(m.displayName)} <span class="hd">${escapeHtml(short(m.handle))}</span></a>` +
+            `</div></td>` +
+            `<td class="num">${fmtNum(m.followers)}</td>` +
+            `<td class="num">${fmtDate(m.activeSince)} ${flag}</td>` +
+            `<td class="num"><b>${velocityLabel(m.velocityPerMonth)}</b></td>`;
+          rowsEl.appendChild(tr);
+        });
+      }
+
+      function showTooltip(p, evt) {
+        if (!p) {
+          tooltip.classList.remove("on");
+          return;
+        }
+        tooltip.innerHTML =
+          `<b>${escapeHtml(p.displayName)}</b> ${escapeHtml(short(p.handle))}<br/>` +
+          `${fmtNum(p.followers)} followers <span class="dim">·</span> active since ${fmtDate(p.activeSince)}<br/>` +
+          `<b>${velocityLabel(p.velocityPerMonth)}</b>` +
+          (p.confidence === "floor" ? ` <span class="dim">(estimate — scan capped)</span>` : "") +
+          (p.confidence === "no-posts" ? ` <span class="dim">(no posts found — using account age)</span>` : "");
+        const rect = chartSvg.getBoundingClientRect();
+        const wrapRect = document.querySelector(".chartCard").getBoundingClientRect();
+        let cx, cy;
+        if (evt && evt.clientX != null) {
+          cx = evt.clientX - wrapRect.left;
+          cy = evt.clientY - wrapRect.top;
+        } else {
+          cx = rect.width / 2;
+          cy = rect.height / 2;
+        }
+        tooltip.style.left = wrapRect.left + window.scrollX + cx + "px";
+        tooltip.style.top = wrapRect.top + window.scrollY + cy + "px";
+        tooltip.classList.add("on");
+      }
+
+      const SHARE_URL = "https://mootvelocity.bisks.net/";
+
+      function buildShareText(subject, ranked) {
+        const you = ranked.find((m) => m.isSubject);
+        const rank = ranked.findIndex((m) => m.isSubject) + 1;
+        const bit = you && you.velocityPerMonth != null
+          ? `${velocityLabel(you.velocityPerMonth)} followers, #${rank} of ${ranked.length} vs. my moots.`
+          : `ranked myself against my moots.`;
+        return `charted my follower velocity (real active time, not account age) on mootvelocity: ${bit} ${SHARE_URL}`;
+      }
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      async function buildShareCard(subject, ranked) {
+        const ctx = shareCanvas.getContext("2d");
+        const W = shareCanvas.width, H = shareCanvas.height;
+        const mono = "ui-monospace, monospace";
+        ctx.fillStyle = "#fcfcfb";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#2a78d6";
+        ctx.font = `800 44px ${mono}`;
+        ctx.fillText("mootvelocity", 56, 88);
+        ctx.fillStyle = "#52514e";
+        ctx.font = `400 21px ${mono}`;
+        ctx.fillText(short(subject.handle) + " vs. moots — followers per month of real active time", 56, 124);
+
+        const top = ranked.slice(0, 6);
+        const rowH = 74;
+        const startY = 190;
+        const avatars = await Promise.all(top.map((r) => loadImg(r.avatar)));
+
+        top.forEach((r, i) => {
+          const yy = startY + i * rowH;
+          ctx.fillStyle = "#e1e0d9";
+          ctx.fillRect(56, yy + rowH - 12, W - 112, 1);
+
+          ctx.fillStyle = r.isSubject ? "#2a78d6" : "#898781";
+          ctx.font = `700 22px ${mono}`;
+          ctx.textAlign = "left";
+          ctx.fillText(String(i + 1), 56, yy + 28);
+
+          const img = avatars[i];
+          let textX = 104;
+          if (img) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(122, yy + 12, 21, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(img, 101, yy - 9, 42, 42);
+            ctx.restore();
+            textX = 160;
+          }
+          ctx.fillStyle = r.isSubject ? "#2a78d6" : "#0b0b0b";
+          ctx.font = `700 23px ${mono}`;
+          ctx.fillText(r.displayName, textX, yy + 10);
+          ctx.fillStyle = "#898781";
+          ctx.font = `400 16px ${mono}`;
+          ctx.fillText(short(r.handle), textX, yy + 32);
+
+          ctx.textAlign = "right";
+          ctx.fillStyle = "#2a78d6";
+          ctx.font = `800 26px ${mono}`;
+          ctx.fillText(velocityLabel(r.velocityPerMonth), W - 56, yy + 22);
+          ctx.textAlign = "left";
+        });
+
+        ctx.fillStyle = "#2a78d6";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("mootvelocity.bisks.net", 56, H - 40);
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+
+      let lastShareText = "";
+      if (canShareFiles()) {
+        shareNative.style.display = "";
+        shareNative.addEventListener("click", () => {
+          shareCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "mootvelocity.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: lastShareText, title: "mootvelocity" });
+            } catch {}
+          }, "image/png");
+        });
+      }
+      shareDownload.addEventListener("click", (e) => {
+        e.preventDefault();
+        shareCanvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "mootvelocity.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      async function run(raw) {
+        const q = (raw || "").trim();
+        if (!q) { input.focus(); return; }
+        goBtn.disabled = true;
+        result.classList.remove("on");
+        setStatus("resolving " + q + "…");
+        try {
+          const poolInfo = await resolveMoots(q, { onStep: (s) => setStatus(s) });
+          const allDids = [poolInfo.subjectDid, ...poolInfo.mootDids];
+
+          setStatus(`found ${poolInfo.mootDids.length} moot${poolInfo.mootDids.length === 1 ? "" : "s"}${poolInfo.truncated ? ` (capped at ${MAX_POOL})` : ""}. loading profiles…`);
+          const profiles = await getProfiles(allDids);
+          const subjectProfile = profiles.get(poolInfo.subjectDid);
+          if (!subjectProfile) throw new Error("couldn't load that profile");
+
+          setStatus(`scanning post history: 0/${allDids.length}…`);
+          const scans = await scanPool(allDids, {
+            concurrency: 4,
+            onProgress: (done, total) => setStatus(`scanning post history: ${done}/${total} accounts…`),
+          });
+
+          const now = new Date();
+          const metrics = [];
+          for (const did of allDids) {
+            const profile = profiles.get(did);
+            if (!profile) continue;
+            const m = computeVelocity(profile, scans.get(did), now);
+            m.isSubject = did === poolInfo.subjectDid;
+            metrics.push(m);
+          }
+          lastMetrics = metrics;
+          lastSubjectHandle = subjectProfile.handle;
+
+          const you = metrics.find((m) => m.isSubject);
+          const ranked = metrics.slice().sort((a, b) => (b.velocityPerMonth || -1) - (a.velocityPerMonth || -1));
+          const yourRank = ranked.findIndex((m) => m.isSubject) + 1;
+
+          const trimmedBit = you.trimmedDays > 30
+            ? ` correcting for ~${fmtDuration(you.trimmedDays)} of earlier silence`
+            : "";
+          summaryEl.innerHTML =
+            `<b>${escapeHtml(short(you.handle))}</b> — account created ${fmtDate(you.createdAt)}, but ` +
+            `<b>actively posting since ${fmtDate(you.activeSince)}</b>${trimmedBit}. ` +
+            `<b>${fmtNum(you.followers)}</b> followers over that span = <b>${velocityLabel(you.velocityPerMonth)}</b> followers/month — ` +
+            `#${yourRank} of ${metrics.length} against your moots.`;
+
+          tableSummary.textContent = `ranked by follower velocity (${metrics.length} accounts)`;
+          renderTable(metrics);
+          renderChart(chartSvg, metrics, { onHover: showTooltip });
+
+          lastShareText = buildShareText(subjectProfile, ranked);
+          shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+          buildShareCard(subjectProfile, ranked);
+
+          result.classList.add("on");
+          setStatus("done.", "ok");
+          result.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (err) {
+          setStatus(
+            err && err.status === 400
+              ? "couldn't resolve that — check the handle."
+              : "couldn't finish that one — " + (err && err.message ? err.message : "try again") + ".",
+            "err",
+          );
+        } finally {
+          goBtn.disabled = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        run(input.value);
+      });
+
+      window.addEventListener("resize", () => {
+        if (lastMetrics) renderChart(chartSvg, lastMetrics, { onHover: showTooltip });
+      });
+
+      const initial = new URLSearchParams(location.search).get("q") || "";
+      if (initial) {
+        input.value = initial;
+        run(initial);
+      }
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.7rem; line-height: 1;
+        background: rgba(20, 20, 20, 0.72); color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px; padding: 0.45rem 0.6rem; cursor: pointer;
+        -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop { position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden; pointer-events: none; z-index: 2147483000; display: none; }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear; animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
