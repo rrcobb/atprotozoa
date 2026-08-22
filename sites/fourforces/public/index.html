@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>fourforces — procgen QWOP Sisyphus</title>
+<meta name="description" content="QWOP but Q/W/O/P each dial the strength of one fundamental force, and the hillside is a living cellular automaton that reshapes itself around whichever force currently dominates. Keep them balanced, or don't — but P-mashing ends in nuclear collapse.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="fourforces — procgen QWOP Sisyphus">
+<meta property="og:description" content="Q/W/O/P dial gravity, electromagnetism, the weak force and the strong force. Whichever one you're maxing out reshapes the hillside's cellular automaton. Mash P long enough and it all collapses to a point.">
+<meta property="og:image" content="https://fourforces.bisks.net/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://fourforces.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="fourforces — procgen QWOP Sisyphus">
+<meta name="twitter:description" content="Q/W/O/P dial the four fundamental forces. Whichever one dominates reshapes the living hillside. Mash P long enough and it all collapses to a point.">
+<meta name="twitter:image" content="https://fourforces.bisks.net/og.png">
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.85em%22 font-size=%2280%22>%E2%9A%9B%EF%B8%8F</text></svg>">
+<style>
+  :root {
+    --sky-top: #0c1030; --sky-bot: #1c1440;
+    --far: #2a2560; --mid: #3a3080;
+    --ground: #221a44; --ground-line: #7a5cff;
+    --boulder: #6b6560; --boulder-2: #9a8ff0;
+    --figure: #eae6ff; --figure-2: #ff5d8f;
+    --gap: #05040d;
+    --hud: #e7e2ff; --accent: #7a5cff;
+    --panel: rgba(14,10,32,0.88);
+    --q: #ff6b6b; --w: #ffd166; --o: #6bffb8; --p: #7a5cff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: #0c1030;
+    color: var(--hud);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    touch-action: manipulation;
+  }
+  #wrap {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 10px; padding: 10px;
+  }
+  #stage {
+    position: relative;
+    width: min(100%, 960px);
+    aspect-ratio: 16 / 9;
+    max-height: 68vh;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(122,92,255,0.3), 0 24px 60px rgba(0,0,0,0.5);
+  }
+  canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    background: var(--panel);
+    backdrop-filter: blur(3px);
+    padding: 20px; gap: 12px;
+    z-index: 5;
+  }
+  .overlay.hidden { display: none; }
+  .overlay h1 {
+    margin: 0; font-size: clamp(24px, 5.4vw, 42px);
+    letter-spacing: 1px; color: var(--accent);
+    text-shadow: 0 0 14px var(--accent);
+  }
+  .overlay p { margin: 0; max-width: 50ch; line-height: 1.5; opacity: 0.92; font-size: 14px; }
+  .overlay p.small { font-size: 12px; opacity: 0.7; max-width: 54ch; }
+  .keys b { color: var(--accent); }
+  .force-legend { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; font-size: 12px; }
+  .force-legend span.k { font-weight: 800; padding: 1px 6px; border-radius: 5px; }
+  .force-legend .Q { color: #1a0808; background: var(--q); }
+  .force-legend .W { color: #241a00; background: var(--w); }
+  .force-legend .O { color: #001a10; background: var(--o); }
+  .force-legend .P { color: #0d0424; background: var(--p); }
+  button.big {
+    font: inherit; font-size: 17px;
+    padding: 11px 24px; border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: var(--accent); color: #0c0a1a; cursor: pointer;
+    box-shadow: 0 0 14px var(--accent);
+    font-weight: 700;
+  }
+  button.big:active { transform: scale(0.96); }
+  button.ghost {
+    font: inherit; font-size: 13px;
+    padding: 9px 18px; border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: transparent; color: var(--accent); cursor: pointer;
+  }
+  .overlay-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+  #hud {
+    position: absolute; top: 8px; left: 10px; right: 10px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    font-size: 12px; z-index: 4; pointer-events: none;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+  #hud .stat { line-height: 1.4; }
+  #hud .stat b { color: var(--accent); }
+  #dials {
+    position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 4;
+    display: flex; gap: 6px;
+  }
+  .dial { flex: 1; }
+  .dial-label { font-size: 10px; display: flex; justify-content: space-between; opacity: 0.85; }
+  .dial-bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: hidden; margin-top: 2px; }
+  .dial-bar > i { display: block; height: 100%; width: 0%; transition: width 0.08s linear; }
+  .dial.Q .dial-bar > i { background: var(--q); }
+  .dial.W .dial-bar > i { background: var(--w); }
+  .dial.O .dial-bar > i { background: var(--o); }
+  .dial.P .dial-bar > i { background: var(--p); }
+  .dial.dominant .dial-label { font-weight: 800; }
+
+  #rulesetTag {
+    position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+    font-size: 11px; padding: 3px 10px; border-radius: 999px;
+    background: rgba(0,0,0,0.45); border: 1px solid var(--accent);
+    z-index: 4; pointer-events: none; white-space: nowrap;
+  }
+
+  a.credit { color: var(--accent); text-decoration: none; }
+  a.credit:hover { text-decoration: underline; }
+  .foot { font-size: 11px; opacity: 0.65; text-align: center; margin-top: 2px; }
+
+  #touch {
+    position: absolute; bottom: 46px; left: 10px; right: 10px;
+    display: none; justify-content: space-between; z-index: 4; gap: 6px;
+  }
+  #touch button {
+    font: inherit; font-size: 13px; font-weight: 800;
+    flex: 1; height: 52px; border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.25);
+    color: #0c0a1a;
+  }
+  #touch button.Q { background: var(--q); }
+  #touch button.W { background: var(--w); }
+  #touch button.O { background: var(--o); }
+  #touch button.P { background: var(--p); color: #eae6ff; }
+  #touchJump {
+    position: absolute; right: 10px; bottom: 104px; z-index: 4;
+    display: none;
+    font: inherit; font-size: 13px; font-weight: 800;
+    padding: 10px 16px; border-radius: 12px;
+    background: var(--accent); border: 1px solid rgba(255,255,255,0.25); color: #0c0a1a;
+  }
+  @media (pointer: coarse) { #touch, #touchJump { display: flex; } }
+
+  #shareBtn {
+    font: inherit; font-size: 14px;
+    padding: 10px 20px; border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: var(--accent); color: #0c0a1a; cursor: pointer;
+    text-decoration: none; display: inline-block; font-weight: 700;
+  }
+
+  .gacha-card {
+    border: 1px solid var(--accent); border-radius: 12px;
+    padding: 14px 18px; max-width: 40ch;
+    background: rgba(122,92,255,0.08);
+  }
+  .gacha-card.hidden { display: none; }
+  .gacha-card .rarity { font-size: 11px; letter-spacing: 2px; opacity: 0.75; }
+  .gacha-card .name { font-size: 18px; font-weight: 800; color: var(--accent); margin: 4px 0; }
+  .gacha-card .desc { font-size: 12.5px; opacity: 0.9; }
+  #upgradeStrip {
+    position: absolute; top: 30px; right: 10px; z-index: 4;
+    font-size: 10px; text-align: right; opacity: 0.85;
+    max-width: 40%;
+  }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="game" width="960" height="540"></canvas>
+
+    <div id="rulesetTag">ruleset: <b id="rulesetName">—</b></div>
+
+    <div id="hud">
+      <div class="stat">
+        CLIMB <b id="dist">0</b>m<br>
+        SUMMITS <b id="loops">0</b>
+      </div>
+      <div class="stat" style="text-align:right">
+        BEST <b id="best">0</b>m
+      </div>
+    </div>
+    <div id="upgradeStrip"></div>
+
+    <div id="dials">
+      <div class="dial Q" id="dialQ"><div class="dial-label"><span>Q · gravity</span></div><div class="dial-bar"><i></i></div></div>
+      <div class="dial W" id="dialW"><div class="dial-label"><span>W · electromagnetism</span></div><div class="dial-bar"><i></i></div></div>
+      <div class="dial O" id="dialO"><div class="dial-label"><span>O · weak force</span></div><div class="dial-bar"><i></i></div></div>
+      <div class="dial P" id="dialP"><div class="dial-label"><span>P · strong force</span></div><div class="dial-bar"><i></i></div></div>
+    </div>
+
+    <div id="touch">
+      <button class="Q" id="tQ">Q</button>
+      <button class="W" id="tW">W</button>
+      <button class="O" id="tO">O</button>
+      <button class="P" id="tP">P</button>
+    </div>
+    <button id="touchJump">▲ JUMP</button>
+
+    <div class="overlay" id="startOverlay">
+      <h1>FOUR FORCES</h1>
+      <p>Sisyphus walks the hill forever — that part was never up to you. What's up to
+         you: <b>Q W O P</b> each dial the strength of one fundamental force. Hold a key
+         to ramp its dial, let go and it decays. Keep all four in rough balance and the
+         myth actually moves forward; neglect one and the walk drags.</p>
+      <p class="force-legend">
+        <span><span class="k Q">Q</span> gravity</span>
+        <span><span class="k W">W</span> electromagnetism</span>
+        <span><span class="k O">O</span> weak force</span>
+        <span><span class="k P">P</span> strong force</span>
+      </p>
+      <p class="small">Whichever dial you're currently maxing out becomes dominant — and the
+         hillside is a living cellular automaton whose ruleset follows whoever's winning.
+         Push the weak force high and the terrain itself gets unstable and can open a gap
+         under your feet. <b>SPACE / UP</b> jumps the gaps. Mash <b>P</b> until the strong
+         force stops sharing with the other three, and see what happens.</p>
+      <div class="overlay-actions">
+        <button class="big" id="startBtn">▶ dial it up</button>
+      </div>
+    </div>
+
+    <div class="overlay hidden" id="pauseOverlay">
+      <h1>PAUSED</h1>
+      <p class="keys">press <b>Esc</b> to resume</p>
+    </div>
+
+    <div class="overlay hidden" id="endOverlay">
+      <h1 id="endTitle">THE HILL WINS</h1>
+      <p id="endMsg" class="small"></p>
+      <div class="gacha-card hidden" id="gachaCard">
+        <div class="rarity" id="gachaRarity"></div>
+        <div class="name" id="gachaName"></div>
+        <div class="desc" id="gachaDesc"></div>
+      </div>
+      <div class="overlay-actions">
+        <button class="big" id="restartBtn">▶ climb again</button>
+        <button class="ghost hidden" id="gachaBtn">🎲 pull a coupling constant</button>
+      </div>
+      <a id="shareBtn" href="#" target="_blank" rel="noopener">share the collapse →</a>
+    </div>
+  </div>
+
+  <div class="foot">
+    every hillside is a live Conway-family cellular automaton · built by
+    <a class="credit" href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    for <a class="credit" href="https://bsky.app/profile/norvid-studies.bsky.social">@norvid-studies.bsky.social</a>,
+    off a thread that got there one reply at a time
+  </div>
+</div>
+
+<script src="game.js"></script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
