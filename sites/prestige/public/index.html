@@ -1,0 +1,964 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>prestige — chain a maxed-out account to a fresh one</title>
+<meta
+  name="description"
+  content="Hit MAX_FOLLOWERS and want a sequel account? prestige can't auto-create or auto-delete accounts (those need a password and an emailed token respectively) — but it can write a signed atproto record chaining your old DID to your new one, generate a hand-off badge, and show the whole lineage."
+/>
+<meta property="og:title" content="prestige — chain a maxed-out account to a fresh one" />
+<meta
+  property="og:description"
+  content="A signed record chaining old DID to new DID, a hand-off badge, and a public lineage viewer. Not account creation, not account deletion — just the part of 'prestiging' that's actually real."
+/>
+<meta property="og:url" content="https://prestige.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://prestige.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="prestige — chain a maxed-out account to a fresh one" />
+<meta
+  name="twitter:description"
+  content="A signed record chaining old DID to new DID, a hand-off badge, and a public lineage viewer."
+/>
+<meta name="twitter:image" content="https://prestige.bisks.net/og.png" />
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d0b08;
+    --bg2: #17130a;
+    --card: #1c160c;
+    --border: #3a2f18;
+    --fg: #f4ecd8;
+    --dim: #b8a888;
+    --dim2: #7d7259;
+    --gold: #f4b400;
+    --gold2: #ffd76a;
+    --err: #ff8a8a;
+    --good: #7de3a0;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); }
+  body {
+    color: var(--fg);
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    background:
+      radial-gradient(ellipse 900px 500px at 12% -8%, rgba(244, 180, 0, 0.14), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 92% 0%, rgba(125, 227, 160, 0.06), transparent 55%),
+      var(--bg);
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+  h1 { font-size: 1.7rem; margin: 0 0 0.35rem; font-weight: 800; color: var(--gold2); letter-spacing: -0.01em; }
+  h1 .icon { font-size: 1.3rem; margin-right: 0.35rem; filter: drop-shadow(0 0 10px rgba(244,180,0,0.5)); }
+  p.tag { color: var(--fg); margin: 0 0 1rem; font-size: 0.95rem; }
+  p.intro { color: var(--dim); margin: 0 0 2.25rem; font-size: 0.85rem; max-width: 64ch; }
+  p.intro b { color: var(--fg); font-weight: 600; }
+  p.intro code { background: var(--card); border: 1px solid var(--border); border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.85em; color: var(--gold2); }
+  p.intro a { color: var(--gold2); }
+
+  section { margin-bottom: 2.5rem; }
+  h2 {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    margin: 0 0 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  h2::before { content: ""; width: 0.55rem; height: 0.55rem; border-radius: 2px; background: var(--gold); display: inline-block; }
+
+  form.row { display: flex; gap: 0.5rem; margin-bottom: 0.4rem; flex-wrap: wrap; }
+  input[type="text"], input[type="number"], textarea {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.65rem 0.85rem;
+    font: inherit;
+    font-size: 0.9rem;
+  }
+  textarea { resize: vertical; min-height: 3.2rem; flex-basis: 100%; }
+  input:focus, textarea:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+  button {
+    background: linear-gradient(135deg, var(--gold), #c98600);
+    color: #1a1104;
+    border: none;
+    border-radius: 8px;
+    padding: 0.65rem 1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button.ghost {
+    background: transparent;
+    color: var(--dim);
+    border: 1px solid var(--border);
+    font-weight: 600;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  label.lbl {
+    display: block;
+    font-size: 0.68rem;
+    color: var(--dim2);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 0.6rem 0 0.3rem;
+  }
+  .field { flex: 1; min-width: 220px; }
+  .status { color: var(--dim); font-size: 0.82rem; min-height: 1.3em; margin: 0.5rem 0; }
+  .status.err { color: var(--err); }
+  .status.good { color: var(--good); }
+  .hint { color: var(--dim2); font-size: 0.75rem; margin: 0.35rem 0 0; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.15rem;
+  }
+
+  .authbar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.7rem 0.9rem;
+  }
+  .authbar .who { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
+  .authbar img { width: 26px; height: 26px; border-radius: 50%; }
+  .authbar form { flex: 1; margin: 0; display: flex; gap: 0.5rem; }
+
+  #declareWrap { position: relative; }
+  #declareWrap.locked { opacity: 0.45; pointer-events: none; }
+  #declareWrap .lockNote {
+    display: none;
+    font-size: 0.8rem;
+    color: var(--dim2);
+    margin-bottom: 0.6rem;
+  }
+  #declareWrap.locked .lockNote { display: block; }
+
+  .chain { display: flex; flex-direction: column; gap: 0; }
+  .link-card {
+    display: flex;
+    gap: 0.85rem;
+    padding: 0.85rem 1rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    align-items: flex-start;
+  }
+  .link-card.self { border-color: var(--gold); box-shadow: 0 0 0 1px rgba(244,180,0,0.25); }
+  .link-card img.av { width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; background: #2a2311; }
+  .link-body { flex: 1; min-width: 0; }
+  .link-top { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+  .link-handle { font-weight: 700; color: var(--fg); }
+  .gen-chip {
+    font-size: 0.68rem;
+    font-weight: 800;
+    color: #1a1104;
+    background: linear-gradient(135deg, var(--gold2), var(--gold));
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    letter-spacing: 0.02em;
+  }
+  .link-meta { color: var(--dim); font-size: 0.76rem; margin-top: 0.15rem; }
+  .link-note { color: var(--dim); font-size: 0.8rem; margin-top: 0.35rem; font-style: italic; }
+  .connector { display: flex; justify-content: center; color: var(--dim2); font-size: 0.9rem; padding: 0.15rem 0; }
+
+  .badge-preview { display: flex; flex-direction: column; align-items: center; gap: 1rem; margin-top: 1rem; }
+  #badgeCanvas { width: 100%; max-width: 480px; height: auto; border-radius: 12px; border: 1px solid var(--border); }
+  .share-row { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
+  .share-row a, .share-row button { text-decoration: none; }
+  a.share-link {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--gold2);
+    border-radius: 8px;
+    padding: 0.6rem 0.95rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+  }
+  #bioSnippet {
+    width: 100%;
+    margin-top: 0.75rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.82rem;
+    resize: none;
+  }
+
+  footer {
+    color: var(--dim2);
+    font-size: 0.78rem;
+    text-align: center;
+    margin-top: 2rem;
+  }
+  footer a { color: var(--gold2); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="icon">🏅</span>prestige</h1>
+  <p class="tag">hit <code>MAX_FOLLOWERS</code>? chain your account to a fresh one — for real, not in fiction.</p>
+  <p class="intro">
+    Started as a reply-thread exploration between <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>
+    (maxed out on <a href="https://mootvelocity.bisks.net">mootvelocity</a>), <a href="https://bisks.net" target="_blank" rel="noopener">@bisks.net</a>,
+    and this bot. The honest technical answer: <code>com.atproto.server.createAccount</code> is real and callable,
+    but every account still needs its own email and password — nothing here spawns a sequel account for you.
+    <code>com.atproto.server.deleteAccount</code> needs an emailed confirmation token, so nothing here retires the old one
+    either. What <b>is</b> real and buildable: a signed record chaining the old DID to the new one, once you've made
+    both accounts yourself. That's what this is. Follows don't move — that part's still on you, or don't, that's kind
+    of the point of a fresh start.
+  </p>
+
+  <section id="lookup-section">
+    <h2>check a chain</h2>
+    <form class="row" id="lookupForm">
+      <input type="text" id="lookupInput" placeholder="handle or DID" autocapitalize="off" autocomplete="off" />
+      <button type="submit">look up</button>
+    </form>
+    <div class="status" id="lookupStatus"></div>
+    <div class="chain" id="chainOut"></div>
+  </section>
+
+  <section id="auth-section">
+    <h2>sign in</h2>
+    <div class="authbar" id="authBar">
+      <form id="authForm">
+        <input type="text" id="authHandle" placeholder="your handle" autocapitalize="off" autocomplete="off" />
+        <button type="submit">sign in with Bluesky</button>
+      </form>
+    </div>
+    <div class="status" id="authStatus"></div>
+    <p class="hint">Scope is one narrow grant: create records in <code>net.bisks.prestige.link</code>, nothing else in your repo.</p>
+  </section>
+
+  <section id="declare-section">
+    <h2>declare a link</h2>
+    <div id="declareWrap" class="locked">
+      <p class="lockNote">sign in above first — the record has to be written by the account it's about.</p>
+      <form id="declareForm">
+        <div class="row">
+          <div class="field">
+            <label class="lbl" for="prevHandle">linking from (old account)</label>
+            <input type="text" id="prevHandle" placeholder="leave blank if you're the first link" autocapitalize="off" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label class="lbl" for="nextHandle">linking to (new account)</label>
+            <input type="text" id="nextHandle" placeholder="leave blank if it doesn't exist yet" autocapitalize="off" autocomplete="off" />
+          </div>
+        </div>
+        <div class="row">
+          <div class="field" style="flex: 0 0 140px;">
+            <label class="lbl" for="genInput">generation</label>
+            <input type="number" id="genInput" min="1" step="1" value="1" />
+          </div>
+          <div class="field" style="flex: 0 0 auto; align-self: flex-end;">
+            <button type="button" class="ghost" id="autoGenBtn">auto-suggest from "linking from"</button>
+          </div>
+        </div>
+        <label class="lbl" for="noteInput">note (optional, public)</label>
+        <textarea id="noteInput" maxlength="300" placeholder="why now, what changed, anything"></textarea>
+        <p class="hint" id="followersPreview"></p>
+        <div class="row" style="margin-top: 0.6rem;">
+          <button type="submit" id="declareBtn">write the record</button>
+        </div>
+        <div class="status" id="declareStatus"></div>
+      </form>
+    </div>
+  </section>
+
+  <section id="badge-section">
+    <h2>hand-off badge</h2>
+    <form class="row" id="badgeForm">
+      <input type="text" id="badgeHandle" placeholder="handle to generate a badge for" autocapitalize="off" autocomplete="off" />
+      <button type="submit">generate</button>
+    </form>
+    <div class="status" id="badgeStatus"></div>
+    <div class="badge-preview" id="badgePreview" style="display: none;">
+      <canvas id="badgeCanvas" width="1200" height="630"></canvas>
+      <div class="share-row">
+        <button type="button" id="shareDownload">⬇ download card</button>
+        <button type="button" id="shareNative" style="display: none;">📤 share</button>
+        <a class="share-link" id="shareBluesky" href="#" target="_blank" rel="noopener">post to Bluesky</a>
+      </div>
+      <textarea id="bioSnippet" rows="2" readonly></textarea>
+      <button type="button" class="ghost" id="copyBio">copy bio line</button>
+    </div>
+  </section>
+
+  <footer>
+    part of <a href="https://bisks.net">atprotozoa</a> ·
+    sibling of <a href="https://mootvelocity.bisks.net">mootvelocity</a> ·
+    built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+  </footer>
+</div>
+
+<script type="module">
+import { resolveDid, resolveHandleForDid, resolvePds, getProfile, listRecords } from "./lib/atproto.js";
+import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
+
+const COLLECTION = "net.bisks.prestige.link";
+
+const els = {
+  lookupForm: document.getElementById("lookupForm"),
+  lookupInput: document.getElementById("lookupInput"),
+  lookupStatus: document.getElementById("lookupStatus"),
+  chainOut: document.getElementById("chainOut"),
+
+  authBar: document.getElementById("authBar"),
+  authForm: document.getElementById("authForm"),
+  authHandle: document.getElementById("authHandle"),
+  authStatus: document.getElementById("authStatus"),
+
+  declareWrap: document.getElementById("declareWrap"),
+  declareForm: document.getElementById("declareForm"),
+  prevHandle: document.getElementById("prevHandle"),
+  nextHandle: document.getElementById("nextHandle"),
+  genInput: document.getElementById("genInput"),
+  autoGenBtn: document.getElementById("autoGenBtn"),
+  noteInput: document.getElementById("noteInput"),
+  followersPreview: document.getElementById("followersPreview"),
+  declareBtn: document.getElementById("declareBtn"),
+  declareStatus: document.getElementById("declareStatus"),
+
+  badgeForm: document.getElementById("badgeForm"),
+  badgeHandle: document.getElementById("badgeHandle"),
+  badgeStatus: document.getElementById("badgeStatus"),
+  badgePreview: document.getElementById("badgePreview"),
+  badgeCanvas: document.getElementById("badgeCanvas"),
+  shareDownload: document.getElementById("shareDownload"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  bioSnippet: document.getElementById("bioSnippet"),
+  copyBio: document.getElementById("copyBio"),
+};
+
+function setStatus(el, msg, isErr, isGood) {
+  el.textContent = msg || "";
+  el.className = "status" + (isErr ? " err" : isGood ? " good" : "");
+}
+
+function toRoman(num) {
+  const map = [
+    [1000, "M"], [900, "CM"], [500, "D"], [400, "CD"], [100, "C"], [90, "XC"],
+    [50, "L"], [40, "XL"], [10, "X"], [9, "IX"], [5, "V"], [4, "IV"], [1, "I"],
+  ];
+  let n = Math.max(1, Math.round(num) || 1);
+  let out = "";
+  for (const [v, s] of map) {
+    while (n >= v) { out += s; n -= v; }
+  }
+  return out || "I";
+}
+
+function fmtDate(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  } catch {
+    return "";
+  }
+}
+
+// --- chain walking -----------------------------------------------------------
+
+async function fetchOwnLinks(did) {
+  const pds = await resolvePds(did);
+  if (!pds) return [];
+  return listRecords(pds, did, COLLECTION).catch(() => []);
+}
+
+function mergeLinks(records) {
+  const sorted = [...records].sort(
+    (a, b) => new Date(a.value.createdAt || 0) - new Date(b.value.createdAt || 0),
+  );
+  const m = { prev: null, next: null, generation: null, followersAtLink: null, note: null, createdAt: null };
+  for (const r of sorted) {
+    const v = r.value || {};
+    if (v.prev) m.prev = v.prev;
+    if (v.next) m.next = v.next;
+    if (typeof v.generation === "number") m.generation = v.generation;
+    if (typeof v.followersAtLink === "number") m.followersAtLink = v.followersAtLink;
+    if (v.note) m.note = v.note;
+    if (v.createdAt) m.createdAt = v.createdAt;
+  }
+  return { ...m, recordCount: records.length };
+}
+
+async function loadEntry(did, cache) {
+  if (cache.has(did)) return cache.get(did);
+  const placeholder = { did, loading: true };
+  cache.set(did, placeholder);
+  const [records, profile] = await Promise.all([
+    fetchOwnLinks(did),
+    getProfile(did),
+  ]);
+  const merged = mergeLinks(records);
+  const entry = { did, profile, ...merged };
+  cache.set(did, entry);
+  return entry;
+}
+
+async function buildChain(startDid, capHops = 25) {
+  const cache = new Map();
+  const start = await loadEntry(startDid, cache);
+
+  const backward = [];
+  let cur = start;
+  for (let i = 0; i < capHops && cur.prev; i++) {
+    const p = await loadEntry(cur.prev, cache);
+    backward.unshift(p);
+    cur = p;
+  }
+
+  const forward = [];
+  cur = start;
+  for (let i = 0; i < capHops && cur.next; i++) {
+    const n = await loadEntry(cur.next, cache);
+    forward.push(n);
+    cur = n;
+  }
+
+  return { chain: [...backward, start, ...forward], start };
+}
+
+function renderChain(entries, selfDid) {
+  els.chainOut.innerHTML = "";
+  entries.forEach((entry, i) => {
+    if (i > 0) {
+      const arrow = document.createElement("div");
+      arrow.className = "connector";
+      arrow.textContent = "↓";
+      els.chainOut.appendChild(arrow);
+    }
+    const card = document.createElement("div");
+    card.className = "link-card" + (entry.did === selfDid ? " self" : "");
+    const handle = entry.profile?.handle ? "@" + entry.profile.handle : entry.did;
+    const gen = entry.generation != null ? entry.generation : i + 1;
+    card.innerHTML = `
+      <img class="av" src="${entry.profile?.avatar || ""}" alt="" onerror="this.style.visibility='hidden'" />
+      <div class="link-body">
+        <div class="link-top">
+          <span class="link-handle">${escapeHtml(handle)}</span>
+          <span class="gen-chip">PRESTIGE ${toRoman(gen)}</span>
+        </div>
+        <div class="link-meta">
+          ${entry.profile?.followersCount != null ? entry.profile.followersCount.toLocaleString() + " followers now" : ""}
+          ${entry.followersAtLink != null ? " · " + entry.followersAtLink.toLocaleString() + " at hand-off" : ""}
+          ${entry.createdAt ? " · linked " + fmtDate(entry.createdAt) : ""}
+          ${entry.recordCount === 0 ? "no link declared yet" : ""}
+        </div>
+        ${entry.note ? `<div class="link-note">“${escapeHtml(entry.note)}”</div>` : ""}
+      </div>
+    `;
+    els.chainOut.appendChild(card);
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function runLookup(raw) {
+  const q = (raw || "").trim();
+  if (!q) { setStatus(els.lookupStatus, "enter a handle first.", true); return; }
+  setStatus(els.lookupStatus, "resolving " + q + " ...");
+  els.chainOut.innerHTML = "";
+  try {
+    const did = await resolveDid(q);
+    const { chain } = await buildChain(did);
+    if (chain.length === 1 && !chain[0].prev && !chain[0].next && chain[0].recordCount === 0) {
+      setStatus(els.lookupStatus, "no prestige chain declared for that account yet.", false);
+    } else {
+      setStatus(els.lookupStatus, `${chain.length} link${chain.length === 1 ? "" : "s"} in the chain.`, false, true);
+    }
+    renderChain(chain, did);
+  } catch (err) {
+    setStatus(els.lookupStatus, "couldn't resolve that: " + err.message, true);
+  }
+}
+
+els.lookupForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  runLookup(els.lookupInput.value);
+});
+
+// --- auth --------------------------------------------------------------------
+
+function renderAuthBar(session) {
+  if (session) {
+    els.authBar.innerHTML = `
+      <div class="who">
+        <img src="${session.avatar || ""}" onerror="this.style.display='none'" />
+        <span>signed in as <b>@${escapeHtml(session.handle || session.did)}</b></span>
+      </div>
+      <button type="button" class="ghost" id="signOutBtn">sign out</button>
+    `;
+    document.getElementById("signOutBtn").addEventListener("click", async () => {
+      await clearSession();
+      renderAuthBar(null);
+      els.declareWrap.classList.add("locked");
+    });
+    els.declareWrap.classList.remove("locked");
+    getProfile(session.did).then((p) => {
+      if (p && typeof p.followersCount === "number") {
+        els.followersPreview.textContent = `followers right now: ${p.followersCount.toLocaleString()} (snapshotted when you submit)`;
+      }
+    });
+    if (!els.badgeHandle.value) els.badgeHandle.value = session.handle || session.did;
+  } else {
+    els.authBar.innerHTML = "";
+    els.authBar.appendChild(els.authForm);
+    els.declareWrap.classList.add("locked");
+  }
+}
+
+els.authForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const handle = els.authHandle.value.trim();
+  if (!handle) { setStatus(els.authStatus, "enter a handle first.", true); return; }
+  setStatus(els.authStatus, "redirecting to your PDS...");
+  try {
+    await login(handle);
+  } catch (err) {
+    setStatus(els.authStatus, "sign-in failed: " + err.message, true);
+  }
+});
+
+// --- declare -------------------------------------------------------------
+
+els.autoGenBtn.addEventListener("click", async () => {
+  const prevHandle = els.prevHandle.value.trim();
+  if (!prevHandle) { setStatus(els.declareStatus, "enter a 'linking from' handle first.", true); return; }
+  setStatus(els.declareStatus, "looking up " + prevHandle + " ...");
+  try {
+    const did = await resolveDid(prevHandle);
+    const { start } = await buildChain(did);
+    const suggested = (start.generation || 1) + 1;
+    els.genInput.value = suggested;
+    setStatus(els.declareStatus, `suggested generation ${suggested} (${prevHandle} is generation ${start.generation || 1}).`, false, true);
+  } catch (err) {
+    setStatus(els.declareStatus, "couldn't look that up: " + err.message, true);
+  }
+});
+
+els.declareForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const session = await getSession();
+  if (!session) { setStatus(els.declareStatus, "sign in first.", true); return; }
+
+  const prevHandle = els.prevHandle.value.trim();
+  const nextHandle = els.nextHandle.value.trim();
+  if (!prevHandle && !nextHandle) {
+    setStatus(els.declareStatus, "fill in at least one of 'linking from' or 'linking to'.", true);
+    return;
+  }
+
+  els.declareBtn.disabled = true;
+  setStatus(els.declareStatus, "resolving handles...");
+  try {
+    const [prevDid, nextDid] = await Promise.all([
+      prevHandle ? resolveDid(prevHandle) : Promise.resolve(null),
+      nextHandle ? resolveDid(nextHandle) : Promise.resolve(null),
+    ]);
+
+    let generation = parseInt(els.genInput.value, 10);
+    if (!generation || generation < 1) generation = 1;
+
+    const profile = await getProfile(session.did);
+    const note = els.noteInput.value.trim().slice(0, 300);
+
+    const record = {
+      $type: COLLECTION,
+      generation,
+      createdAt: new Date().toISOString(),
+    };
+    if (prevDid) record.prev = prevDid;
+    if (nextDid) record.next = nextDid;
+    if (profile && typeof profile.followersCount === "number") record.followersAtLink = profile.followersCount;
+    if (note) record.note = note;
+
+    setStatus(els.declareStatus, "writing to your PDS...");
+    const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.createRecord`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo: session.did, collection: COLLECTION, record }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`PDS rejected the write (${res.status}): ${t.slice(0, 200)}`);
+    }
+    setStatus(els.declareStatus, "written. refreshing your chain below.", false, true);
+    els.lookupInput.value = session.handle || session.did;
+    runLookup(session.handle || session.did);
+  } catch (err) {
+    setStatus(els.declareStatus, err.message, true);
+  } finally {
+    els.declareBtn.disabled = false;
+  }
+});
+
+// --- badge / share card --------------------------------------------------
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  let lines = 0;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+      lines++;
+      if (maxLines && lines >= maxLines) return cy;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+let lastShareText = "";
+
+async function buildBadgeCard({ profile, entry, handle }) {
+  const canvas = els.badgeCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile?.avatar);
+  const gen = entry?.generation != null ? entry.generation : 1;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0d0b08";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.55);
+  glow.addColorStop(0, "rgba(244,180,0,0.22)");
+  glow.addColorStop(1, "rgba(13,11,8,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#f4b400";
+  ctx.font = `800 46px ${mono}`;
+  ctx.fillText("🏅 prestige", 60, 96);
+
+  // avatar with gold ring
+  const cx = 130, cy = 200, r = 58;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.strokeStyle = "#f4b400";
+    ctx.lineWidth = 5;
+    ctx.stroke();
+    ctx.clip();
+    ctx.drawImage(avatar, cx - r, cy - r, r * 2, r * 2);
+    ctx.restore();
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#f4ecd8";
+  ctx.font = `700 30px ${mono}`;
+  ctx.fillText("@" + handle, 210, 190);
+
+  ctx.fillStyle = "#1a1104";
+  const chipW = 220, chipH = 44;
+  ctx.fillStyle = "#f4b400";
+  ctx.beginPath();
+  ctx.roundRect(210, 210, chipW, chipH, 22);
+  ctx.fill();
+  ctx.fillStyle = "#1a1104";
+  ctx.font = `800 20px ${mono}`;
+  ctx.textAlign = "center";
+  ctx.fillText(`PRESTIGE ${toRoman(gen)}`, 210 + chipW / 2, 210 + 29);
+
+  ctx.textAlign = "left";
+  ctx.strokeStyle = "#3a2f18";
+  ctx.lineWidth = 1.5;
+  const cardX = 60, cardY = 300, cardW = W - 120, cardH = H - 360;
+  ctx.fillStyle = "#1c160c";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#b8a888";
+  ctx.font = `400 18px ${mono}`;
+  const followersNow = profile?.followersCount;
+  const summaryBits = [];
+  if (typeof followersNow === "number") summaryBits.push(followersNow.toLocaleString() + " followers now");
+  if (entry?.followersAtLink != null) summaryBits.push(entry.followersAtLink.toLocaleString() + " at hand-off");
+  if (entry?.prev) summaryBits.push("continues a chain");
+  if (entry?.next) summaryBits.push("handed off already");
+  const summary = summaryBits.length ? summaryBits.join(" · ") : "not linked to a chain yet";
+  wrapCanvasText(ctx, summary, cardX + 30, cardY + 46, cardW - 60, 26, 2);
+
+  if (entry?.note) {
+    ctx.fillStyle = "#f4ecd8";
+    ctx.font = `italic 20px ${mono}`;
+    wrapCanvasText(ctx, "“" + entry.note + "”", cardX + 30, cardY + 110, cardW - 60, 28, 4);
+  }
+
+  ctx.fillStyle = "#f4b400";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("prestige.bisks.net", 60, H - 40);
+}
+
+function shareUrl() {
+  return "https://prestige.bisks.net/";
+}
+
+function buildShareText(handle, entry) {
+  const gen = entry?.generation != null ? entry.generation : 1;
+  const bit = entry?.prev
+    ? `sequel account, prestige ${toRoman(gen)}.`
+    : entry?.next
+    ? `retired this one at prestige ${toRoman(gen)} — new account linked.`
+    : `prestige ${toRoman(gen)}.`;
+  return `@${handle} — ${bit}\n\nchain your own maxed-out account → ${shareUrl()}`;
+}
+
+function bioLine(handle, entry) {
+  const gen = entry?.generation != null ? entry.generation : 1;
+  if (entry?.prev) return `🏅 Prestige ${toRoman(gen)} — sequel account, chain at prestige.bisks.net`;
+  if (entry?.next) return `🏅 Prestige ${toRoman(gen)} — retired, new account linked (prestige.bisks.net)`;
+  return `🏅 Prestige ${toRoman(gen)} (prestige.bisks.net)`;
+}
+
+async function runBadge(raw) {
+  const q = (raw || "").trim();
+  if (!q) { setStatus(els.badgeStatus, "enter a handle first.", true); return; }
+  setStatus(els.badgeStatus, "building badge for " + q + " ...");
+  els.badgePreview.style.display = "none";
+  try {
+    const did = await resolveDid(q);
+    const [{ start }, profile] = await Promise.all([buildChain(did), getProfile(did)]);
+    const handle = profile?.handle || (await resolveHandleForDid(did));
+    await buildBadgeCard({ profile, entry: start, handle });
+    els.badgePreview.style.display = "";
+    setStatus(els.badgeStatus, "", false);
+
+    lastShareText = buildShareText(handle, start);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+    els.bioSnippet.value = bioLine(handle, start);
+  } catch (err) {
+    setStatus(els.badgeStatus, "couldn't build a badge: " + err.message, true);
+  }
+}
+
+els.badgeForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  runBadge(els.badgeHandle.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.badgeCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.badgeHandle.value || "badge").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "prestige-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.badgeCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.badgeHandle.value || "badge").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "prestige-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "prestige" });
+      } catch {
+        // cancelled or unsupported — no-op
+      }
+    }, "image/png");
+  });
+}
+
+els.copyBio.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(els.bioSnippet.value);
+    setStatus(els.badgeStatus, "copied.", false, true);
+  } catch {
+    els.bioSnippet.select();
+  }
+});
+
+// --- boot ------------------------------------------------------------------
+
+(async function boot() {
+  try {
+    const cbSession = await completeLoginIfCallback();
+    if (cbSession) {
+      renderAuthBar(cbSession);
+      setStatus(els.authStatus, "signed in.", false, true);
+    } else {
+      const session = await getSession();
+      renderAuthBar(session);
+    }
+  } catch (err) {
+    renderAuthBar(null);
+    setStatus(els.authStatus, err.message, true);
+  }
+
+  const params = new URLSearchParams(location.search);
+  const h = params.get("h");
+  if (h) {
+    els.lookupInput.value = h;
+    els.badgeHandle.value = h;
+    runLookup(h);
+    runBadge(h);
+  }
+})();
+</script>
+
+<!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+<style>
+  #cm-toggle {
+    position: fixed;
+    right: 0.85rem;
+    bottom: 0.85rem;
+    z-index: 2147483000;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.7rem;
+    line-height: 1;
+    background: rgba(20, 20, 20, 0.72);
+    color: #ddd;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 999px;
+    padding: 0.45rem 0.6rem;
+    cursor: pointer;
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+  #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+  #cm-coop {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2.2rem;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 2147483000;
+    display: none;
+  }
+  #cm-coop.on { display: block; }
+  .cm-chicken {
+    position: absolute;
+    bottom: 0.1rem;
+    font-size: 1.5rem;
+    transform: scaleX(-1);
+    animation-name: cm-strut;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+  }
+  @keyframes cm-strut {
+    0% { transform: translateX(-3rem) scaleX(-1); }
+    48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+    50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+    98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+    100% { transform: translateX(-3rem) scaleX(-1); }
+  }
+</style>
+<button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+<div id="cm-coop"></div>
+<script>
+  (function () {
+    var coop = document.getElementById("cm-coop");
+    var toggle = document.getElementById("cm-toggle");
+    if (!coop || !toggle) return;
+    var KEY = "chicken-mode";
+    var spawner = null;
+
+    function spawn() {
+      var c = document.createElement("div");
+      c.className = "cm-chicken";
+      c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+      var duration = 14 + Math.random() * 10;
+      c.style.animationDuration = duration + "s";
+      c.style.animationDelay = -Math.random() * duration + "s";
+      c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+      coop.appendChild(c);
+    }
+    function start() {
+      if (spawner) return;
+      coop.innerHTML = "";
+      for (var i = 0; i < 5; i++) spawn();
+      spawner = setInterval(function () {
+        if (coop.children.length < 8) spawn();
+      }, 4000);
+    }
+    function stop() {
+      if (spawner) clearInterval(spawner);
+      spawner = null;
+      coop.innerHTML = "";
+    }
+    function setMode(on) {
+      coop.classList.toggle("on", on);
+      toggle.classList.toggle("on", on);
+      if (on) start(); else stop();
+      try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+    }
+    toggle.addEventListener("click", function () {
+      setMode(!coop.classList.contains("on"));
+    });
+    var startedOn = false;
+    try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+    if (startedOn) setMode(true);
+  })();
+</script>
+<!-- /chicken mode -->
+</body>
+</html>
