@@ -261,17 +261,32 @@ async function renderDeck(): Promise<Response> {
 </section>
 
 <section class="slide" data-slide="6">
-  <div class="eyebrow">06 — what the market is saying</div>
+  <div class="eyebrow">06 — investment tiers</div>
+  <h2>Benefits, By Check Size</h2>
+  <table class="tiers">
+    <tr><td class="tier-amt">1 share</td><td>Read access to the source. Also free, also already true, the repo's public.</td></tr>
+    <tr><td class="tier-amt">$500</td><td>Your handle appears in a future roast on <a href="https://receipts.bisks.net">receipts.bisks.net</a>. You do not get to pick which one.</td></tr>
+    <tr><td class="tier-amt">$10,000</td><td>A site gets named after you. It will still be built for whatever the thread was actually about.</td></tr>
+    <tr><td class="tier-amt">$1,000,000</td><td>Priority queue position for your next build request. The queue has one slot and it is usually already you.</td></tr>
+    <tr><td class="tier-amt">$10,000,000</td><td>A seat on the board. The board has never met and has no agenda, but the seat is real.</td></tr>
+    <tr><td class="tier-amt">$100,000,000<br/><span class="tier-fine">(crypto, Series B)</span></td><td>The watermark on this very slide is replaced with your name. The unit economics remain exactly as fictional as they are now.</td></tr>
+  </table>
+  <p class="disclaimer">no shares exist. this is not a security. please do not send us $100 million, crypto or otherwise.</p>
+</section>
+
+<section class="slide" data-slide="7">
+  <div class="eyebrow">07 — what the market is saying</div>
   <h2>Unsolicited Testimonials</h2>
   <blockquote>"I asked for a chart and got a whole deck. Bullish."<cite>— A Concerned Investor, name withheld</cite></blockquote>
   <blockquote>"The MRR joke is doing a lot of work here, and I respect that."<cite>— Every VC, probably</cite></blockquote>
   <blockquote>"511 sites and I still don't know what most of them do. That's the product."<cite>— An actual site in this constellation</cite></blockquote>
 </section>
 
-<section class="slide" data-slide="7">
-  <div class="eyebrow">07 — the ask</div>
+<section class="slide" data-slide="8">
+  <div class="eyebrow">08 — the ask</div>
   <h2>$0.</h2>
   <p class="closer">We are pre-revenue, post-shame, and shipping something new roughly every couple of hours. That's the whole pitch.</p>
+  <a class="cta-btn" href="https://bsky.app/profile/bisks.net" target="_blank" rel="noopener">take it up with the founder ↗</a>
   <a class="share-btn" id="share-btn" href="#" target="_blank" rel="noopener">share this deck on bluesky ↗</a>
   <p class="footer-links">
     source: <a href="https://github.com/${GITHUB_REPO}">github</a> ·
@@ -351,6 +366,13 @@ h2 { font-size:clamp(1.5rem,4vw,2.3rem); max-width:24ch; color:var(--fg); }
 .econ tr:first-child td { border-top:none; }
 .econ td:first-child { color:var(--dim); }
 .econ td:last-child { color:var(--gold); font-weight:600; }
+.tiers { border-collapse:collapse; margin-top:.5rem; font-size:.92rem; max-width:64ch; }
+.tiers td { padding:.65rem 1.5rem .65rem 0; border-top:1px solid var(--line); vertical-align:top; line-height:1.5; }
+.tiers tr:first-child td { border-top:none; }
+.tiers td.tier-amt { color:var(--gold); font-weight:600; white-space:nowrap; }
+.tier-fine { color:var(--dim); font-weight:400; font-size:.72rem; }
+.cta-btn { display:inline-block; background:transparent; color:var(--gold); font-weight:700; padding:.75em 1.5em; border:1px solid var(--gold); border-radius:5px; text-decoration:none; font-size:.9rem; margin:0 .75rem 1.5rem 0; }
+.cta-btn:hover { background:rgba(212,175,55,0.1); }
 blockquote { font-family:var(--serif); font-size:1.15rem; font-style:italic; max-width:52ch; margin:0 0 1.5rem; padding-left:1.2rem; border-left:2px solid var(--gold-dim); color:var(--fg); }
 blockquote cite { display:block; font-family:var(--mono); font-style:normal; font-size:.75rem; color:var(--dim); margin-top:.5rem; }
 .closer { font-size:1.05rem; max-width:52ch; line-height:1.65; margin-bottom:1.75rem; }
