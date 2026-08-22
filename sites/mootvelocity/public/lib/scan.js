@@ -9,12 +9,17 @@
 // than the oldest post seen so far *is* the gap — we can stop right there.
 // Nothing older than that gap matters for "the current streak", so most
 // accounts resolve in a handful of requests, not a full history crawl.
+//
+// No page/time cap: an earlier version capped at 20 pages / 25s, which for
+// high-frequency posters could hit the cap in under two weeks of calendar
+// time and produce a bogus velocity extrapolated from a near-zero window
+// (spot-checked 2026-08-22). cee.wtf asked to just use all available data,
+// so every account's full history gets scanned until a real gap turns up or
+// its history is exhausted — the only early exit left is the gap itself.
 
 const PUB = "https://api.bsky.app/xrpc";
 
 export const GAP_DAYS = 60; // a silence this long or longer ends the previous streak
-const MAX_PAGES = 20; // hard cap per account if no gap is ever found (e.g. always-active accounts)
-const MAX_MS = 25000;
 
 async function jget(url) {
   const r = await fetch(url);
@@ -34,7 +39,6 @@ export async function scanActiveStreak(did, { onProgress } = {}) {
   let cursor;
   let pages = 0;
   let postsSeen = 0;
-  const start = Date.now();
 
   let streakStart = null; // oldest post's Date in the current (still-open) block
   let prevAt = null; // createdAt Date of the previously processed (newer) post
@@ -80,7 +84,6 @@ export async function scanActiveStreak(did, { onProgress } = {}) {
       exhausted = true; // reached the true start of the account's post history
       break;
     }
-    if (pages >= MAX_PAGES || Date.now() - start > MAX_MS) break;
   }
 
   return { streakStart, postsSeen, pagesUsed: pages, gapFound, exhausted };

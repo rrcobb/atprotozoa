@@ -15,16 +15,16 @@ export function computeVelocity(profile, scanResult, now) {
 
   const noPosts = !scanResult || !scanResult.streakStart;
 
-  // A capped scan (no gap found, history not exhausted) only tells us
-  // *something*: for very high-frequency posters, the page/post cap can be
-  // hit within days of calendar time — e.g. someone posting 100+ times a day
-  // blows through 2,000 posts in under two weeks. That's not evidence of a
-  // short active streak, it's just "we ran out of scan budget before we
-  // could even test for one real gap" (GAP_DAYS itself). Extrapolating
-  // lifetime followers over that tiny window produces nonsense (spot-checked
-  // 2026-08-22: an account with ~10.6k total followers came out to ~30k/mo).
-  // Treat any capped scan that hasn't even covered one GAP_DAYS window as
-  // unreliable and fall back to account age, same as a no-posts account.
+  // scan.js no longer caps pages/time — a scan only stops short of a real
+  // gap or full exhaustion if a fetch actually failed mid-scan (rate limit,
+  // network blip). That's rare, but when it happens for a very
+  // high-frequency poster it can still leave only a tiny window scanned —
+  // e.g. someone posting 100+ times a day blows through hundreds of posts in
+  // under two weeks. Extrapolating lifetime followers over that tiny window
+  // produces nonsense (spot-checked 2026-08-22: an account with ~10.6k total
+  // followers came out to ~30k/mo). Treat any interrupted scan that hasn't
+  // even covered one GAP_DAYS window as unreliable and fall back to account
+  // age, same as a no-posts account.
   const cappedTooSoon =
     !noPosts &&
     !scanResult.gapFound &&
@@ -38,14 +38,15 @@ export function computeVelocity(profile, scanResult, now) {
   const followers = profile.followersCount || 0;
   const velocityPerMonth = activeDays ? (followers / activeDays) * MONTH_DAYS : null;
 
-  // "floor" = we stopped scanning (hit the page/time cap) without ever
-  // finding a real gap, but we did cover at least one GAP_DAYS window, so
-  // activeDays is a genuine lower bound and velocity is correspondingly an
-  // upper-bound estimate. "unreliable" = the cap hit before we could even
+  // "floor" = a fetch failure stopped the scan without ever finding a real
+  // gap, but we did cover at least one GAP_DAYS window, so activeDays is a
+  // genuine lower bound and velocity is correspondingly an upper-bound
+  // estimate. "unreliable" = the scan was interrupted before we could even
   // test for one real gap (see cappedTooSoon above) — using account age
   // instead, since the scanned window is too dense to mean anything.
   // "exact" = we either found the gap or scanned the account's entire
-  // history. "no-posts" = no original posts found at all.
+  // history (the normal case now that nothing is artificially capped).
+  // "no-posts" = no original posts found at all.
   const confidence = noPosts
     ? "no-posts"
     : cappedTooSoon

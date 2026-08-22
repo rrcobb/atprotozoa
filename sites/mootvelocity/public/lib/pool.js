@@ -5,9 +5,6 @@
 
 const PUB = "https://api.bsky.app/xrpc";
 
-const GRAPH_PAGES = 12; // ≤ ~1200 follows + ~1200 followers scanned
-export const MAX_POOL = 24; // keep the downstream per-account post-history scan bounded
-
 async function jget(url) {
   const r = await fetch(url);
   if (!r.ok) {
@@ -39,7 +36,7 @@ export async function resolveDid(actor) {
 async function graphAll(endpoint, key, did) {
   const out = [];
   let cursor = "";
-  for (let p = 0; p < GRAPH_PAGES; p++) {
+  while (true) {
     const u = new URL(`${PUB}/${endpoint}`);
     u.searchParams.set("actor", did);
     u.searchParams.set("limit", "100");
@@ -76,9 +73,10 @@ export async function getProfiles(dids) {
   return out;
 }
 
-// Resolve `actor` to { subjectDid, moots, totalFound, truncated }. `moots`
-// is capped at MAX_POOL, prioritizing whoever getFollows/getFollowers
-// returned first (roughly follow order, not any activity signal).
+// Resolve `actor` to { subjectDid, mootDids }. Every mutual is included —
+// no pool cap. (An earlier version capped this at 24 and paginated only the
+// first ~1200 follows/followers, which is exactly the kind of partial data
+// cee.wtf called out; fixed 2026-08-22 to just use all available data.)
 export async function resolveMoots(actor, { onStep } = {}) {
   const did = await resolveDid(actor);
   if (onStep) onStep("finding who they follow…");
@@ -95,13 +93,5 @@ export async function resolveMoots(actor, { onStep } = {}) {
     mootDids.push(f);
   }
 
-  const totalFound = mootDids.length;
-  const capped = mootDids.slice(0, MAX_POOL);
-
-  return {
-    subjectDid: did,
-    mootDids: capped,
-    totalFound,
-    truncated: totalFound > capped.length,
-  };
+  return { subjectDid: did, mootDids };
 }
