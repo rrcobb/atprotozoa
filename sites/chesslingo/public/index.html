@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>chesslingo — duolingo for chess</title>
+<meta name="description" content="A duolingo-style course for chess: recognize pieces, read checks and checkmates, name tactics and mating patterns, and learn openings by their first few moves. Hearts, streaks, ELO, a growth-obsessed certificate." />
+<meta property="og:title" content="chesslingo — duolingo for chess" />
+<meta property="og:description" content="A duolingo-style course for chess: pieces, movement, check/mate reading, tactics, mating patterns, and openings. Hearts, streaks, ELO." />
+<meta property="og:url" content="https://chesslingo.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://chesslingo.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="chesslingo: a duolingo-style course for chess, with a board puzzle, hearts, a streak, and an ELO counter." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="chesslingo — duolingo for chess" />
+<meta name="twitter:description" content="A duolingo-style course for chess: pieces, tactics, checkmates, and openings, drilled lesson by lesson." />
+<meta name="twitter:image" content="https://chesslingo.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #faf7f0;
+    --bg2: #f1ead9;
+    --card: #ffffff;
+    --ink: #241b12;
+    --dim: #7a6f5d;
+    --border: #e5dcc7;
+    --accent: #1f7a4d;
+    --accent-dim: #bfe3cc;
+    --green: #2f9e52;
+    --green-dim: #d8f5e2;
+    --red: #d64545;
+    --gold: #c9a227;
+    --sq-light: #f4ecd8;
+    --sq-dark: #a9c9b4;
+    --piece-w: #fffdf7;
+    --piece-w-stroke: #241b12;
+    --piece-b: #241b12;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding-bottom: 3rem; }
+  .wrap { width: 100%; max-width: 620px; padding: 0 1.1rem; }
+
+  header.top {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    border-bottom: 1px solid var(--border);
+    background: var(--card);
+    position: sticky; top: 0; z-index: 5;
+  }
+  header.top .inner {
+    width: 100%; max-width: 620px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.85rem 1.1rem;
+  }
+  .brand { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 1.05rem; }
+  .brand .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--accent); }
+  .stats { display: flex; align-items: center; gap: 0.9rem; font-size: 0.85rem; font-weight: 700; color: var(--dim); }
+  .stats .streak { color: #ff9500; }
+  .stats .xp { color: var(--accent); }
+  .stats .sfx {
+    background: none; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--dim); font: inherit; font-size: 0.72rem; font-weight: 700;
+    padding: 0.3rem 0.5rem; cursor: pointer;
+  }
+  .stats .sfx:hover { border-color: var(--accent-dim); color: var(--ink); }
+
+  .ticker {
+    width: 100%; display: flex; justify-content: center;
+    background: linear-gradient(90deg, var(--accent), #145c39);
+    color: #eafff1;
+  }
+  .ticker .inner {
+    width: 100%; max-width: 620px;
+    display: flex; align-items: center; gap: 0.6rem;
+    padding: 0.4rem 1.1rem;
+    font-size: 0.72rem; font-weight: 700;
+    overflow: hidden; white-space: nowrap;
+  }
+  .ticker .up { color: #baffcf; }
+  .ticker .sep { opacity: 0.5; }
+  .ticker .msg { opacity: 0.92; text-overflow: ellipsis; overflow: hidden; }
+
+  h1.title { font-size: 1.5rem; margin: 1.6rem 0 0.15rem; }
+  p.sub { color: var(--dim); font-size: 0.92rem; line-height: 1.5; margin: 0 0 1.6rem; }
+  p.sub b { color: var(--ink); }
+  p.sub a { color: var(--accent); }
+
+  /* --- lesson path --- */
+  .path { display: flex; flex-direction: column; gap: 0.9rem; margin-top: 0.5rem; }
+  .node {
+    display: flex; align-items: center; gap: 0.9rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 0.9rem 1.05rem;
+    cursor: pointer;
+    text-align: left;
+  }
+  .node:disabled, .node.locked { opacity: 0.5; cursor: not-allowed; }
+  .node .icon {
+    width: 42px; height: 42px; flex: none;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.15rem;
+    background: var(--green-dim);
+    border: 2px solid var(--green);
+  }
+  .node.locked .icon { background: var(--bg2); border-color: var(--border); }
+  .node.done .icon { background: var(--accent-dim); border-color: var(--accent); }
+  .node .meta { flex: 1; min-width: 0; }
+  .node .meta .t { font-weight: 800; font-size: 0.98rem; }
+  .node .meta .b { color: var(--dim); font-size: 0.78rem; margin-top: 0.15rem; line-height: 1.35; }
+  .node .stars { font-size: 0.85rem; color: var(--gold); white-space: nowrap; }
+
+  .cert-node {
+    background: linear-gradient(90deg, var(--accent), #145c39);
+    color: #eafff1;
+    border: none;
+  }
+  .cert-node .icon { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.5); }
+  .cert-node .meta .b { color: #cdeedb; }
+  .cert-node.locked { background: var(--card); color: inherit; }
+  .cert-node.locked .meta .b { color: var(--dim); }
+
+  footer.reset {
+    margin-top: 2rem; text-align: center;
+  }
+  footer.reset button {
+    background: none; border: none; color: var(--dim);
+    font: inherit; font-size: 0.72rem; text-decoration: underline; cursor: pointer;
+  }
+  footer.reset .sep { color: var(--border); font-size: 0.72rem; margin: 0 0.15rem; }
+
+  /* --- lesson view --- */
+  .lesson { display: none; }
+  .lesson.show { display: block; }
+  .path-view.hide, .lesson.hide { display: none; }
+
+  .lbar {
+    display: flex; align-items: center; gap: 0.75rem;
+    margin: 1.2rem 0 1.6rem;
+  }
+  .lbar .quit { background: none; border: none; color: var(--dim); font: inherit; font-size: 1.1rem; cursor: pointer; padding: 0 0.2rem; }
+  .lbar .track { flex: 1; height: 12px; background: var(--bg2); border-radius: 8px; overflow: hidden; }
+  .lbar .fill { height: 100%; background: var(--green); width: 0%; transition: width 0.3s ease; }
+  .lbar .hearts { display: flex; gap: 0.15rem; font-size: 1.05rem; }
+
+  .qcard { text-align: center; }
+  .qcard .prompt-label { color: var(--dim); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.9rem; }
+  .promptbox {
+    width: 280px; max-width: 100%; margin: 0 auto 1.6rem;
+    border-radius: 12px; overflow: hidden; border: 1px solid var(--border);
+  }
+  .promptbox .board { display: block; width: 100%; height: auto; }
+  .movescard {
+    background: var(--card); border: 2px solid var(--accent-dim); border-radius: 12px;
+    padding: 1.8rem 1.2rem; font-size: 1.15rem; font-weight: 700; line-height: 1.9;
+    color: var(--ink); text-align: left; white-space: pre-wrap;
+  }
+  .choices { display: grid; gap: 0.65rem; }
+  .choice {
+    display: block;
+    background: var(--card); border: 2px solid var(--border); border-radius: 12px;
+    padding: 0.7rem 1rem; font: inherit; font-size: 0.92rem; text-align: left;
+    cursor: pointer; line-height: 1.4; width: 100%;
+    color: var(--dim);
+  }
+  .choice .ctext { display: flex; flex-direction: column; }
+  .choice .clabel { font-weight: 800; color: var(--ink); font-size: 0.95rem; }
+  .choice .csub { font-size: 0.76rem; color: var(--dim); margin-top: 0.1rem; }
+  .choice:hover:not(:disabled) { border-color: var(--accent-dim); }
+  .choice.correct { border-color: var(--green); background: var(--green-dim); }
+  .choice.correct .clabel { color: #17532b; }
+  .choice.wrong { border-color: var(--red); background: #fbe1e1; }
+  .choice:disabled { cursor: default; }
+
+  .fbar {
+    margin-top: 1.4rem; border-radius: 12px; padding: 1rem 1.1rem;
+    display: none; align-items: center; justify-content: space-between; gap: 1rem;
+  }
+  .fbar.show { display: flex; }
+  .fbar.ok { background: var(--green-dim); }
+  .fbar.bad { background: #fbe1e1; }
+  .fbar .flabel { font-weight: 800; font-size: 0.92rem; text-align: left; }
+  .fbar.ok .flabel { color: #17532b; }
+  .fbar.bad .flabel { color: #a30000; }
+  .fbar button {
+    border: none; border-radius: 10px; padding: 0.65rem 1.3rem; font: inherit; font-weight: 800;
+    font-size: 0.85rem; cursor: pointer; color: #fff; flex: none;
+  }
+  .fbar.ok button { background: var(--green); }
+  .fbar.bad button { background: var(--red); }
+
+  /* --- result / cert screens --- */
+  .screen { display: none; text-align: center; padding-top: 2.5rem; }
+  .screen.show { display: block; }
+  .screen .big { font-size: 3rem; margin-bottom: 0.4rem; }
+  .screen h2 { font-size: 1.4rem; margin: 0 0 0.3rem; }
+  .screen p { color: var(--dim); font-size: 0.9rem; margin: 0 0 1.5rem; line-height: 1.5; }
+  .screen .rowstats { display: flex; justify-content: center; gap: 1.6rem; margin-bottom: 1.8rem; }
+  .screen .rowstats div { text-align: center; }
+  .screen .rowstats .n { font-size: 1.4rem; font-weight: 800; }
+  .screen .rowstats .l { font-size: 0.7rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .btnrow { display: flex; gap: 0.7rem; justify-content: center; flex-wrap: wrap; }
+  .btn {
+    border: none; border-radius: 10px; padding: 0.8rem 1.4rem; font: inherit; font-weight: 800;
+    font-size: 0.85rem; cursor: pointer; text-decoration: none; display: inline-block;
+  }
+  .btn.primary { background: var(--accent); color: #eafff1; }
+  .btn.secondary { background: var(--card); color: var(--ink); border: 1px solid var(--border); }
+  .btn.bsky { background: #1185fe; color: #fff; }
+
+  canvas#shareCanvas { display: none; }
+  .cardpreview { margin: 0 auto 1.5rem; max-width: 420px; width: 100%; border-radius: 14px; border: 1px solid var(--border); }
+
+  @media (max-width: 420px) {
+    h1.title { font-size: 1.3rem; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="inner">
+    <div class="brand"><span class="dot"></span> chesslingo</div>
+    <div class="stats">
+      <span class="streak" id="streakStat">🔥 0</span>
+      <span class="xp" id="xpStat">✦ 0 elo</span>
+      <button class="sfx" id="sfxBtn" type="button">🔊 sound</button>
+    </div>
+  </div>
+</header>
+
+<div class="ticker">
+  <div class="inner">
+    <span class="up">📈</span>
+    <span id="tickerCount">2,481</span>
+    <span>learners studying right now</span>
+    <span class="sep">·</span>
+    <span class="msg" id="tickerText">ELO under management up 14% WoW</span>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="path-view" id="pathView">
+    <h1 class="title">duolingo for chess</h1>
+    <p class="sub">MRR hit a worrying plateau, investors got edgy, so the board pivoted to
+      user growth: pieces, movement, reading check vs. checkmate, tactics, mating
+      patterns, and openings — one lesson at a time. Hearts, streaks, ELO, and a
+      certificate engineered to evoke <b>profitability and high demand</b>.
+      Riffing on the "duolingo for X" thread that started with
+      <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies</a>.</p>
+    <div class="path" id="pathList"></div>
+    <button class="node cert-node locked" id="certNode" type="button">
+      <div class="icon">📈</div>
+      <div class="meta">
+        <div class="t">Close the Round</div>
+        <div class="b">Finish every unit to close your Series C.</div>
+      </div>
+    </button>
+    <footer class="reset">
+      <button id="cheatBtn" type="button">🪄 cheat: unlock everything</button>
+      <span class="sep">·</span>
+      <button id="resetBtn" type="button">reset progress</button>
+    </footer>
+  </div>
+
+  <div class="lesson" id="lessonView">
+    <div class="lbar">
+      <button class="quit" id="quitBtn" type="button" aria-label="quit lesson">✕</button>
+      <div class="track"><div class="fill" id="lessonFill"></div></div>
+      <div class="hearts" id="lessonHearts"></div>
+    </div>
+    <div class="qcard">
+      <div class="prompt-label" id="qLabel">What's going on here?</div>
+      <div class="promptbox" id="qPrompt"></div>
+      <div class="choices" id="qChoices"></div>
+    </div>
+    <div class="fbar" id="fbar">
+      <div class="flabel" id="fLabel"></div>
+      <button id="fNext" type="button">Continue</button>
+    </div>
+  </div>
+
+  <div class="screen" id="resultScreen">
+    <div class="big" id="resultEmoji">🎉</div>
+    <h2 id="resultTitle">Lesson complete!</h2>
+    <p id="resultSub"></p>
+    <div class="rowstats">
+      <div><div class="n" id="resultXp">+0</div><div class="l">ELO earned</div></div>
+      <div><div class="n" id="resultStars">☆☆☆</div><div class="l">stars</div></div>
+    </div>
+    <div class="btnrow">
+      <button class="btn primary" id="resultContinue" type="button">Continue</button>
+      <button class="btn secondary" id="resultRetry" type="button">Retry</button>
+    </div>
+  </div>
+
+  <div class="screen" id="certScreen">
+    <div class="big">📈</div>
+    <h2>Certified: Sustained Growth</h2>
+    <p id="certSub">Certified after finishing every unit in the course.</p>
+    <img class="cardpreview" id="certImg" alt="chesslingo certificate of sustained growth" />
+    <div class="rowstats">
+      <div><div class="n" id="certXp">0</div><div class="l">total ELO</div></div>
+      <div><div class="n" id="certStreak">0</div><div class="l">day streak</div></div>
+    </div>
+    <div class="btnrow">
+      <a class="btn bsky" id="certShareBsky" href="#" target="_blank" rel="noopener">Share on Bluesky</a>
+      <button class="btn secondary" id="certDownload" type="button">Download card</button>
+      <button class="btn secondary" id="certNative" type="button" style="display:none">Share…</button>
+      <button class="btn secondary" id="certBack" type="button">Back to path</button>
+    </div>
+  </div>
+
+</div>
+
+<canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+<script src="/lib/lessons.js"></script>
+<script src="/lib/app.js"></script>
+</body>
+</html>
