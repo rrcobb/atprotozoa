@@ -2,25 +2,35 @@
 //
 // The whole census still runs client-side (public/index.html +
 // public/lib/census.js do the real work, capped at ~4,000 follows/followers
-// scanned per side). The one thing that needed a server: shared links. A
-// plain static site serves the *same* index.html — same og:title/
-// og:description — no matter whose handle is in the URL, so Bluesky's
-// link-unfurl cache would show one generic card for every share, forever
-// (same problem sites/didscope solved for /s/<handle>).
+// scanned per side). Two things needed a server:
 //
-// Fix: /s/<handle> is a real, distinct URL per person. The Worker resolves
-// the handle server-side, runs a smaller version of the same follows ∩
-// followers census (capped tighter than the client — this only has to
-// produce a preview number, not the full report), and stamps personalized
-// og:title/og:description/og:url onto the same page shell before handing it
-// back. The client script then re-runs the full census itself when the page
-// loads (see the /s/<handle> path handling at the bottom of index.html), so
-// what's on screen always matches the live data — the server-rendered
-// numbers are only ever seen by link-unfurl bots reading the HTML head.
+// 1. /s/<handle> — shared links. A plain static site serves the *same*
+//    index.html — same og:title/og:description — no matter whose handle is
+//    in the URL, so Bluesky's link-unfurl cache would show one generic card
+//    for every share, forever (same problem sites/didscope solved for
+//    /s/<handle>). Fix: /s/<handle> is a real, distinct URL per person. The
+//    Worker resolves the handle server-side, runs a smaller version of the
+//    same follows ∩ followers census (capped tighter than the client — this
+//    only has to produce a preview number, not the full report), and stamps
+//    personalized og:title/og:description/og:url onto the same page shell
+//    before handing it back. The client script then re-runs the full census
+//    itself when the page loads (see the /s/<handle> path handling at the
+//    bottom of index.html), so what's on screen always matches the live
+//    data — the server-rendered numbers are only ever seen by link-unfurl
+//    bots reading the HTML head.
+//
+// 2. /img?u=<cdn.bsky.app avatar url> — a narrow CORS proxy for the avatar
+//    drawn into the client-generated share card. cdn.bsky.app sends no
+//    Access-Control-Allow-Origin header, so drawing an avatar straight from
+//    there taints the canvas and toBlob()/toDataURL() come back empty. See
+//    proxyAvatar() below.
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
 }
+
+const AVATAR_HOST = "cdn.bsky.app";
+const AVATAR_PATH_RE = /^\/img\/avatar(_thumbnail)?\/plain\/did:[a-z0-9:%._-]+\/[a-z0-9]+(@[a-z]+)?$/i;
 
 const PUB = "https://public.api.bsky.app/xrpc";
 
@@ -147,9 +157,44 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
   }
 }
 
+// /img?u=<cdn.bsky.app avatar url> — a narrow same-origin CORS proxy for
+// avatar images. cdn.bsky.app sends no Access-Control-Allow-Origin header, so
+// drawing an avatar onto the client's share-card <canvas> taints it and
+// canvas.toBlob()/toDataURL() come back empty. Re-fetching the same bytes
+// through this Worker and adding an open CORS header fixes that. Locked down
+// to exactly cdn.bsky.app's avatar paths — copied from
+// sites/mootspy/src/index.ts (itself copied from sites/beesky).
+async function proxyAvatar(rawUrl: string | null): Promise<Response> {
+  if (!rawUrl) return new Response("missing u", { status: 400 });
+  let target: URL;
+  try {
+    target = new URL(rawUrl);
+  } catch {
+    return new Response("bad url", { status: 400 });
+  }
+  if (target.protocol !== "https:" || target.host !== AVATAR_HOST || !AVATAR_PATH_RE.test(target.pathname)) {
+    return new Response("url not allowed", { status: 400 });
+  }
+
+  const upstream = await fetch(target.toString(), {
+    cf: { cacheTtl: 86400, cacheEverything: true } as unknown as Record<string, unknown>,
+  });
+  const headers = new Headers();
+  headers.set("content-type", upstream.headers.get("content-type") || "image/jpeg");
+  headers.set("access-control-allow-origin", "*");
+  // Avatar blobs are content-addressed (the CID is in the path) — safe to
+  // cache hard.
+  headers.set("cache-control", "public, max-age=604800, immutable");
+  return new Response(upstream.body, { status: upstream.status, headers });
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/img") {
+      return proxyAvatar(url.searchParams.get("u"));
+    }
 
     // /s/<handle> — the distinct, shareable, per-person URL. Every handle
     // gets its own page (and its own og:title/description/url), so a link

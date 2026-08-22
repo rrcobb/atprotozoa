@@ -283,6 +283,7 @@
 
 <canvas id="shareCanvas" width="1200" height="630"></canvas>
 
+<script src="lib/handle-typeahead.js"></script>
 <script type="module">
 import { census, analyze, cleanHandle } from "./lib/census.js";
 import { rarityRank } from "./lib/tld-popularity.js";
@@ -446,6 +447,15 @@ function buildShareText(handle, stats) {
   return text;
 }
 
+// cdn.bsky.app sends no Access-Control-Allow-Origin header, so drawing an
+// avatar straight from there taints shareCanvas and toBlob()/toDataURL()
+// come back empty. Route it through this Worker's same-origin /img proxy
+// instead (src/index.ts), which re-fetches the same bytes with an open CORS
+// header — same fix as sites/mootspy, sites/beesky.
+function proxiedAvatar(url) {
+  return url ? "/img?u=" + encodeURIComponent(url) : "";
+}
+
 function loadImg(url) {
   if (!url) return Promise.resolve(null);
   return new Promise((resolve) => {
@@ -453,7 +463,7 @@ function loadImg(url) {
     img.crossOrigin = "anonymous";
     img.onload = () => resolve(img);
     img.onerror = () => resolve(null);
-    img.src = url;
+    img.src = proxiedAvatar(url);
   });
 }
 
@@ -644,6 +654,8 @@ els.form.addEventListener("submit", (e) => {
   e.preventDefault();
   run(els.input.value);
 });
+
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(els.input);
 
 els.tldModeCount.addEventListener("click", () => {
   if (tldMode === "count") return;
