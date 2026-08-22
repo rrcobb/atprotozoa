@@ -28,19 +28,25 @@ TXT record so NSIDs actually resolve — needs a human with Cloudflare dashboard
 access, not something the builder can do from the repo.
 
 **3. Aggregate views via `listReposByCollection`.** (`pds-and-lexicons.md`)
-Find every repo holding a given collection. **Done for five sites so far:**
+Find every repo holding a given collection. **Done for six sites so far:**
 steamtags (the reference implementation, `global-index.js`), memex, verdict's
 `/crowd` (as of 2026-08-18, aggregating every judgment on the network into a
 good/bad split, a kindest/harshest judge leaderboard, and the posts people
 can't agree on), paintmoot's `/gallery` (a later daily slot — "every board a
-gallery instead of a private canvas"), and — as of 2026-08-20 — tallybot,
-which turned out not to be a nice-to-have there: its signed-in vote path wrote
+gallery instead of a private canvas"), tallybot (2026-08-20, which turned out
+not to be a nice-to-have there: its signed-in vote path wrote
 `net.bisks.tallybot.point` records to the voter's own PDS, but nothing ever
 read that collection back, so every signed-in vote was silently write-only
-until this pattern gave it a read path (see `sites/sidenote` for the
-2026-08-20 entry). Still one-repo-only: alice-meets-bob, catspace,
-clusterpedia, docmoot, duohaunt, griftmax, hyperobject, keytags, kolpelor,
-padmoot, postwith, quadrants, socialcredit, velvetrope, war.
+until this pattern gave it a read path — see `sites/sidenote` for the
+2026-08-20 entry), and — as of 2026-08-22 — catspace's `/directory`, which
+had sat as a permanent "local to your own records" stub since launch: its
+`wrangler.toml` still carries the migration tags for a Registry Durable
+Object that got built for exactly this and then deleted (presumably once the
+cost wall ruled it out), leaving styled-but-unused directory markup behind
+until this pass filled it in with the same client-side recipe. Still
+one-repo-only: alice-meets-bob, clusterpedia, docmoot, duohaunt, griftmax,
+hyperobject, keytags, kolpelor, padmoot, postwith, quadrants, socialcredit,
+velvetrope, war.
 
 **4. Cache trigram verdicts.** (`store-ours-rederive-theirs.md`) **Done,
 2026-08-17.** `sites/trigrams/public/lib/unique.js`'s `searchPhrase()` (used by

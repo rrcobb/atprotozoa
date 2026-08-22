@@ -8,16 +8,19 @@
 // every profile gets its own real OG card instead of one generic one.
 //
 // The one thing a single PDS can't answer: anything that spans *multiple*
-// people's repos. That's what the Registry Durable Object is for — a shared
-// index over three things no PDS query can give us:
-//   - the /directory listing (which DIDs have ever saved a profile)
-//   - per-profile visitor counts (a retro "visitor #000042" counter)
-//   - the guestbook (comments live in each *commenter's own* PDS, so
-//     displaying them on someone else's profile needs somewhere to collect
-//     them — same verify-then-trust pattern as sites/hyperobject's Pit: the
-//     Worker never trusts a client-supplied comment body, it reads the
-//     record back off the claimed author's own PDS after they hand back the
-//     record's at:// uri).
+// people's repos — namely the /directory listing (which DIDs have ever
+// saved a profile). This repo tried a Registry Durable Object for that once
+// (see wrangler.toml's migration history); it got ripped back out, since a
+// directory is just an index over records that already live in everyone's
+// own PDS. /directory.html now builds that index itself, client-side, via
+// listReposByCollection + a live Jetstream feed (public/lib/global-index.js,
+// same recipe as sites/steamtags and sites/verdict/crowd) — this Worker just
+// serves the static shell. Per-profile visitor counts and the guestbook
+// (comments live in each *commenter's own* PDS, so displaying them on
+// someone else's profile needs somewhere to collect them) are still open;
+// a guestbook would need the same verify-then-trust pattern as
+// sites/hyperobject's Pit — the Worker never trusting a client-supplied
+// comment body, always reading it back off the claimed author's own PDS.
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
@@ -259,17 +262,11 @@ function renderClaimPage(shell: string, handle: string): Response {
 }
 
 async function renderDirectory(env: Env, request: Request): Promise<Response> {
+  // The listing itself is built client-side (public/lib/global-index.js) —
+  // this just serves the static shell with the right cache headers.
   const shellRes = await env.ASSETS.fetch(new Request(new URL("/directory.html", request.url), { method: "GET" }));
   const shell = await shellRes.text();
-
-  const catsHtml = `<p class="empty">the directory is currently local to your own records — <a href="/">make a cat page</a>.</p>`;
-
-  const html = fillTemplate(shell, {
-    COUNT: "",
-    CATS_HTML: catsHtml,
-  });
-
-  return new Response(html, {
+  return new Response(shell, {
     headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" },
   });
 }

@@ -20,7 +20,7 @@
 <canvas id="sparkles"></canvas>
 
 <div class="marquee-wrap">
-  <div class="marquee">🐱✨ {{COUNT}} CATS AND COUNTING ✨🐱&nbsp;&nbsp;&nbsp;&nbsp;</div>
+  <div class="marquee">🐱✨ <span id="cat-count">···</span> CATS AND COUNTING ✨🐱&nbsp;&nbsp;&nbsp;&nbsp;</div>
 </div>
 
 <header class="site-head">
@@ -31,17 +31,50 @@
 <main class="wrap">
   <section class="card">
     <h2>the directory</h2>
-    <div class="cat-grid">{{CATS_HTML}}</div>
+    <p class="status" id="dir-status">scanning the network for cats…</p>
+    <div class="cat-grid" id="cat-grid"><p class="empty">loading…</p></div>
   </section>
 </main>
 
 <footer class="site-foot">
+  every cat found live off the network via <code>listReposByCollection</code> + Jetstream —
+  no directory database, just what's already in everyone's own PDS ·
   <a href="https://bisks.net">bisks.net</a> · part of <a href="https://bisks.net">atprotozoa</a>
 </footer>
 
 <script type="module">
   import { initSparkles } from "/lib/sparkles.js";
+  import { GlobalIndex } from "/lib/global-index.js";
   initSparkles();
+
+  const esc = (s) =>
+    String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+  const gridEl = document.getElementById("cat-grid");
+  const countEl = document.getElementById("cat-count");
+  const statusEl = document.getElementById("dir-status");
+
+  function card(cat) {
+    const href = `/cat/${encodeURIComponent(cat.handle)}`;
+    const photo = cat.photoUrl
+      ? `<img class="dir-photo" src="${esc(cat.photoUrl)}" alt="${esc(cat.catName)}" loading="lazy" />`
+      : `<div class="dir-photo-placeholder">🐈</div>`;
+    return `<a class="dir-card" href="${href}">${photo}<span class="dir-name">${esc(cat.catName)}</span><span class="dir-handle">@${esc(cat.handle)}</span></a>`;
+  }
+
+  function render(snap) {
+    countEl.textContent = String(snap.catCount).padStart(3, "0");
+    const errPart = snap.error ? ` · ${esc(snap.error)}` : "";
+    statusEl.textContent = snap.backfillDone
+      ? `${snap.catCount} cats found so far · ${snap.connected ? "watching live" : "reconnecting…"}${errPart}`
+      : `scanning the network for cats… ${snap.catCount} found so far${errPart}`;
+    gridEl.innerHTML = snap.cats.length
+      ? snap.cats.map(card).join("")
+      : `<p class="empty">no cats yet — <a href="/">be the first!</a></p>`;
+  }
+
+  const index = new GlobalIndex({ onUpdate: render });
+  index.start();
 </script>
 </body>
 </html>
