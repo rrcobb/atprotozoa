@@ -416,6 +416,7 @@
     resultStars: document.getElementById("resultStars"),
     resultContinue: document.getElementById("resultContinue"),
     resultRetry: document.getElementById("resultRetry"),
+    resultShareBsky: document.getElementById("resultShareBsky"),
     certScreen: document.getElementById("certScreen"),
     certImg: document.getElementById("certImg"),
     certXp: document.getElementById("certXp"),
@@ -430,10 +431,21 @@
     cheatBtn: document.getElementById("cheatBtn"),
     sfxBtn: document.getElementById("sfxBtn"),
     shareCanvas: document.getElementById("shareCanvas"),
+    openDashboard: document.getElementById("openDashboard"),
+    dashboardPanel: document.getElementById("dashboardPanel"),
+    dashboardQuit: document.getElementById("dashboardQuit"),
+    dashTiles: document.getElementById("dashTiles"),
+    dashChart: document.getElementById("dashChart"),
+    dashTip: document.getElementById("dashTip"),
+    dashFootnote: document.getElementById("dashFootnote"),
+    openSources: document.getElementById("openSources"),
+    sourcesPanel: document.getElementById("sourcesPanel"),
+    sourcesQuit: document.getElementById("sourcesQuit"),
+    srcList: document.getElementById("srcList"),
   };
 
   function showOnly(el) {
-    for (const s of [els.pathView, els.lessonView, els.storyView, els.resultScreen, els.certScreen]) {
+    for (const s of [els.pathView, els.lessonView, els.storyView, els.resultScreen, els.certScreen, els.dashboardPanel, els.sourcesPanel]) {
       s.classList.remove("show");
     }
     if (el === els.pathView) {
@@ -487,6 +499,139 @@
     renderTopStats();
     renderTicker();
   }
+
+  // ---- Investor Relations dashboard (CAPL stock) ----
+  const DASH = window.CAPITALINGO_DASHBOARD || [];
+
+  function revealedDashCount() {
+    let n = 0;
+    for (const p of DASH) {
+      if (!state.completed[p.id]) break;
+      n++;
+    }
+    return n;
+  }
+
+  function renderDashTiles(revealed) {
+    const last = revealed > 0 ? DASH[revealed - 1] : null;
+    const first = DASH[0];
+    const price = last ? last.price : first.price;
+    const up = last ? last.teacher === "smith" : true;
+    const mode = marxMode();
+    const mrr = Math.round(price * (tickerCount / 38));
+    const nps = mode ? "N/A — question rejected as bourgeois" : "72 (industry-leading)";
+    els.dashTiles.innerHTML = [
+      { l: "CAPL LAST PRINT", n: "$" + price + ".00", cls: up ? "up" : "down" },
+      { l: mode ? "COMRADES ENLISTED" : "LEARNERS STUDYING", n: tickerCount.toLocaleString(), cls: "" },
+      { l: mode ? "CENTRAL PLANNING ALLOCATION" : "MRR (est.)", n: "$" + mrr.toLocaleString(), cls: "" },
+      { l: "NPS", n: nps, cls: "" },
+    ].map((t) => '<div class="tile ' + t.cls + '"><div class="tn">' + esc(t.n) + '</div><div class="tl">' + esc(t.l) + "</div></div>").join("");
+  }
+
+  function renderDashChart(revealed) {
+    const W = 600, H = 220, padL = 30, padR = 16, padT = 14, padB = 26;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const maxPrice = 85;
+    const n = DASH.length;
+    const xAt = (i) => padL + (plotW * i) / (n - 1);
+    const yAt = (v) => padT + plotH - (plotH * v) / maxPrice;
+
+    let svg = "";
+    // recessive gridlines + $ axis labels
+    [0, 40, 80].forEach((v) => {
+      const y = yAt(v);
+      svg += '<line class="gridline" x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y + '"/>';
+      svg += '<text class="axislabel" x="4" y="' + (y + 3) + '">$' + v + "</text>";
+    });
+
+    // segments, colored by the regime being ENTERED
+    for (let i = 0; i < n - 1; i++) {
+      const a = DASH[i], b = DASH[i + 1];
+      const bRevealed = i + 1 < revealed;
+      const cls = !bRevealed ? "seg-future" : b.teacher === "marx" ? "seg-marx" : "seg-smith";
+      svg += '<path class="segline ' + cls + '" d="M' + xAt(i) + "," + yAt(a.price) + " L" + xAt(i + 1) + "," + yAt(bRevealed ? b.price : a.price) + '"/>';
+    }
+
+    // points + hit targets + x labels
+    DASH.forEach((p, i) => {
+      const shown = i < revealed;
+      const x = xAt(i), y = yAt(shown ? p.price : DASH[Math.max(revealed - 1, 0)].price);
+      const dotCls = !shown ? "dot-future" : p.teacher === "marx" ? "dot-marx" : "dot-smith";
+      svg += '<circle class="dot ' + dotCls + '" cx="' + x + '" cy="' + y + '" r="4"/>';
+      svg += '<circle class="hit" data-i="' + i + '" cx="' + x + '" cy="' + y + '" r="14"/>';
+      svg += '<text class="axislabel" x="' + x + '" y="' + (H - 8) + '" text-anchor="middle">' + p.label + "</text>";
+      if (shown && (i === revealed - 1)) {
+        svg += '<text class="pointlabel" x="' + x + '" y="' + (y - 10) + '" text-anchor="middle">$' + p.price + "</text>";
+      }
+    });
+
+    els.dashChart.innerHTML = svg;
+    els.dashChart.querySelectorAll(".hit").forEach((hit) => {
+      const i = Number(hit.dataset.i);
+      const p = DASH[i];
+      const shown = i < revealed;
+      hit.addEventListener("mouseenter", (ev) => showDashTip(ev, p, shown));
+      hit.addEventListener("mousemove", (ev) => showDashTip(ev, p, shown));
+      hit.addEventListener("mouseleave", hideDashTip);
+    });
+  }
+
+  function showDashTip(ev, p, shown) {
+    const wrap = els.dashChart.closest(".chartwrap");
+    const rect = wrap.getBoundingClientRect();
+    els.dashTip.innerHTML = shown
+      ? "<b>" + p.label + " · $" + p.price + "</b>" + esc(p.note)
+      : "<b>" + p.label + " · TBD</b>consensus estimate — pass more units to confirm.";
+    els.dashTip.style.left = ev.clientX - rect.left + "px";
+    els.dashTip.style.top = ev.clientY - rect.top + "px";
+    els.dashTip.classList.add("show");
+  }
+  function hideDashTip() {
+    els.dashTip.classList.remove("show");
+  }
+
+  function renderDashboard() {
+    const revealed = revealedDashCount();
+    renderDashTiles(revealed);
+    renderDashChart(revealed);
+    els.dashFootnote.textContent =
+      revealed >= DASH.length
+        ? "Full quarter-over-quarter history disclosed. The board thanks you for your continued confidence."
+        : "Pass “" + (UNITS[revealed] ? UNITS[revealed].title : "the next unit") + "” to print the next quarter.";
+  }
+
+  els.openDashboard.addEventListener("click", () => {
+    renderDashboard();
+    showOnly(els.dashboardPanel);
+  });
+  els.dashboardQuit.addEventListener("click", () => {
+    showOnly(els.pathView);
+    renderPath();
+  });
+
+  // ---- Sources panel ----
+  function renderSources() {
+    const list = window.CAPITALINGO_SOURCES || [];
+    els.srcList.innerHTML = list
+      .map(
+        (s) =>
+          '<div class="srcitem" data-teacher="' + s.teacher + '">' +
+          '<span class="swork">' + esc(s.work) + "</span> <span class=\"syear\">(" + esc(s.year) + ")</span>" +
+          '<div class="snote">' + esc(s.note) + "</div>" +
+          '<a href="' + s.url + '" target="_blank" rel="noopener">Read the full text on ' + esc(s.host) + " →</a>" +
+          "</div>"
+      )
+      .join("");
+  }
+
+  els.openSources.addEventListener("click", () => {
+    renderSources();
+    showOnly(els.sourcesPanel);
+  });
+  els.sourcesQuit.addEventListener("click", () => {
+    showOnly(els.pathView);
+    renderPath();
+  });
 
   // ---- story beat (the handoff from Smith to Marx) ----
   let story = null; // { unitIndex, li }
@@ -650,6 +795,18 @@
       els.resultStars.textContent = "★".repeat(lesson.hearts) + "☆".repeat(3 - lesson.hearts);
       els.resultRetry.style.display = "none";
       els.resultContinue.textContent = "Continue";
+
+      const shareText =
+        "Passed “" + unit.title + "” on capitalingo (taught by " + (TEACHER_NAME[unit.teacher] || "the faculty") +
+        ") — " + (state.xp || 0) + " IP, " + (state.streak.count || 0) + "-day streak. " + SITE_URL;
+      els.resultShareBsky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      els.resultShareBsky.style.display = "";
+
+      // showOnly/renderTopStats must land before the sound call below: a
+      // throwing AudioContext must never strand the player on a dead lesson
+      // screen (same bug class as answerQuestion's citation-after-sound fix).
+      showOnly(els.resultScreen);
+      renderTopStats();
       if (perfect) playLevelUp();
       else playFanfare();
     } else {
@@ -660,10 +817,12 @@
       els.resultStars.textContent = "☆☆☆";
       els.resultRetry.style.display = "";
       els.resultContinue.textContent = "Back to path";
+      els.resultShareBsky.style.display = "none";
+
+      showOnly(els.resultScreen);
+      renderTopStats();
       playFail();
     }
-    showOnly(els.resultScreen);
-    renderTopStats();
   }
 
   els.resultContinue.addEventListener("click", () => {

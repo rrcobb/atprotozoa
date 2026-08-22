@@ -263,8 +263,70 @@
   canvas#shareCanvas { display: none; }
   .cardpreview { margin: 0 auto 1.5rem; max-width: 420px; width: 100%; border-radius: 14px; border: 1px solid var(--border); }
 
+  /* --- extras row (dashboard / sources) --- */
+  .extras { display: flex; gap: 0.6rem; margin: 0 0 1.6rem; flex-wrap: wrap; }
+  .extras button {
+    flex: 1; min-width: 160px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 0.7rem 0.9rem; font: inherit; font-size: 0.82rem; font-weight: 800;
+    color: var(--ink); text-align: left; cursor: pointer;
+  }
+  .extras button:hover { border-color: var(--accent-dim); }
+  .extras button .exsub { display: block; font-weight: 600; font-size: 0.72rem; color: var(--dim); margin-top: 0.15rem; }
+
+  /* --- panel screens (dashboard / sources) --- */
+  .panel { display: none; padding-top: 1.4rem; }
+  .panel.show { display: block; }
+  .panel .pbar { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1rem; }
+  .panel .pbar .quit { background: none; border: none; color: var(--dim); font: inherit; font-size: 1.1rem; cursor: pointer; padding: 0 0.2rem; }
+  .panel .pbar h2 { font-size: 1.15rem; margin: 0; flex: 1; }
+  .panel .pcaption { color: var(--dim); font-size: 0.82rem; line-height: 1.5; margin: 0 0 1.2rem; }
+
+  .tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.7rem; margin-bottom: 1.4rem; }
+  .tile { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 0.75rem 0.9rem; }
+  .tile .tn { font-size: 1.25rem; font-weight: 800; }
+  .tile .tl { font-size: 0.68rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 0.15rem; }
+  .tile.up .tn { color: var(--accent); }
+  .tile.down .tn { color: var(--red); }
+
+  .chartwrap { position: relative; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 0.9rem 0.7rem 0.6rem; margin-bottom: 1.2rem; }
+  .chartwrap svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .chartwrap .gridline { stroke: var(--border); stroke-width: 1; }
+  .chartwrap .axislabel { fill: var(--dim); font-size: 8px; font-family: inherit; }
+  .chartwrap .pointlabel { fill: var(--ink); font-size: 9px; font-weight: 700; font-family: inherit; }
+  .chartwrap .segline { fill: none; stroke-width: 2.5; stroke-linecap: round; }
+  .chartwrap .seg-smith { stroke: var(--accent); }
+  .chartwrap .seg-marx { stroke: var(--red); }
+  .chartwrap .seg-future { stroke: var(--border); stroke-dasharray: 4 4; }
+  .chartwrap .dot { stroke: var(--card); stroke-width: 2; cursor: pointer; }
+  .chartwrap .dot-smith { fill: var(--accent); }
+  .chartwrap .dot-marx { fill: var(--red); }
+  .chartwrap .dot-future { fill: var(--dim); }
+  .chartwrap .hit { fill: transparent; cursor: pointer; }
+  .charttip {
+    position: absolute; pointer-events: none; z-index: 3;
+    background: var(--ink); color: var(--bg); border-radius: 8px;
+    padding: 0.4rem 0.6rem; font-size: 0.7rem; line-height: 1.4;
+    max-width: 190px; opacity: 0; transform: translate(-50%, -110%);
+    transition: opacity 0.1s ease;
+  }
+  .charttip.show { opacity: 1; }
+  .charttip b { display: block; font-size: 0.72rem; }
+
+  .srclist { display: flex; flex-direction: column; gap: 0.8rem; }
+  .srcitem { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 0.85rem 1rem; }
+  .srcitem[data-teacher="marx"] { border-left: 3px solid var(--red); }
+  .srcitem[data-teacher="smith"] { border-left: 3px solid var(--accent); }
+  .srcitem .swork { font-weight: 800; font-size: 0.9rem; }
+  .srcitem .syear { color: var(--dim); font-weight: 600; }
+  .srcitem .snote { color: var(--dim); font-size: 0.78rem; margin: 0.3rem 0 0.5rem; line-height: 1.45; }
+  .srcitem a { color: var(--accent); font-size: 0.78rem; font-weight: 700; text-decoration: none; }
+  .srcitem[data-teacher="marx"] a { color: var(--red); }
+  .srcitem a:hover { text-decoration: underline; }
+
   @media (max-width: 420px) {
     h1.title { font-size: 1.3rem; }
+    .tiles { grid-template-columns: 1fr 1fr; }
   }
 </style>
 </head>
@@ -302,6 +364,10 @@
       <b>profitability and high demand, from whichever theory of value you prefer</b>.
       Riffing on the "duolingo for X" thread that started with
       <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies</a>.</p>
+    <div class="extras">
+      <button type="button" id="openDashboard">📊 Investor Relations<span class="exsub">CAPL stock price, live-ish metrics</span></button>
+      <button type="button" id="openSources">📚 Sources<span class="exsub">every quote, linked to the full text</span></button>
+    </div>
     <div class="path" id="pathList"></div>
     <button class="node cert-node locked" id="certNode" type="button">
       <div class="icon">📜</div>
@@ -355,6 +421,29 @@
     </div>
   </div>
 
+  <div class="panel" id="dashboardPanel">
+    <div class="pbar">
+      <button class="quit" id="dashboardQuit" type="button" aria-label="back">✕</button>
+      <h2>Investor Relations</h2>
+    </div>
+    <p class="pcaption">CAPL (Capitalingo Inc.) common stock, one print per unit passed. Quarters you haven't reached yet show as an analyst consensus estimate, because nobody at the firm will confirm anything on the record.</p>
+    <div class="tiles" id="dashTiles"></div>
+    <div class="chartwrap">
+      <svg id="dashChart" viewBox="0 0 600 220" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="charttip" id="dashTip"></div>
+    </div>
+    <p class="pcaption" id="dashFootnote"></p>
+  </div>
+
+  <div class="panel" id="sourcesPanel">
+    <div class="pbar">
+      <button class="quit" id="sourcesQuit" type="button" aria-label="back">✕</button>
+      <h2>Sources</h2>
+    </div>
+    <p class="pcaption">Every quote in this course is real and cited inline after you answer. Here's the full text behind each one, linked straight to a free archive — no paywalls, no summaries.</p>
+    <div class="srclist" id="srcList"></div>
+  </div>
+
   <div class="screen" id="resultScreen">
     <div class="big" id="resultEmoji">🎉</div>
     <h2 id="resultTitle">Lesson complete!</h2>
@@ -366,6 +455,7 @@
     <div class="btnrow">
       <button class="btn primary" id="resultContinue" type="button">Continue</button>
       <button class="btn secondary" id="resultRetry" type="button">Retry</button>
+      <a class="btn bsky" id="resultShareBsky" href="#" target="_blank" rel="noopener" style="display:none">Share on Bluesky</a>
     </div>
   </div>
 

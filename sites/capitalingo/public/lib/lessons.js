@@ -255,3 +255,66 @@ window.CAPITALINGO_FINAL = {
   questionCount: 10,
   sourceUnitIds: ["smith-basics", "smith-market", "smith-growth", "marx-basics", "marx-struggle", "marx-revolution"],
 };
+
+// Full-text primary sources for every citation in this course, one entry per
+// work (not per quote) — every URL below was fetched and confirmed to host
+// the named text before this file shipped. Public domain / free-archive
+// links only, no paywalls.
+window.CAPITALINGO_SOURCES = [
+  {
+    teacher: "smith",
+    work: "An Inquiry into the Nature and Causes of the Wealth of Nations",
+    year: "1776",
+    note: "The whole Smith curriculum — self-interest, the invisible hand, the pin factory, natural price, capital accumulation — is drawn from this one book.",
+    url: "https://www.gutenberg.org/ebooks/3300",
+    host: "Project Gutenberg",
+  },
+  {
+    teacher: "marx",
+    work: "Capital: A Critique of Political Economy, Volume I",
+    year: "1867",
+    note: "Commodities, use-value vs. exchange-value, the labour theory of value, surplus value, and commodity fetishism.",
+    url: "https://www.marxists.org/archive/marx/works/1867-c1/",
+    host: "Marxists Internet Archive",
+  },
+  {
+    teacher: "marx",
+    work: "Manifesto of the Communist Party",
+    year: "1848",
+    note: "Class struggle, the bourgeoisie and proletariat, means of production, and the closing call to unite. Written with Friedrich Engels.",
+    url: "https://www.marxists.org/archive/marx/works/1848/communist-manifesto/",
+    host: "Marxists Internet Archive",
+  },
+  {
+    teacher: "marx",
+    work: "Economic and Philosophic Manuscripts of 1844",
+    year: "1844",
+    note: "Alienated labour — the worker relating to their own product as something foreign and hostile.",
+    url: "https://www.marxists.org/archive/marx/works/1844/manuscripts/",
+    host: "Marxists Internet Archive",
+  },
+  {
+    teacher: "marx",
+    work: "Critique of the Gotha Programme",
+    year: "1875",
+    note: "The dictatorship of the proletariat and “from each according to his ability, to each according to his needs.”",
+    url: "https://www.marxists.org/archive/marx/works/1875/gotha/",
+    host: "Marxists Internet Archive",
+  },
+];
+
+// Investor Relations dashboard: a scripted CAPL (Capitalingo Inc.) stock
+// trajectory, one point per real quiz unit in course order. Values are fixed
+// (not random) so the joke lands the same way for everyone: Smith-taught
+// quarters climb, the handoff craters it, Marx-taught quarters bottom out
+// near zero. Points beyond the learner's actual progress render as "TBD" —
+// app.js reveals them from real state.completed, same source of truth the
+// lesson path itself uses.
+window.CAPITALINGO_DASHBOARD = [
+  { id: "smith-basics", label: "Q1", teacher: "smith", price: 41, note: "Seed round closes on the strength of the invisible hand." },
+  { id: "smith-market", label: "Q2", teacher: "smith", price: 58, note: "Series A: natural price discovery pitched to the board." },
+  { id: "smith-growth", label: "Q3", teacher: "smith", price: 77, note: "All-time high. Capital accumulation flywheel, analysts say." },
+  { id: "marx-basics", label: "Q4", teacher: "marx", price: 12, note: "Restatement: surplus value repriced to zero across the book." },
+  { id: "marx-struggle", label: "Q5", teacher: "marx", price: 4, note: "Means of production seized by committee. Ticker symbol under review." },
+  { id: "marx-revolution", label: "Q6", teacher: "marx", price: 1, note: "Delisted. Holdings converted to labor vouchers at par." },
+];
