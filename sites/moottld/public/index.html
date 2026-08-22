@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>moottld — census your mutuals' TLDs</title>
+<meta name="description" content="Turn your Bluesky mutuals into a census: unique TLDs and how many handles sit under each, segment counts, shortest/longest handles, average length. Enter any handle." />
+<meta property="og:title" content="moottld — census your mutuals' TLDs" />
+<meta property="og:description" content="Turn your Bluesky mutuals into a census: unique TLDs and how many handles sit under each, segment counts, shortest/longest handles, average length. Enter any handle." />
+<meta property="og:url" content="https://moottld.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://moottld.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="moottld: a ledger card breaking one account's mutuals down by TLD, segment count, and handle length." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="moottld — census your mutuals' TLDs" />
+<meta name="twitter:description" content="Turn your Bluesky mutuals into a census: unique TLDs and how many handles sit under each, segment counts, shortest/longest handles, average length. Enter any handle." />
+<meta name="twitter:image" content="https://moottld.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0c10;
+    --bg2: #10141b;
+    --fg: #e8ecf2;
+    --dim: #8891a3;
+    --accent: #ffb648;
+    --accent2: #57e0c2;
+    --card: #12151c;
+    --border: #262b36;
+    --bar: #1c2230;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #2a230f 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #0d2621 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 620px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 2rem;
+    line-height: 1.5;
+  }
+  .tag a { color: var(--accent2); }
+  form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #ff8a3d);
+    color: #1a0f00;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button.ghost {
+    background: transparent;
+    color: var(--fg);
+    border: 1px solid var(--border);
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: #ff8a8a; }
+
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 0 60px -25px var(--accent);
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg2); }
+  .who .name { font-weight: 700; }
+  .who .did { color: var(--dim); font-size: 0.72rem; word-break: break-all; }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.6rem;
+    margin-bottom: 1.4rem;
+  }
+  .stat {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.9rem 0.6rem;
+    text-align: center;
+  }
+  .stat .n { font-size: 1.5rem; font-weight: 800; color: var(--accent2); line-height: 1.1; }
+  .stat .l { font-size: 0.68rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 0.25rem; }
+
+  .note { color: var(--dim); font-size: 0.8rem; margin: -0.6rem 0 1.4rem; line-height: 1.5; }
+
+  .block { margin-bottom: 1.5rem; }
+  .block h2 {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin: 0 0 0.7rem;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.85rem;
+    margin-bottom: 0.4rem;
+  }
+  .row .k { width: 6.5rem; flex: 0 0 auto; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .bar-wrap { flex: 1; background: var(--bar); border-radius: 5px; height: 10px; overflow: hidden; }
+  .row .bar { height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); border-radius: 5px; }
+  .row .v { width: 2.5rem; flex: 0 0 auto; text-align: right; color: var(--dim); font-size: 0.78rem; }
+
+  .small-note { color: var(--dim); font-size: 0.76rem; line-height: 1.6; margin: 0.4rem 0 0; }
+
+  .lenblock p { font-size: 0.85rem; margin: 0.3rem 0; }
+  .lenblock .lbl { color: var(--dim); }
+  .lenblock b { color: var(--fg); }
+
+  .share {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-top: 0.5rem;
+  }
+  .share a, .share button { text-decoration: none; font-size: 0.82rem; padding: 0.6rem 0.9rem; }
+
+  canvas#shareCanvas { display: none; }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+  }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>moottld</h1>
+  <p class="tag">
+    <a href="https://bsky.app/profile/mfzx.net" target="_blank" rel="noopener">@mfzx.net</a>
+    hand-counted mutuals, TLDs, and handle lengths in a thread. This automates it —
+    for any account.
+  </p>
+
+  <form id="form">
+    <input id="input" type="text" placeholder="handle or DID, e.g. mfzx.net" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <button id="go" type="submit">census</button>
+  </form>
+  <p class="hint">reads public follows/followers, no login required. large accounts cap around ~4,000 scanned per side.</p>
+  <p id="status" class="status"></p>
+
+  <div id="card" class="card">
+    <div class="who">
+      <img id="avatar" alt="" />
+      <div>
+        <div class="name" id="handleOut">—</div>
+        <div class="did" id="didOut"></div>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="n" id="statMutuals">—</div><div class="l">mutuals</div></div>
+      <div class="stat"><div class="n" id="statTlds">—</div><div class="l">unique TLDs</div></div>
+      <div class="stat"><div class="n" id="statAvgLen">—</div><div class="l">avg length</div></div>
+    </div>
+
+    <p class="note" id="capNote" style="display:none"></p>
+
+    <section class="block">
+      <h2>TLD breakdown</h2>
+      <div id="tldList"></div>
+      <p class="small-note" id="singleTldNote"></p>
+    </section>
+
+    <section class="block">
+      <h2>handle segments</h2>
+      <div id="segList"></div>
+    </section>
+
+    <section class="block lenblock">
+      <h2>length analysis</h2>
+      <p><span class="lbl">shortest:</span> <b id="shortestOut">—</b></p>
+      <p><span class="lbl">longest:</span> <b id="longestOut">—</b></p>
+      <p><span class="lbl">average:</span> <b id="avgOut">—</b></p>
+    </section>
+
+    <div class="share">
+      <a id="shareBluesky" class="ghost" href="#" target="_blank" rel="noopener">share on bluesky</a>
+      <button id="shareDownload" class="ghost" type="button">download card</button>
+      <button id="shareNative" class="ghost" type="button" style="display:none">share…</button>
+    </div>
+  </div>
+
+  <footer>
+    built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+    for <a href="https://bsky.app/profile/mfzx.net" target="_blank" rel="noopener">@mfzx.net</a>
+  </footer>
+</div>
+
+<canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+<script type="module">
+import { census, analyze, cleanHandle } from "./lib/census.js";
+
+const els = {
+  form: document.getElementById("form"),
+  input: document.getElementById("input"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  didOut: document.getElementById("didOut"),
+  statMutuals: document.getElementById("statMutuals"),
+  statTlds: document.getElementById("statTlds"),
+  statAvgLen: document.getElementById("statAvgLen"),
+  capNote: document.getElementById("capNote"),
+  tldList: document.getElementById("tldList"),
+  singleTldNote: document.getElementById("singleTldNote"),
+  segList: document.getElementById("segList"),
+  shortestOut: document.getElementById("shortestOut"),
+  longestOut: document.getElementById("longestOut"),
+  avgOut: document.getElementById("avgOut"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+  shareNative: document.getElementById("shareNative"),
+  shareCanvas: document.getElementById("shareCanvas"),
+};
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.classList.toggle("err", Boolean(isErr));
+}
+
+function formatHandleList(arr, max) {
+  const cap = max || 6;
+  const shown = arr.slice(0, cap).map((h) => "@" + h).join(", ");
+  return arr.length > cap ? `${shown} +${arr.length - cap} more` : shown;
+}
+
+function barRow(label, count, max) {
+  const pct = max ? Math.max(4, Math.round((count / max) * 100)) : 0;
+  const wrap = document.createElement("div");
+  wrap.className = "row";
+  wrap.innerHTML =
+    `<div class="k">${escapeHtml(label)}</div>` +
+    `<div class="bar-wrap"><div class="bar" style="width:${pct}%"></div></div>` +
+    `<div class="v">${count}</div>`;
+  return wrap;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[c]);
+}
+
+let lastShareText = "";
+let lastState = null;
+
+function shareUrlFor(handle) {
+  return "https://moottld.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function buildShareText(handle, stats) {
+  const url = shareUrlFor(handle);
+  let text =
+    `@${handle}'s moot census: ${stats.total} mutuals across ${stats.uniqueTlds} unique TLDs. ` +
+    `avg handle length ${stats.avgLength.toFixed(1)} chars.\n\ncensus your own → ${url}`;
+  if ([...text].length > 300) {
+    const budget = 300 - ([...("\n\ncensus your own → " + url)].length) - 1;
+    const head = `@${handle}'s moot census: ${stats.total} mutuals, ${stats.uniqueTlds} TLDs.`;
+    text = [...head].slice(0, Math.max(0, budget)).join("") + "\n\ncensus your own → " + url;
+  }
+  return text;
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+async function buildShareCard({ handle, avatar, stats }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const img = await loadImg(avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0a0c10";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.12, -H * 0.1, 0, W * 0.12, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#2a230f");
+  glow.addColorStop(1, "rgba(10,12,16,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffb648";
+  ctx.font = `800 52px ${mono}`;
+  ctx.fillText("moottld", 60, 100);
+
+  ctx.fillStyle = "#e8ecf2";
+  ctx.font = `700 30px ${mono}`;
+  let textX = 60;
+  if (img) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 152, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(img, 60, 124, 56, 56);
+    ctx.restore();
+    textX = 132;
+  }
+  ctx.fillText("@" + handle, textX, 162);
+
+  ctx.strokeStyle = "#262b36";
+  ctx.lineWidth = 1.5;
+  const cardX = 60, cardY = 230, cardW = W - 120, cardH = H - 290;
+  ctx.fillStyle = "#12151c";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  const cols = [
+    [String(stats.total), "mutuals"],
+    [String(stats.uniqueTlds), "unique TLDs"],
+    [stats.avgLength.toFixed(1), "avg length"],
+  ];
+  const colW = cardW / 3;
+  ctx.textAlign = "center";
+  cols.forEach(([n, l], i) => {
+    const cx = cardX + colW * i + colW / 2;
+    ctx.fillStyle = "#57e0c2";
+    ctx.font = `800 46px ${mono}`;
+    ctx.fillText(n, cx, cardY + 80);
+    ctx.fillStyle = "#8891a3";
+    ctx.font = `400 15px ${mono}`;
+    ctx.fillText(l, cx, cardY + 108);
+  });
+
+  ctx.strokeStyle = "#262b36";
+  ctx.beginPath();
+  ctx.moveTo(cardX + 32, cardY + 140);
+  ctx.lineTo(cardX + cardW - 32, cardY + 140);
+  ctx.stroke();
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffb648";
+  ctx.font = `700 14px ${mono}`;
+  ctx.fillText("TOP TLDS", cardX + 48, cardY + 178);
+
+  const top = stats.tldList.slice(0, 6);
+  const maxCount = top.length ? top[0].count : 1;
+  let ty = cardY + 210;
+  const barMaxW = cardW - 260;
+  top.forEach(({ tld, count }) => {
+    ctx.fillStyle = "#e8ecf2";
+    ctx.font = `600 18px ${mono}`;
+    ctx.fillText("." + tld, cardX + 48, ty);
+
+    const bw = Math.max(6, (count / maxCount) * barMaxW);
+    ctx.fillStyle = "#1c2230";
+    ctx.fillRect(cardX + 170, ty - 16, barMaxW, 14);
+    const g = ctx.createLinearGradient(cardX + 170, 0, cardX + 170 + bw, 0);
+    g.addColorStop(0, "#57e0c2");
+    g.addColorStop(1, "#ffb648");
+    ctx.fillStyle = g;
+    ctx.fillRect(cardX + 170, ty - 16, bw, 14);
+
+    ctx.fillStyle = "#8891a3";
+    ctx.font = `400 14px ${mono}`;
+    ctx.fillText(String(count), cardX + 170 + barMaxW + 16, ty);
+
+    ty += 34;
+  });
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#57e0c2";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("moottld.bisks.net", 60, H - 40);
+}
+
+function renderResults(state) {
+  const { handle, displayName, avatar, did, mutuals, cappedFollows, cappedFollowers, stats } = state;
+
+  els.handleOut.textContent = "@" + handle;
+  els.didOut.textContent = did;
+  els.avatar.src = avatar || "";
+  els.avatar.style.visibility = avatar ? "visible" : "hidden";
+
+  els.statMutuals.textContent = String(stats.total);
+  els.statTlds.textContent = String(stats.uniqueTlds);
+  els.statAvgLen.textContent = stats.avgLength.toFixed(1);
+
+  const notes = [];
+  if (stats.invalidCount > 0) {
+    notes.push(`${stats.invalidCount} mutual${stats.invalidCount === 1 ? "" : "s"} with an unverified (handle.invalid) handle — excluded from the TLD/length stats below.`);
+  }
+  if (cappedFollows || cappedFollowers) {
+    notes.push("this account's follows/followers were capped mid-scan (~4,000 per side) — the census below reflects what was scanned, not necessarily every mutual.");
+  }
+  if (notes.length) {
+    els.capNote.style.display = "";
+    els.capNote.textContent = notes.join(" ");
+  } else {
+    els.capNote.style.display = "none";
+  }
+
+  els.tldList.innerHTML = "";
+  const maxTldCount = stats.tldList.length ? stats.tldList[0].count : 0;
+  const topTlds = stats.tldList.slice(0, 20);
+  for (const { tld, count } of topTlds) {
+    els.tldList.appendChild(barRow("." + tld, count, maxTldCount));
+  }
+  if (stats.tldList.length > topTlds.length) {
+    const more = document.createElement("p");
+    more.className = "small-note";
+    more.textContent = `+${stats.tldList.length - topTlds.length} more TLDs not shown.`;
+    els.tldList.appendChild(more);
+  }
+  els.singleTldNote.textContent = stats.singleTldCount
+    ? `${stats.singleTldCount} TLD${stats.singleTldCount === 1 ? "" : "s"} had exactly one handle: ${stats.singleTlds.map((t) => "." + t).join(", ")}`
+    : "";
+
+  els.segList.innerHTML = "";
+  const maxSegCount = stats.segmentList.length ? Math.max(...stats.segmentList.map((s) => s.count)) : 0;
+  for (const { segments, count } of stats.segmentList) {
+    els.segList.appendChild(barRow(`${segments} segment${segments === 1 ? "" : "s"}`, count, maxSegCount));
+  }
+
+  els.shortestOut.textContent = stats.shortest.length
+    ? `${formatHandleList(stats.shortest)} (${stats.shortest[0].length} chars)`
+    : "—";
+  els.longestOut.textContent = stats.longest.length
+    ? `${formatHandleList(stats.longest)} (${stats.longest[0].length} chars)`
+    : "—";
+  els.avgOut.textContent = stats.validCount
+    ? `${stats.avgLength.toFixed(2)} characters across ${stats.validCount} handles`
+    : "—";
+
+  lastShareText = buildShareText(handle, stats);
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+  buildShareCard({ handle, avatar, stats });
+
+  els.card.classList.add("show");
+}
+
+async function run(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("resolving " + handle + " …");
+
+  try {
+    const result = await census(handle, { onStep: (msg) => setStatus(msg) });
+    const stats = analyze(result.mutuals);
+    lastState = { ...result, stats };
+    setStatus("");
+    renderResults(lastState);
+  } catch (err) {
+    setStatus("couldn't census that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  run(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (lastState && lastState.handle || "card").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "moottld-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (lastState && lastState.handle || "card").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "moottld-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "moottld" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+// Support ?handle=... or /s/<handle> paths so a shared link can auto-run.
+const params = new URLSearchParams(location.search);
+const pathMatch = location.pathname.match(/^\/s\/([^/]+)\/?$/);
+const initial = params.get("handle") || (pathMatch ? decodeURIComponent(pathMatch[1]) : "");
+if (initial) {
+  els.input.value = initial;
+  run(initial);
+}
+</script>
+</body>
+</html>
