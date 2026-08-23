@@ -45,11 +45,14 @@ export async function getProfile(did) {
   return profileOf(p);
 }
 
-// Batch-fetch profiles, 25 actors per request (AppView's cap).
+// Batch-fetch profiles, 25 actors per request (AppView's cap), a few
+// batches in flight at once so a huge liker list (thousands of DIDs) still
+// resolves in reasonable time instead of one request at a time.
 export async function getProfiles(dids) {
   const out = new Map();
-  for (let i = 0; i < dids.length; i += 25) {
-    const batch = dids.slice(i, i + 25);
+  const batches = [];
+  for (let i = 0; i < dids.length; i += 25) batches.push(dids.slice(i, i + 25));
+  await pooledEach(batches, 6, async (batch) => {
     const u = new URL(`${PUB}/app.bsky.actor.getProfiles`);
     for (const d of batch) u.searchParams.append("actors", d);
     try {
@@ -58,7 +61,7 @@ export async function getProfiles(dids) {
     } catch {
       // partial data is fine — missing profiles just render as bare DIDs
     }
-  }
+  });
   return out;
 }
 
