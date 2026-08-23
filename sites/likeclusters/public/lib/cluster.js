@@ -1,4 +1,4 @@
-// cluster.js — sample an account's own recent posts, read each one's public
+// cluster.js — sample every one of an account's own posts, read each one's public
 // likers, and group the likers by which rough topic (keyword/hashtag
 // signature, see keywords.js) they actually show up for. Modeled on
 // metamoots/lib/crawl.js's crawlInbound (same "no anonymous who-liked-this-
@@ -11,20 +11,25 @@ import { termCounts, scorePostTerms, topTags } from "./keywords.js";
 
 const PUB = "https://api.bsky.app/xrpc";
 
-const AUTHOR_FEED_PAGES = 6; // pages of getAuthorFeed scanned for the target's own posts
-const MAX_SAMPLED_POSTS = 60; // how many of the target's own posts get read for likers
+// No page/post caps by design — sample every original post the account has,
+// paging getAuthorFeed until its cursor runs out. These are safety ceilings
+// only, so one absurdly prolific account can't hang the tab forever; nobody
+// normal will ever hit them.
+const MAX_FEED_PAGES = 500; // hard stop on getAuthorFeed pagination
+const MAX_SAMPLED_POSTS = 20000; // hard stop on how many own posts get read for likers
 const LIKE_PAGES_PER_POST = 2; // <= 200 likers read per post
 const POST_CONCURRENCY = 6;
 const TAGS_PER_POST = 3; // top topic tags kept per post
 const MIN_LIKES_TO_RANK = 2; // a liker needs at least this many liked posts to get a topic verdict
 
-// The target's own recent posts (excluding reposts of other people that
-// show up in their author feed), most recent first, capped at
-// MAX_SAMPLED_POSTS. Returns { uri, text, likeCount }.
+// Every one of the target's own posts (excluding reposts of other people
+// that show up in their author feed), most recent first, paged until
+// getAuthorFeed's cursor runs out (or a safety ceiling hits). Returns
+// { uri, text, likeCount }.
 export async function sampleOwnPosts(did, onStep) {
   const posts = [];
   let cursor = "";
-  for (let p = 0; p < AUTHOR_FEED_PAGES && posts.length < MAX_SAMPLED_POSTS; p++) {
+  for (let p = 0; p < MAX_FEED_PAGES && posts.length < MAX_SAMPLED_POSTS; p++) {
     if (onStep) onStep(`reading their posts… (${posts.length} so far)`);
     const u = new URL(`${PUB}/app.bsky.feed.getAuthorFeed`);
     u.searchParams.set("actor", did);
