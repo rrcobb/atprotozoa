@@ -17,7 +17,7 @@ const PUB = "https://api.bsky.app/xrpc";
 // normal will ever hit them.
 const MAX_FEED_PAGES = 500; // hard stop on getAuthorFeed pagination
 const MAX_SAMPLED_POSTS = 20000; // hard stop on how many own posts get read for likers
-const LIKE_PAGES_PER_POST = 2; // <= 200 likers read per post
+const MAX_LIKE_PAGES_PER_POST = 500; // hard stop on getLikes pagination per post (<= 50000 likers)
 const POST_CONCURRENCY = 6;
 const TAGS_PER_POST = 3; // top topic tags kept per post
 const MIN_LIKES_TO_RANK = 2; // a liker needs at least this many liked posts to get a topic verdict
@@ -58,7 +58,8 @@ export async function sampleOwnPosts(did, onStep) {
   return posts;
 }
 
-// Read the public likers of every sampled post. Returns Map<did, { count,
+// Read the public likers of every sampled post — paging getLikes until each
+// post's cursor runs out, not just a fixed slice. Returns Map<did, { count,
 // uris: string[] }> — how many of the target's sampled posts each liker
 // showed up on, and which ones.
 async function crawlLikers(posts, onProgress) {
@@ -66,7 +67,7 @@ async function crawlLikers(posts, onProgress) {
   let done = 0;
   await pooledEach(posts, POST_CONCURRENCY, async (post) => {
     let cursor = "";
-    for (let p = 0; p < LIKE_PAGES_PER_POST; p++) {
+    for (let p = 0; p < MAX_LIKE_PAGES_PER_POST; p++) {
       const u = new URL(`${PUB}/app.bsky.feed.getLikes`);
       u.searchParams.set("uri", post.uri);
       u.searchParams.set("limit", "100");
