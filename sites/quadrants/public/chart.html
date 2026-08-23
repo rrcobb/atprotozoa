@@ -80,9 +80,10 @@
       </section>
 
       <footer>
-        <span id="count-line"></span> — this chart is a local browser draft. Your
-        position is written to your own PDS; other viewers do not get a global
-        index, so their charts may be empty or eventually consistent.
+        <span id="count-line"></span> — the chart itself (title, axes, anchors) is
+        a local browser draft, but every marker on it is found live across the
+        whole network via <code>listReposByCollection</code> + Jetstream, not just
+        the ones your own browser has written or seen before.
       </footer>
     </div>
 
@@ -90,6 +91,7 @@
       import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch, MOUNT } from "/quadrants/lib/oauth.js";
       import { getProfile, getFollowingDids } from "/quadrants/lib/atproto.js";
       import { makePlotSvg, clearMarkers, drawAnchor, drawPosition, eventToNorm } from "/quadrants/lib/plot.js";
+      import { GlobalIndex } from "/quadrants/lib/global-index.js";
 
       const $ = (s) => document.querySelector(s);
       const COLLECTION = "net.bisks.quadrants.position";
@@ -103,6 +105,8 @@
       let pending = null; // [x, y] awaiting confirm
       let followingDids = null;
       let highlightMoots = false;
+      let index = null; // GlobalIndex — every network position on this chart
+      let netStatus = { backfillDone: false, connected: false, count: 0, error: "" };
 
       const svg = makePlotSvg();
       $("#square").appendChild(svg);
@@ -116,8 +120,13 @@
         if (chart) chart.anchors.forEach((a) => drawAnchor(svg, a));
         positions.forEach((p) => {
           if (pending && session && p.did === session.did) return; // pending marker drawn instead, below
-          drawPosition(svg, p, {
-            mine: !!session && p.did === session.did,
+          const mine = !!session && p.did === session.did;
+          // The index only carries did/handle/x/y (it's a network-wide scan,
+          // not an AppView profile fetch) — for the viewer's own dot, overlay
+          // the avatar/displayName already fetched for the session header.
+          const drawn = mine ? { ...p, displayName: profile?.displayName || p.handle, avatar: profile?.avatar || "" } : p;
+          drawPosition(svg, drawn, {
+            mine,
             moot: highlightMoots && followingDids && followingDids.has(p.did),
           });
         });
@@ -132,7 +141,11 @@
           }, { mine: true, radius: 3.8 });
         }
 
-        $("#count-line").textContent = `${positions.length} plotted`;
+        const scanNote = netStatus.backfillDone
+          ? netStatus.connected ? "" : " (reconnecting…)"
+          : " (still scanning the network…)";
+        const errNote = netStatus.error ? ` · ${netStatus.error}` : "";
+        $("#count-line").textContent = `${positions.length} plotted${scanNote}${errNote}`;
         renderPlaceUI();
       }
 
@@ -182,6 +195,12 @@
         if (session) $("#who").textContent = "@" + session.handle;
       }
 
+      function onIndexUpdate(snap) {
+        positions = snap.positions;
+        netStatus = { backfillDone: snap.backfillDone, connected: snap.connected, count: snap.count, error: snap.error };
+        render();
+      }
+
       async function loadChart() {
         try {
            const charts = JSON.parse(localStorage.getItem("quadrants:charts") || "[]");
@@ -191,9 +210,16 @@
             $("#h-meta").textContent = "it may have expired, or the link is wrong.";
             return;
           }
-           positions = JSON.parse(localStorage.getItem(`quadrants:positions:${chartId}`) || "[]");
           renderHeader();
           render();
+          if (!index) {
+            index = new GlobalIndex({ chartId, onUpdate: onIndexUpdate });
+            index.start();
+            if (session) {
+              index.seedIdentity(session.did, { pdsUrl: session.pdsUrl, handle: session.handle });
+              index.primeDid(session.did);
+            }
+          }
         } catch {
           $("#place-status").textContent = "couldn't load this chart right now.";
           $("#place-status").className = "status err";
@@ -275,8 +301,8 @@
           const base = session.pdsUrl.replace(/\/$/, "");
           // atproto records have no float type — only integer. Scale the
           // normalized [-1,1] position to an integer permille (x1000) for the
-          // PDS write; the local `entry` below keeps the full-precision float
-          // for on-screen rendering.
+          // PDS write; index.applyLocal below re-derives the float from this
+          // same record for on-screen rendering.
           const record = {
             $type: COLLECTION,
             chart: chartId,
@@ -292,22 +318,10 @@
           });
           if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
 
-          const idx = positions.findIndex((p) => p.did === session.did);
-          const entry = {
-            did: session.did,
-            handle: session.handle,
-            displayName: profile?.displayName || session.handle,
-            avatar: profile?.avatar || "",
-            x,
-            y,
-            updatedAt: Date.now(),
-          };
-           if (idx >= 0) positions[idx] = entry;
-           else positions.push(entry);
-           localStorage.setItem(`quadrants:positions:${chartId}`, JSON.stringify(positions));
+          if (index) index.applyLocal(session.did, record);
 
           pending = null;
-          status.textContent = "plotted — it may take a minute to show up for everyone else.";
+          status.textContent = "plotted — visible now to anyone already watching this chart live, or as soon as their own scan reaches you.";
           status.className = "status ok";
           render();
         } catch (e) {
@@ -329,8 +343,7 @@
             body: JSON.stringify({ repo: session.did, collection: COLLECTION, rkey: chartId }),
           });
           if (!res.ok) throw new Error(`${res.status}`);
-           positions = positions.filter((p) => p.did !== session.did);
-           localStorage.setItem(`quadrants:positions:${chartId}`, JSON.stringify(positions));
+          if (index) index.removeLocal(session.did);
           status.textContent = "removed.";
           status.className = "status ok";
           render();
@@ -538,10 +551,6 @@
         if (session) profile = await getProfile(session.did);
         renderAuthUI();
         await loadChart();
-
-        setInterval(() => {
-          if (document.visibilityState === "visible") loadChart();
-        }, 8000);
       }
       boot();
     </script>
