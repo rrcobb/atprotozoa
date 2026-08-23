@@ -1,0 +1,682 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>likeclusters — who likes which topic — bisks.net</title>
+    <meta
+      name="description"
+      content="Paste a Bluesky handle. likeclusters reads that account's own recent posts, pulls each post's public likers, works out a rough topic per post, and groups the likers by which topic they actually show up for — the moots who only ever like one thing you post about."
+    />
+    <meta property="og:title" content="likeclusters — who likes which topic" />
+    <meta
+      property="og:description"
+      content="Which of your moots only likes one topic cluster? likeclusters reads an account's posts, samples their likers, and groups them by the topic they keep coming back for."
+    />
+    <meta property="og:url" content="https://likeclusters.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://likeclusters.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="likeclusters — who likes which topic" />
+    <meta
+      name="twitter:description"
+      content="Which of your moots only likes one topic cluster? likeclusters reads an account's posts, samples their likers, and groups them by the topic they keep coming back for."
+    />
+    <meta name="twitter:image" content="https://likeclusters.bisks.net/og.png" />
+    <!-- House look: plain, black-on-white, one mono, hairline-separated,
+         blue accent — matches bisks.net apex / metamoots / cloutgraph. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --good: #0d7a3f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 780px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      h1 { font-size: 1.5rem; margin: 0 0 0.4rem; font-weight: 600; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      p.intro { color: var(--muted); margin: 0 0 2rem; font-size: 0.88rem; max-width: 64ch; }
+      p.intro b { color: var(--ink); font-weight: 600; }
+      p.intro code { background: #f4f4f4; border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.85em; }
+
+      form { margin: 0 0 0.5rem; }
+      label.lbl {
+        display: block; font-size: 0.72rem; color: var(--muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      input[type="text"] {
+        flex: 1; min-width: 220px; font-family: inherit; font-size: 0.92rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint); border-radius: 4px;
+        background: #fff; color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button {
+        font-family: inherit; cursor: pointer; font-size: 0.88rem;
+        padding: 0.6rem 1rem; border: 1px solid var(--ink); background: var(--ink);
+        color: #fff; border-radius: 4px; font-weight: 600;
+      }
+      button:hover:not(:disabled) { background: #333; }
+      button:disabled { opacity: 0.4; cursor: default; }
+      .btn2 {
+        background: #fff; color: var(--ink); border: 1px solid var(--faint);
+        font-weight: 400; text-decoration: none; display: inline-block;
+      }
+      .btn2:hover { border-color: var(--ink); }
+
+      .status { min-height: 1.3rem; font-size: 0.82rem; margin: 0.7rem 0 0; color: var(--muted); }
+      .status.err { color: #b3261e; }
+      .status.ok { color: var(--good); }
+
+      section#result { display: none; margin-top: 2.2rem; }
+      section#result.on { display: block; }
+
+      .summary { font-size: 0.84rem; color: var(--muted); margin-bottom: 1.6rem; line-height: 1.7; }
+      .summary b { color: var(--ink); }
+
+      h2.sub { font-size: 0.95rem; margin: 1.8rem 0 0.6rem; }
+      p.note { font-size: 0.82rem; color: var(--muted); margin: 0 0 1rem; }
+
+      .tagpill {
+        display: inline-block; font-size: 0.78em; font-weight: 700; color: var(--accent);
+        background: #eef3ff; border-radius: 4px; padding: 0.1rem 0.45rem;
+      }
+
+      .fanGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0.7rem; }
+      .fanCard {
+        border: 1px solid var(--faint); border-radius: 8px; padding: 0.7rem 0.8rem;
+        display: flex; gap: 0.6rem; align-items: center;
+      }
+      .fanCard img { width: 34px; height: 34px; border-radius: 50%; flex: none; background: var(--faint); }
+      .fanCard .names { min-width: 0; flex: 1; }
+      .fanCard a { color: inherit; text-decoration: none; }
+      .fanCard .dn { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .fanCard .hd { color: var(--muted); font-size: 0.8em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .fanCard .stat { font-size: 0.76em; color: var(--muted); margin-top: 0.2rem; }
+      .fanCard .stat b { color: var(--accent); }
+
+      .clusterBlock { border-top: 1px solid var(--faint); padding: 0.9rem 0 0.9rem; }
+      .clusterBlock:last-child { border-bottom: 1px solid var(--faint); }
+      .clusterHead { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.5rem; }
+      .clusterHead .n { color: var(--muted); font-size: 0.8em; }
+      .clusterMembers { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+      .memberChip {
+        display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--faint);
+        border-radius: 999px; padding: 0.2rem 0.55rem 0.2rem 0.2rem; font-size: 0.82rem; text-decoration: none; color: inherit;
+      }
+      .memberChip img { width: 18px; height: 18px; border-radius: 50%; background: var(--faint); }
+      .memberChip:hover { border-color: var(--accent); color: var(--accent); }
+      .memberChip .pct { color: var(--muted); font-size: 0.85em; }
+
+      table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+      thead th {
+        text-align: left; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.04em;
+        color: var(--muted); font-weight: 600; padding: 0 0.4rem 0.5rem 0; border-bottom: 1px solid var(--ink);
+      }
+      thead th.num, td.num { text-align: right; }
+      tbody td { padding: 0.55rem 0.4rem 0.55rem 0; border-bottom: 1px solid var(--faint); vertical-align: middle; }
+      tbody tr:hover { background: #fafafa; }
+      .rank { color: var(--muted); font-variant-numeric: tabular-nums; width: 1.6em; }
+      .who { display: flex; align-items: center; gap: 0.55rem; min-width: 0; }
+      .who img { width: 26px; height: 26px; border-radius: 50%; flex: none; background: var(--faint); }
+      .who .names { min-width: 0; }
+      .who .dn { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+      .who a { color: inherit; text-decoration: none; }
+      .who a:hover .dn { color: var(--accent); }
+      .who .hd { color: var(--muted); font-size: 0.8em; white-space: nowrap; }
+
+      .focusCell { display: flex; align-items: center; gap: 0.55rem; justify-content: flex-end; }
+      .focusNum { font-variant-numeric: tabular-nums; font-weight: 600; width: 2.6em; text-align: right; }
+      .meter { width: 60px; height: 7px; border-radius: 4px; background: var(--faint); overflow: hidden; flex: none; }
+      .meter i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+
+      .shareRow { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 1.4rem 0 0; }
+
+      details.how { margin-top: 2.5rem; font-size: 0.84rem; color: var(--muted); }
+      details.how summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+      details.how .body { margin-top: 0.8rem; line-height: 1.75; }
+      details.how b { color: var(--ink); }
+      details.how code { background: #f4f4f4; border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.9em; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>likeclusters <span class="slash">· who likes which topic</span></h1>
+      <p class="intro">
+        Paste a <b>Bluesky handle</b>. likeclusters reads that account's own
+        recent posts, pulls each post's public likers, works out a rough
+        <b>topic</b> for the post (keywords + hashtags, no AI), and groups
+        the likers by which topic they actually show up for — the moot who
+        only ever likes your <code>#catposting</code>, never anything else.
+      </p>
+
+      <form id="form" autocomplete="off">
+        <label class="lbl" for="q">handle</label>
+        <div class="row">
+          <input
+            type="text"
+            id="q"
+            placeholder="e.g. norvid-studies.bsky.social"
+            spellcheck="false"
+          />
+          <button id="go" type="submit">find their clusters</button>
+        </div>
+      </form>
+      <p class="status" id="status">
+        reads Bluesky's public AppView, all in your browser — no login.
+      </p>
+
+      <section id="result">
+        <div class="summary" id="summary"></div>
+
+        <div id="fansBox" style="display: none">
+          <h2 class="sub">one-topic superfans</h2>
+          <p class="note">
+            liked at least 2 sampled posts and one topic accounts for most of
+            the weight — a moot who shows up for one thing.
+          </p>
+          <div class="fanGrid" id="fanGrid"></div>
+        </div>
+
+        <div id="clustersBox" style="display: none">
+          <h2 class="sub">clusters</h2>
+          <p class="note">likers grouped by their single biggest topic tag.</p>
+          <div id="clusters"></div>
+        </div>
+
+        <h2 class="sub">every liker</h2>
+        <table id="likerTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>who</th>
+              <th class="num">posts liked</th>
+              <th>top topic</th>
+              <th class="num">focus</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <p class="note" id="emptyNote" style="display: none"></p>
+
+        <div class="shareRow">
+          <a class="btn2" id="shareBluesky" target="_blank" rel="noopener">post this →</a>
+          <a class="btn2" id="shareDownload" download>download card (.png)</a>
+          <a class="btn2" id="shareNative" style="display: none">share…</a>
+        </div>
+        <canvas id="shareCanvas" width="1200" height="630" style="display: none"></canvas>
+      </section>
+
+      <details class="how">
+        <summary>how this works</summary>
+        <div class="body">
+          There's no anonymous "who likes this account" endpoint, so
+          likeclusters samples the target's ~60 most recent original posts
+          (via <code>getAuthorFeed</code>) and reads each one's public
+          <code>getLikes</code> — up to 200 likers per post. Each post's
+          <b>topic</b> comes from its own text: strip URLs/mentions, drop a
+          stoplist of filler words, keep hashtags as a stronger signal (3×
+          weight), then score every remaining word by tf-idf across the
+          whole sampled set — so a word that shows up in nearly every post
+          (a recurring signoff, a common turn of phrase) scores near zero,
+          and words that actually distinguish one post from another rise to
+          the top. Each post keeps its top 3 scored terms as its topic tags.
+          For each liker, their liked posts' topic tags are summed into a
+          per-tag weight; their <b>top topic</b> is the heaviest one, and
+          <b>focus</b> is that weight's share of their total — 100% means
+          every single liked post scored the same topic tag highest, near 0%
+          means their likes are spread across unrelated topics. A liker
+          needs at least 2 sampled-post likes before a topic verdict is
+          shown at all — one like isn't a pattern. This is keyword
+          statistics, not language understanding — a post about two
+          different things, or one that leans on words the stoplist doesn't
+          catch, can land a slightly odd tag. No account data is stored;
+          everything happens in your browser against Bluesky's public
+          AppView, no login required.
+        </div>
+      </details>
+
+      <footer>
+        topic = tf-idf over hashtags + stoplisted words in an account's own
+        sampled posts, no model call. inbound-likes sampling trick (target's
+        recent posts → each post's public <code>getLikes</code>) copied from
+        <a href="https://metamoots.bisks.net/">metamoots</a>. idea from
+        <a href="https://bsky.app/profile/fromthewestmeadow.com">@fromthewestmeadow.com</a>.
+        sibling of <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { resolveDid, getProfiles } from "./lib/identity.js";
+      import { crawlAndCluster } from "./lib/cluster.js";
+
+      const $ = (id) => document.getElementById(id);
+      const form = $("form"), input = $("q"), goBtn = $("go"), statusEl = $("status");
+      const result = $("result"), summaryEl = $("summary"), rowsEl = $("rows");
+      const emptyNote = $("emptyNote");
+      const fansBox = $("fansBox"), fanGrid = $("fanGrid");
+      const clustersBox = $("clustersBox"), clustersEl = $("clusters");
+      const shareBluesky = $("shareBluesky"), shareDownload = $("shareDownload"), shareNative = $("shareNative");
+      const shareCanvas = $("shareCanvas");
+
+      const short = (h) => "@" + String(h || "").replace(/\.bsky\.social$/, "");
+      function setStatus(text, cls) {
+        statusEl.className = "status" + (cls ? " " + cls : "");
+        statusEl.textContent = text;
+      }
+      function escapeHtml(s) {
+        return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+      function pct(x) {
+        return Math.round((x || 0) * 100) + "%";
+      }
+
+      function profOf(profiles, did) {
+        return profiles.get(did) || { did, handle: did, displayName: did, avatar: "" };
+      }
+
+      function whoCell(p, did) {
+        const prof = p || { handle: did, displayName: did, avatar: "" };
+        return (
+          `<div class="who">` +
+          (prof.avatar ? `<img src="${prof.avatar}" alt="" loading="lazy" />` : `<img alt="" />`) +
+          `<div class="names"><a href="https://bsky.app/profile/${encodeURIComponent(prof.handle || did)}" target="_blank" rel="noopener">` +
+          `<div class="dn">${escapeHtml(prof.displayName || prof.handle)}</div>` +
+          `<div class="hd">${short(prof.handle)}</div>` +
+          `</a></div></div>`
+        );
+      }
+
+      function renderFans(likers, profiles) {
+        const fans = likers.filter((l) => l.topTag && l.focus >= 0.55).sort((a, b) => b.focus - a.focus || b.count - a.count).slice(0, 12);
+        fanGrid.innerHTML = "";
+        if (!fans.length) {
+          fansBox.style.display = "none";
+          return;
+        }
+        fansBox.style.display = "";
+        for (const f of fans) {
+          const p = profOf(profiles, f.did);
+          const card = document.createElement("div");
+          card.className = "fanCard";
+          card.innerHTML =
+            (p.avatar ? `<img src="${p.avatar}" alt="" loading="lazy" />` : `<img alt="" />`) +
+            `<div class="names"><a href="https://bsky.app/profile/${encodeURIComponent(p.handle)}" target="_blank" rel="noopener">` +
+            `<div class="dn">${escapeHtml(p.displayName)}</div><div class="hd">${short(p.handle)}</div></a>` +
+            `<div class="stat"><span class="tagpill">${escapeHtml(f.topTag)}</span> <b>${pct(f.focus)}</b> of ${f.count} liked posts</div></div>`;
+          fanGrid.appendChild(card);
+        }
+      }
+
+      function renderClusters(tagGroups, profiles) {
+        const groups = [...tagGroups.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 14);
+        clustersEl.innerHTML = "";
+        if (!groups.length) {
+          clustersBox.style.display = "none";
+          return;
+        }
+        clustersBox.style.display = "";
+        for (const [tag, members] of groups) {
+          const block = document.createElement("div");
+          block.className = "clusterBlock";
+          const head = document.createElement("div");
+          head.className = "clusterHead";
+          head.innerHTML = `<span class="tagpill">${escapeHtml(tag)}</span><span class="n">${members.length} liker${members.length === 1 ? "" : "s"}</span>`;
+          block.appendChild(head);
+          const row = document.createElement("div");
+          row.className = "clusterMembers";
+          for (const m of members.slice(0, 24)) {
+            const p = profOf(profiles, m.did);
+            const chip = document.createElement("a");
+            chip.className = "memberChip";
+            chip.href = `https://bsky.app/profile/${encodeURIComponent(p.handle)}`;
+            chip.target = "_blank";
+            chip.rel = "noopener";
+            chip.innerHTML =
+              (p.avatar ? `<img src="${p.avatar}" alt="" loading="lazy" />` : `<img alt="" />`) +
+              `<span>${short(p.handle)}</span><span class="pct">${pct(m.focus)}</span>`;
+            row.appendChild(chip);
+          }
+          block.appendChild(row);
+          clustersEl.appendChild(block);
+        }
+      }
+
+      function renderTable(likers, profiles) {
+        rowsEl.innerHTML = "";
+        likers.forEach((l, i) => {
+          const p = profiles.get(l.did);
+          const tr = document.createElement("tr");
+          const tagHtml = l.topTag ? `<span class="tagpill">${escapeHtml(l.topTag)}</span>` : `<span class="hd" style="color:var(--muted)">—</span>`;
+          const focusHtml = l.topTag
+            ? `<div class="focusCell"><div class="meter"><i style="width:${Math.max(4, l.focus * 100)}%"></i></div><span class="focusNum">${pct(l.focus)}</span></div>`
+            : "";
+          tr.innerHTML =
+            `<td class="rank">${i + 1}</td>` +
+            `<td>${whoCell(p, l.did)}</td>` +
+            `<td class="num">${l.count}</td>` +
+            `<td>${tagHtml}</td>` +
+            `<td class="num">${focusHtml}</td>`;
+          rowsEl.appendChild(tr);
+        });
+      }
+
+      const SHARE_URL = "https://likeclusters.bisks.net/";
+
+      function buildShareUrl(subjectHandle, likers) {
+        const top = likers.filter((l) => l.topTag).slice(0, 1);
+        const params = new URLSearchParams({ n: String(likers.length) });
+        if (top.length) params.set("tag", top[0].topTag);
+        return `${SHARE_URL}s/${encodeURIComponent(subjectHandle.replace(/^@/, ""))}?${params.toString()}`;
+      }
+
+      function buildShareText(subjectHandle, likers, tagGroups, profiles, shareUrl) {
+        const groups = [...tagGroups.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 2);
+        const named = groups
+          .map(([tag, members]) => `${tag} (${members.length})`)
+          .join(", ");
+        const clause = named ? ` biggest clusters: ${named}.` : "";
+        return `likeclusters on @${subjectHandle.replace(/^@/, "")}: ${likers.length} liker${likers.length === 1 ? "" : "s"} across their sampled posts.${clause} ${shareUrl}`;
+      }
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      async function buildShareCard(subjectHandle, tagGroups, likers, profiles) {
+        const ctx = shareCanvas.getContext("2d");
+        const W = shareCanvas.width, H = shareCanvas.height;
+        const mono = "ui-monospace, monospace";
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `800 46px ${mono}`;
+        ctx.fillText("likeclusters", 60, 90);
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `400 22px ${mono}`;
+        ctx.fillText(short(subjectHandle) + "'s liker clusters", 60, 128);
+
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("bisks.net/likeclusters", W - 60, 50);
+        ctx.textAlign = "left";
+
+        const fans = likers.filter((l) => l.topTag && l.focus >= 0.55).sort((a, b) => b.focus - a.focus).slice(0, 6);
+        const rowH = 70;
+        const startY = 182;
+        const avatars = await Promise.all(fans.map((l) => loadImg((profiles.get(l.did) || {}).avatar)));
+
+        fans.forEach((l, i) => {
+          const y = startY + i * rowH;
+          ctx.fillStyle = "#e4e4e4";
+          ctx.fillRect(60, y + rowH - 10, W - 120, 1);
+
+          const img = avatars[i];
+          let textX = 60;
+          if (img) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(78, y + 14, 22, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.clip();
+            ctx.drawImage(img, 56, y - 8, 44, 44);
+            ctx.restore();
+            textX = 118;
+          }
+          const p = profiles.get(l.did);
+          ctx.fillStyle = "#111111";
+          ctx.font = `700 24px ${mono}`;
+          ctx.fillText((p && (p.displayName || p.handle)) || l.did, textX, y + 12);
+          ctx.fillStyle = "#6b6b6b";
+          ctx.font = `400 17px ${mono}`;
+          ctx.fillText((p ? short(p.handle) : "") + "  only likes " + l.topTag, textX, y + 36);
+
+          ctx.textAlign = "right";
+          ctx.fillStyle = "#1a5fd0";
+          ctx.font = `800 26px ${mono}`;
+          ctx.fillText(pct(l.focus), W - 60, y + 24);
+          ctx.textAlign = "left";
+        });
+
+        if (!fans.length) {
+          ctx.fillStyle = "#6b6b6b";
+          ctx.font = `400 22px ${mono}`;
+          ctx.fillText("no single-topic superfans found this run.", 60, startY + 20);
+        }
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+
+      let lastShareText = "";
+      if (canShareFiles()) {
+        shareNative.style.display = "";
+        shareNative.addEventListener("click", () => {
+          shareCanvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "likeclusters.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: lastShareText, title: "likeclusters" });
+            } catch {}
+          }, "image/png");
+        });
+      }
+      shareDownload.addEventListener("click", (e) => {
+        e.preventDefault();
+        shareCanvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "likeclusters.png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      async function run(raw) {
+        const q = (raw || "").trim();
+        if (!q) { input.focus(); return; }
+        goBtn.disabled = true;
+        result.classList.remove("on");
+        setStatus("resolving " + q + "…");
+        try {
+          const did = await resolveDid(q);
+          const subject = await (async () => {
+            try {
+              const profs = await getProfiles([did]);
+              return profs.get(did) || { did, handle: q.replace(/^@/, ""), displayName: q.replace(/^@/, ""), avatar: "" };
+            } catch {
+              return { did, handle: q.replace(/^@/, ""), displayName: q.replace(/^@/, ""), avatar: "" };
+            }
+          })();
+
+          const { posts, likers, tagGroups } = await crawlAndCluster(did, { onStep: (s) => setStatus(s) });
+
+          setStatus("looking up profiles…");
+          const allDids = likers.slice(0, 200).map((l) => l.did);
+          const profiles = await getProfiles(allDids);
+
+          renderFans(likers, profiles);
+          renderClusters(tagGroups, profiles);
+          renderTable(likers, profiles);
+
+          const withTopic = likers.filter((l) => l.topTag).length;
+          summaryEl.innerHTML =
+            `sampled <b>${posts.length}</b> of <b>${escapeHtml(short(subject.handle))}</b>'s posts, found <b>${likers.length}</b> distinct liker${likers.length === 1 ? "" : "s"} — ` +
+            `<b>${withTopic}</b> with enough likes to call a topic, in <b>${tagGroups.size}</b> cluster${tagGroups.size === 1 ? "" : "s"}.`;
+
+          emptyNote.style.display = likers.length ? "none" : "";
+          if (!likers.length) {
+            emptyNote.textContent = "no likes found on the sampled posts. try an account with more recent activity.";
+          }
+
+          const shareUrl = buildShareUrl(subject.handle, likers);
+          lastShareText = buildShareText(subject.handle, likers, tagGroups, profiles, shareUrl);
+          shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+          buildShareCard(subject.handle, tagGroups, likers, profiles);
+
+          result.classList.add("on");
+          setStatus("done.", "ok");
+          result.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (err) {
+          setStatus(
+            err && err.status === 400
+              ? "couldn't resolve that — check the handle."
+              : "couldn't finish that one — " + (err && err.message ? err.message : "try again") + ".",
+            "err",
+          );
+        } finally {
+          goBtn.disabled = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        run(input.value);
+      });
+
+      const initial = new URLSearchParams(location.search).get("q") || "";
+      if (initial) {
+        input.value = initial;
+        run(initial);
+      }
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
