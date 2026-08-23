@@ -113,8 +113,10 @@ API key. Claude Code's auth precedence, higher wins:
 2. `CLAUDE_CODE_OAUTH_TOKEN` → subscription, headless  ← **what the box uses**
 3. interactive `~/.claude.json` login → subscription, interactive
 
-The token comes from `claude setup-token` (run once as the `builder` user; prints
-an `sk-ant-oat01-…` string). It lives in `/etc/buildthis/env` as
+The token comes from `claude setup-token` (run once as the `builder` user, since
+`claude` refuses to run as root; prints
+an `sk-ant-oat01-…` string). It lives in root-owned `/etc/buildthis/env` (which
+`builder` cannot read — systemd sources it as root and passes the vars down) as
 `CLAUDE_CODE_OAUTH_TOKEN` and is passed to `claude -p` per invocation.
 
 Gotchas that cost real time getting here:
