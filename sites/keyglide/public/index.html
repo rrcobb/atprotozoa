@@ -1,0 +1,882 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>keyglide — a typing test built from the smoothest words in the dictionary</title>
+<meta name="description" content="a typing speed test that only ever gives you words that are satisfying to type: hand-alternating cascades and adjacent-key rolls, picked by scoring ~2,000 words against real keyboard geometry." />
+
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://keyglide.bisks.net/" />
+<meta property="og:title" content="keyglide — a typing test built from the smoothest words in the dictionary" />
+<meta property="og:description" content="every word in this test was chosen because it glides: hand-alternating cascades and adjacent-key rolls, scored off real keyboard geometry. no clunky words allowed." />
+<meta property="og:image" content="https://keyglide.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="keyglide — a typing test built from the smoothest words in the dictionary" />
+<meta name="twitter:description" content="every word in this test was chosen because it glides: hand-alternating cascades and adjacent-key rolls, scored off real keyboard geometry." />
+<meta name="twitter:image" content="https://keyglide.bisks.net/og.png" />
+
+<style>
+  :root {
+    --bg: #0a0f14;
+    --bg2: #101821;
+    --card: #121b24;
+    --border: #1f2c38;
+    --fg: #dbe6ee;
+    --dim: #5c7183;
+    --dim2: #37485a;
+    --accent: #5eead4;
+    --accent2: #a78bfa;
+    --error: #f87171;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: radial-gradient(ellipse at 20% -10%, #14232c 0%, var(--bg) 55%) fixed;
+    color: var(--fg);
+    font-family: var(--mono);
+    min-height: 100%;
+  }
+  .wrap {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 20px 60px;
+  }
+  header { text-align: center; margin-bottom: 28px; }
+  h1 {
+    margin: 0 0 10px;
+    font-size: 40px;
+    letter-spacing: -0.5px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tagline {
+    color: var(--dim);
+    font-size: 14.5px;
+    line-height: 1.55;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+  .tagline em { color: var(--fg); font-style: normal; }
+
+  .panel {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 22px;
+    flex-wrap: wrap;
+    margin-bottom: 22px;
+  }
+  .mode-group, .opt-group {
+    display: flex;
+    gap: 4px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 4px;
+  }
+  .mode-btn, .opt-btn {
+    background: transparent;
+    border: none;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 7px 13px;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  .mode-btn:hover, .opt-btn:hover { color: var(--fg); }
+  .mode-btn.active, .opt-btn.active {
+    background: var(--dim2);
+    color: var(--accent);
+  }
+  .restart-btn {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 9px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .restart-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+  .stats-live {
+    display: flex;
+    justify-content: center;
+    gap: 34px;
+    margin-bottom: 18px;
+    opacity: 0.35;
+    transition: opacity 0.2s;
+  }
+  .stats-live.running { opacity: 1; }
+  .stats-live div { text-align: center; }
+  .stats-live span { display: block; font-size: 26px; color: var(--accent); font-weight: 700; }
+  .stats-live label { font-size: 11px; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; }
+
+  .test-area {
+    position: relative;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px;
+    min-height: 150px;
+  }
+  .words {
+    font-size: 25px;
+    line-height: 1.7;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 16px;
+    max-height: 4.6em;
+    overflow: hidden;
+    filter: blur(0px);
+    transition: filter 0.15s;
+  }
+  .test-area.paused .words { filter: blur(4px); }
+  .word { position: relative; white-space: nowrap; }
+  .word.active { }
+  .ch { color: var(--dim); }
+  .ch.correct { color: var(--fg); }
+  .ch.incorrect { color: var(--error); text-decoration: underline; text-decoration-color: var(--error); }
+  .ch.extra { color: var(--error); opacity: 0.6; }
+  .word.done-incorrect .ch.pending { color: var(--error); opacity: 0.5; }
+  .cursor {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    vertical-align: text-bottom;
+    background: var(--accent);
+    animation: blink 1s step-end infinite;
+    margin: 0 -1px;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  #hiddenInput {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    border: none;
+    padding: 0;
+    font-size: 16px;
+    cursor: text;
+  }
+  .hint {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--dim);
+    font-size: 14px;
+    background: rgba(10, 15, 20, 0.55);
+    border-radius: 14px;
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.15s;
+  }
+  .test-area.started .hint { opacity: 0; }
+
+  .results {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 34px;
+    text-align: center;
+  }
+  .result-wpm { margin-bottom: 4px; }
+  .result-wpm span { font-size: 68px; font-weight: 800; color: var(--accent); line-height: 1; }
+  .result-wpm label { display: block; font-size: 12px; letter-spacing: 2px; color: var(--dim); text-transform: uppercase; margin-top: 2px; }
+  .result-sub {
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    margin: 18px 0 6px;
+    color: var(--dim);
+    font-size: 14px;
+  }
+  .result-sub b { color: var(--fg); }
+  .result-flavor {
+    color: var(--dim);
+    font-size: 14px;
+    line-height: 1.6;
+    max-width: 520px;
+    margin: 18px auto 0;
+  }
+  .result-flavor b { color: var(--accent2); }
+  .rating {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 5px 14px;
+    border-radius: 20px;
+    border: 1px solid var(--dim2);
+    color: var(--accent);
+    font-size: 12.5px;
+    letter-spacing: 0.5px;
+  }
+
+  .share-row {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 26px;
+  }
+  .btn-share {
+    background: var(--dim2);
+    color: var(--fg);
+    border: none;
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 10px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+  }
+  .btn-share:hover { background: var(--accent); color: #08201c; }
+
+  .try-again {
+    margin-top: 22px;
+  }
+
+  footer {
+    text-align: center;
+    margin-top: 40px;
+    color: var(--dim);
+    font-size: 12px;
+    line-height: 1.8;
+  }
+  footer a { color: var(--dim); }
+  footer a:hover { color: var(--accent); }
+
+  @media (max-width: 560px) {
+    .words { font-size: 20px; }
+    .result-wpm span { font-size: 54px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>keyglide</h1>
+    <p class="tagline">every word here was chosen because it <em>glides</em> — hand-alternating cascades and adjacent-key rolls, scored off real keyboard geometry out of ~2,000 common words. no clunky same-finger words allowed.</p>
+  </header>
+
+  <div class="panel">
+    <div class="mode-group" id="modeGroup">
+      <button class="mode-btn active" data-mode="time">time</button>
+      <button class="mode-btn" data-mode="words">words</button>
+    </div>
+    <div class="opt-group" id="timeOpts">
+      <button class="opt-btn" data-val="15">15</button>
+      <button class="opt-btn active" data-val="30">30</button>
+      <button class="opt-btn" data-val="60">60</button>
+    </div>
+    <div class="opt-group" id="wordOpts" hidden>
+      <button class="opt-btn active" data-val="25">25</button>
+      <button class="opt-btn" data-val="50">50</button>
+      <button class="opt-btn" data-val="100">100</button>
+    </div>
+    <button class="restart-btn" id="restartBtn">⟳ restart</button>
+  </div>
+
+  <div class="stats-live" id="statsLive">
+    <div><span id="liveCounter">30</span><label id="liveCounterLabel">sec</label></div>
+    <div><span id="liveWpm">0</span><label>wpm</label></div>
+    <div><span id="liveAcc">100</span><label>acc</label></div>
+  </div>
+
+  <div class="test-area" id="testArea">
+    <div class="words" id="wordsEl"></div>
+    <input id="hiddenInput" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+    <div class="hint" id="hint">loading the smoothest words in the dictionary…</div>
+  </div>
+
+  <div class="results" id="results" hidden>
+    <div class="result-wpm"><span id="resWpm">0</span><label>net wpm</label></div>
+    <div class="result-sub">
+      <div><b id="resAcc">100</b>% accuracy</div>
+      <div><b id="resWords">0</b> words</div>
+      <div><b id="resErrors">0</b> errors</div>
+    </div>
+    <div class="rating" id="resRating">flow rating: —</div>
+    <p class="result-flavor" id="resFlavor"></p>
+    <div class="share-row">
+      <a id="shareBluesky" class="btn-share" target="_blank" rel="noopener">🦋 share on bluesky</a>
+      <button id="shareDownload" class="btn-share">download card</button>
+      <button id="shareNative" class="btn-share" hidden>share card</button>
+    </div>
+    <div class="try-again">
+      <button class="restart-btn" id="tryAgainBtn">⟳ try again</button>
+    </div>
+  </div>
+
+  <canvas id="shareCanvas" width="1200" height="630" hidden></canvas>
+
+  <footer>
+    <p>
+      built for <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>
+      by <a href="https://buildthis.bisks.net" target="_blank" rel="noopener">@buildthis</a> ·
+      word pool ranked by finger travel and hand alternation, not frequency ·
+      part of the <a href="https://bisks.net">bisks.net</a> constellation
+    </p>
+  </footer>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---------------------------------------------------------------------
+  // Keyboard geometry + word "flow" scoring.
+  //
+  // Every consecutive letter pair in a word is scored by how it actually
+  // travels across a QWERTY keyboard:
+  //   - different hands            -> fast, no finger coordination needed
+  //   - same hand, different finger, physically close -> a "roll"
+  //   - same hand, same finger, different letter       -> awkward, penalized
+  //   - the same letter twice      -> a comfortable double-tap
+  // The site only ever serves words from the top slice of ~2,000 common
+  // words by this score.
+  // ---------------------------------------------------------------------
+  const ROWS = { 0: "qwertyuiop", 1: "asdfghjkl", 2: "zxcvbnm" };
+  const ROW_OFFSET = { 0: 0.25, 1: 0, 2: -0.25 };
+  const FINGER_BY_COL = ["Lp", "Lr", "Lm", "Li", "Li", "Ri", "Ri", "Rm", "Rr", "Rp"];
+
+  const KEY_POS = {};
+  for (const row of [0, 1, 2]) {
+    const letters = ROWS[row];
+    for (let col = 0; col < letters.length; col++) {
+      const ch = letters[col];
+      KEY_POS[ch] = {
+        hand: col < 5 ? "L" : "R",
+        finger: FINGER_BY_COL[col],
+        x: col + ROW_OFFSET[row],
+        y: row,
+      };
+    }
+  }
+
+  function scorePair(a, b) {
+    if (a === b) return { type: "repeat", score: 1.0 };
+    const pa = KEY_POS[a], pb = KEY_POS[b];
+    if (!pa || !pb) return { type: "unknown", score: 0 };
+    if (pa.hand !== pb.hand) return { type: "alternate", score: 1.6 };
+    if (pa.finger === pb.finger) return { type: "samefinger", score: -1.4 };
+    const dx = pa.x - pb.x, dy = pa.y - pb.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    return { type: "roll", score: Math.max(0.2, 1.4 - dist * 0.5) };
+  }
+
+  function scoreWord(word) {
+    const counts = {};
+    let total = 0;
+    for (let i = 0; i < word.length - 1; i++) {
+      const { type, score } = scorePair(word[i], word[i + 1]);
+      total += score;
+      counts[type] = (counts[type] || 0) + 1;
+    }
+    const pairs = word.length - 1;
+    const avg = pairs > 0 ? total / pairs : 0;
+    let dominant = "roll";
+    let best = -Infinity;
+    for (const t in counts) {
+      if (counts[t] > best) { best = counts[t]; dominant = t; }
+    }
+    return { score: avg, flowType: dominant };
+  }
+
+  const FLOW_LABEL = {
+    alternate: "alternator",
+    roll: "roller",
+    repeat: "double-tapper",
+    samefinger: "grinder",
+    unknown: "wildcard",
+  };
+
+  // ---------------------------------------------------------------------
+  // State
+  // ---------------------------------------------------------------------
+  let POOL = []; // curated { word, score, flowType }, score-sorted desc
+  let mode = "time";
+  let duration = 30;
+  let wordCount = 25;
+
+  let currentWords = [];
+  let currentIndex = 0;
+  let results = [];
+  let started = false;
+  let finished = false;
+  let startTime = 0;
+  let endTime = 0;
+  let tickTimer = null;
+
+  const els = {
+    modeGroup: document.getElementById("modeGroup"),
+    timeOpts: document.getElementById("timeOpts"),
+    wordOpts: document.getElementById("wordOpts"),
+    restartBtn: document.getElementById("restartBtn"),
+    statsLive: document.getElementById("statsLive"),
+    liveCounter: document.getElementById("liveCounter"),
+    liveCounterLabel: document.getElementById("liveCounterLabel"),
+    liveWpm: document.getElementById("liveWpm"),
+    liveAcc: document.getElementById("liveAcc"),
+    testArea: document.getElementById("testArea"),
+    wordsEl: document.getElementById("wordsEl"),
+    hiddenInput: document.getElementById("hiddenInput"),
+    hint: document.getElementById("hint"),
+    results: document.getElementById("results"),
+    resWpm: document.getElementById("resWpm"),
+    resAcc: document.getElementById("resAcc"),
+    resWords: document.getElementById("resWords"),
+    resErrors: document.getElementById("resErrors"),
+    resRating: document.getElementById("resRating"),
+    resFlavor: document.getElementById("resFlavor"),
+    shareBluesky: document.getElementById("shareBluesky"),
+    shareDownload: document.getElementById("shareDownload"),
+    shareNative: document.getElementById("shareNative"),
+    tryAgainBtn: document.getElementById("tryAgainBtn"),
+    shareCanvas: document.getElementById("shareCanvas"),
+  };
+
+  function pick() {
+    return POOL[(Math.random() * POOL.length) | 0];
+  }
+
+  function buildWords(n) {
+    const out = [];
+    for (let i = 0; i < n; i++) out.push(pick());
+    return out;
+  }
+
+  // ---------------------------------------------------------------------
+  // Rendering
+  // ---------------------------------------------------------------------
+  function renderAllWords() {
+    const frag = document.createDocumentFragment();
+    for (const w of currentWords) {
+      const span = document.createElement("span");
+      span.className = "word";
+      renderWordSpan(span, w.word, "", false);
+      frag.appendChild(span);
+    }
+    els.wordsEl.innerHTML = "";
+    els.wordsEl.appendChild(frag);
+    if (els.wordsEl.children[0]) els.wordsEl.children[0].classList.add("active");
+  }
+
+  function renderWordSpan(el, target, value, isCurrent) {
+    let html = "";
+    const vlen = value.length;
+    for (let i = 0; i < target.length; i++) {
+      if (isCurrent && i === vlen) html += '<span class="cursor"></span>';
+      let cls = "pending";
+      if (i < vlen) cls = value[i] === target[i] ? "correct" : "incorrect";
+      html += '<span class="ch ' + cls + '">' + target[i] + "</span>";
+    }
+    if (vlen > target.length) {
+      html += '<span class="ch extra">' + value.slice(target.length) + "</span>";
+    } else if (isCurrent && vlen === target.length) {
+      html += '<span class="cursor"></span>';
+    }
+    el.innerHTML = html;
+  }
+
+  function scrollToCurrent() {
+    const el = els.wordsEl.children[currentIndex];
+    if (el) el.scrollIntoView({ block: "center", behavior: "auto" });
+  }
+
+  // ---------------------------------------------------------------------
+  // Test engine
+  // ---------------------------------------------------------------------
+  function setupTest() {
+    if (POOL.length === 0) return; // word list still loading — the boot .then() calls this once it's ready
+    clearInterval(tickTimer);
+    started = false;
+    finished = false;
+    currentIndex = 0;
+    results = [];
+    startTime = 0;
+    endTime = 0;
+    els.hiddenInput.disabled = false;
+    els.hiddenInput.value = "";
+    els.testArea.classList.remove("started");
+    els.statsLive.classList.remove("running");
+    els.results.hidden = true;
+    els.testArea.hidden = false;
+    document.querySelector(".panel").style.display = "";
+    els.hint.textContent = "click here or start typing to begin";
+
+    const n = mode === "words" ? wordCount : 260;
+    currentWords = buildWords(n);
+    renderAllWords();
+
+    if (mode === "time") {
+      els.liveCounter.textContent = duration;
+      els.liveCounterLabel.textContent = "sec";
+    } else {
+      els.liveCounter.textContent = wordCount;
+      els.liveCounterLabel.textContent = "left";
+    }
+    els.liveWpm.textContent = "0";
+    els.liveAcc.textContent = "100";
+  }
+
+  function startTest() {
+    started = true;
+    startTime = performance.now();
+    els.testArea.classList.add("started");
+    els.statsLive.classList.add("running");
+    tickTimer = setInterval(tick, 150);
+  }
+
+  function tick() {
+    const elapsedSec = (performance.now() - startTime) / 1000;
+    if (mode === "time") {
+      const remaining = Math.max(0, duration - elapsedSec);
+      els.liveCounter.textContent = Math.ceil(remaining);
+      if (remaining <= 0) { finishTest(); return; }
+    } else {
+      els.liveCounter.textContent = Math.max(0, wordCount - currentIndex);
+    }
+    updateLiveStats(elapsedSec);
+  }
+
+  function charStats(word, typed) {
+    let correct = 0, wrong = 0;
+    const L = Math.max(word.length, typed.length);
+    for (let i = 0; i < L; i++) {
+      if (i < word.length && i < typed.length && word[i] === typed[i]) correct++;
+      else wrong++;
+    }
+    return { correct, wrong };
+  }
+
+  function updateLiveStats(elapsedSec) {
+    let correct = 0, wrong = 0;
+    for (const r of results) {
+      const s = charStats(r.word, r.typed);
+      correct += s.correct;
+      wrong += s.wrong;
+    }
+    const minutes = Math.max(elapsedSec, 0.05) / 60;
+    const wpm = Math.round((correct / 5) / minutes);
+    const total = correct + wrong;
+    const acc = total ? Math.round((correct / total) * 100) : 100;
+    els.liveWpm.textContent = Math.max(0, wpm);
+    els.liveAcc.textContent = acc;
+  }
+
+  function commitWord(typed) {
+    const target = currentWords[currentIndex];
+    if (!target) return;
+    const correct = typed === target.word;
+    results.push({ word: target.word, typed, correct, flowType: target.flowType, score: target.score });
+    const wordEl = els.wordsEl.children[currentIndex];
+    if (wordEl) {
+      wordEl.classList.remove("active");
+      wordEl.classList.add("done", correct ? "done-correct" : "done-incorrect");
+      renderWordSpan(wordEl, target.word, typed, false);
+    }
+    currentIndex++;
+
+    if (mode === "words" && currentIndex >= currentWords.length) {
+      finishTest();
+      return;
+    }
+    const nextEl = els.wordsEl.children[currentIndex];
+    if (nextEl) nextEl.classList.add("active");
+    scrollToCurrent();
+  }
+
+  function finishTest() {
+    if (finished) return;
+    finished = true;
+    endTime = performance.now();
+    clearInterval(tickTimer);
+    els.hiddenInput.disabled = true;
+    els.hiddenInput.blur();
+    showResults();
+  }
+
+  function showResults() {
+    let correctChars = 0, wrongChars = 0, correctWords = 0;
+    const flowCounts = {};
+    let scoreSum = 0;
+    for (const r of results) {
+      const s = charStats(r.word, r.typed);
+      correctChars += s.correct;
+      wrongChars += s.wrong;
+      if (r.correct) correctWords++;
+      flowCounts[r.flowType] = (flowCounts[r.flowType] || 0) + 1;
+      scoreSum += r.score;
+    }
+    const totalWords = results.length;
+    const elapsedSec = mode === "time" ? duration : Math.max((endTime - startTime) / 1000, 0.1);
+    const minutes = elapsedSec / 60;
+    const netWpm = Math.max(0, Math.round((correctChars / 5) / minutes));
+    const totalChars = correctChars + wrongChars;
+    const acc = totalChars ? Math.round((correctChars / totalChars) * 100) : 100;
+    const avgFlow = totalWords ? scoreSum / totalWords : 0;
+
+    let ratingLabel = "glidey";
+    if (avgFlow >= 1.5) ratingLabel = "buttery";
+    else if (avgFlow >= 1.3) ratingLabel = "silky";
+    else if (avgFlow >= 1.15) ratingLabel = "smooth";
+
+    const altPct = totalWords ? Math.round(((flowCounts.alternate || 0) / totalWords) * 100) : 0;
+    const rollPct = totalWords ? Math.round(((flowCounts.roll || 0) / totalWords) * 100) : 0;
+
+    els.testArea.hidden = true;
+    document.querySelector(".panel").style.display = "none";
+    els.statsLive.classList.remove("running");
+    els.results.hidden = false;
+    els.resWpm.textContent = netWpm;
+    els.resAcc.textContent = acc;
+    els.resWords.textContent = totalWords;
+    els.resErrors.textContent = wrongChars;
+    els.resRating.textContent = "flow rating: " + ratingLabel + " (" + avgFlow.toFixed(2) + ")";
+    els.resFlavor.innerHTML =
+      "<b>" + altPct + "%</b> of that run was pure hand-alternating cascade, <b>" + rollPct +
+      "%</b> was adjacent-key rolling — " + correctWords + "/" + totalWords + " words landed clean.";
+
+    const stats = { netWpm, acc, totalWords, ratingLabel, avgFlow };
+    const shareText = "keyglide: " + netWpm + " net wpm, " + acc + "% accuracy, rated \"" + ratingLabel +
+      "\" — typed nothing but the smoothest words in the dictionary. try it: https://keyglide.bisks.net/";
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+    buildShareCard(stats);
+    wireNativeShare(stats, shareText);
+  }
+
+  // ---------------------------------------------------------------------
+  // Input handling
+  // ---------------------------------------------------------------------
+  els.hiddenInput.addEventListener("input", (e) => {
+    if (finished) return;
+    let value = e.target.value;
+
+    if (!started && value.length > 0) startTest();
+
+    const spaceIdx = value.indexOf(" ");
+    if (spaceIdx !== -1) {
+      const word = value.slice(0, spaceIdx);
+      value = value.slice(spaceIdx + 1).replace(/ /g, "");
+      e.target.value = value;
+      if (word.length > 0) {
+        commitWord(word);
+      }
+    }
+
+    const wordEl = els.wordsEl.children[currentIndex];
+    if (wordEl && currentWords[currentIndex]) {
+      renderWordSpan(wordEl, currentWords[currentIndex].word, value, true);
+    }
+  });
+
+  els.wordsEl.addEventListener("click", () => els.hiddenInput.focus());
+  els.testArea.addEventListener("click", () => els.hiddenInput.focus());
+  els.hint.addEventListener("click", () => els.hiddenInput.focus());
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); setupTest(); }
+  });
+
+  els.restartBtn.addEventListener("click", setupTest);
+  els.tryAgainBtn.addEventListener("click", setupTest);
+
+  els.modeGroup.addEventListener("click", (e) => {
+    const btn = e.target.closest(".mode-btn");
+    if (!btn) return;
+    mode = btn.dataset.mode;
+    for (const b of els.modeGroup.children) b.classList.toggle("active", b === btn);
+    els.timeOpts.hidden = mode !== "time";
+    els.wordOpts.hidden = mode !== "words";
+    setupTest();
+  });
+  els.timeOpts.addEventListener("click", (e) => {
+    const btn = e.target.closest(".opt-btn");
+    if (!btn) return;
+    duration = parseInt(btn.dataset.val, 10);
+    for (const b of els.timeOpts.children) b.classList.toggle("active", b === btn);
+    setupTest();
+  });
+  els.wordOpts.addEventListener("click", (e) => {
+    const btn = e.target.closest(".opt-btn");
+    if (!btn) return;
+    wordCount = parseInt(btn.dataset.val, 10);
+    for (const b of els.wordOpts.children) b.classList.toggle("active", b === btn);
+    setupTest();
+  });
+
+  // ---------------------------------------------------------------------
+  // Sharing: canvas card + native share sheet
+  // ---------------------------------------------------------------------
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawMiniKeyboard(ctx, x, y, keyW, keyH, gap) {
+    const rows = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
+    rows.forEach((row, ri) => {
+      const offsetX = ri * (keyW * 0.5);
+      for (let ci = 0; ci < row.length; ci++) {
+        const kx = x + offsetX + ci * (keyW + gap);
+        const ky = y + ri * (keyH + gap);
+        ctx.fillStyle = "#1a2733";
+        roundRect(ctx, kx, ky, keyW, keyH, 4);
+        ctx.fill();
+      }
+    });
+  }
+
+  let lastShareText = "";
+
+  function buildShareCard(stats) {
+    const canvas = els.shareCanvas;
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+    const mono = "ui-monospace, monospace";
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "#0a0f14";
+    ctx.fillRect(0, 0, W, H);
+    const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.6);
+    glow.addColorStop(0, "#14332f");
+    glow.addColorStop(1, "rgba(10,15,20,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#5eead4";
+    ctx.font = `800 56px ${mono}`;
+    ctx.fillText("keyglide", 64, 110);
+
+    ctx.fillStyle = "#93a5b3";
+    ctx.font = `400 19px ${mono}`;
+    ctx.fillText("typed nothing but the smoothest", 64, 150);
+    ctx.fillText("words in the dictionary", 64, 176);
+
+    drawMiniKeyboard(ctx, 64, 420, 26, 26, 6);
+
+    ctx.fillStyle = "#5eead4";
+    ctx.font = `700 22px ${mono}`;
+    ctx.fillText("keyglide.bisks.net", 64, H - 46);
+
+    // stat card, right side
+    const cardX = 620, cardY = 70, cardW = 516, cardH = 490;
+    ctx.strokeStyle = "#1f2c38";
+    ctx.lineWidth = 1.5;
+    ctx.fillStyle = "#121b24";
+    roundRect(ctx, cardX, cardY, cardW, cardH, 18);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#5eead4";
+    ctx.font = `800 120px ${mono}`;
+    ctx.fillText(String(stats.netWpm), cardX + cardW / 2, cardY + 170);
+
+    ctx.fillStyle = "#93a5b3";
+    ctx.font = `700 20px ${mono}`;
+    ctx.fillText("NET WPM", cardX + cardW / 2, cardY + 208);
+
+    ctx.fillStyle = "#dbe6ee";
+    ctx.font = `700 30px ${mono}`;
+    ctx.fillText(stats.acc + "% accuracy", cardX + cardW / 2, cardY + 280);
+
+    ctx.fillStyle = "#dbe6ee";
+    ctx.font = `400 20px ${mono}`;
+    ctx.fillText(stats.totalWords + " words typed", cardX + cardW / 2, cardY + 320);
+
+    ctx.strokeStyle = "#1f2c38";
+    ctx.beginPath();
+    ctx.moveTo(cardX + 60, cardY + 360);
+    ctx.lineTo(cardX + cardW - 60, cardY + 360);
+    ctx.stroke();
+
+    ctx.fillStyle = "#a78bfa";
+    ctx.font = `700 22px ${mono}`;
+    ctx.fillText("flow rating: " + stats.ratingLabel, cardX + cardW / 2, cardY + 410);
+    ctx.fillStyle = "#5c7183";
+    ctx.font = `400 16px ${mono}`;
+    ctx.fillText("(" + stats.avgFlow.toFixed(2) + " avg flow score)", cardX + cardW / 2, cardY + 438);
+  }
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      const probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function wireNativeShare(stats, shareText) {
+    lastShareText = shareText;
+    if (!canShareFiles()) return;
+    els.shareNative.hidden = false;
+    els.shareNative.onclick = () => {
+      els.shareCanvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], "keyglide-" + stats.netWpm + "wpm.png", { type: "image/png" });
+        try {
+          await navigator.share({ files: [file], text: lastShareText, title: "keyglide" });
+        } catch (_) {
+          // cancelled — no-op
+        }
+      }, "image/png");
+    };
+  }
+
+  els.shareDownload.addEventListener("click", () => {
+    els.shareCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "keyglide-" + els.resWpm.textContent + "wpm.png";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  });
+
+  // ---------------------------------------------------------------------
+  // Boot: fetch the word list, score every word, keep the top slice.
+  // ---------------------------------------------------------------------
+  fetch("/data/words.json")
+    .then((r) => r.json())
+    .then((words) => {
+      const scored = words
+        .filter((w) => /^[a-z]+$/.test(w) && w.length >= 3)
+        .map((w) => {
+          const { score, flowType } = scoreWord(w);
+          return { word: w, score, flowType };
+        });
+      scored.sort((a, b) => b.score - a.score);
+      POOL = scored.slice(0, Math.ceil(scored.length * 0.4));
+      setupTest();
+    })
+    .catch((err) => {
+      els.hint.textContent = "couldn't load the word list: " + err.message;
+    });
+})();
+</script>
+</body>
+</html>
