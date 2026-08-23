@@ -290,9 +290,12 @@ endpoints are the escape hatch if that changes.
 
 ## Watching it
 
-- **Health surface (start here): `buildthis.bisks.net/health`** — one JSON answer to
-  "is the whole thing OK?", computed from KV. `ok:false` + an `issues` list when
-  something's wrong. `/health.html` is the same, for eyeballing. What it checks:
+- **`buildthis.bisks.net/health`** — the state of the **queue and the job
+  pipeline**, computed entirely from KV on the Worker side. `ok:false` + an
+  `issues` list when one of its checks trips. `/health.html` is the same, for
+  eyeballing. It answers "are jobs flowing?" — it knows nothing about the box's
+  internals (auth, disk, systemd unit state, the `claude` CLI); for those, log
+  into the box. The four checks:
   - **box alive** — did the box poll `/next-job` within 12 min? (It polls every 15s
     *when idle*; during a build it's heads-down, hence the wide window — a build can
     run ~10 min. A dead box trips this AND the orphan check below.)
@@ -304,6 +307,11 @@ endpoints are the escape hatch if that changes.
     (`liveVerified:false`); the favstar-class dead-link signal.
   - It's public + read-only (no secrets, just counts), so an uptime check or a cron
     can watch `.ok` without a token.
+
+  Worth being clear about what stays green: an expired `CLAUDE_CODE_OAUTH_TOKEN`
+  doesn't move any of these. The box keeps polling, keeps claiming jobs, and
+  reports outcomes normally — the builds just fail. That surfaces as failed
+  builds in the timeline, not as a health issue.
 - Box loop: `journalctl -u buildthis-poll -f` on the box.
 - Timeline: `logs.bisks.net` (reads `buildthis.bisks.net/logs.json`).
 - Watcher: `pnpm --filter @atprotozoa/buildthis logs`, or the Cloudflare

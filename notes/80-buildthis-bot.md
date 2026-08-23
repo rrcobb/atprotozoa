@@ -144,6 +144,7 @@ what. That open question is in `notes/ideas/`.
 
 ## Watching it
 
-Start at **`buildthis.bisks.net/health`** — one JSON answer to "is this OK?",
-public and read-only. `/health.html` for eyeballing. Details of what it checks,
-plus box logs and the event timeline, are in `notes/90`.
+**`buildthis.bisks.net/health`** reports on the queue and the job pipeline —
+public and read-only, `/health.html` for eyeballing. It's computed from KV, so
+it covers job flow rather than the box's own condition. Details of what it
+checks and doesn't, plus box logs and the event timeline, are in `notes/90`.
