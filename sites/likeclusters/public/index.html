@@ -93,6 +93,14 @@
         display: inline-block; font-size: 0.78em; font-weight: 700; color: var(--accent);
         background: #eef3ff; border-radius: 4px; padding: 0.1rem 0.45rem;
       }
+      .tagpill.clickable { cursor: pointer; border: 1px solid transparent; user-select: none; }
+      .tagpill.clickable:hover { border-color: var(--accent); }
+      .tagpill.annoying { color: #b3261e; background: #fde8e6; }
+      .tagpill.annoying:hover { border-color: #b3261e; }
+      .tagpill .peeved { margin-right: 0.3em; }
+
+      #annoyBox { border: 1px solid #f4c6c1; background: #fff9f8; border-radius: 8px; padding: 0.9rem 1rem 1.1rem; margin-bottom: 1.6rem; }
+      #annoyBox h2.sub { margin-top: 0; color: #b3261e; }
 
       .fanGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 0.7rem; }
       .fanCard {
@@ -167,6 +175,9 @@
         <b>topic</b> for the post (keywords + hashtags, no AI), and groups
         the likers by which topic they actually show up for — the moot who
         only ever likes your <code>#catposting</code>, never anything else.
+        Click any topic tag in the results to mark it <b>annoying</b> — saved
+        on this device, so it flags the moots who only show up for the stuff
+        that grinds your gears.
       </p>
 
       <form id="form" autocomplete="off">
@@ -187,6 +198,16 @@
 
       <section id="result">
         <div class="summary" id="summary"></div>
+
+        <div id="annoyBox" style="display: none">
+          <h2 class="sub">😤 only shows up for the stuff that annoys you</h2>
+          <p class="note">
+            moots who mostly like posts tagged with a topic you've marked
+            annoying below. click a tag anywhere on this page to mark or
+            unmark it — it's saved on this device only.
+          </p>
+          <div class="fanGrid" id="annoyGrid"></div>
+        </div>
 
         <div id="fansBox" style="display: none">
           <h2 class="sub">one-topic superfans</h2>
@@ -246,7 +267,13 @@
           every single liked post scored the same topic tag highest, near 0%
           means their likes are spread across unrelated topics. A liker
           needs at least 2 sampled-post likes before a topic verdict is
-          shown at all — one like isn't a pattern. This is keyword
+          shown at all — one like isn't a pattern. Click any topic tag
+          anywhere on the page to mark it <b>annoying</b> — that's a
+          purely local preference, stored in this browser's
+          <code>localStorage</code>, never sent anywhere. Once a tag's
+          marked, any moot whose likes are mostly concentrated on it shows
+          up in the "only shows up for the stuff that annoys you" section
+          up top. This is keyword
           statistics, not language understanding — a post about two
           different things, or one that leans on words the stoplist doesn't
           catch, can land a slightly odd tag. No account data is stored;
@@ -274,6 +301,7 @@
       const result = $("result"), summaryEl = $("summary"), rowsEl = $("rows");
       const emptyNote = $("emptyNote");
       const fansBox = $("fansBox"), fanGrid = $("fanGrid");
+      const annoyBox = $("annoyBox"), annoyGrid = $("annoyGrid");
       const clustersBox = $("clustersBox"), clustersEl = $("clusters");
       const shareBluesky = $("shareBluesky"), shareDownload = $("shareDownload"), shareNative = $("shareNative");
       const shareCanvas = $("shareCanvas");
@@ -289,6 +317,48 @@
       function pct(x) {
         return Math.round((x || 0) * 100) + "%";
       }
+
+      // Tags the viewer has marked "annoying" — a personal, client-only
+      // preference, not part of the cluster data. Keyed by tag text so it
+      // carries across different subjects searched on this device.
+      const ANNOY_KEY = "likeclusters-annoying-tags";
+      function loadAnnoying() {
+        try {
+          const raw = JSON.parse(localStorage.getItem(ANNOY_KEY) || "[]");
+          return new Set(Array.isArray(raw) ? raw : []);
+        } catch {
+          return new Set();
+        }
+      }
+      function saveAnnoying(set) {
+        try {
+          localStorage.setItem(ANNOY_KEY, JSON.stringify([...set]));
+        } catch {}
+      }
+      let annoying = loadAnnoying();
+      let lastLikers = [], lastTagGroups = new Map(), lastProfiles = new Map();
+
+      function tagPillHtml(tag) {
+        const isAnnoying = annoying.has(tag);
+        return (
+          `<span class="tagpill clickable${isAnnoying ? " annoying" : ""}" data-tag="${escapeHtml(tag)}" title="click to mark this topic ${isAnnoying ? "not annoying" : "annoying"}">` +
+          (isAnnoying ? `<span class="peeved">😤</span>` : "") +
+          `${escapeHtml(tag)}</span>`
+        );
+      }
+
+      function toggleAnnoying(tag) {
+        if (annoying.has(tag)) annoying.delete(tag);
+        else annoying.add(tag);
+        saveAnnoying(annoying);
+        renderAll();
+      }
+
+      document.addEventListener("click", (e) => {
+        const pill = e.target.closest(".tagpill.clickable");
+        if (!pill) return;
+        toggleAnnoying(pill.getAttribute("data-tag"));
+      });
 
       function profOf(profiles, did) {
         return profiles.get(did) || { did, handle: did, displayName: did, avatar: "" };
@@ -322,9 +392,40 @@
             (p.avatar ? `<img src="${p.avatar}" alt="" loading="lazy" />` : `<img alt="" />`) +
             `<div class="names"><a href="https://bsky.app/profile/${encodeURIComponent(p.handle)}" target="_blank" rel="noopener">` +
             `<div class="dn">${escapeHtml(p.displayName)}</div><div class="hd">${short(p.handle)}</div></a>` +
-            `<div class="stat"><span class="tagpill">${escapeHtml(f.topTag)}</span> <b>${pct(f.focus)}</b> of ${f.count} liked posts</div></div>`;
+            `<div class="stat">${tagPillHtml(f.topTag)} <b>${pct(f.focus)}</b> of ${f.count} liked posts</div></div>`;
           fanGrid.appendChild(card);
         }
+      }
+
+      function renderAnnoyed(likers, profiles) {
+        const peeves = likers
+          .filter((l) => l.topTag && annoying.has(l.topTag) && l.focus >= 0.55)
+          .sort((a, b) => b.focus - a.focus || b.count - a.count)
+          .slice(0, 12);
+        annoyGrid.innerHTML = "";
+        if (!peeves.length) {
+          annoyBox.style.display = "none";
+          return;
+        }
+        annoyBox.style.display = "";
+        for (const f of peeves) {
+          const p = profOf(profiles, f.did);
+          const card = document.createElement("div");
+          card.className = "fanCard";
+          card.innerHTML =
+            (p.avatar ? `<img src="${p.avatar}" alt="" loading="lazy" />` : `<img alt="" />`) +
+            `<div class="names"><a href="https://bsky.app/profile/${encodeURIComponent(p.handle)}" target="_blank" rel="noopener">` +
+            `<div class="dn">${escapeHtml(p.displayName)}</div><div class="hd">${short(p.handle)}</div></a>` +
+            `<div class="stat">${tagPillHtml(f.topTag)} <b>${pct(f.focus)}</b> of ${f.count} liked posts</div></div>`;
+          annoyGrid.appendChild(card);
+        }
+      }
+
+      function renderAll() {
+        renderAnnoyed(lastLikers, lastProfiles);
+        renderFans(lastLikers, lastProfiles);
+        renderClusters(lastTagGroups, lastProfiles);
+        renderTable(lastLikers, lastProfiles);
       }
 
       function renderClusters(tagGroups, profiles) {
@@ -340,7 +441,7 @@
           block.className = "clusterBlock";
           const head = document.createElement("div");
           head.className = "clusterHead";
-          head.innerHTML = `<span class="tagpill">${escapeHtml(tag)}</span><span class="n">${members.length} liker${members.length === 1 ? "" : "s"}</span>`;
+          head.innerHTML = `${tagPillHtml(tag)}<span class="n">${members.length} liker${members.length === 1 ? "" : "s"}</span>`;
           block.appendChild(head);
           const row = document.createElement("div");
           row.className = "clusterMembers";
@@ -366,7 +467,7 @@
         likers.forEach((l, i) => {
           const p = profiles.get(l.did);
           const tr = document.createElement("tr");
-          const tagHtml = l.topTag ? `<span class="tagpill">${escapeHtml(l.topTag)}</span>` : `<span class="hd" style="color:var(--muted)">—</span>`;
+          const tagHtml = l.topTag ? tagPillHtml(l.topTag) : `<span class="hd" style="color:var(--muted)">—</span>`;
           const focusHtml = l.topTag
             ? `<div class="focusCell"><div class="meter"><i style="width:${Math.max(4, l.focus * 100)}%"></i></div><span class="focusNum">${pct(l.focus)}</span></div>`
             : "";
@@ -533,6 +634,11 @@
           const allDids = likers.slice(0, 200).map((l) => l.did);
           const profiles = await getProfiles(allDids);
 
+          lastLikers = likers;
+          lastTagGroups = tagGroups;
+          lastProfiles = profiles;
+
+          renderAnnoyed(likers, profiles);
           renderFans(likers, profiles);
           renderClusters(tagGroups, profiles);
           renderTable(likers, profiles);
