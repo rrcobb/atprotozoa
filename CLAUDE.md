@@ -37,3 +37,44 @@ buys isn't worth the ceremony here.
 - `notes/history/` holds incident logs and superseded designs. Consult it when a
   symptom looks familiar; don't treat it as current.
 - `notes/ideas/` holds undecided proposals. Nothing there is committed to.
+
+### Current
+
+- `00-vision.md`
+- `10-architecture.md`
+- `11-durable-objects.md`
+- `20-deploy.md`
+- `30-identity-and-did.md`
+- `40-new-site-playbook.md`
+- `45-sharing-and-virality.md`
+- `50-oauth-scopes.md`
+- `80-buildthis-bot.md`
+- `90-infra-and-budget.md`
+
+### history/
+
+- `00-index.md`
+- `2026-07-deploy-incidents.md`
+- `2026-08-pnpm-lockfile-outage.md`
+- `builder-inputs-and-runway.md`
+- `going-live-checklist.md`
+- `prior-art-mino.md`
+- `trigrams-design.md`
+- `trigrams-reply-and-quiver.md`
+- `trigrams-taste-calibration.md`
+
+### ideas/
+
+- `00-index.md`
+- `atproto-surface-map.md`
+- `beyond-buildthis.md`
+- `bot-ideas-riff.md`
+- `feeds-and-labels.md`
+- `other-bots.md`
+- `pds-and-lexicons.md`
+- `protocol-object-bot.md`
+- `store-ours-rederive-theirs.md`
+
+### inspiration/
+
+Screenshots plus `README.md`.
