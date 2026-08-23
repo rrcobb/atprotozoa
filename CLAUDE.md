@@ -76,7 +76,8 @@ on `main` and commit as you go. No worktrees, no feature branches, no PRs for th
 normal loop — the sites are small and independent, so the isolation a worktree
 buys isn't worth the ceremony here.
 
-- Commit freely in small, focused commits. Push to `main`.
+- Commit freely in small, focused commits, and push to `main` when you do — you
+  don't need to ask first.
 - Pushing to `main` triggers the deploy workflow, which redeploys only the
   site(s) that changed (see `notes/20-deploy.md`).
 - Standard git safety still applies: don't force-push, don't commit secrets
