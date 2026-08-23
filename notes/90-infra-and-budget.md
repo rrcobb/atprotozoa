@@ -307,11 +307,6 @@ endpoints are the escape hatch if that changes.
     (`liveVerified:false`); the favstar-class dead-link signal.
   - It's public + read-only (no secrets, just counts), so an uptime check or a cron
     can watch `.ok` without a token.
-
-  Worth being clear about what stays green: an expired `CLAUDE_CODE_OAUTH_TOKEN`
-  doesn't move any of these. The box keeps polling, keeps claiming jobs, and
-  reports outcomes normally — the builds just fail. That surfaces as failed
-  builds in the timeline, not as a health issue.
 - Box loop: `journalctl -u buildthis-poll -f` on the box.
 - Timeline: `logs.bisks.net` (reads `buildthis.bisks.net/logs.json`).
 - Watcher: `pnpm --filter @atprotozoa/buildthis logs`, or the Cloudflare
