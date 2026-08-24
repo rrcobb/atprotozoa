@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>quadsunset — sunset(s) from a four-star planet</title>
+<meta name="description" content="A first-person sunset simulator for a planet orbiting a real 2+2 quadruple star system. Scrub the day, time-lapse the years, watch the rare moment both pairs align." />
+<meta property="og:title" content="quadsunset — sunset(s) from a four-star planet" />
+<meta property="og:description" content="A first-person sunset simulator for a planet orbiting a real 2+2 quadruple star system. Scrub the day, time-lapse the years, watch the rare moment both pairs align." />
+<meta property="og:url" content="https://quadsunset.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://quadsunset.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="Four suns of two colors setting over a still sea, two close together, two farther apart." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="quadsunset — sunset(s) from a four-star planet" />
+<meta name="twitter:description" content="A first-person sunset simulator for a planet orbiting a real 2+2 quadruple star system. Make it beautiful, someone said. So: this." />
+<meta name="twitter:image" content="https://quadsunset.bisks.net/og.png" />
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+    background: #05060c; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  canvas#sky { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  .hud {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(to top, rgba(6,7,14,0.82) 0%, rgba(6,7,14,0.55) 65%, rgba(6,7,14,0) 100%);
+    color: #f4ecdd; text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    z-index: 5;
+  }
+  .titlebar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 5;
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 14px 16px; pointer-events: none;
+  }
+  .titlebar h1 {
+    margin: 0; font-family: ui-serif, Georgia, "Times New Roman", serif;
+    font-weight: 500; font-size: 22px; letter-spacing: 0.02em;
+    color: #f8ecd8; text-shadow: 0 2px 10px rgba(0,0,0,0.65);
+    pointer-events: auto;
+  }
+  .titlebar h1 em { font-style: italic; opacity: 0.75; font-size: 0.62em; display: block; font-family: ui-monospace, monospace; letter-spacing: 0; margin-top: 2px; }
+  #infoToggle {
+    pointer-events: auto;
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 1px solid rgba(244,236,221,0.35); background: rgba(6,7,14,0.4);
+    color: #f4ecdd; font-family: ui-monospace, monospace; font-size: 14px; cursor: pointer;
+    backdrop-filter: blur(6px);
+  }
+  .info {
+    position: fixed; top: 58px; right: 16px; z-index: 6; max-width: min(340px, 84vw);
+    background: rgba(10,10,18,0.88); border: 1px solid rgba(244,236,221,0.18);
+    border-radius: 12px; padding: 14px 16px; font-size: 13px; line-height: 1.5;
+    color: #ded3bd; backdrop-filter: blur(10px);
+  }
+  .info.hidden { display: none; }
+  .info a { color: #ffcf8c; }
+  .info p { margin: 0 0 8px; }
+  .info p:last-child { margin-bottom: 0; }
+
+  .readout {
+    display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline;
+    font-family: ui-monospace, "JetBrains Mono", monospace; font-size: 12.5px;
+    color: #e9dcc2; opacity: 0.92;
+  }
+  .readout b { color: #ffe4ad; font-weight: 600; }
+  .readout .flash { color: #ff9a7a; font-weight: 700; animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+
+  .scrub-row { display: flex; align-items: center; gap: 10px; }
+  .scrub-row span { font-family: ui-monospace, monospace; font-size: 11px; opacity: 0.75; width: 34px; flex: none; }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; flex: 1; height: 4px; border-radius: 2px;
+    background: linear-gradient(to right, #2a2440, #ffb066 45%, #ffe4ad 55%, #2a2440);
+    outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: #fff6e6; border: 2px solid #d98a3d; cursor: pointer; margin-top: -1px;
+    box-shadow: 0 0 8px rgba(255,180,90,0.7);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%; border: 2px solid #d98a3d;
+    background: #fff6e6; cursor: pointer; box-shadow: 0 0 8px rgba(255,180,90,0.7);
+  }
+
+  .controls-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+  .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+  button.ctl {
+    font-family: ui-monospace, monospace; font-size: 12px; color: #f4ecdd;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(244,236,221,0.22);
+    border-radius: 8px; padding: 7px 10px; cursor: pointer; backdrop-filter: blur(6px);
+    transition: background 0.15s, border-color 0.15s;
+  }
+  button.ctl:hover { background: rgba(255,255,255,0.14); }
+  button.ctl.active { background: rgba(255,180,90,0.22); border-color: rgba(255,180,90,0.6); color: #ffe4ad; }
+  #playPause { min-width: 42px; font-size: 15px; padding: 7px 12px; }
+  button.ctl.share-btn { background: rgba(120,170,255,0.14); border-color: rgba(150,190,255,0.4); }
+  button.ctl.share-btn:hover { background: rgba(120,170,255,0.26); }
+  a.share-link {
+    font-family: ui-monospace, monospace; font-size: 12px; color: #f4ecdd;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(244,236,221,0.22);
+    border-radius: 8px; padding: 7px 10px; text-decoration: none; backdrop-filter: blur(6px);
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  a.share-link:hover { background: rgba(255,255,255,0.14); }
+  .toast {
+    position: fixed; left: 50%; bottom: 190px; transform: translateX(-50%) translateY(8px);
+    background: rgba(10,10,18,0.92); border: 1px solid rgba(244,236,221,0.25); color: #f4ecdd;
+    padding: 8px 14px; border-radius: 8px; font-size: 12.5px; font-family: ui-monospace, monospace;
+    z-index: 7; opacity: 0; pointer-events: none; transition: opacity 0.25s, transform 0.25s;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 520px) {
+    .titlebar h1 { font-size: 18px; }
+    .readout { font-size: 11px; gap: 3px 12px; }
+    button.ctl { padding: 6px 8px; font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+
+<div class="titlebar">
+  <h1>quadsunset<em>from TIC 433545934</em></h1>
+  <button id="infoToggle" aria-label="about">?</button>
+</div>
+
+<div id="infoPanel" class="info hidden">
+  <p><b>What this is.</b> A quadruple star system — two close binary pairs orbiting each other — was recently confirmed to show a rare "triple-dip" eclipse, one whole pair passing in front of the other. This is a first-person guess at standing on a planet in a system built like that: two suns close together in the sky (<b>Aa</b> + <b>Ab</b>), and a second, fainter pair (<b>Ba</b> + <b>Bb</b>) that drifts slowly against the first as the outer pair orbits, sometimes rising with them, sometimes on the opposite side of the sky, and — once in a long while — passing right behind them.</p>
+  <p>Drag the <b>day</b> slider to scrub sunrise to sunset. Use the speed buttons to time-lapse days into years and watch the second pair's sunset drift across the sky, and watch for the alignment.</p>
+  <p style="opacity:0.7">Inspired by <a href="https://phys.org/news/2026-08-star-caught-eclipsing.html" target="_blank" rel="noopener">the real TIC 433545934 system</a>. Not a physical simulation — a beautiful guess.</p>
+</div>
+
+<div class="hud">
+  <div class="readout" id="readout">
+    <span>day <b id="roDay">1</b></span>
+    <span><b id="roTime">06:00</b></span>
+    <span>outer cycle <b id="roOuter">0%</b></span>
+    <span id="roAlign"></span>
+  </div>
+
+  <div class="scrub-row">
+    <span>day</span>
+    <input id="dayScrub" type="range" min="0" max="1000" value="250" aria-label="point in the day" />
+  </div>
+
+  <div class="controls-row">
+    <div class="btn-group">
+      <button class="ctl" id="playPause" aria-label="play/pause">⏸</button>
+      <button class="ctl speed" data-speed="0.012">calm</button>
+      <button class="ctl speed active" data-speed="0.05">1×</button>
+      <button class="ctl speed" data-speed="0.4">8×</button>
+      <button class="ctl speed" data-speed="3.2">64×</button>
+      <button class="ctl speed" data-speed="26">512×</button>
+      <button class="ctl" id="jumpAlign">⟳ next alignment</button>
+    </div>
+    <div class="btn-group">
+      <a class="share-link" id="shareBluesky" target="_blank" rel="noopener">🦋 share</a>
+      <button class="ctl share-btn" id="shareCopy">🔗 copy link to this sky</button>
+      <button class="ctl share-btn" id="shareSave">🖼 save image</button>
+      <button class="ctl share-btn" id="shareNative" style="display:none">📤 share</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<canvas id="shareCanvas" width="1200" height="630" style="display:none"></canvas>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- system model -------------------------------------------------------
+  // Time is measured in "days" (one full planetary rotation = one day/night
+  // cycle). dayCount is the whole-day counter, dayFrac in [0,1) is time of
+  // day (0 = midnight, .25 = sunrise, .5 = noon, .75 = sunset).
+  //
+  // Pair A (Aa/Ab) is the close, bright binary the planet effectively orbits;
+  // it behaves like an ordinary sun. Pair B (Ba/Bb) is the second pair of the
+  // quadruple, orbiting the A/planet system on a much longer "outer" period —
+  // OUTER_PERIOD_DAYS. Its rise/set time relative to A drifts smoothly through
+  // the whole day over one outer period, because B's effective phase is A's
+  // phase shifted by the outer orbit's fraction (outerPhase). When outerPhase
+  // wraps back near zero, both pairs share the same position in the sky all
+  // day — the "triple-dip" alignment the real system was caught doing.
+  const OUTER_PERIOD_DAYS = 41;
+  const INNER_PERIOD_A = 0.83;
+  const INNER_PERIOD_B = 0.58;
+  const ALIGN_WINDOW = 0.01; // fraction of outer period counted as "aligned"
+
+  const TAU = Math.PI * 2;
+  const wrap01 = (x) => x - Math.floor(x);
+
+  const state = {
+    dayCount: 0,
+    dayFrac: 0.25, // matches the slider's default value below
+    speed: 0.05, // days advanced per real second while playing
+    playing: true,
+  };
+
+  const params = new URLSearchParams(location.search);
+  if (params.has("d") || params.has("f")) {
+    state.dayCount = Math.max(0, parseInt(params.get("d") || "0", 10) || 0);
+    state.dayFrac = Math.min(0.999, Math.max(0, parseFloat(params.get("f") || "0.3") || 0));
+    state.playing = false;
+  }
+
+  function totalDays() { return state.dayCount + state.dayFrac; }
+  function outerPhase() { return wrap01(totalDays() / OUTER_PERIOD_DAYS); }
+
+  // angle on the sky's great-circle arc for a star with phase offset `off`
+  // (0 = tracks pair A exactly). altitude = cos(theta), horizontal = sin(theta).
+  function starAngle(off) {
+    const phi = wrap01(state.dayFrac - off);
+    return TAU * (phi - 0.5);
+  }
+
+  function starPos(off, ampAlt) {
+    const theta = starAngle(off);
+    return { alt: Math.cos(theta) * ampAlt, hx: 0.5 + 0.5 * Math.sin(theta) };
+  }
+
+  // ---- stars ---------------------------------------------------------------
+  const STARS = [
+    // pair A: close, bright, warm
+    { id: "Aa", off: 0, amp: 0.92, radius: 30, color: ["#fff3d6", "#ffb15c"], glow: "#ffb15c", brightness: 1.0, inner: null },
+    { id: "Ab", off: 0, amp: 0.92, radius: 22, color: ["#ffe2b0", "#ff8b52"], glow: "#ff8b52", brightness: 0.72, inner: { of: "Aa", period: INNER_PERIOD_A, sep: 0.052, alt: 0.017 } },
+    // pair B: farther, cooler, fainter, offset by the outer orbit
+    { id: "Ba", off: null, amp: 0.62, radius: 15, color: ["#eaf3ff", "#9fc3ff"], glow: "#9fc3ff", brightness: 0.5, inner: null },
+    { id: "Bb", off: null, amp: 0.62, radius: 11, color: ["#dbeaff", "#7fa8f2"], glow: "#7fa8f2", brightness: 0.38, inner: { of: "Ba", period: INNER_PERIOD_B, sep: 0.034, alt: 0.011 } },
+  ];
+
+  function computeStars() {
+    const outer = outerPhase();
+    const out = [];
+    for (const s of STARS) {
+      const off = s.off === null ? outer : s.off;
+      let pos = starPos(off, s.amp);
+      if (s.inner) {
+        const t = totalDays();
+        const ang = TAU * (t / s.inner.period);
+        pos = {
+          alt: pos.alt + s.inner.alt * Math.sin(ang),
+          hx: pos.hx + s.inner.sep * Math.cos(ang) * 0.5,
+        };
+      }
+      out.push({ ...s, alt: pos.alt, hx: pos.hx });
+    }
+    return out;
+  }
+
+  // ---- canvas setup ---------------------------------------------------------
+  const canvas = document.getElementById("sky");
+  const ctx = canvas.getContext("2d");
+  let W = 0, H = 0, DPR = 1;
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+    canvas.style.width = W + "px";
+    canvas.style.height = H + "px";
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  const NSTARS = 220;
+  const bgStars = Array.from({ length: NSTARS }, () => ({
+    x: Math.random(), y: Math.random() * 0.62,
+    r: Math.random() * 1.3 + 0.3,
+    tw: Math.random() * TAU,
+    speed: Math.random() * 1.4 + 0.6,
+  }));
+
+  function hillY(xFrac, baseY, H) {
+    const x = xFrac * 2000;
+    return baseY - (10 * Math.sin(x * 0.0031 + 1.4) + 6 * Math.sin(x * 0.0071 + 3.1) + 3 * Math.sin(x * 0.017 + 0.6)) * (H / 900);
+  }
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function lerpColor(c1, c2, t) {
+    const p = (c) => [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)];
+    const [r1, g1, b1] = p(c1), [r2, g2, b2] = p(c2);
+    const r = Math.round(lerp(r1, r2, t)), g = Math.round(lerp(g1, g2, t)), b = Math.round(lerp(b1, b2, t));
+    return `rgb(${r},${g},${b})`;
+  }
+
+  function render(cctx, w, h, tSeconds) {
+    const stars = computeStars();
+    const horizonY = h * 0.62;
+
+    let light = 0;
+    for (const s of stars) light += Math.max(0, s.alt) * s.brightness;
+    light = Math.min(1.15, light);
+
+    let nearHorizonGlow = 0;
+    for (const s of stars) {
+      const d = Math.abs(s.alt);
+      if (d < 0.22) nearHorizonGlow += (1 - d / 0.22) * s.brightness * (s.alt > -0.1 ? 1 : 0.4);
+    }
+    nearHorizonGlow = Math.min(1, nearHorizonGlow);
+
+    const outer = outerPhase();
+    const alignDist = Math.min(outer, 1 - outer);
+    const aligning = alignDist < ALIGN_WINDOW;
+    const alignStrength = aligning ? 1 - alignDist / ALIGN_WINDOW : 0;
+
+    // sky gradient: night -> day, tinted warm near the horizon at twilight
+    const dayT = Math.min(1, light);
+    const skyTop = lerpColor("#050514", "#3f8fd6", dayT);
+    const skyMidNight = "#0c1230", skyMidDay = "#8fc7ef";
+    const skyMid = lerpColor(skyMidNight, skyMidDay, dayT);
+    let skyHorizon = lerpColor(lerpColor("#141a3a", "#d8e8f6", dayT), "#ffb27a", nearHorizonGlow * 0.85);
+
+    const g = cctx.createLinearGradient(0, 0, 0, horizonY);
+    g.addColorStop(0, skyTop);
+    g.addColorStop(0.6, skyMid);
+    g.addColorStop(1, skyHorizon);
+    cctx.fillStyle = g;
+    cctx.fillRect(0, 0, w, horizonY + 1);
+
+    // background stars, fading in as light drops
+    const starAlpha = Math.max(0, 1 - dayT * 1.6 - nearHorizonGlow * 0.3);
+    if (starAlpha > 0.02) {
+      cctx.save();
+      for (const bs of bgStars) {
+        const tw = 0.55 + 0.45 * Math.sin(tSeconds * bs.speed + bs.tw);
+        cctx.globalAlpha = starAlpha * tw;
+        cctx.fillStyle = "#f5f2ff";
+        cctx.beginPath();
+        cctx.arc(bs.x * w, bs.y * horizonY, bs.r, 0, TAU);
+        cctx.fill();
+      }
+      cctx.restore();
+    }
+
+    // sea
+    const seaG = cctx.createLinearGradient(0, horizonY, 0, h);
+    seaG.addColorStop(0, lerpColor("#0a1226", "#7fb3d9", dayT * 0.8));
+    seaG.addColorStop(1, lerpColor("#03040a", "#123047", dayT * 0.6));
+    cctx.fillStyle = seaG;
+    cctx.fillRect(0, horizonY, w, h - horizonY);
+
+    // reflections
+    cctx.save();
+    for (const s of stars) {
+      if (s.alt < -0.05) continue;
+      const sx = s.hx * w;
+      const alpha = Math.max(0, 0.5 - Math.abs(s.alt) * 0.3) + (s.alt > 0 ? 0.12 : 0);
+      if (alpha <= 0) continue;
+      const rw = lerp(60, 10, Math.min(1, Math.abs(s.hx - 0.5) * 2)) + s.radius * 1.4;
+      const rg = cctx.createLinearGradient(0, horizonY, 0, h);
+      rg.addColorStop(0, hexA(s.glow, alpha));
+      rg.addColorStop(1, hexA(s.glow, 0));
+      cctx.fillStyle = rg;
+      for (let ry = horizonY; ry < h; ry += 5) {
+        const jitter = Math.sin(ry * 0.15 + tSeconds * 1.3 + s.hx * 10) * 6 * ((ry - horizonY) / (h - horizonY));
+        const rr = rw * (1 - (ry - horizonY) / (h - horizonY) * 0.3);
+        cctx.fillRect(sx + jitter - rr / 2, ry, rr, 3);
+      }
+    }
+    cctx.restore();
+
+    // sun disks (draw dimmer/farther first so closer pair layers on top)
+    const order = [...stars].sort((a, b) => (a.id[0] === "B" ? 0 : 1) - (b.id[0] === "B" ? 0 : 1));
+    for (const s of order) {
+      if (s.alt < -0.18) continue;
+      drawStar(cctx, s, w, horizonY, h);
+    }
+
+    // hills / islands silhouette
+    cctx.beginPath();
+    cctx.moveTo(0, h);
+    const steps = 60;
+    for (let i = 0; i <= steps; i++) {
+      const xf = i / steps;
+      cctx.lineTo(xf * w, hillY(xf, horizonY, h));
+    }
+    cctx.lineTo(w, h);
+    cctx.closePath();
+    const hillShade = lerpColor("#02030a", "#0d1f16", dayT * 0.5 + nearHorizonGlow * 0.2);
+    cctx.fillStyle = hillShade;
+    cctx.fill();
+    cctx.strokeStyle = hexA("#ffcf9a", Math.min(0.5, nearHorizonGlow * 0.6 + dayT * 0.15));
+    cctx.lineWidth = 1.5;
+    cctx.beginPath();
+    for (let i = 0; i <= steps; i++) {
+      const xf = i / steps;
+      const y = hillY(xf, horizonY, h);
+      if (i === 0) cctx.moveTo(xf * w, y); else cctx.lineTo(xf * w, y);
+    }
+    cctx.stroke();
+
+    // triple-dip vignette + label
+    if (alignStrength > 0) {
+      cctx.save();
+      cctx.fillStyle = `rgba(4,3,10,${0.22 * alignStrength})`;
+      cctx.fillRect(0, 0, w, h);
+      cctx.restore();
+    }
+
+    return { light, aligning, alignStrength, outer };
+  }
+
+  function hexA(hex, a) {
+    const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, a))})`;
+  }
+
+  function drawStar(cctx, s, w, horizonY, h) {
+    const sx = s.hx * w;
+    const sy = horizonY - s.alt * (horizonY * 0.9);
+    const horizonFade = Math.max(0, Math.min(1, (0.12 - s.alt) / 0.3)); // squash + redden near horizon
+    const squash = 1 - horizonFade * 0.45;
+    const r = s.radius * (w < 560 ? 0.72 : 1);
+
+    const tint = lerpColor(s.color[0], "#ff5b3d", horizonFade * 0.85);
+
+    cctx.save();
+    const glowR = r * 5.2;
+    const gg = cctx.createRadialGradient(sx, sy, 0, sx, sy, glowR);
+    gg.addColorStop(0, hexA(s.glow, 0.55));
+    gg.addColorStop(0.4, hexA(s.glow, 0.18));
+    gg.addColorStop(1, hexA(s.glow, 0));
+    cctx.fillStyle = gg;
+    cctx.beginPath();
+    cctx.arc(sx, sy, glowR, 0, TAU);
+    cctx.fill();
+    cctx.restore();
+
+    cctx.save();
+    cctx.translate(sx, sy);
+    cctx.scale(1, squash);
+    const disk = cctx.createRadialGradient(-r * 0.25, -r * 0.25, 0, 0, 0, r);
+    disk.addColorStop(0, s.color[0]);
+    disk.addColorStop(0.6, tint);
+    disk.addColorStop(1, lerpColor(s.color[1], "#a83318", horizonFade * 0.7));
+    cctx.fillStyle = disk;
+    cctx.beginPath();
+    cctx.arc(0, 0, r, 0, TAU);
+    cctx.fill();
+    cctx.restore();
+
+    if (sy - r * squash < h * 0.4 && s.alt > 0.55) {
+      cctx.save();
+      cctx.globalAlpha = 0.35 * Math.min(1, (s.alt - 0.55) / 0.3);
+      cctx.strokeStyle = s.glow;
+      cctx.lineWidth = 1;
+      for (const rr of [r * 2.2, r * 3.4]) {
+        cctx.beginPath();
+        cctx.arc(sx, sy, rr, 0, TAU);
+        cctx.stroke();
+      }
+      cctx.restore();
+    }
+  }
+
+  // ---- animation loop --------------------------------------------------------
+  let lastT = null;
+  function frame(now) {
+    const tSeconds = now / 1000;
+    if (lastT === null) lastT = tSeconds;
+    const dt = Math.min(0.25, tSeconds - lastT);
+    lastT = tSeconds;
+
+    if (state.playing) {
+      state.dayFrac += state.speed * dt;
+      while (state.dayFrac >= 1) { state.dayFrac -= 1; state.dayCount += 1; }
+      syncSlider();
+    }
+
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const info = render(ctx, W, H, tSeconds);
+    updateReadout(info);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---- UI --------------------------------------------------------------------
+  const els = {
+    playPause: document.getElementById("playPause"),
+    dayScrub: document.getElementById("dayScrub"),
+    roDay: document.getElementById("roDay"),
+    roTime: document.getElementById("roTime"),
+    roOuter: document.getElementById("roOuter"),
+    roAlign: document.getElementById("roAlign"),
+    infoToggle: document.getElementById("infoToggle"),
+    infoPanel: document.getElementById("infoPanel"),
+    jumpAlign: document.getElementById("jumpAlign"),
+    shareBluesky: document.getElementById("shareBluesky"),
+    shareCopy: document.getElementById("shareCopy"),
+    shareSave: document.getElementById("shareSave"),
+    shareNative: document.getElementById("shareNative"),
+    toast: document.getElementById("toast"),
+  };
+
+  function syncSlider() {
+    els.dayScrub.value = Math.round(state.dayFrac * 1000);
+  }
+  syncSlider();
+
+  els.dayScrub.addEventListener("input", () => {
+    state.playing = false;
+    setPlayIcon();
+    state.dayFrac = parseInt(els.dayScrub.value, 10) / 1000;
+  });
+
+  function setPlayIcon() {
+    els.playPause.textContent = state.playing ? "⏸" : "⏵";
+  }
+  setPlayIcon();
+  els.playPause.addEventListener("click", () => {
+    state.playing = !state.playing;
+    setPlayIcon();
+  });
+
+  document.querySelectorAll("button.speed").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("button.speed").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      state.speed = parseFloat(btn.dataset.speed);
+      state.playing = true;
+      setPlayIcon();
+    });
+  });
+
+  els.infoToggle.addEventListener("click", () => {
+    els.infoPanel.classList.toggle("hidden");
+  });
+
+  els.jumpAlign.addEventListener("click", () => {
+    const cur = outerPhase();
+    const daysToNext = (1 - cur) * OUTER_PERIOD_DAYS;
+    const target = totalDays() + (daysToNext < 0.01 ? OUTER_PERIOD_DAYS : daysToNext);
+    state.dayCount = Math.floor(target);
+    state.dayFrac = 0.5;
+    state.playing = false;
+    setPlayIcon();
+    syncSlider();
+  });
+
+  function updateReadout(info) {
+    els.roDay.textContent = String(state.dayCount + 1);
+    const totalMin = Math.round(state.dayFrac * 24 * 60);
+    const hh = String(Math.floor(totalMin / 60) % 24).padStart(2, "0");
+    const mm = String(totalMin % 60).padStart(2, "0");
+    els.roTime.textContent = hh + ":" + mm;
+    els.roOuter.textContent = Math.round(info.outer * 100) + "%";
+    if (info.aligning) {
+      els.roAlign.innerHTML = '<span class="flash">⋆ pairs aligning — triple-dip ⋆</span>';
+    } else {
+      const toNext = Math.round((1 - info.outer) * OUTER_PERIOD_DAYS);
+      els.roAlign.textContent = "next alignment in ~" + Math.max(0, toNext) + "d";
+    }
+  }
+
+  // ---- sharing -----------------------------------------------------------
+  function shareUrl() {
+    const u = new URL(location.origin + "/");
+    u.searchParams.set("d", String(state.dayCount));
+    u.searchParams.set("f", state.dayFrac.toFixed(4));
+    return u.toString();
+  }
+
+  function shareText() {
+    return "Watching the sunset(s) from a planet in a real four-star system (TIC 433545934) — two suns, then two more. " + shareUrl();
+  }
+
+  function refreshShareLink() {
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText());
+  }
+  refreshShareLink();
+  setInterval(refreshShareLink, 1000);
+
+  function showToast(msg) {
+    els.toast.textContent = msg;
+    els.toast.classList.add("show");
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => els.toast.classList.remove("show"), 1800);
+  }
+
+  els.shareCopy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl());
+      showToast("link copied");
+    } catch (_) {
+      showToast(shareUrl());
+    }
+  });
+
+  const shareCanvas = document.getElementById("shareCanvas");
+  const shareCtx = shareCanvas.getContext("2d");
+  function buildShareCard() {
+    render(shareCtx, 1200, 630, performance.now() / 1000);
+    shareCtx.save();
+    shareCtx.font = "700 22px ui-monospace, monospace";
+    shareCtx.fillStyle = "rgba(6,7,14,0.55)";
+    shareCtx.fillRect(0, 630 - 54, 1200, 54);
+    shareCtx.fillStyle = "#ffe4ad";
+    shareCtx.fillText("quadsunset.bisks.net — day " + (state.dayCount + 1) + ", outer cycle " + Math.round(outerPhase() * 100) + "%", 24, 630 - 20);
+    shareCtx.restore();
+  }
+
+  els.shareSave.addEventListener("click", () => {
+    buildShareCard();
+    shareCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "quadsunset-day" + (state.dayCount + 1) + ".png";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  });
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      const probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (_) {
+      return false;
+    }
+  }
+  if (canShareFiles()) {
+    els.shareNative.style.display = "";
+    els.shareNative.addEventListener("click", () => {
+      buildShareCard();
+      shareCanvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], "quadsunset.png", { type: "image/png" });
+        try {
+          await navigator.share({ files: [file], text: shareText(), title: "quadsunset" });
+        } catch (_) { /* cancelled */ }
+      }, "image/png");
+    });
+  }
+})();
+</script>
+</body>
+</html>
