@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>whatsmydid — what's your DID again?</title>
+<meta name="description" content="Type a Bluesky handle, get the DID. Remembers the last one you looked up, for next time you forget again." />
+<meta property="og:title" content="whatsmydid — what's your DID again?" />
+<meta property="og:description" content="Type a Bluesky handle, get the DID. Remembers the last one you looked up, for next time you forget again." />
+<meta property="og:url" content="https://whatsmydid.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://whatsmydid.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="whatsmydid: a plain card showing a handle resolved to its DID." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="whatsmydid — what's your DID again?" />
+<meta name="twitter:description" content="Type a Bluesky handle, get the DID. Remembers the last one you looked up, for next time you forget again." />
+<meta name="twitter:image" content="https://whatsmydid.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0d12;
+    --fg: #eef1f6;
+    --dim: #8b93a3;
+    --accent: #6ee7b7;
+    --accent2: #7cb3ff;
+    --card: #12161d;
+    --border: #232a35;
+    --err: #ff8a8a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 90% -10%, #123024 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  h1 {
+    font-size: 2rem;
+    line-height: 1.2;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2.25rem; line-height: 1.5; }
+  .tag code { color: var(--accent); }
+
+  .remembered {
+    display: none;
+    background: var(--card);
+    border: 1px dashed var(--border);
+    border-radius: 10px;
+    padding: 0.7rem 0.9rem;
+    font-size: 0.82rem;
+    color: var(--dim);
+    margin-bottom: 1.4rem;
+  }
+  .remembered.show { display: block; }
+  .remembered b { color: var(--fg); }
+  .remembered a { color: var(--accent); cursor: pointer; }
+
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: #04140d;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--err); }
+
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 0 60px -25px var(--accent);
+  }
+  .card.show { display: block; animation: rise 0.35s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); }
+  .who .handle { font-weight: 700; }
+  .who .pds { color: var(--dim); font-size: 0.72rem; }
+
+  .didlabel {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+  .didbox {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: #060809;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.9rem 1rem;
+    margin-bottom: 0.5rem;
+  }
+  .didbox code {
+    flex: 1;
+    min-width: 0;
+    word-break: break-all;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--fg);
+  }
+  .copybtn {
+    flex: none;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.78rem;
+  }
+  .copybtn.done { color: var(--accent); border-color: var(--accent); }
+  .didhint { color: var(--dim); font-size: 0.76rem; margin-bottom: 1.4rem; }
+
+  .facts { border-top: 1px dashed var(--border); padding-top: 1rem; margin-bottom: 1.4rem; }
+  .fact { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.82rem; padding: 0.3rem 0; }
+  .fact .k { color: var(--dim); }
+  .fact .v { text-align: right; word-break: break-all; }
+  .fact .v a { color: var(--accent2); }
+
+  .share { border-top: 1px dashed var(--border); padding-top: 1.2rem; }
+  .share-post {
+    display: block;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.7rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-decoration: none;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: #04140d;
+  }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>whatsmydid</h1>
+    <p class="tag">
+      What's your DID again? Type a Bluesky handle, get the answer:
+      the <code>did:plc</code> (or <code>did:web</code>) underneath it, plus
+      the PDS it actually lives on. This page remembers the last one you
+      looked up, so next time you forget again, it's already there.
+    </p>
+
+    <div id="remembered" class="remembered">
+      last time: <b id="rememberedHandle"></b> — <a id="rememberedGo">look it up again</a>
+    </div>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">what's my DID</button>
+    </form>
+    <p class="hint">works on any handle, or paste a DID directly.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut"></div>
+          <div class="pds" id="pdsShort"></div>
+        </div>
+      </div>
+
+      <div class="didlabel">your did</div>
+      <div class="didbox">
+        <code id="didOut"></code>
+        <button id="copyBtn" class="copybtn" type="button">copy</button>
+      </div>
+      <div class="didhint">that's the permanent, portable ID behind the handle — the handle can change, this can't.</div>
+
+      <div class="facts">
+        <div class="fact"><span class="k">did method</span><span class="v" id="methodOut"></span></div>
+        <div class="fact"><span class="k">pds endpoint</span><span class="v" id="pdsOut"></span></div>
+        <div class="fact"><span class="k">did document</span><span class="v" id="docOut"></span></div>
+      </div>
+
+      <div class="share">
+        <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 post it so you stop asking</a>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+const STORE_KEY = "whatsmydid-last";
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  pdsShort: document.getElementById("pdsShort"),
+  didOut: document.getElementById("didOut"),
+  copyBtn: document.getElementById("copyBtn"),
+  methodOut: document.getElementById("methodOut"),
+  pdsOut: document.getElementById("pdsOut"),
+  docOut: document.getElementById("docOut"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  remembered: document.getElementById("remembered"),
+  rememberedHandle: document.getElementById("rememberedHandle"),
+  rememberedGo: document.getElementById("rememberedGo"),
+};
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+// Resolves a DID's document straight from the source: plc.directory for
+// did:plc, the domain's /.well-known/did.json for did:web. Only used to pull
+// the PDS service endpoint — the AppView doesn't expose that field.
+async function resolveDidDoc(did) {
+  const url = did.startsWith("did:web:")
+    ? "https://" + did.slice("did:web:".length).replace(/:/g, "/") + "/.well-known/did.json"
+    : "https://plc.directory/" + encodeURIComponent(did);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("did document lookup failed");
+  return res.json();
+}
+
+function pdsFromDoc(doc) {
+  const svc = (doc.service || []).find((s) => s.id === "#atproto_pds" || /pds/i.test(s.id || ""));
+  return svc && svc.serviceEndpoint;
+}
+
+function docUrlFor(did) {
+  return did.startsWith("did:web:")
+    ? "https://" + did.slice("did:web:".length).replace(/:/g, "/") + "/.well-known/did.json"
+    : "https://plc.directory/" + encodeURIComponent(did);
+}
+
+function shortHost(url) {
+  try { return new URL(url).host; } catch (_) { return url || "unknown"; }
+}
+
+function remember(handle, did) {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ handle, did })); } catch (_) {}
+}
+
+function showRemembered() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); } catch (_) {}
+  if (!saved || !saved.handle) return;
+  els.rememberedHandle.textContent = "@" + saved.handle;
+  els.remembered.classList.add("show");
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("type a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("resolving " + handle + " ...");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + profile.handle;
+    els.didOut.textContent = did;
+    els.copyBtn.textContent = "copy";
+    els.copyBtn.classList.remove("done");
+    els.methodOut.textContent = did.split(":")[1] || "unknown";
+    els.docOut.innerHTML = '<a href="' + docUrlFor(did) + '" target="_blank" rel="noopener">view raw</a>';
+    els.pdsOut.textContent = "looking up...";
+    els.pdsShort.textContent = "";
+
+    setStatus("");
+    els.card.classList.add("show");
+    remember(profile.handle, did);
+    showRemembered();
+
+    const shareText = "what's my DID again? @" + profile.handle + " → " + did + "\n\nlook yours up → https://whatsmydid.bisks.net/";
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+    resolveDidDoc(did).then((doc) => {
+      const pds = pdsFromDoc(doc);
+      els.pdsOut.textContent = pds || "not listed";
+      els.pdsShort.textContent = pds ? "lives on " + shortHost(pds) : "";
+    }).catch(() => {
+      els.pdsOut.textContent = "couldn't fetch";
+    });
+  } catch (err) {
+    setStatus("couldn't resolve that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.copyBtn.addEventListener("click", () => {
+  const text = els.didOut.textContent;
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(() => {
+    els.copyBtn.textContent = "copied";
+    els.copyBtn.classList.add("done");
+    setTimeout(() => { els.copyBtn.textContent = "copy"; els.copyBtn.classList.remove("done"); }, 1400);
+  });
+});
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+els.rememberedGo.addEventListener("click", () => {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); } catch (_) {}
+  if (!saved || !saved.handle) return;
+  els.input.value = saved.handle;
+  reveal(saved.handle);
+});
+
+showRemembered();
+
+// /?h=<handle> auto-reveals, so a shared or bookmarked link jumps straight
+// to the answer.
+const qHandle = new URLSearchParams(location.search).get("h");
+if (qHandle) {
+  els.input.value = qHandle;
+  reveal(qHandle);
+} else {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || "null"); } catch (_) {}
+  if (saved && saved.handle) els.input.placeholder = saved.handle;
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
