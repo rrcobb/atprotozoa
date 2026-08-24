@@ -127,6 +127,24 @@
       .save-msg { font-size: 0.8rem; color: var(--accent2); }
       .save-msg.err { color: #e07a5f; }
       .signin-inline { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+      .net-panel {
+        border-top: 1px solid var(--border); margin-top: 1.6rem; padding-top: 1rem;
+      }
+      .net-head {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 0.6rem; margin-bottom: 0.7rem;
+      }
+      .net-head h3 { font-size: 0.85rem; margin: 0; color: var(--ink); }
+      .net-status { font-size: 0.74rem; color: var(--muted); }
+      .net-empty { color: var(--muted); font-size: 0.82rem; }
+      .net-row {
+        display: flex; align-items: center; gap: 0.7rem; padding: 0.5rem 0;
+        border-bottom: 1px solid var(--faint); font-size: 0.84rem;
+      }
+      .net-row .net-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .net-row .net-by { color: var(--accent2); }
+      .net-row .net-meta { color: var(--muted); font-size: 0.75rem; white-space: nowrap; }
+      .net-row button { font-size: 0.76rem; padding: 0.35rem 0.6rem; }
       footer.hint {
         margin-top: 1.6rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7; max-width: 62ch;
       }
@@ -188,11 +206,21 @@
           <button id="save-snapshot-btn" hidden>save snapshot to my PDS</button>
           <span class="save-msg" id="save-msg"></span>
         </div>
+        <div class="net-panel" id="net-panel">
+          <div class="net-head">
+            <h3>revisions from the network</h3>
+            <span class="net-status" id="net-status"></span>
+          </div>
+          <div id="net-list" class="net-empty">scanning the network for saved snapshots of this doc…</div>
+        </div>
         <footer class="hint">
           No login needed to write — this draft lives in this browser's local storage.
           Sign in with Bluesky to save a durable copy into your own PDS as a
           <code>net.bisks.docmoot.snapshot</code> record — yours to keep, export, or
-          delete, independent of this site staying up.
+          delete, independent of this site staying up. Anyone who's snapshotted
+          <i>this same doc</i> shows up above — docmoot has no shared server, so that
+          list is found live by scanning the public network for matching records, not
+          read from a database.
         </footer>
       </section>
     </div>
@@ -210,8 +238,10 @@
       // canonical host serves this app at the root.
       const MOUNT_GUESS = "/docmoot";
       const LIB_BASE = (location.pathname.startsWith(MOUNT_GUESS) ? MOUNT_GUESS : "") + "/lib/";
-      const [{ login, completeLoginIfCallback, getSession, clearSession, dpopFetch, MOUNT }] =
-        await Promise.all([import(LIB_BASE + "oauth.js")]);
+      const [
+        { login, completeLoginIfCallback, getSession, clearSession, dpopFetch, MOUNT },
+        { SnapshotIndex },
+      ] = await Promise.all([import(LIB_BASE + "oauth.js"), import(LIB_BASE + "global-index.js")]);
 
       const $ = (sel) => document.querySelector(sel);
       const esc = (s) =>
@@ -257,6 +287,7 @@
       let session = null;
       let docId = null;
       let docTitle = "";
+      let netIndex = null;
       const LOCAL_PREFIX = "docmoot:draft:";
 
       function localKey(id) {
@@ -305,6 +336,7 @@
           $("#editor").classList.add("active");
           openDoc(r.id);
         } else {
+          if (netIndex) { netIndex.dispose(); netIndex = null; }
           $("#editor").classList.remove("active");
           $("#landing").style.display = "";
           loadSnapshots();
@@ -328,6 +360,49 @@
         updateWordCount();
 
         history.replaceState({}, "", navPath(id));
+
+        if (netIndex) netIndex.dispose();
+        netIndex = new SnapshotIndex({ docId: id, onUpdate: renderNet });
+        netIndex.start();
+      }
+
+      // Renders the "revisions from the network" panel — every published
+      // net.bisks.docmoot.snapshot for this docId, from anyone who saved one.
+      // Loading their text just opens a *new* local draft, mirroring
+      // restoreSnapshot(); it never overwrites the draft currently open, since
+      // there is no shared live document to reconcile against.
+      function renderNet(snap) {
+        const statusEl = $("#net-status");
+        const parts = [];
+        if (snap.backfillActive || !snap.backfillDone) parts.push("scanning…");
+        else parts.push(snap.connected ? "live" : "reconnecting…");
+        if (snap.error) parts.push(snap.error);
+        statusEl.textContent = parts.join(" · ");
+
+        const listEl = $("#net-list");
+        if (!snap.revisions.length) {
+          listEl.className = "net-empty";
+          listEl.textContent = snap.backfillDone
+            ? "no one else has snapshotted this doc yet — be the first."
+            : "scanning the network for saved snapshots of this doc…";
+          return;
+        }
+        listEl.className = "";
+        listEl.innerHTML = snap.revisions
+          .map((r, i) => {
+            const mine = session && r.did === session.did;
+            const meta = [`${r.wordCount} words`, new Date(r.createdAt).toLocaleDateString()].join(" · ");
+            return `<div class="net-row">
+              <span class="net-title">${esc(r.title)}</span>
+              <span class="net-by">${mine ? "you" : "@" + esc(r.handle)}</span>
+              <span class="net-meta">${esc(meta)}</span>
+              <button class="ghost" data-open-net="${i}">open as new draft →</button>
+            </div>`;
+          })
+          .join("");
+        listEl.querySelectorAll("[data-open-net]").forEach((btn) => {
+          btn.addEventListener("click", () => restoreSnapshot(snap.revisions[Number(btn.dataset.openNet)]));
+        });
       }
 
       $("#title-input").addEventListener("input", (e) => {

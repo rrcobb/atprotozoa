@@ -28,7 +28,7 @@ TXT record so NSIDs actually resolve — needs a human with Cloudflare dashboard
 access, not something the builder can do from the repo.
 
 **3. Aggregate views via `listReposByCollection`.** (`pds-and-lexicons.md`)
-Find every repo holding a given collection. **Done for six sites so far:**
+Find every repo holding a given collection. **Done for eight sites so far:**
 steamtags (the reference implementation, `global-index.js`), memex, verdict's
 `/crowd` (as of 2026-08-18, aggregating every judgment on the network into a
 good/bad split, a kindest/harshest judge leaderboard, and the posts people
@@ -38,15 +38,23 @@ not to be a nice-to-have there: its signed-in vote path wrote
 `net.bisks.tallybot.point` records to the voter's own PDS, but nothing ever
 read that collection back, so every signed-in vote was silently write-only
 until this pattern gave it a read path — see `sites/sidenote` for the
-2026-08-20 entry), and — as of 2026-08-22 — catspace's `/directory`, which
-had sat as a permanent "local to your own records" stub since launch: its
-`wrangler.toml` still carries the migration tags for a Registry Durable
-Object that got built for exactly this and then deleted (presumably once the
-cost wall ruled it out), leaving styled-but-unused directory markup behind
-until this pass filled it in with the same client-side recipe. Still
-one-repo-only: alice-meets-bob, clusterpedia, docmoot, duohaunt, griftmax,
-hyperobject, keytags, kolpelor, padmoot, postwith, quadrants, socialcredit,
-velvetrope, war.
+2026-08-20 entry), catspace's `/directory` (2026-08-22, which had sat as a
+permanent "local to your own records" stub since launch: its `wrangler.toml`
+still carries the migration tags for a Registry Durable Object that got built
+for exactly this and then deleted, presumably once the cost wall ruled it
+out, leaving styled-but-unused directory markup behind until this pass filled
+it in with the same client-side recipe), quadrants (2026-08-23, a daily-slot
+pass — every live position marker for a chart, scoped by rkey since this
+collection holds one record per person *per chart*), and docmoot (2026-08-24,
+a daily-slot pass — its snapshot rkey is a PDS-assigned TID rather than a
+deterministic id, so its `global-index.js` pages a candidate's whole snapshot
+collection via `listRecords` and filters locally, closer to steamtags' shape
+than quadrants'; opening `/d/<id>` now lists every snapshot anyone's
+published of that doc). Still one-repo-only: alice-meets-bob, clusterpedia,
+duohaunt, griftmax, hyperobject, kolpelor, padmoot, postwith, socialcredit,
+velvetrope, war. (keytags is a deliberate exception, not a gap — its records
+are opaque hashes unless you hold the key, so there's nothing an aggregate
+view could meaningfully show.)
 
 **4. Cache trigram verdicts.** (`store-ours-rederive-theirs.md`) **Done,
 2026-08-17.** `sites/trigrams/public/lib/unique.js`'s `searchPhrase()` (used by
@@ -203,11 +211,12 @@ a page isn't.
 ## If picking one thing
 
 Cheapest real win: **the lexicon work (1–3)**. Steps 1–2 are documentation of
-what already exists; step 3 (the aggregate views) is now live for three sites
-and turns the pattern into something genuinely new — a small, reusable
-`global-index.js` recipe (backfill via `listReposByCollection` + a live
-Jetstream feed) that any of the remaining one-repo-only lexicon sites could
-pick up next. Paintmoot is the obvious next target.
+what already exists; step 3 (the aggregate views) is now live for eight sites
+and has become a small, reusable `global-index.js` recipe (backfill via
+`listReposByCollection` + a live Jetstream feed) that any of the remaining
+one-repo-only lexicon sites could pick up next. kolpelor is the obvious next
+target — it already has two collections (roster + trade) and an existing
+"Ἴχνη" panel built around reading moots' records, just not network-wide yet.
 
 Most fun for the effort: **one hand-built feed generator (5)**. Small, and it
 puts the project inside the Bluesky app instead of behind a link.

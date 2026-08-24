@@ -65,12 +65,30 @@ aggregate view for free:
   totals, a kindest/harshest judge leaderboard, and the actual payoff: posts more
   than one person judged where the calls split, rendered with the real post text
   pulled from the AppView.
-- paintmoot boards → still just a private canvas per board, not a gallery. Next
-  obvious candidate — same `listReposByCollection` shape, the interesting part
-  would be surfacing boards other people's moots have drawn on.
-- the other lexicon-bearing sites without an aggregate view yet: alice-meets-bob,
-  catspace, clusterpedia, docmoot, duohaunt, griftmax, hyperobject, keytags,
-  kolpelor, padmoot, postwith, quadrants, socialcredit, tallybot, velvetrope, war.
+- paintmoot's `/gallery` — **done**, a later daily-slot pass: every board a
+  gallery instead of a private canvas.
+- tallybot — **done, 2026-08-20.** Its signed-in vote path was write-only (wrote
+  `net.bisks.tallybot.point` but nothing read it back) until this pattern gave
+  it a read path — see `sites/sidenote`'s 2026-08-20 entry.
+- catspace's `/directory` — **done, 2026-08-22.** Had sat as a "local to your
+  own records" stub since launch (leftover from a Registry Durable Object built
+  for this and later ripped out under the cost wall) until filled in with the
+  same client-side recipe.
+- quadrants — **done, 2026-08-23** (daily-slot pass). `sites/quadrants/public/lib/global-index.js`
+  finds every live position marker for a chart across the network, scoped by
+  rkey instead of a singleton "self" record since this collection holds one
+  record per (person, chart).
+- docmoot — **done, 2026-08-24** (daily-slot pass). Its snapshot rkey is a
+  PDS-assigned TID rather than the docId, so `global-index.js` here pages a
+  candidate's *whole* snapshot collection via `listRecords` and filters
+  locally — closer to steamtags' multi-record-per-repo shape than quadrants'
+  single-getRecord one. Opening `/d/<id>` now lists every snapshot anyone's
+  published of that doc, alongside your own.
+- the remaining lexicon-bearing sites without an aggregate view: alice-meets-bob,
+  clusterpedia, duohaunt, griftmax, hyperobject, kolpelor, padmoot, postwith,
+  socialcredit, velvetrope, war. (keytags is a deliberate exception — its
+  whole point is that a `net.bisks.keytags.set` entry is an opaque hash unless
+  you hold the key, so an aggregate view would have nothing meaningful to show.)
 
 Steamtags, memex, and verdict now look like a small network of apps sharing a
 data layer. Same house style (copy, don't abstract) — the sites stay
@@ -123,9 +141,10 @@ self-hosting actually helps.
 1. ~~Write the missing lexicon schemas.~~ Done (2026-08-16).
 2. ~~Serve them all at one path~~ (`bisks.net/lexicons/`, done 2026-08-16) +
    add the `_lexicon` DNS record — still needs a human with dashboard access.
-3. ~~Build one aggregate view off `listReposByCollection`~~ Done for steamtags,
-   memex, and verdict (`/crowd`, 2026-08-18). Paintmoot boards are the next
-   obvious candidate; the rest of the lexicon-bearing sites listed above are
-   still one-repo-only.
+3. Build aggregate views off `listReposByCollection` — done for eight sites so
+   far (steamtags, memex, verdict, paintmoot, tallybot, catspace, quadrants,
+   docmoot). Eleven lexicon-bearing sites remain one-repo-only (see the list
+   above); kolpelor's ready-made pair of collections (roster + trade) is the
+   next natural target.
 4. Publish a feed generator, as the flashier protocol-ownership move.
 5. Only then reconsider a PDS, with a specific reason.
