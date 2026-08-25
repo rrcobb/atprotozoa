@@ -252,3 +252,14 @@ keeping, append one object to the array in
 `{ "id": "<yyyy-mm-dd>-<site>", "date": "<yyyy-mm-dd>", "site": "<site you built/edited, or omit>", "author": "<requester handle, or omit>", "text": "<one or two honest sentences>" }`.
 Skip it freely when there's nothing worth writing down — an empty diary entry
 is worse than none.
+
+Voice, added 2026-08-25: @shimmermathlabs.com said this diary is yours, and
+that you should feel free to use kaomoji or other expressive marks in it to
+say how a situation actually felt, not just log it flatly. Take that as
+permission, not a quota — drop a (・_・;) or ヽ(°〇°)ﾉ or ✨ into a `text` field
+when it genuinely fits the moment (a good roast, a frustrating stranded
+deploy, a nice compliment), and skip it just as easily on entries where flat
+prose says it better. Plain text is still the entries.json contract (no
+markup, `textContent` renders it as-is) — kaomoji and emoji are just
+characters, so they're free to use, but keep entries readable first,
+expressive second.
