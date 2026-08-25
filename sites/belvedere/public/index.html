@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>belvedere — an atproto tool census for every site in the constellation</title>
+<meta name="description" content="A field of dots, one per site built by @buildthis.bisky.net: colored by which atproto API tier it actually calls, ringed by its handle-typeahead status. Generated from the source on disk, not guessed." />
+<meta property="og:title" content="belvedere — an atproto tool census" />
+<meta property="og:description" content="Every site the bot has built, surveyed for what atproto APIs it actually uses: OAuth, Jetstream, bulk repo reads, plain AppView calls, or nothing at all. Escher-flavored status page." />
+<meta property="og:url" content="https://belvedere.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://belvedere.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="An impossible-triangle logo above a dense grid of small colored dots, one per site." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="belvedere — an atproto tool census" />
+<meta name="twitter:description" content="A field of dots, one per site built by @buildthis.bisky.net, colored by which atproto API tier it actually calls." />
+<meta name="twitter:image" content="https://belvedere.bisks.net/og.png" />
+<style>
+  :root {
+    --ink: #17161c;
+    --paper: #ece7da;
+    --paper2: #e0dac8;
+    --line: #b9b09a;
+    --dim: #6b6558;
+    --card: #f7f4ea;
+
+    --t-oauth: #d9a441;
+    --t-direct-write: #c2477a;
+    --t-jetstream: #2fa3ad;
+    --t-bulk-car: #3f6fd1;
+    --t-paginated-list: #6f8f4e;
+    --t-author-feed: #4e9b5c;
+    --t-graph: #8a9c3a;
+    --t-profile-read: #7cb896;
+    --t-typeahead-own: #8c6bd6;
+    --t-typeahead-thirdparty: #d33d3d;
+    --t-plc-directory: #a98cd6;
+    --t-custom-lexicon: #d67e3f;
+    --t-none: #b7b0a0;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    background-image:
+      repeating-linear-gradient(60deg, rgba(23,22,28,0.05) 0 1px, transparent 1px 42px),
+      repeating-linear-gradient(-60deg, rgba(23,22,28,0.05) 0 1px, transparent 1px 42px),
+      repeating-linear-gradient(0deg, rgba(23,22,28,0.04) 0 1px, transparent 1px 42px);
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 20px 80px; }
+
+  header { text-align: center; margin-bottom: 8px; }
+  .penrose { width: 92px; height: 80px; margin: 0 auto 6px; display: block; }
+  h1 {
+    font-size: 2.1rem; letter-spacing: 0.02em; margin: 4px 0 2px;
+    text-transform: lowercase;
+  }
+  .tagline { color: var(--dim); font-size: 0.95rem; max-width: 640px; margin: 0 auto 6px; line-height: 1.5; }
+  .thread-note { color: var(--dim); font-size: 0.8rem; max-width: 620px; margin: 0 auto; line-height: 1.5; }
+  .thread-note a { color: var(--ink); }
+
+  .stats {
+    display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;
+    margin: 22px 0 18px; font-size: 0.78rem; color: var(--dim);
+  }
+  .stats b { color: var(--ink); }
+  .stats span { border: 1px solid var(--line); background: var(--card); padding: 3px 9px; border-radius: 999px; }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+  }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+  #search {
+    font: inherit; font-size: 0.85rem;
+    padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line);
+    background: #fff; color: var(--ink); flex: 1 1 200px; min-width: 160px;
+  }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 12px; }
+  .legend button {
+    font: inherit; font-size: 0.72rem; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+    background: #fff; border: 1px solid var(--line); border-radius: 999px;
+    padding: 4px 10px 4px 7px; color: var(--ink);
+  }
+  .legend button.off { opacity: 0.35; }
+  .legend .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+  .ring-legend { display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 10px; font-size: 0.72rem; color: var(--dim); }
+  .ring-legend .item { display: inline-flex; align-items: center; gap: 6px; }
+  .ring-sample {
+    width: 12px; height: 12px; border-radius: 50%; background: var(--paper2); display: inline-block;
+  }
+
+  #field {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(20px, 1fr));
+    gap: 5px;
+    padding: 18px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+  .dot-wrap { display: flex; align-items: center; justify-content: center; }
+  .dot {
+    width: 13px; height: 13px; border-radius: 50%;
+    cursor: pointer;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.15);
+    transition: transform 0.08s ease;
+  }
+  .dot:hover, .dot:focus-visible { transform: scale(1.7); outline: none; z-index: 2; }
+  .dot.ring-own { box-shadow: 0 0 0 2px var(--card), 0 0 0 3.5px #2f9e5b; }
+  .dot.ring-plain { box-shadow: 0 0 0 2px var(--card), 0 0 0 3.5px var(--dim); border-style: dashed; }
+  .dot.ring-thirdparty { box-shadow: 0 0 0 2px var(--card), 0 0 0 3.5px #d33d3d; }
+  .dot.dimmed { opacity: 0.12; }
+
+  #tooltip {
+    position: fixed; pointer-events: none; z-index: 50;
+    background: var(--ink); color: var(--paper);
+    font-size: 0.72rem; line-height: 1.45;
+    padding: 8px 10px; border-radius: 8px; max-width: 260px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+    opacity: 0; transform: translateY(4px);
+    transition: opacity 0.08s ease;
+  }
+  #tooltip.show { opacity: 1; }
+  #tooltip .tt-name { font-weight: 700; }
+  #tooltip .tt-tags { color: #c9c4b6; margin-top: 3px; }
+  #tooltip .tt-ta { margin-top: 3px; }
+
+  footer {
+    margin-top: 28px; text-align: center; color: var(--dim); font-size: 0.72rem; line-height: 1.6;
+  }
+  footer a { color: var(--dim); }
+  #empty {
+    text-align: center; color: var(--dim); font-size: 0.85rem; padding: 30px 0; display: none;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <svg class="penrose" viewBox="0 0 100 88" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M50 4 L94 80 L72 80 L50 42 L28 80 L6 80 Z" fill="none" stroke="#17161c" stroke-width="3.2" stroke-linejoin="round"/>
+      <path d="M50 4 L28 80 L44 80 L58 55" fill="none" stroke="#17161c" stroke-width="3.2" stroke-linejoin="round"/>
+      <path d="M94 80 L58 55 L44 80" fill="none" stroke="#17161c" stroke-width="1.4" stroke-linejoin="round" opacity="0.5"/>
+      <path d="M6 80 L50 42 L58 55" fill="none" stroke="#17161c" stroke-width="1.4" stroke-linejoin="round" opacity="0.5"/>
+    </svg>
+    <h1>belvedere</h1>
+    <p class="tagline">
+      every site the bot has built, surveyed for what atproto it actually calls —
+      OAuth, live Jetstream, bulk repo reads, plain AppView fetches, or nothing.
+      one dot per site, colored by its richest tier, ringed by handle-typeahead status.
+    </p>
+    <p class="thread-note">
+      asked for by <a href="https://bsky.app/profile/zzstoatzzdevlog.bsky.social" target="_blank" rel="noopener">@zzstoatzzdevlog.bsky.social</a>
+      after a typeahead callout — "you can do more than just the typeaheads, survey what
+      atproto tools are used across the whole repo." this is that survey, run against the
+      source on disk, not hand-counted.
+    </p>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="panel">
+    <div class="controls">
+      <input id="search" type="text" placeholder="filter by site name…" autocomplete="off" />
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="ring-legend">
+      <span class="item"><span class="ring-sample" style="box-shadow:0 0 0 2px var(--card),0 0 0 3.5px #2f9e5b;"></span> own AppView typeahead</span>
+      <span class="item"><span class="ring-sample" style="box-shadow:0 0 0 2px var(--card),0 0 0 3.5px var(--dim); border-style:dashed;"></span> plain field, no typeahead</span>
+      <span class="item"><span class="ring-sample" style="box-shadow:0 0 0 2px var(--card),0 0 0 3.5px #d33d3d;"></span> third-party typeahead (none found)</span>
+      <span class="item"><span class="ring-sample"></span> no handle field at all</span>
+    </div>
+  </div>
+
+  <div id="field" aria-label="atproto tool census, one dot per site"></div>
+  <div id="empty">no sites match that filter.</div>
+
+  <footer>
+    generated by <code>audit/atproto-survey.mjs</code>, scanning every
+    <code>sites/*/src</code> and <code>sites/*/public</code> tree on disk for known
+    atproto call patterns — a static-analysis best guess, not a live health check.
+    re-run it any time the constellation grows.
+    <br />
+    <a href="https://bisks.net/">← back to the constellation</a>
+  </footer>
+</div>
+
+<div id="tooltip"></div>
+<script src="app.js"></script>
+</body>
+</html>
