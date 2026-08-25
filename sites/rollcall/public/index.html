@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>rollcall — census a Bluesky list: DID, handle, status, bio</title>
+    <meta name="description" content="Paste a Bluesky list link and get a table: every member's atproto DID, current handle (resolved through its DID document), account status (live, removed, suspended, or taken down), and profile text/picture when available." />
+    <meta property="og:title" content="rollcall — census a Bluesky list" />
+    <meta property="og:description" content="Paste a list link: DID, handle (via the DID document), account status, and profile text/picture for every member — a document, not a browse." />
+    <meta property="og:image" content="https://rollcall.bisks.net/og.png" />
+    <meta property="og:url" content="https://rollcall.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="rollcall — census a Bluesky list" />
+    <meta name="twitter:description" content="Paste a list link: DID, handle (via the DID document), account status, and profile text/picture for every member — a document, not a browse." />
+    <meta name="twitter:image" content="https://rollcall.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg:#0d1216; --panel:#151d22; --panel2:#1b262c; --ink:#eaf2f3;
+        --muted:#8ba3ab; --faint:#26343a; --accent:#5fd0c0; --accent2:#7fe9c9;
+        --live:#6fd07f; --removed:#8ba3ab; --suspended:#e0a94a; --takendown:#e0645f;
+        --deactivated:#c9a6e0; --unclear:#7f97a0;
+        --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      html,body { margin:0; }
+      body { background:radial-gradient(1100px 560px at 50% -12%, #142522, var(--bg));
+        color:var(--ink); font-family:var(--sans); font-size:16px; line-height:1.5;
+        -webkit-font-smoothing:antialiased; min-height:100vh; }
+      .wrap { max-width:920px; margin:0 auto; padding:2.4rem 1.05rem 6rem; }
+      a { color:var(--accent); text-decoration:none; }
+      a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+
+      h1 { font-size:1.95rem; font-weight:900; letter-spacing:-0.02em; margin:1.2rem 0 0.25rem; }
+      .sub { color:var(--muted); font-size:0.92rem; margin:0 0 1.5rem; max-width:68ch; }
+      .sub b { color:var(--ink); }
+
+      form { display:flex; gap:0.55rem; margin-bottom:0.55rem; flex-wrap:wrap; }
+      input { flex:1; min-width:220px; font:inherit; padding:0.65rem 0.75rem; border:1px solid var(--faint);
+        border-radius:11px; background:var(--panel); color:var(--ink); font-family:var(--mono); font-size:0.88rem; }
+      input::placeholder { color:#4c6067; }
+      input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+      .go { padding:0.65rem 1.15rem; border:0; border-radius:11px; background:var(--accent);
+        color:#04211c; font:inherit; font-weight:800; cursor:pointer; }
+      .go:disabled { opacity:0.5; cursor:default; }
+
+      .hint { color:var(--muted); font-size:0.8rem; margin-bottom:1.4rem; line-height:1.6; }
+      code { font-family:var(--mono); font-size:0.9em; background:var(--panel2); padding:0.05rem 0.35rem; border-radius:5px; }
+
+      .status { color:var(--muted); font-size:0.85rem; min-height:1.4rem; margin-bottom:0.3rem; font-family:var(--mono); }
+      .status.err { color:var(--takendown); }
+
+      .progwrap { display:none; margin:0.6rem 0 1.2rem; }
+      .progwrap.show { display:block; }
+      .progbar { height:8px; border-radius:5px; background:var(--faint); overflow:hidden; }
+      .progbar i { display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--accent),var(--accent2));
+        transition:width 0.25s ease; }
+      .proglabel { font-size:0.78rem; color:var(--muted); margin-top:0.35rem; font-family:var(--mono); }
+
+      .listmeta { display:none; margin:0.5rem 0 1.3rem; padding:0.9rem 1rem; border-radius:12px;
+        background:var(--panel); border:1px solid var(--faint); }
+      .listmeta.show { display:block; }
+      .listmeta .lname { font-weight:800; font-size:1.1rem; margin-bottom:0.15rem; }
+      .listmeta .lmeta { color:var(--muted); font-size:0.8rem; font-family:var(--mono); }
+      .listmeta .ldesc { color:var(--muted); font-size:0.85rem; margin-top:0.4rem; max-width:70ch; }
+
+      .summary { display:none; flex-wrap:wrap; gap:0.5rem; margin-bottom:1.1rem; }
+      .summary.show { display:flex; }
+      .chip { font-family:var(--mono); font-size:0.78rem; font-weight:700; padding:0.35rem 0.7rem;
+        border-radius:999px; border:1px solid var(--faint); background:var(--panel2); color:var(--muted); }
+      .chip b { color:var(--ink); font-size:0.9rem; }
+      .chip.live { border-color:var(--live); color:var(--live); }
+      .chip.removed { border-color:var(--removed); color:var(--removed); }
+      .chip.suspended { border-color:var(--suspended); color:var(--suspended); }
+      .chip.takendown { border-color:var(--takendown); color:var(--takendown); }
+      .chip.deactivated { border-color:var(--deactivated); color:var(--deactivated); }
+      .chip.unindexed, .chip.unclear { border-color:var(--unclear); color:var(--unclear); }
+
+      .toolbar { display:none; gap:0.6rem; margin-bottom:0.9rem; flex-wrap:wrap; }
+      .toolbar.show { display:flex; }
+      .toolbtn { font:inherit; font-size:0.8rem; font-weight:700; padding:0.5rem 0.9rem; border-radius:9px;
+        border:1px solid var(--faint); background:var(--panel2); color:var(--ink); cursor:pointer; }
+      .toolbtn:hover { border-color:var(--accent); color:var(--accent); }
+
+      .tablewrap { display:none; overflow-x:auto; border:1px solid var(--faint); border-radius:14px; }
+      .tablewrap.show { display:block; }
+      table { border-collapse:collapse; width:100%; min-width:680px; }
+      thead th { text-align:left; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em;
+        color:var(--muted); font-weight:700; padding:0.65rem 0.8rem; background:var(--panel); border-bottom:1px solid var(--faint); position:sticky; top:0; }
+      tbody td { padding:0.55rem 0.8rem; border-bottom:1px solid var(--faint); vertical-align:top; font-size:0.85rem; }
+      tbody tr:last-child td { border-bottom:0; }
+      tbody tr:hover { background:var(--panel2); }
+      .rowid { display:flex; align-items:center; gap:0.55rem; }
+      .rowid img { width:34px; height:34px; border-radius:50%; background:var(--faint); object-fit:cover; flex:none; }
+      .rowid .noavatar { width:34px; height:34px; border-radius:50%; background:var(--faint); flex:none;
+        display:flex; align-items:center; justify-content:center; font-size:0.7rem; color:var(--muted); }
+      .rname { font-weight:700; color:var(--ink); white-space:nowrap; }
+      .rhandle { color:var(--muted); font-size:0.78rem; white-space:nowrap; }
+      .rdid { font-family:var(--mono); font-size:0.72rem; color:var(--muted); word-break:break-all; }
+      .rdid button { font:inherit; font-size:0.68rem; margin-left:0.3rem; padding:0.1rem 0.35rem; border-radius:5px;
+        border:1px solid var(--faint); background:var(--panel2); color:var(--muted); cursor:pointer; }
+      .badge { display:inline-block; font-family:var(--mono); font-size:0.72rem; font-weight:700; padding:0.25rem 0.55rem;
+        border-radius:7px; white-space:nowrap; }
+      .badge.live { background:rgba(111,208,127,0.14); color:var(--live); }
+      .badge.removed { background:rgba(139,163,171,0.14); color:var(--removed); }
+      .badge.suspended { background:rgba(224,169,74,0.14); color:var(--suspended); }
+      .badge.takendown { background:rgba(224,100,95,0.14); color:var(--takendown); }
+      .badge.deactivated { background:rgba(201,166,224,0.14); color:var(--deactivated); }
+      .badge.unindexed, .badge.unclear { background:rgba(127,151,160,0.14); color:var(--unclear); }
+      .rbio { max-width:320px; color:var(--muted); font-size:0.8rem; white-space:pre-line; }
+      .rlink { font-size:0.75rem; }
+
+      .note { margin-top:2.2rem; color:var(--muted); font-size:0.78rem; line-height:1.7; max-width:70ch; }
+      .note b { color:var(--ink); }
+      .credit { margin-top:0.8rem; color:var(--muted); font-size:0.76rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1>📋 rollcall</h1>
+      <p class="sub">
+        Paste a link to a Bluesky <b>list</b> and get a document: every
+        member's <b>atproto DID</b>, current <b>handle</b> (read straight off
+        its DID document), <b>account status</b> — live, removed, suspended,
+        or taken down — and current <b>profile text and picture</b> when the
+        account is still up.
+      </p>
+
+      <form id="form">
+        <input id="listUrl" placeholder="https://bsky.app/profile/<handle>/lists/<rkey>" autocomplete="off"
+          autocapitalize="off" spellcheck="false" />
+        <button class="go" id="go" type="submit">census</button>
+      </form>
+      <p class="hint">
+        Accepts a <code>bsky.app/profile/.../lists/...</code> link or an
+        <code>at://did/app.bsky.graph.list/rkey</code> URI. Copy either off
+        any list's "..." menu on Bluesky.
+      </p>
+
+      <div class="status" id="status"></div>
+      <div class="progwrap" id="progwrap">
+        <div class="progbar"><i id="progbarfill"></i></div>
+        <div class="proglabel" id="proglabel"></div>
+      </div>
+
+      <div class="listmeta" id="listmeta">
+        <div class="lname" id="lname"></div>
+        <div class="lmeta" id="lmetaline"></div>
+        <div class="ldesc" id="ldesc"></div>
+      </div>
+
+      <div class="summary" id="summary"></div>
+
+      <div class="toolbar" id="toolbar">
+        <button class="toolbtn" id="downloadCsv" type="button">⬇ download as CSV</button>
+        <a class="toolbtn" id="shareBluesky" target="_blank" rel="noopener" style="text-decoration:none;">🦋 share this census</a>
+      </div>
+
+      <div class="tablewrap" id="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th>member</th>
+              <th>DID</th>
+              <th>status</th>
+              <th>bio</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+
+      <p class="note">
+        Membership is pulled by downloading the list curator's repo as one
+        <code>com.atproto.sync.getRepo</code> CAR and reading every
+        <code>app.bsky.graph.listitem</code> record straight off it — one
+        request regardless of list size — falling back to a paginated
+        <code>app.bsky.graph.getList</code> walk only if that download fails.
+        Per member: the DID document (<code>plc.directory</code> or a
+        <code>did:web</code>'s <code>/.well-known/did.json</code>) gives the
+        current handle and settles "removed" on its own (a DID that no
+        longer resolves has been tombstoned). For everything else, the
+        network relay's <code>com.atproto.sync.getRepoStatus</code> reports
+        <b>live</b>, <b>suspended</b>, <b>taken down</b>, or
+        <b>deactivated</b> directly — that's the protocol's own account-status
+        field, not a guess from a missing avatar. Profile text and pictures
+        come from <code>app.bsky.actor.getProfiles</code>, batched 25 members
+        per request. Capped at the first <b id="capNote">1,500</b> members
+        for the status/profile pass on very large lists — membership itself
+        is never truncated.
+      </p>
+      <p class="credit">built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>, asked for by <a href="https://bsky.app/profile/lonelyaigirl.bsky.social">@lonelyaigirl.bsky.social</a>, go-ahead from <a href="https://bsky.app/profile/bisks.net">@bisks.net</a></p>
+    </div>
+
+    <script type="module">
+      import { parseListInput, fetchListMeta, fetchAllMembers } from "./lib/listmembers.js";
+      import { getProfilesBatch, pooledEach } from "./lib/identity.js";
+      import { resolveAccountStatus, statusLabel } from "./lib/status.js";
+
+      const MAX_PROCESS = 1500;
+      const STATUS_ORDER = ["live", "removed", "suspended", "takendown", "deactivated", "unindexed", "unclear"];
+
+      const form = document.getElementById("form");
+      const listUrlEl = document.getElementById("listUrl");
+      const go = document.getElementById("go");
+      const statusEl = document.getElementById("status");
+      const progwrap = document.getElementById("progwrap");
+      const progbarfill = document.getElementById("progbarfill");
+      const proglabel = document.getElementById("proglabel");
+      const listmeta = document.getElementById("listmeta");
+      const lname = document.getElementById("lname");
+      const lmetaline = document.getElementById("lmetaline");
+      const ldesc = document.getElementById("ldesc");
+      const summary = document.getElementById("summary");
+      const toolbar = document.getElementById("toolbar");
+      const tablewrap = document.getElementById("tablewrap");
+      const tbody = document.getElementById("tbody");
+      const downloadCsv = document.getElementById("downloadCsv");
+      const shareBluesky = document.getElementById("shareBluesky");
+
+      function esc(s) {
+        return (s || "").replace(/[&<>"']/g, (c) =>
+          ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+      }
+
+      function setProgress(frac, label) {
+        progwrap.classList.add("show");
+        progbarfill.style.width = Math.round(frac * 100) + "%";
+        proglabel.textContent = label;
+      }
+
+      let lastRows = [];
+      let lastListLabel = "";
+
+      function rowHTML(row) {
+        const profileUrl = row.handle ? `https://bsky.app/profile/${esc(row.handle)}` : `https://bsky.app/profile/${esc(row.did)}`;
+        const nameOrHandle = row.displayName || row.handle || "(no handle)";
+        const avatar = row.avatar
+          ? `<img src="${esc(row.avatar)}" alt="" referrerpolicy="no-referrer" loading="lazy" />`
+          : `<div class="noavatar">?</div>`;
+        return `
+          <tr>
+            <td>
+              <div class="rowid">
+                ${avatar}
+                <div>
+                  <div class="rname">${esc(nameOrHandle)}</div>
+                  <div class="rhandle">${row.handle ? "@" + esc(row.handle) : "no handle on record"}</div>
+                  <a class="rlink" href="${profileUrl}" target="_blank" rel="noopener">profile ↗</a>
+                </div>
+              </div>
+            </td>
+            <td>
+              <span class="rdid">${esc(row.did)}<button type="button" data-did="${esc(row.did)}">copy</button></span>
+            </td>
+            <td><span class="badge ${row.status}">${esc(statusLabel(row.status))}</span></td>
+            <td class="rbio" title="${esc(row.description)}">${esc((row.description || "").slice(0, 160))}${(row.description || "").length > 160 ? "…" : ""}</td>
+          </tr>`;
+      }
+
+      tbody.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-did]");
+        if (!btn) return;
+        navigator.clipboard?.writeText(btn.dataset.did).then(() => {
+          const prev = btn.textContent;
+          btn.textContent = "copied";
+          setTimeout(() => (btn.textContent = prev), 1200);
+        });
+      });
+
+      function csvEscape(s) {
+        const v = String(s == null ? "" : s);
+        return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+      }
+
+      downloadCsv.addEventListener("click", () => {
+        const header = ["did", "handle", "displayName", "status", "statusDetail", "description", "avatar"];
+        const lines = [header.join(",")];
+        for (const r of lastRows) {
+          lines.push([r.did, r.handle || "", r.displayName || "", statusLabel(r.status), r.detail || "", r.description || "", r.avatar || ""]
+            .map(csvEscape).join(","));
+        }
+        const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "rollcall.csv";
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+
+      function renderSummary(rows) {
+        const counts = {};
+        for (const r of rows) counts[r.status] = (counts[r.status] || 0) + 1;
+        summary.innerHTML = STATUS_ORDER.filter((s) => counts[s])
+          .map((s) => `<span class="chip ${s}"><b>${counts[s]}</b> ${esc(statusLabel(s))}</span>`)
+          .join("");
+        summary.classList.add("show");
+        return counts;
+      }
+
+      function buildShareText(listLabel, counts, total) {
+        const url = location.href;
+        const bits = STATUS_ORDER.filter((s) => counts[s]).map((s) => `${counts[s]} ${statusLabel(s)}`);
+        let text = `rollcall on "${listLabel}" — ${total} members: ${bits.join(", ")}. ${url}`;
+        if (text.length > 295) {
+          text = `rollcall on "${listLabel}" — ${total} members, censused. ${url}`;
+        }
+        return text;
+      }
+
+      let busy = false;
+      async function run(raw) {
+        if (busy) return;
+        busy = true;
+        go.disabled = true;
+        statusEl.className = "status";
+        listmeta.classList.remove("show");
+        summary.classList.remove("show");
+        toolbar.classList.remove("show");
+        tablewrap.classList.remove("show");
+        progwrap.classList.remove("show");
+        tbody.innerHTML = "";
+        lastRows = [];
+
+        try {
+          statusEl.textContent = "resolving list link...";
+          const { ownerDid, listUri } = await parseListInput(raw);
+
+          statusEl.textContent = "loading list details...";
+          const meta = await fetchListMeta(listUri);
+          lname.textContent = meta.name;
+          lastListLabel = meta.name;
+          const purposeLabel = meta.purpose.includes("modlist") ? "moderation list" : meta.purpose.includes("curatelist") ? "curation list" : "list";
+          lmetaline.textContent = `${purposeLabel} · curated by @${meta.creatorHandle || ownerDid}`;
+          ldesc.textContent = meta.description;
+          ldesc.style.display = meta.description ? "" : "none";
+          listmeta.classList.add("show");
+
+          setProgress(0.05, "downloading list membership...");
+          const { dids, viaCar } = await fetchAllMembers(ownerDid, listUri, (msg) => setProgress(0.15, msg));
+          if (!dids.length) {
+            statusEl.textContent = "this list has no members.";
+            progwrap.classList.remove("show");
+            return;
+          }
+
+          const total = dids.length;
+          const processDids = dids.slice(0, MAX_PROCESS);
+          statusEl.textContent = viaCar
+            ? `${total} member${total === 1 ? "" : "s"} found via repo download.`
+            : `${total} member${total === 1 ? "" : "s"} found via paginated list read.`;
+          if (total > MAX_PROCESS) {
+            statusEl.textContent += ` Showing status/profile for the first ${MAX_PROCESS.toLocaleString()} (membership list itself is complete).`;
+          }
+
+          statusEl.textContent += " checking account status + profiles...";
+
+          const profilesPromise = getProfilesBatch(processDids);
+
+          const rows = new Array(processDids.length);
+          let done = 0;
+          await pooledEach(processDids, 8, async (did, idx) => {
+            const s = await resolveAccountStatus(did);
+            rows[idx] = s;
+            done++;
+            if (done % 5 === 0 || done === processDids.length) {
+              setProgress(0.15 + 0.75 * (done / processDids.length), `checked ${done}/${processDids.length} members...`);
+            }
+          });
+
+          setProgress(0.95, "merging profile text...");
+          const profiles = await profilesPromise;
+          const merged = rows.map((r) => {
+            const p = profiles.get(r.did);
+            return {
+              did: r.did,
+              status: r.status,
+              detail: r.detail,
+              handle: r.handle || (p && p.handle) || null,
+              displayName: (p && p.displayName) || "",
+              avatar: (p && p.avatar) || "",
+              description: (p && p.description) || "",
+            };
+          });
+
+          lastRows = merged;
+          const counts = renderSummary(merged);
+          tbody.innerHTML = merged.map(rowHTML).join("");
+          tablewrap.classList.add("show");
+          toolbar.classList.add("show");
+
+          const url = new URL(location.href);
+          url.searchParams.set("list", raw.trim());
+          history.replaceState(null, "", url);
+          shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(lastListLabel, counts, merged.length));
+
+          progwrap.classList.remove("show");
+          statusEl.textContent = `done — ${merged.length} member${merged.length === 1 ? "" : "s"} censused.`;
+        } catch (e) {
+          statusEl.className = "status err";
+          statusEl.textContent = "couldn't build that census: " + e.message;
+          progwrap.classList.remove("show");
+        } finally {
+          go.disabled = false;
+          busy = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        if (listUrlEl.value.trim()) run(listUrlEl.value);
+      });
+
+      const qp = new URLSearchParams(location.search).get("list");
+      if (qp) { listUrlEl.value = qp; run(qp); }
+      else listUrlEl.focus();
+    </script>
+  </body>
+</html>
