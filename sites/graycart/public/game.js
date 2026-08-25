@@ -19,8 +19,18 @@
     prompt: document.getElementById("prompt"),
     newCart: document.getElementById("newCartBtn"),
     shareBtn: document.getElementById("shareBtn"),
+    copyLinkBtn: document.getElementById("copyLinkBtn"),
     shareStatus: document.getElementById("shareStatus"),
+    cartCode: document.getElementById("cartCode"),
   };
+
+  function seedFromUrl() {
+    const raw = new URLSearchParams(location.search).get("seed");
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n >>> 0 : null;
+  }
+  let pendingSeed = seedFromUrl();
 
   function fitScreen() {
     const wrap = document.getElementById("screenWrap");
@@ -97,8 +107,8 @@
   let endedAt = 0;
   let flashKind = null;
 
-  function buildCartridge() {
-    const seed = GC.freshSeed();
+  function buildCartridge(seedOverride) {
+    const seed = seedOverride != null ? seedOverride : GC.freshSeed();
     const rng = GC.makeRng(seed);
     const perm = rng.shuffle([0, 1, 2, 3]);
     const shades = perm.map((i) => ALL_SHADES[i]);
@@ -110,11 +120,18 @@
   }
 
   function newCartridge() {
-    cartridge = buildCartridge();
+    const seed = pendingSeed;
+    pendingSeed = null;
+    cartridge = buildCartridge(seed);
     state = "playing";
     flashKind = null;
     els.prompt.hidden = true;
     els.shareStatus.textContent = "";
+    if (els.cartCode) els.cartCode.textContent = "#" + cartridge.seed;
+  }
+
+  function cartridgeUrl() {
+    return location.origin + location.pathname + "?seed=" + cartridge.seed;
   }
 
   // --- loop ----------------------------------------------------------------
@@ -219,7 +236,7 @@
 
   function shareText() {
     const outcome = flashKind === "win" ? "cleared a cartridge" : flashKind === "lose" ? "got got by a cartridge" : "poking at a cartridge";
-    return `${outcome}, no idea what the rules were — graycart.bisks.net`;
+    return `${outcome}, no idea what the rules were — try the same one: ${cartridgeUrl()}`;
   }
 
   function canShareFiles() {
@@ -258,6 +275,18 @@
       els.shareStatus.textContent = "saved a screenshot — attach it to the post";
     }, "image/png");
   });
+
+  if (els.copyLinkBtn) {
+    els.copyLinkBtn.addEventListener("click", async () => {
+      const url = cartridgeUrl();
+      try {
+        await navigator.clipboard.writeText(url);
+        els.shareStatus.textContent = "link copied — same cartridge for whoever opens it";
+      } catch {
+        window.prompt("copy this cartridge's link:", url);
+      }
+    });
+  }
 
   fitScreen();
   newCartridge();

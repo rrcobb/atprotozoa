@@ -721,16 +721,170 @@
     }
   }
 
+  // ---------------------------------------------------------------------
+  // GROW — grid snake. Eat pips to grow, don't hit the walls or your tail.
+  // ---------------------------------------------------------------------
+  const GROW_DIRS = {
+    up: [0, -1],
+    down: [0, 1],
+    left: [-1, 0],
+    right: [1, 0],
+  };
+
+  class Grow {
+    constructor(rng, sprites, audio) {
+      this.rng = rng;
+      this.audio = audio;
+      this.status = "playing";
+      this.cell = 8;
+      this.cols = W / this.cell; // 20
+      this.rows = H / this.cell; // 18
+
+      const startDir = rng.pick(["up", "down", "left", "right"]);
+      this.dir = GROW_DIRS[startDir];
+      this.nextDir = this.dir;
+      const cx = Math.floor(this.cols / 2);
+      const cy = Math.floor(this.rows / 2);
+      this.segments = [
+        { x: cx, y: cy },
+        { x: cx - this.dir[0], y: cy - this.dir[1] },
+        { x: cx - this.dir[0] * 2, y: cy - this.dir[1] * 2 },
+      ];
+      this.growPending = 0;
+
+      this.moveInterval = rng.range(0.16, 0.22);
+      this.stepT = this.moveInterval;
+      this.winCount = rng.int(10, 16);
+      this.collected = 0;
+
+      this.boostDur = 0; // held, not timed
+      this.phaseDur = rng.range(0.5, 0.9);
+      this.phaseCd = rng.range(2.2, 3.4);
+      this.phaseT = 0;
+      this.phaseCdT = 0;
+      this.actions = mapActions(rng, "boost", "phase");
+
+      this.pip = this.spawnPip();
+      this.pickupSprite = sprites.makeSprite(rng, 6, 0.6, 3);
+    }
+
+    occupied(x, y, skipTail) {
+      const segs = skipTail ? this.segments.slice(0, -1) : this.segments;
+      return segs.some((s) => s.x === x && s.y === y);
+    }
+
+    spawnPip() {
+      let x, y;
+      let tries = 0;
+      do {
+        x = this.rng.int(0, this.cols - 1);
+        y = this.rng.int(0, this.rows - 1);
+        tries++;
+      } while (this.occupied(x, y) && tries < 200);
+      return { x, y };
+    }
+
+    update(dt, input) {
+      if (this.status !== "playing") return;
+
+      for (const k of ["up", "down", "left", "right"]) {
+        if (input.held[k]) {
+          const [dx, dy] = GROW_DIRS[k];
+          if (!(dx === -this.dir[0] && dy === -this.dir[1])) this.nextDir = [dx, dy];
+        }
+      }
+
+      const boostBtn = this.actions.a === "boost" ? "a" : "b";
+      const phaseBtn = this.actions.a === "phase" ? "a" : "b";
+      const boosting = input.held[boostBtn];
+      if (input.pressed[phaseBtn] && this.phaseCdT <= 0) {
+        this.phaseT = this.phaseDur;
+        this.phaseCdT = this.phaseCd;
+        this.audio.play("action");
+      }
+      this.phaseT = Math.max(0, this.phaseT - dt);
+      this.phaseCdT = Math.max(0, this.phaseCdT - dt);
+
+      this.stepT -= dt * (boosting ? 2.1 : 1);
+      if (this.stepT > 0) return;
+      this.stepT += this.moveInterval;
+
+      this.dir = this.nextDir;
+      const head = this.segments[0];
+      const nx = head.x + this.dir[0];
+      const ny = head.y + this.dir[1];
+
+      if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) {
+        this.status = "lose";
+        this.audio.play("lose");
+        return;
+      }
+      if (this.phaseT <= 0 && this.occupied(nx, ny, true)) {
+        this.status = "lose";
+        this.audio.play("lose");
+        return;
+      }
+
+      this.segments.unshift({ x: nx, y: ny });
+      if (nx === this.pip.x && ny === this.pip.y) {
+        this.growPending++;
+        this.collected++;
+        this.audio.play("pickup");
+        if (this.collected >= this.winCount) {
+          this.status = "win";
+          this.audio.play("win");
+          return;
+        }
+        this.pip = this.spawnPip();
+      }
+      if (this.growPending > 0) {
+        this.growPending--;
+      } else {
+        this.segments.pop();
+      }
+      this.audio.play("move");
+    }
+
+    render(g, shades) {
+      const c = this.cell;
+      global.GC.drawSprite(
+        g,
+        this.pickupSprite,
+        this.pip.x * c + 1,
+        this.pip.y * c + 1,
+        shades,
+        1
+      );
+      const phasing = this.phaseT > 0;
+      for (let i = 0; i < this.segments.length; i++) {
+        const s = this.segments[i];
+        const head = i === 0;
+        g.fillStyle = head ? shades[3] : shades[1];
+        if (phasing && !head && Math.floor(performance.now() / 60) % 2 === 0) continue;
+        g.fillRect(s.x * c + 1, s.y * c + 1, c - 2, c - 2);
+      }
+      const ticks = this.winCount;
+      g.fillStyle = shades[1];
+      for (let i = 0; i < ticks; i++) {
+        const lit = i < this.collected;
+        const px = 3 + i * ((W - 6) / ticks);
+        if (lit) g.fillRect(px, 2, 2, 2);
+        else g.strokeRect(px + 0.5, 2.5, 1, 1);
+      }
+    }
+  }
+
   function createMechanic(kind, rng, sprites, audio) {
     if (kind === "dodge") return new Dodge(rng, sprites, audio);
     if (kind === "gather") return new Gather(rng, sprites, audio);
     if (kind === "maze") return new Maze(rng, sprites, audio);
     if (kind === "climb") return new Climb(rng, sprites, audio);
+    if (kind === "grow") return new Grow(rng, sprites, audio);
     throw new Error("unknown mechanic: " + kind);
   }
 
   global.GC = global.GC || {};
-  global.GC.MECHANIC_KINDS = ["dodge", "gather", "maze", "climb"];
+  global.GC.MECHANIC_KINDS = ["dodge", "gather", "maze", "climb", "grow"];
   global.GC.createMechanic = createMechanic;
   global.GC.SCREEN_W = W;
   global.GC.SCREEN_H = H;
