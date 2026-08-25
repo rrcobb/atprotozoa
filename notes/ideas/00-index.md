@@ -191,6 +191,19 @@ it, including unique trigrams (already solved by scan-then-verify).
 
 ---
 
+## E. Third-party services surveyed, not adopted
+
+**waow.tech.** (`waow-tech-utilities.md`, surveyed 2026-08-25 at bisks.net's
+request) An AT Protocol aggregation dashboard by `@zzstoatzz.io` — same
+person who'd pitched `typeahead.waow.tech` as a login-typeahead swap-in
+earlier in the same thread, and got declined for it. Its Coral (activity
+monitoring) and Ken (semantic search) tools are the plausible fits, for a
+future curator/digest bot (#10, #11) rather than for anything that exists
+today. Nothing wired in; the typeahead swap specifically stays declined —
+see the note for why the reasoning didn't depend on the operator.
+
+---
+
 ## The threads
 
 What's left collapses into two groups. (The original four included builder input
