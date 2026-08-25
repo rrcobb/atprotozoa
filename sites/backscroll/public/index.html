@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>backscroll — your moots, oldest post first — bisks.net</title>
+    <meta
+      name="description"
+      content="Enter a Bluesky handle and read your mutuals' entire post history in the order they actually happened — oldest first, all the way to now. No login, public reads only."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="backscroll — your moots, oldest post first" />
+    <meta
+      property="og:description"
+      content="Every moot's whole history, merged into one scroll and rewound to the start. Read forward from there."
+    />
+    <meta property="og:url" content="https://backscroll.bisks.net/" />
+    <meta property="og:image" content="https://backscroll.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="backscroll — a long scroll of posts unrolling from a single point in the past toward the present." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="backscroll — your moots, oldest post first" />
+    <meta name="twitter:description" content="Every moot's whole history, merged into one scroll and rewound to the start." />
+    <meta name="twitter:image" content="https://backscroll.bisks.net/og.png" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <span class="brand">backscroll</span>
+        <span class="brand-sub">your moots, rewound to the start</span>
+      </header>
+
+      <section id="gate" class="screen">
+        <div class="intro-card">
+          <p>
+            Your moots (mutual follows) have been posting for years. This
+            rewinds every one of them all the way back and merges the whole
+            pile into <b>one scroll, oldest post first</b> — read your
+            timeline's entire history in the order it actually happened,
+            instead of the order the algorithm remembered it.
+          </p>
+          <p class="fine">
+            Public reads only — no login, nothing written anywhere. We fetch
+            each moot's whole author feed from Bluesky's public AppView, which
+            for a big pool can mean a lot of requests, so this walks up to
+            <span id="poolCapLabel">25</span> moots and stops each one after a
+            few thousand posts. Give it a minute.
+          </p>
+          <form id="goForm" autocomplete="off">
+            <label class="lbl" for="handle">your handle</label>
+            <div class="row">
+              <input type="text" id="handle" placeholder="e.g. cee.wtf" spellcheck="false" />
+              <button id="goBtn" type="submit">rewind</button>
+            </div>
+          </form>
+          <p class="msg" id="goMsg"></p>
+        </div>
+      </section>
+
+      <section id="working" class="screen hidden">
+        <div class="progress-card">
+          <div class="status" id="statusLine">reading the graph…</div>
+          <div class="meter"><i id="meterBar" style="width:6%"></i></div>
+          <div class="substat" id="subStat"></div>
+        </div>
+      </section>
+
+      <section id="result" class="screen hidden">
+        <div class="summary-card" id="summaryCard"></div>
+        <div class="feedhead">
+          <span id="feedCount"></span>
+          <button id="jumpNow" class="ghost small" type="button">jump to newest ↓</button>
+        </div>
+        <ol id="feed" class="feed"></ol>
+        <div class="feedmore">
+          <button id="loadMore" class="ghost" type="button">show more</button>
+          <span id="feedDone" class="msg hidden">that's everything — you're caught up to now.</span>
+        </div>
+        <div class="startover">
+          <button id="restart" class="ghost small" type="button">rewind someone else</button>
+        </div>
+      </section>
+
+      <footer>
+        moots = mutual follows, read from Bluesky's public AppView. "posts"
+        means original posts and replies by them — reposts of other people's
+        content are skipped, since those aren't really theirs. sibling of
+        <a href="https://bisks.net">bisks.net</a> and
+        <a href="https://mootpocalypse.bisks.net">mootpocalypse</a>.
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script>
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+    </script>
+    <script type="module">
+      import { resolveDid, moots, walkAll, postUrl, POOL_CAP } from "./lib/backscroll.js";
+
+      const $ = (id) => document.getElementById(id);
+      const gate = $("gate"), goForm = $("goForm"), handleInput = $("handle"),
+        goBtn = $("goBtn"), goMsg = $("goMsg"),
+        working = $("working"), statusLine = $("statusLine"), meterBar = $("meterBar"), subStat = $("subStat"),
+        result = $("result"), summaryCard = $("summaryCard"), feedCount = $("feedCount"),
+        feedEl = $("feed"), loadMoreBtn = $("loadMore"), feedDone = $("feedDone"),
+        jumpNow = $("jumpNow"), restartBtn = $("restart");
+
+      $("poolCapLabel").textContent = String(POOL_CAP);
+
+      const BATCH = 30;
+      let allPosts = [];
+      let shown = 0;
+      let meDid = "", meHandle = "";
+
+      function showScreen(id) {
+        for (const s of [gate, working, result]) s.classList.toggle("hidden", s.id !== id);
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      const initials = (s) => (s || "?").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2).toUpperCase() || "?";
+      const TINTS = ["#8a6d3b", "#3b7a8a", "#8a3b5e", "#5e8a3b", "#6d3b8a", "#8a5e3b"];
+      function tintFor(s) {
+        let h = 0;
+        for (const c of s || "x") h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+        return TINTS[h % TINTS.length];
+      }
+
+      function fmtDate(iso) {
+        if (!iso) return "?";
+        try {
+          const d = new Date(iso);
+          return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) +
+            " · " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+        } catch { return iso; }
+      }
+
+      function postEl(p) {
+        const li = document.createElement("li");
+        li.className = "post";
+        const av = document.createElement("div");
+        av.className = "av";
+        if (p.avatar) av.style.backgroundImage = `url("${p.avatar}")`;
+        else { av.style.background = tintFor(p.handle); av.textContent = initials(p.displayName || p.handle); }
+        const body = document.createElement("div");
+        body.className = "body";
+        const head = document.createElement("div");
+        head.className = "head";
+        head.innerHTML =
+          `<a class="who" href="https://bsky.app/profile/${encodeURIComponent(p.handle)}" target="_blank" rel="noopener">${escapeHtml(p.displayName)}</a> ` +
+          `<span class="handle">@${escapeHtml(p.handle)}</span>` +
+          (p.isReply ? ` <span class="tag">reply</span>` : "") +
+          ` <span class="when">${fmtDate(p.createdAt)}</span>`;
+        const text = document.createElement("div");
+        text.className = "text";
+        text.textContent = p.text;
+        body.appendChild(head);
+        if (p.text) body.appendChild(text);
+        if (p.images && p.images.length) {
+          const imgs = document.createElement("div");
+          imgs.className = "images";
+          for (const im of p.images.slice(0, 4)) {
+            const img = document.createElement("img");
+            img.src = im.thumb;
+            img.alt = im.alt || "";
+            img.loading = "lazy";
+            imgs.appendChild(img);
+          }
+          body.appendChild(imgs);
+        }
+        const link = document.createElement("a");
+        link.className = "permalink";
+        link.href = postUrl(p.uri, p.handle);
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.textContent = "view on bluesky →";
+        body.appendChild(link);
+        li.appendChild(av);
+        li.appendChild(body);
+        return li;
+      }
+
+      function renderMore() {
+        const next = allPosts.slice(shown, shown + BATCH);
+        for (const p of next) feedEl.appendChild(postEl(p));
+        shown += next.length;
+        feedCount.textContent = `${shown} / ${allPosts.length} posts shown`;
+        const remaining = allPosts.length - shown;
+        loadMoreBtn.classList.toggle("hidden", remaining <= 0);
+        feedDone.classList.toggle("hidden", remaining > 0);
+        if (remaining > 0) loadMoreBtn.textContent = `show ${Math.min(BATCH, remaining)} more (${remaining} left)`;
+      }
+      loadMoreBtn.addEventListener("click", renderMore);
+      jumpNow.addEventListener("click", () => {
+        while (shown < allPosts.length) renderMore();
+        feedEl.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+
+      function buildShareText(stats) {
+        const url = "https://backscroll.bisks.net/";
+        const span = stats.oldest && stats.newest ? `${stats.oldest}–${stats.newest}` : "";
+        return `rewound @${meHandle}'s moots all the way back — ${stats.count} posts, ${span ? span + ", " : ""}oldest first. → ${url}`;
+      }
+
+      function renderSummary(stats) {
+        summaryCard.innerHTML = "";
+        const h = document.createElement("div");
+        h.className = "sumhead";
+        h.textContent = `@${meHandle}'s backscroll`;
+        const body = document.createElement("div");
+        body.className = "sumbody";
+        body.innerHTML =
+          `<b>${stats.count.toLocaleString()}</b> posts from <b>${stats.walkedCount}</b> moot${stats.walkedCount === 1 ? "" : "s"}` +
+          (stats.poolTruncated ? ` (of ${stats.poolSize} — capped at ${POOL_CAP})` : "") +
+          (stats.oldest ? `, spanning <b>${stats.oldest}</b> to <b>${stats.newest}</b>.` : ".") +
+          (stats.truncatedCount ? ` ${stats.truncatedCount} moot${stats.truncatedCount === 1 ? "" : "s"} had more history than we walked — their earliest posts here aren't their actual earliest.` : "");
+        const actions = document.createElement("div");
+        actions.className = "actions";
+        const share = document.createElement("a");
+        share.className = "sharebtn";
+        share.textContent = "share on bluesky";
+        share.target = "_blank";
+        share.rel = "noopener";
+        share.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(stats));
+        actions.appendChild(share);
+        summaryCard.appendChild(h);
+        summaryCard.appendChild(body);
+        summaryCard.appendChild(actions);
+      }
+
+      async function run(handleRaw) {
+        showScreen("working");
+        statusLine.textContent = "resolving @" + handleRaw.replace(/^@/, "") + "…";
+        meDid = await resolveDid(handleRaw);
+        meHandle = handleRaw.replace(/^@/, "");
+
+        statusLine.textContent = "mapping your moots…";
+        meterBar.style.width = "10%";
+        const m = await moots(meDid, {
+          onStep: (s) => { statusLine.textContent = s; },
+        });
+        if (!m.pool.length) throw new Error("no moots found — nobody to rewind");
+
+        statusLine.textContent = `found ${m.pool.length} ${m.kind}. walking their entire post history back to the start…`;
+        meterBar.style.width = "20%";
+
+        const { posts, poolTruncated, poolSize, walkedCount, truncatedMoots } = await walkAll(m.pool, {
+          onProgress: ({ done, total, pages, posts }) => {
+            const pct = total ? 20 + Math.round((done / total) * 78) : 20;
+            meterBar.style.width = pct + "%";
+            statusLine.textContent = `walking moot ${Math.min(done + 1, total)} of ${total}…`;
+            subStat.textContent = `${pages} page${pages === 1 ? "" : "s"} fetched · ${posts.toLocaleString ? posts.toLocaleString() : posts} posts found so far`;
+          },
+        });
+
+        if (!posts.length) throw new Error("found moots, but no readable posts turned up");
+
+        allPosts = posts;
+        shown = 0;
+        feedEl.innerHTML = "";
+        meterBar.style.width = "100%";
+
+        const stats = {
+          count: posts.length,
+          walkedCount,
+          poolSize,
+          poolTruncated,
+          truncatedCount: truncatedMoots.length,
+          oldest: posts[0]?.createdAt ? new Date(posts[0].createdAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "",
+          newest: posts[posts.length - 1]?.createdAt ? new Date(posts[posts.length - 1].createdAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "",
+        };
+        renderSummary(stats);
+        renderMore();
+        showScreen("result");
+      }
+
+      goForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const raw = handleInput.value.trim();
+        if (!raw) { handleInput.focus(); return; }
+        goBtn.disabled = true;
+        goMsg.className = "msg";
+        goMsg.textContent = "";
+        try {
+          await run(raw);
+        } catch (err) {
+          showScreen("gate");
+          goMsg.className = "msg err";
+          goMsg.textContent = err?.message || "something broke — try again?";
+        } finally {
+          goBtn.disabled = false;
+        }
+      });
+
+      restartBtn.addEventListener("click", () => {
+        allPosts = [];
+        shown = 0;
+        feedEl.innerHTML = "";
+        handleInput.value = "";
+        showScreen("gate");
+        handleInput.focus();
+      });
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
