@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mootgrinder — drag your moots into the coffee grinder</title>
+    <meta
+      name="description"
+      content="Load your Bluesky moots' profile pics, drag one into a coffee grinder, and it gets ground into a real falling-sand pile — every grain is one pixel of their pfp."
+    />
+    <meta property="og:title" content="mootgrinder — grind your moots into sand" />
+    <meta
+      property="og:description"
+      content="Drag a moot's pfp into the hopper. It gets ground into a physics-simulated pile of sand, grain by grain, one grain per pixel."
+    />
+    <meta property="og:url" content="https://mootgrinder.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://mootgrinder.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="mootgrinder — grind your moots into sand" />
+    <meta
+      name="twitter:description"
+      content="Drag a moot's pfp into the hopper. It gets ground into a physics-simulated pile of sand, grain by grain, one grain per pixel."
+    />
+    <meta name="twitter:image" content="https://mootgrinder.bisks.net/og.png" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --page: #130d0a;
+        --surface: #1d1510;
+        --surface-2: #251b14;
+        --text: #f3e9df;
+        --muted: #a99785;
+        --dim: #7d6c5c;
+        --accent: #e0a458;
+        --accent2: #c97b3d;
+        --border: rgba(243, 233, 223, 0.1);
+        --err: #ff8a7a;
+        --good: #8fd18a;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: var(--page); }
+      body {
+        color: var(--text);
+        font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+        font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 920px; margin: 0 auto; padding: 2.6rem 1.1rem 5rem; }
+      a { color: var(--accent); }
+      h1 { font-size: 1.7rem; margin: 0 0 0.5rem; font-weight: 800; letter-spacing: -0.01em; }
+      h1 .accent { color: var(--accent); }
+      p.intro { color: var(--muted); margin: 0 0 1.8rem; font-size: 0.88rem; max-width: 68ch; }
+      p.intro b { color: var(--text); font-weight: 600; }
+      p.intro code { background: var(--surface); border: 1px solid var(--border); border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.85em; color: var(--accent); }
+
+      form { margin: 0 0 0.4rem; }
+      label.lbl {
+        display: block; font-size: 0.7rem; color: var(--dim);
+        margin-bottom: 0.35rem; text-transform: uppercase; letter-spacing: 0.06em;
+      }
+      .row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-end; }
+      input[type="text"] {
+        flex: 1; min-width: 200px; font-family: inherit; font-size: 0.92rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--border); border-radius: 4px;
+        background: var(--surface); color: var(--text);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button, .btn2 {
+        font-family: inherit; cursor: pointer; font-size: 0.86rem;
+        padding: 0.6rem 1rem; border-radius: 5px; border: 1px solid transparent;
+      }
+      button#go {
+        background: var(--accent); color: #201207; font-weight: 700; border: none;
+      }
+      button#go:hover:not(:disabled) { background: var(--accent2); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      .btn2 {
+        background: var(--surface); color: var(--text); border: 1px solid var(--border);
+        text-decoration: none; display: inline-block; font-weight: 500;
+      }
+      .btn2:hover { border-color: var(--accent); color: var(--accent); }
+
+      .status { min-height: 1.2rem; font-size: 0.8rem; margin: 0.65rem 0 0; color: var(--dim); }
+      .status.err { color: var(--err); }
+      .status.ok { color: var(--good); }
+
+      #app.hidden { display: none; }
+      #app { margin-top: 2.2rem; }
+
+      .layout { display: grid; grid-template-columns: 240px 1fr; gap: 1.4rem; align-items: start; }
+      @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } }
+
+      .tray-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem; }
+      .tray-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.72rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.6rem; }
+      .tray-head .hint { text-transform: none; letter-spacing: 0; font-size: 0.7rem; }
+      .tray { display: flex; flex-wrap: wrap; gap: 0.5rem; max-height: 460px; overflow-y: auto; }
+      .chip {
+        width: 52px; height: 52px; border-radius: 50%; overflow: hidden; position: relative;
+        border: 2px solid var(--border); cursor: grab; touch-action: none; flex: 0 0 auto;
+        background: var(--surface-2); transition: transform 0.15s, border-color 0.15s, opacity 0.2s;
+      }
+      .chip img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; -webkit-user-drag: none; }
+      .chip:hover { border-color: var(--accent); transform: scale(1.06); }
+      .chip.dragging { opacity: 0.25; }
+      .chip.dragging-clone {
+        position: fixed; z-index: 60; pointer-events: none; border-radius: 50%;
+        border: 2px solid var(--accent); box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        width: 58px; height: 58px; overflow: hidden;
+      }
+      .chip.dragging-clone img { width: 100%; height: 100%; object-fit: cover; }
+      .chip .name {
+        position: absolute; inset: auto 0 0 0; font-size: 0.5rem; text-align: center;
+        background: rgba(0,0,0,0.55); color: #fff; padding: 1px 0; opacity: 0; transition: opacity 0.15s;
+      }
+      .chip:hover .name { opacity: 1; }
+
+      .grinder-panel { display: flex; flex-direction: column; gap: 0.9rem; }
+      .grinder {
+        background: linear-gradient(180deg, #111 0%, #0b0b0b 100%);
+        border-radius: 14px 14px 6px 6px; padding: 1.1rem 1.1rem 0.9rem;
+        border: 1px solid rgba(255,255,255,0.06);
+        display: grid; grid-template-columns: 1fr auto; gap: 0.8rem; align-items: start;
+        position: relative;
+      }
+      .hopper {
+        width: 100%; aspect-ratio: 1.4 / 1; border-radius: 10px 10px 4px 4px;
+        background: linear-gradient(180deg, rgba(224,164,88,0.06), rgba(224,164,88,0.02));
+        border: 2px dashed var(--border); position: relative; overflow: hidden;
+        display: flex; align-items: center; justify-content: center; transition: border-color 0.15s, background 0.15s;
+      }
+      .hopper.hover { border-color: var(--accent); background: rgba(224,164,88,0.14); }
+      .hopper-glass { position: absolute; inset: 6px; border-radius: 8px 8px 3px 3px; background: rgba(255,255,255,0.02); overflow: hidden; }
+      .hopper-fill {
+        position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
+        background: linear-gradient(180deg, #c98a4a, #8a5426);
+        transition: height 0.12s linear;
+      }
+      .hopper-label { position: relative; font-size: 0.7rem; color: var(--dim); letter-spacing: 0.04em; text-transform: uppercase; z-index: 2; }
+      .grinder.grinding .burr-icon { animation: spin 0.5s linear infinite; }
+      .body { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding-top: 0.2rem; min-width: 92px; }
+      .burr-icon { font-size: 1.5rem; color: var(--accent); }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .brand { font-size: 0.55rem; color: #6b6862; text-align: center; letter-spacing: 0.08em; line-height: 1.3; }
+      .brand span { display: block; color: #948f85; }
+      .dial-wrap { width: 90px; text-align: center; }
+      .dial-wrap input[type="range"] { width: 100%; accent-color: var(--accent); }
+      .dial-labels { display: flex; justify-content: space-between; font-size: 0.55rem; color: var(--dim); }
+      .spout {
+        position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%);
+        width: 26px; height: 20px; background: #0b0b0b; clip-path: polygon(15% 0, 85% 0, 100% 100%, 0 100%);
+      }
+
+      .bin-frame {
+        position: relative; margin-top: 6px; border-radius: 4px 4px 10px 10px; overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.08); background: #05080a;
+      }
+      .bin-frame canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; touch-action: none; cursor: crosshair; }
+      .bin-glass { position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(255,255,255,0.05), transparent 30%); }
+
+      .bin-controls { justify-content: flex-start; }
+      .stats { font-size: 0.76rem; color: var(--dim); margin: 0; }
+      .stats b { color: var(--accent); }
+
+      .toast {
+        position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 12px);
+        background: var(--surface); border: 1px solid var(--border); color: var(--text);
+        padding: 0.55rem 0.9rem; border-radius: 8px; font-size: 0.82rem; z-index: 80;
+        opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s;
+        max-width: 90vw; text-align: center;
+      }
+      .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+      footer { margin-top: 3rem; font-size: 0.76rem; color: var(--dim); border-top: 1px solid var(--border); padding-top: 1.1rem; }
+      footer a { color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>moot<span class="accent">grinder</span></h1>
+        <p class="intro">
+          Paste a <b>Bluesky handle</b> and mootgrinder loads your <b>moots</b> (mutual
+          follows). Drag one into the hopper — it gets ground into a real falling-sand
+          pile, <b>one grain per pixel of their pfp</b>. Poke the pile once it's down there.
+        </p>
+      </header>
+
+      <form id="form" class="row">
+        <div style="flex:1; min-width:200px;">
+          <label class="lbl" for="handle">bluesky handle</label>
+          <input type="text" id="handle" placeholder="e.g. cee.wtf" spellcheck="false" autocomplete="off" />
+        </div>
+        <button id="go" type="submit">load my moots</button>
+      </form>
+      <p class="status" id="status"></p>
+
+      <section id="app" class="hidden">
+        <div class="layout">
+          <div class="tray-panel">
+            <div class="tray-head">
+              <span id="trayLabel">your moots</span>
+              <span class="hint">drag or tap</span>
+            </div>
+            <div class="tray" id="tray"></div>
+          </div>
+
+          <div class="grinder-panel">
+            <div class="grinder" id="grinderBox">
+              <div class="hopper" id="hopper">
+                <div class="hopper-glass"><div class="hopper-fill" id="hopperFill"></div></div>
+                <div class="hopper-label">drop here</div>
+              </div>
+              <div class="body">
+                <div class="burr-icon" id="burrIcon">&#10227;</div>
+                <div class="brand">BARATZA<span>ENCORE</span></div>
+                <div class="dial-wrap">
+                  <label class="lbl" for="grind">grind size</label>
+                  <input type="range" id="grind" min="1" max="3" value="2" step="1" />
+                  <div class="dial-labels"><span>fine</span><span>coarse</span></div>
+                </div>
+              </div>
+              <div class="spout"></div>
+            </div>
+
+            <div class="bin-frame">
+              <canvas id="bin" width="150" height="104"></canvas>
+              <div class="bin-glass"></div>
+            </div>
+
+            <div class="bin-controls row">
+              <button id="reset" type="button" class="btn2">empty the bin</button>
+              <button id="download" type="button" class="btn2">save image</button>
+              <a id="shareBluesky" class="btn2" target="_blank" rel="noopener">share on bluesky</a>
+            </div>
+            <p class="stats" id="stats">bin: 0 grains &middot; 0 moots ground</p>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        <p>
+          Reads Bluesky's public AppView client-side only — no login, nothing
+          leaves your browser except the image requests for avatars. Built by
+          <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+          for <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>,
+          off <a href="https://bsky.app/profile/satyrs.eu" target="_blank" rel="noopener">@satyrs.eu</a>'s bit.
+        </p>
+      </footer>
+    </div>
+
+    <div id="toast" class="toast"></div>
+    <canvas id="shareCanvas" width="1200" height="630" style="display:none"></canvas>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
