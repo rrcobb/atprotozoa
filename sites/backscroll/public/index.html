@@ -69,6 +69,25 @@
 
       <section id="result" class="screen hidden">
         <div class="summary-card" id="summaryCard"></div>
+
+        <div class="search-card" id="searchCard">
+          <label class="lbl" for="searchInput">first mentions</label>
+          <form id="searchForm" autocomplete="off">
+            <div class="row">
+              <input type="text" id="searchInput" placeholder="a word or phrase…" spellcheck="false" />
+              <button id="searchBtn" type="submit">find</button>
+            </div>
+          </form>
+          <p class="fine">who in your circle said it first, and when — oldest mention per person, in the order it first showed up.</p>
+          <div id="searchResults" class="search-results hidden">
+            <div class="feedhead">
+              <span id="searchCount"></span>
+              <button id="clearSearch" class="ghost small" type="button">clear</button>
+            </div>
+            <ol id="searchFeed" class="feed"></ol>
+          </div>
+        </div>
+
         <div class="feedhead">
           <span id="feedCount"></span>
           <button id="jumpNow" class="ghost small" type="button">jump to newest ↓</button>
@@ -105,7 +124,9 @@
         working = $("working"), statusLine = $("statusLine"), meterBar = $("meterBar"), subStat = $("subStat"),
         result = $("result"), summaryCard = $("summaryCard"), feedCount = $("feedCount"),
         feedEl = $("feed"), loadMoreBtn = $("loadMore"), feedDone = $("feedDone"),
-        jumpNow = $("jumpNow"), restartBtn = $("restart");
+        jumpNow = $("jumpNow"), restartBtn = $("restart"),
+        searchForm = $("searchForm"), searchInput = $("searchInput"), searchResults = $("searchResults"),
+        searchCount = $("searchCount"), searchFeed = $("searchFeed"), clearSearchBtn = $("clearSearch");
 
       $("poolCapLabel").textContent = String(POOL_CAP);
 
@@ -139,7 +160,14 @@
         } catch { return iso; }
       }
 
-      function postEl(p) {
+      function highlightHtml(text, query) {
+        const escaped = escapeHtml(text);
+        if (!query) return escaped;
+        const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return escaped.replace(new RegExp(escapeHtml(escapedQuery), "gi"), (m) => `<mark>${m}</mark>`);
+      }
+
+      function postEl(p, { query, badge } = {}) {
         const li = document.createElement("li");
         li.className = "post";
         const av = document.createElement("div");
@@ -153,11 +181,12 @@
         head.innerHTML =
           `<a class="who" href="https://bsky.app/profile/${encodeURIComponent(p.handle)}" target="_blank" rel="noopener">${escapeHtml(p.displayName)}</a> ` +
           `<span class="handle">@${escapeHtml(p.handle)}</span>` +
+          (badge ? ` <span class="tag">${escapeHtml(badge)}</span>` : "") +
           (p.isReply ? ` <span class="tag">reply</span>` : "") +
           ` <span class="when">${fmtDate(p.createdAt)}</span>`;
         const text = document.createElement("div");
         text.className = "text";
-        text.textContent = p.text;
+        text.innerHTML = highlightHtml(p.text, query);
         body.appendChild(head);
         if (p.text) body.appendChild(text);
         if (p.images && p.images.length) {
@@ -198,6 +227,45 @@
       jumpNow.addEventListener("click", () => {
         while (shown < allPosts.length) renderMore();
         feedEl.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+
+      function runSearch(queryRaw) {
+        const query = queryRaw.trim();
+        searchFeed.innerHTML = "";
+        if (!query) {
+          searchResults.classList.add("hidden");
+          return;
+        }
+        const needle = query.toLowerCase();
+        const firstByPerson = new Map(); // did -> first matching post (allPosts is oldest→newest already)
+        let totalMatches = 0;
+        for (const p of allPosts) {
+          if (!p.text || !p.text.toLowerCase().includes(needle)) continue;
+          totalMatches++;
+          if (!firstByPerson.has(p.did)) firstByPerson.set(p.did, p);
+        }
+        const firsts = [...firstByPerson.values()]; // insertion order == chronological, since allPosts is sorted
+        searchResults.classList.remove("hidden");
+        if (!firsts.length) {
+          searchCount.textContent = `nobody in your circle has said "${query}" — yet.`;
+          return;
+        }
+        searchCount.textContent =
+          `${firsts.length} moot${firsts.length === 1 ? "" : "s"} have said "${query}" — ` +
+          `${totalMatches} time${totalMatches === 1 ? "" : "s"} total. earliest per person, oldest first:`;
+        firsts.forEach((p, i) => {
+          searchFeed.appendChild(postEl(p, { query, badge: i === 0 ? "first in your circle" : null }));
+        });
+      }
+
+      searchForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        runSearch(searchInput.value);
+      });
+      clearSearchBtn.addEventListener("click", () => {
+        searchInput.value = "";
+        searchFeed.innerHTML = "";
+        searchResults.classList.add("hidden");
       });
 
       function buildShareText(stats) {
@@ -300,6 +368,9 @@
         allPosts = [];
         shown = 0;
         feedEl.innerHTML = "";
+        searchInput.value = "";
+        searchFeed.innerHTML = "";
+        searchResults.classList.add("hidden");
         handleInput.value = "";
         showScreen("gate");
         handleInput.focus();
