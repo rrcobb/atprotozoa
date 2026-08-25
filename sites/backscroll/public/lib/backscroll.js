@@ -1,19 +1,33 @@
-// backscroll.js — walk every moot's entire app.bsky.feed.getAuthorFeed back
-// to its last page (the oldest posts the AppView still serves for them), and
-// merge everybody's history into one chronological scroll starting at the
-// very beginning. Everything here reads Bluesky's PUBLIC AppView anonymously
-// (api.bsky.app, CORS *, no auth) — same as sites/mootpocalypse/public/lib/moots.js
-// and sites/feedwalk/public/lib/follows.js. No OAuth needed: a mutual-follow
-// graph and everyone's posts are public data.
+// backscroll.js — for every moot, download their ENTIRE repo in one shot
+// (com.atproto.sync.getRepo, see lib/car.js) and pull out every
+// app.bsky.feed.post record, then merge everybody's history into one
+// chronological scroll starting at the very beginning. The mutual-follow
+// graph still comes from Bluesky's PUBLIC AppView anonymously (api.bsky.app,
+// CORS *, no auth) — same as sites/mootpocalypse/public/lib/moots.js and
+// sites/feedwalk/public/lib/follows.js — but a moot's post history is read
+// straight from their own PDS instead of paginating
+// app.bsky.feed.getAuthorFeed a page at a time. No OAuth needed: a
+// mutual-follow graph, a repo, and everyone's posts are all public data.
+//
+// Changed 2026-08-25 at @cee.wtf's request ("stop using paginated listrecord
+// calls... stop being afraid of just loading a ton of data"): the old
+// version walked getAuthorFeed with a cursor, capped at PAGE_CAP pages per
+// moot. A repo download gets a moot's whole history in one request, so that
+// cap is gone for the common case — it only survives as a fallback for a
+// moot whose repo can't be downloaded (huge PDS-side repo, non-CORS PDS,
+// malformed CAR), where the old paginated walk still applies.
+
+import { fetchRepoRecordsWithKeys } from "./car.js";
+import { resolvePds } from "./identity.js";
 
 const PUB = "https://api.bsky.app/xrpc";
 
-// A full walk-to-the-end is one request per ~100 posts, per moot — cap both
-// dimensions so a handle with a huge pool or a moot with a huge archive can't
-// turn one page load into thousands of requests. Both caps are surfaced in
-// the UI (truncated flags) rather than silently dropped.
-export const POOL_CAP = 25; // at most this many moots get walked
-const PAGE_CAP = 30; // at most this many pages (~3000 posts) per moot
+// The moot POOL is the one dimension we still cap deliberately: someone with
+// thousands of mutuals could otherwise turn one page load into thousands of
+// full-repo downloads. The cap is surfaced in the UI (poolTruncated) rather
+// than silently dropped.
+export const POOL_CAP = 1000; // at most this many moots get walked
+const PAGE_CAP = 30; // fallback-only: pages of the paginated feed walk, if a moot's repo download fails
 const CONCURRENCY = 4; // simultaneous moots being walked
 
 async function jget(url) {
@@ -24,6 +38,52 @@ async function jget(url) {
     throw e;
   }
   return r.json();
+}
+
+// Blob-ref-to-CDN-URL, for images pulled off a raw repo record (a CAR record's
+// image.ref is CID bytes with a leading 0x00 identity-multibase byte, not the
+// resolved thumb URL an AppView-hydrated feed item would carry). Copied from
+// sites/activitygrid/public/index.html, which worked this out first.
+const B32_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
+function base32Encode(bytes) {
+  let bits = 0, value = 0, out = "";
+  for (let i = 0; i < bytes.length; i++) {
+    value = (value << 8) | bytes[i];
+    bits += 8;
+    while (bits >= 5) {
+      out += B32_ALPHABET[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += B32_ALPHABET[(value << (5 - bits)) & 31];
+  return out;
+}
+function cidBytesToString(bytes) {
+  const raw = bytes[0] === 0 ? bytes.subarray(1) : bytes;
+  return "b" + base32Encode(raw);
+}
+function blobThumbUrl(did, refBytes) {
+  if (!(refBytes instanceof Uint8Array)) return null;
+  return `https://cdn.bsky.app/img/feed_thumbnail/plain/${did}/${cidBytesToString(refBytes)}@jpeg`;
+}
+
+// Pulls image blobs out of a raw record's embed, however it's shaped: a
+// plain app.bsky.embed.images, or images riding along as the media half of a
+// recordWithMedia (a quote post with attached photos).
+function imagesFromEmbed(did, embed) {
+  if (!embed) return [];
+  let imagesEmbed = null;
+  if (embed.$type === "app.bsky.embed.images") imagesEmbed = embed;
+  else if (embed.$type === "app.bsky.embed.recordWithMedia" && embed.media?.$type === "app.bsky.embed.images") {
+    imagesEmbed = embed.media;
+  }
+  if (!imagesEmbed || !Array.isArray(imagesEmbed.images)) return [];
+  return imagesEmbed.images
+    .map((im) => {
+      const thumb = blobThumbUrl(did, im.image?.ref);
+      return thumb ? { thumb, alt: im.alt || "" } : null;
+    })
+    .filter(Boolean);
 }
 
 export async function resolveDid(actor) {
@@ -136,10 +196,54 @@ function postOf(profile, item) {
   };
 }
 
-// Walk one moot's author feed all the way to the end (oldest page the
-// AppView still serves), or PAGE_CAP pages, whichever comes first. Returns
-// posts oldest-first.
-async function walkOne(profile, { onPage } = {}) {
+// One post as read straight off a raw repo record (app.bsky.feed.post) —
+// same shape as postOf() above, minus the profile/reason fields a hydrated
+// AppView feed item carries that a raw record doesn't. Reposts never show up
+// here in the first place: they're a distinct collection
+// (app.bsky.feed.repost), so there's no `reason` field to filter on.
+function postOfRecord(profile, uri, rec) {
+  const text = rec.text || "";
+  const images = imagesFromEmbed(profile.did, rec.embed);
+  if (!text.trim() && !images.length) return null;
+  return {
+    uri,
+    did: profile.did,
+    handle: profile.handle,
+    displayName: profile.displayName,
+    avatar: profile.avatar,
+    text,
+    images,
+    isReply: !!rec.reply,
+    createdAt: rec.createdAt || "",
+  };
+}
+
+// Primary path: download the moot's whole repo as one CAR and pull every
+// app.bsky.feed.post record out of it — one request gets their entire
+// history, not just however many pages PAGE_CAP allows. Throws (network
+// error, no PDS found, oversize/malformed CAR) so the caller can fall back
+// to walkOneViaFeed.
+async function walkOneViaRepo(profile, { onPage } = {}) {
+  const pds = await resolvePds(profile.did);
+  if (!pds) throw new Error(`no PDS found for ${profile.handle}`);
+  const { records } = await fetchRepoRecordsWithKeys(pds, profile.did, "app.bsky.feed.post");
+  if (onPage) onPage();
+  const out = [];
+  for (const { uri, value } of records) {
+    const post = postOfRecord(profile, uri, value);
+    if (post) out.push(post);
+  }
+  // MST in-order walk yields ascending rkey order, which for TID-keyed posts
+  // is already oldest→newest — but sort explicitly rather than trust that a
+  // record's rkey timestamp always agrees with its own createdAt field.
+  out.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+  return { posts: out, truncated: false };
+}
+
+// Fallback path (repo download failed): walk one moot's author feed via the
+// AppView, all the way to the end (oldest page it still serves) or PAGE_CAP
+// pages, whichever comes first. Returns posts oldest-first.
+async function walkOneViaFeed(profile, { onPage } = {}) {
   const out = [];
   let cursor = "";
   let truncated = false;
@@ -167,6 +271,16 @@ async function walkOne(profile, { onPage } = {}) {
   }
   out.reverse();
   return { posts: out, truncated: true };
+}
+
+// Walk one moot's whole post history: try the one-shot repo download first,
+// fall back to the paginated feed walk only if that fails.
+async function walkOne(profile, { onPage } = {}) {
+  try {
+    return await walkOneViaRepo(profile, { onPage });
+  } catch {
+    return await walkOneViaFeed(profile, { onPage });
+  }
 }
 
 // Walk every moot in `pool` (capped to POOL_CAP), CONCURRENCY at a time,

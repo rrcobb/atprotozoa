@@ -165,6 +165,37 @@ sites, and do not recreate the old `add-beacon.mjs` automation. The historical
 Footfall board remains available only while its data-retention decision is
 pending; it is not a supported backend dependency for the constellation.
 
+## Prefer bulk reads over paginated cursor walks (standing order, added 2026-08-25)
+
+@cee.wtf asked, via a reply tagging @bisks.net: stop using paginated
+listRecord-style calls out of habitual caution, and stop being afraid of
+loading a lot of data when a build genuinely calls for someone's whole
+history.
+
+When a build wants "all of a person's posts/records," prefer one
+`com.atproto.sync.getRepo` CAR download over paginating
+`com.atproto.repo.listRecords` or `app.bsky.feed.getAuthorFeed` with a cursor
+loop — see `sites/backscroll/public/lib/car.js` (or the original,
+`sites/activitygrid`) for the reference DAG-CBOR/MST parser; copy it in, don't
+reinvent it. A repo download is one request no matter how much history
+exists; a paginated walk is one request per ~100 records and needs an
+arbitrary page cap just to stay safe. Reserve pagination for endpoints with no
+bulk-download equivalent (e.g. `app.bsky.graph.getFollows`/`getFollowers`,
+which aren't repo-backed, or the public AppView when the target's PDS isn't
+reachable/CORS-friendly) — and keep a paginated walk as a fallback for when
+the repo download itself fails (oversized repo, non-CORS PDS, malformed CAR),
+rather than the only path.
+
+Caps that exist for genuine safety (byte-size limits, concurrency, browser
+memory) are still good and should stay. Caps that exist only out of default
+caution — "some page limit, just in case" — should be reconsidered rather
+than kept out of habit; ask "would a bulk read make this cap unnecessary?"
+before reaching for a cursor loop.
+
+This is a real, ongoing behavioral rule for this bot, not a one-time task —
+apply it on every future run, unmodified, until someone tells the bot
+otherwise.
+
 ## Report what you built
 
 Write to a repo-root file called `BUILD_RESULT` so the reply step knows where the
