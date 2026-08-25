@@ -88,41 +88,42 @@ export class SandSim {
     }
   }
 
-  // Poke the pile at (cx,cy): grains within `radius` get shoved outward by
-  // one cell, swapping with whatever they land on. A cheap "stir" so the
-  // toy feels physical, not just a settle-and-forget dump.
-  disturb(cx, cy, radius) {
+  // Plow the pile at (cx,cy) in direction (dirx,diry) — a real shove, not a
+  // jitter. Every occupied cell within `radius` gets driven up to `dist`
+  // cells along the drag direction, walking one cell at a time and stopping
+  // the instant it hits a wall or another (still-unmoved) grain. Cells
+  // closest to the leading edge of the push are moved first so trailing
+  // grains can flow into the space just vacated ahead of them, which is what
+  // makes it read as a plow carving a trench instead of grains teleporting.
+  push(cx, cy, radius, dirx, diry, dist) {
     const r2 = radius * radius;
     const x0 = Math.max(0, Math.floor(cx - radius));
     const x1 = Math.min(this.cols - 1, Math.ceil(cx + radius));
     const y0 = Math.max(0, Math.floor(cy - radius));
     const y1 = Math.min(this.rows - 1, Math.ceil(cy + radius));
+    const cells = [];
     for (let y = y0; y <= y1; y++) {
       for (let x = x0; x <= x1; x++) {
         const ddx = x - cx, ddy = y - cy;
-        const d2 = ddx * ddx + ddy * ddy;
-        if (d2 > r2 || d2 < 0.25) continue;
-        const i = this.idx(x, y);
-        if (!this.occupied[i]) continue;
-        if (Math.random() > 0.5) continue;
-        const d = Math.sqrt(d2) || 1;
-        const tx = x + Math.round((ddx / d) * (Math.random() < 0.7 ? 1 : 2));
-        const ty = y + Math.round((ddy / d) * (Math.random() < 0.7 ? 1 : 2));
-        if (!this.inBounds(tx, ty)) continue;
-        const j = this.idx(tx, ty);
-        if (i === j) continue;
-        if (!this.occupied[j]) {
-          this.move(i, j);
-        } else {
-          // swap
-          const r = this.color[i * 3], g = this.color[i * 3 + 1], b = this.color[i * 3 + 2];
-          this.color[i * 3] = this.color[j * 3];
-          this.color[i * 3 + 1] = this.color[j * 3 + 1];
-          this.color[i * 3 + 2] = this.color[j * 3 + 2];
-          this.color[j * 3] = r;
-          this.color[j * 3 + 1] = g;
-          this.color[j * 3 + 2] = b;
-        }
+        if (ddx * ddx + ddy * ddy > r2) continue;
+        if (!this.occupied[this.idx(x, y)]) continue;
+        cells.push([x * dirx + y * diry, x, y]);
+      }
+    }
+    // leading edge (furthest along the push direction) moves first so
+    // trailing grains can flow into the space it just vacated.
+    cells.sort((a, b) => b[0] - a[0]);
+    for (const [, x, y] of cells) {
+      let gx = x, gy = y, fx = x, fy = y;
+      for (let step = 0; step < dist; step++) {
+        fx += dirx;
+        fy += diry;
+        const nx = Math.round(fx), ny = Math.round(fy);
+        if (nx === gx && ny === gy) continue;
+        if (!this.inBounds(nx, ny) || !this.isEmpty(nx, ny)) break;
+        this.move(this.idx(gx, gy), this.idx(nx, ny));
+        gx = nx;
+        gy = ny;
       }
     }
   }

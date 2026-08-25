@@ -275,24 +275,61 @@ function processFeed() {
   }
 }
 
-// ---- stirring the pile -----------------------------------------------------
+// ---- plowing the pile ------------------------------------------------------
+// Dragging across the bin should feel like shoving a finger through actual
+// sand: fast drags carve a wide trench and throw grains ahead of the motion,
+// slow ones nudge a small patch. So every pointermove measures how far the
+// pointer moved (in grid cells) since the last event and drives that much
+// real displacement — see SandSim.push — rather than a fixed, direction-less
+// jitter.
 
 let stirring = false;
+let lastGrid = null;
+
 els.bin.addEventListener("pointerdown", (e) => {
   stirring = true;
   els.bin.setPointerCapture(e.pointerId);
-  doStir(e);
+  const g = toGrid(e);
+  lastGrid = g;
+  sim.push(g.x, g.y, 5, 0, -1, 2); // a bare click still digs a little dimple
 });
 els.bin.addEventListener("pointermove", (e) => {
-  if (stirring) doStir(e);
+  if (!stirring) return;
+  const g = toGrid(e);
+  plowTo(g);
+  lastGrid = g;
 });
-window.addEventListener("pointerup", () => (stirring = false));
+window.addEventListener("pointerup", () => {
+  stirring = false;
+  lastGrid = null;
+});
 
-function doStir(e) {
+function toGrid(e) {
   const r = els.bin.getBoundingClientRect();
-  const gx = ((e.clientX - r.left) / r.width) * BIN_COLS;
-  const gy = ((e.clientY - r.top) / r.height) * BIN_ROWS;
-  sim.disturb(gx, gy, 7);
+  return {
+    x: ((e.clientX - r.left) / r.width) * BIN_COLS,
+    y: ((e.clientY - r.top) / r.height) * BIN_ROWS,
+  };
+}
+
+function plowTo(g) {
+  if (!lastGrid) return;
+  const dx = g.x - lastGrid.x, dy = g.y - lastGrid.y;
+  const speed = Math.sqrt(dx * dx + dy * dy);
+  if (speed < 0.05) return;
+  const dirx = dx / speed, diry = dy / speed;
+  // faster drags dig a wider, deeper trench, up to a cap so a wild swipe
+  // doesn't vaporize the whole pile in one frame.
+  const radius = Math.min(13, 4.5 + speed * 0.7);
+  const dist = Math.min(10, Math.max(2, Math.round(speed * 1.3)));
+  // sample the segment from the last point to this one so a fast move (which
+  // can jump several grid cells between pointermove events) still plows a
+  // continuous line instead of stamping isolated blobs.
+  const steps = Math.max(1, Math.ceil(speed / (radius * 0.6)));
+  for (let s = 1; s <= steps; s++) {
+    const t = s / steps;
+    sim.push(lastGrid.x + dx * t, lastGrid.y + dy * t, radius, dirx, diry, dist);
+  }
 }
 
 // ---- reset / download / share --------------------------------------------
