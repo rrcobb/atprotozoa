@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>the atlas — kolpelor</title>
+<meta name="description" content="every trainer with a synced kolpelor roster, found live across the whole network — not just your own moots." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="the atlas — kolpelor" />
+<meta property="og:description" content="every trainer with a synced roster, found live across the network via listReposByCollection — party size, gymnasion record, and homeland, not just your own moots' tracks." />
+<meta property="og:url" content="https://kolpelor.bisks.net/atlas" />
+<meta property="og:image" content="https://kolpelor.bisks.net/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="the atlas — kolpelor" />
+<meta name="twitter:description" content="every trainer on the network, found live — not just your own moots." />
+<meta name="twitter:image" content="https://kolpelor.bisks.net/og.png" />
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.85em%22 font-size=%2290%22>🐍</text></svg>" />
+<style>
+  @font-face {
+    font-family: "JetBrains Mono";
+    src: url("/fonts/JetBrainsMono.ttf") format("truetype");
+    font-weight: 400 800;
+  }
+  :root {
+    --bg: #120e1a;
+    --bg2: #1a1424;
+    --fg: #f3ecf7;
+    --dim: #a696b8;
+    --card: #1e1729;
+    --border: #382c47;
+    --gold: #ffd24e;
+    --purple: #c084fc;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(60% 40% at 15% -5%, #2a1a3a 0%, transparent 60%),
+                radial-gradient(50% 35% at 100% 0%, #1a2a3a 0%, transparent 55%),
+                var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+  a { color: var(--purple); }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 32px 16px 80px; }
+  header.top { text-align: center; margin-bottom: 20px; }
+  header.top h1 { margin: 0 0 6px; font-size: 1.7rem; }
+  header.top .back { display: inline-block; margin-bottom: 12px; font-size: 0.85rem; color: var(--dim); }
+  header.top .tagline { color: var(--dim); font-size: 0.92rem; max-width: 620px; margin: 0 auto; }
+  .status { color: var(--dim); font-size: 0.85rem; text-align: center; margin: 14px 0; }
+  .status .err { color: #ff8f8f; }
+  .region-tally { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 20px; }
+  .region-chip { border: 1px solid var(--border); background: var(--card); border-radius: 999px; padding: 5px 12px; font-size: 0.82rem; color: var(--dim); }
+  .region-chip b { color: var(--fg); }
+  .roster-list { display: flex; flex-direction: column; gap: 8px; }
+  .trainer-row {
+    display: grid;
+    grid-template-columns: 40px 1fr auto;
+    align-items: center;
+    gap: 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px 14px;
+  }
+  .trainer-row .avatar {
+    width: 36px; height: 36px; border-radius: 50%; object-fit: cover;
+    background: var(--bg2); display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem; border: 1px solid var(--border);
+  }
+  .trainer-row .who { min-width: 0; }
+  .trainer-row .handle { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .trainer-row .handle a { color: var(--fg); text-decoration: none; }
+  .trainer-row .handle a:hover { color: var(--purple); }
+  .trainer-row .meta { color: var(--dim); font-size: 0.78rem; }
+  .trainer-row .stats { text-align: right; font-size: 0.82rem; white-space: nowrap; }
+  .trainer-row .stats .wl { color: var(--fg); }
+  .trainer-row .stats .region { color: var(--dim); }
+  .aristos-badge { color: var(--gold); }
+  .empty { text-align: center; color: var(--dim); padding: 30px 0; }
+  footer.site-foot { text-align: center; color: var(--dim); font-size: 0.78rem; margin-top: 30px; }
+  footer.site-foot a { color: var(--purple); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="back" href="/">← back to kolpelor</a>
+    <h1>Ὁ χάρτης τοῦ κόσμου — the atlas</h1>
+    <p class="tagline">Every trainer who's ever signed in and synced a roster, found live across the whole network via <code>listReposByCollection</code> — not just your own SimCluster's moots, the way the Wilds panel's Ἴχνη scan is. No directory database: this is exactly what's already in everyone's own PDS.</p>
+  </header>
+
+  <p class="status" id="atlasStatus">scanning the network for trainers…</p>
+  <div class="region-tally" id="regionTally"></div>
+  <div class="roster-list" id="rosterList"></div>
+
+  <footer class="site-foot">
+    <a href="https://kolpelor.bisks.net">kolpelor</a> · part of <a href="https://bisks.net">atprotozoa</a>
+  </footer>
+</div>
+
+<script type="module">
+  import { GlobalIndex } from "/lib/global-index.js";
+  import { REGIONS } from "/lib/pelora.js";
+
+  const esc = (s) =>
+    String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  const regionById = new Map(REGIONS.map((r) => [r.id, r]));
+  const statusEl = document.getElementById("atlasStatus");
+  const tallyEl = document.getElementById("regionTally");
+  const listEl = document.getElementById("rosterList");
+
+  function regionLabel(id) {
+    const r = regionById.get(id);
+    return r ? `${r.emoji} ${r.name}` : "unmapped";
+  }
+
+  function row(t) {
+    const avatar = t.partyAvatar
+      ? `<img class="avatar" src="${esc(t.partyAvatar)}" alt="" loading="lazy" />`
+      : `<div class="avatar">🐍</div>`;
+    const aristos = t.aristos ? ` <span class="aristos-badge" title="cleared the full gymnasion ladder">★ ἀριστεύε</span>` : "";
+    return `
+      <div class="trainer-row">
+        ${avatar}
+        <div class="who">
+          <div class="handle"><a href="https://bsky.app/profile/${esc(t.handle)}" target="_blank" rel="noopener">@${esc(t.handle)}</a>${aristos}</div>
+          <div class="meta">${t.partySize} bound · ${t.gold} χρυσός</div>
+        </div>
+        <div class="stats">
+          <div class="wl">${t.wins}W–${t.losses}L · rank ${t.ladderRank}</div>
+          <div class="region">${t.region ? regionLabel(t.region) : "unseen in the field"}</div>
+        </div>
+      </div>`;
+  }
+
+  function render(snap) {
+    const errPart = snap.error ? ` · <span class="err">${esc(snap.error)}</span>` : "";
+    statusEl.innerHTML = snap.backfillDone
+      ? `${snap.trainerCount} trainer${snap.trainerCount === 1 ? "" : "s"} found · ${snap.connected ? "watching live" : "reconnecting…"}${errPart}`
+      : `scanning the network for trainers… ${snap.trainerCount} found so far${errPart}`;
+
+    const counts = new Map();
+    for (const t of snap.trainers) {
+      if (!t.region) continue;
+      counts.set(t.region, (counts.get(t.region) || 0) + 1);
+    }
+    tallyEl.innerHTML = REGIONS.map((r) => {
+      const n = counts.get(r.id) || 0;
+      return `<span class="region-chip">${r.emoji} ${esc(r.name)} <b>${n}</b></span>`;
+    }).join("");
+
+    listEl.innerHTML = snap.trainers.length
+      ? snap.trainers.map(row).join("")
+      : `<p class="empty">no trainers found yet — <a href="/">be the first to sign in and bind a party</a>.</p>`;
+  }
+
+  const index = new GlobalIndex({ onUpdate: render });
+  index.start();
+</script>
+</body>
+</html>

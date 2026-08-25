@@ -28,7 +28,7 @@ TXT record so NSIDs actually resolve — needs a human with Cloudflare dashboard
 access, not something the builder can do from the repo.
 
 **3. Aggregate views via `listReposByCollection`.** (`pds-and-lexicons.md`)
-Find every repo holding a given collection. **Done for eight sites so far:**
+Find every repo holding a given collection. **Done for nine sites so far:**
 steamtags (the reference implementation, `global-index.js`), memex, verdict's
 `/crowd` (as of 2026-08-18, aggregating every judgment on the network into a
 good/bad split, a kindest/harshest judge leaderboard, and the posts people
@@ -50,9 +50,13 @@ a daily-slot pass — its snapshot rkey is a PDS-assigned TID rather than a
 deterministic id, so its `global-index.js` pages a candidate's whole snapshot
 collection via `listRecords` and filters locally, closer to steamtags' shape
 than quadrants'; opening `/d/<id>` now lists every snapshot anyone's
-published of that doc). Still one-repo-only: alice-meets-bob, clusterpedia,
-duohaunt, griftmax, hyperobject, kolpelor, padmoot, postwith, socialcredit,
-velvetrope, war. (keytags is a deliberate exception, not a gap — its records
+published of that doc), and kolpelor (2026-08-25, a daily-slot pass — its
+`/atlas` page is the singleton-"self"-record shape, closer to catspace's
+`/directory` than docmoot's; it's the network-wide counterpart to the
+existing Ἴχνη panel, which only ever scanned the signed-in player's own
+SimCluster). Still one-repo-only: alice-meets-bob, clusterpedia, duohaunt,
+griftmax, hyperobject, padmoot, postwith, socialcredit, velvetrope, war.
+(keytags is a deliberate exception, not a gap — its records
 are opaque hashes unless you hold the key, so there's nothing an aggregate
 view could meaningfully show.)
 
@@ -224,12 +228,13 @@ a page isn't.
 ## If picking one thing
 
 Cheapest real win: **the lexicon work (1–3)**. Steps 1–2 are documentation of
-what already exists; step 3 (the aggregate views) is now live for eight sites
+what already exists; step 3 (the aggregate views) is now live for nine sites
 and has become a small, reusable `global-index.js` recipe (backfill via
 `listReposByCollection` + a live Jetstream feed) that any of the remaining
-one-repo-only lexicon sites could pick up next. kolpelor is the obvious next
-target — it already has two collections (roster + trade) and an existing
-"Ἴχνη" panel built around reading moots' records, just not network-wide yet.
+one-repo-only lexicon sites could pick up next. Every remaining one is
+`key: "tid"` or `key: "any"` (multi-record-per-repo, checked 2026-08-25) — a
+paged `listRecords` scan filtered client-side, closer to docmoot's shape than
+catspace/kolpelor's singleton-"self" one.
 
 Most fun for the effort: **one hand-built feed generator (5)**. Small, and it
 puts the project inside the Bluesky app instead of behind a link.
