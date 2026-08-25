@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>footnoted — the ablation post, explained</title>
+    <meta
+      name="description"
+      content="One jargon-dense Bluesky post about ablating a diffusion-transformer recipe, reproduced with every term underlined and footnoted: what it means, and a real paper or page to read next."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="footnoted — the ablation post, explained" />
+    <meta
+      property="og:description"
+      content="Underlines and arrows pointing from a jargon-dense ML post to plain-English footnotes, each with a link to the actual paper."
+    />
+    <meta property="og:url" content="https://footnoted.bisks.net/" />
+    <meta property="og:image" content="https://footnoted.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="footnoted — the ablation post, explained" />
+    <meta
+      name="twitter:description"
+      content="Underlines and arrows pointing from a jargon-dense ML post to plain-English footnotes, each with a link to the actual paper."
+    />
+    <meta name="twitter:image" content="https://footnoted.bisks.net/og.png" />
+
+    <style>
+      :root {
+        --bg: #fbfaf7;
+        --ink: #171512;
+        --muted: #6b6558;
+        --faint: #e6e0d4;
+        --accent: #a8390f;
+        --accent-soft: #c9754f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+        --serif: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino,
+          "Times New Roman", serif;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 1080px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      header h1 {
+        font-size: 1.5rem; margin: 0 0 0.4rem; font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      header p.sub { color: var(--muted); margin: 0 0 1.1rem; font-size: 0.9rem; max-width: 62ch; }
+      header .meta {
+        color: var(--muted); font-size: 0.78rem; margin: 0 0 2.25rem;
+        border-top: 1px solid var(--faint); border-bottom: 1px solid var(--faint);
+        padding: 0.85rem 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem;
+      }
+      header .meta a { color: var(--accent); text-decoration: none; }
+      header .meta a:hover { text-decoration: underline; }
+
+      .byline {
+        font-size: 0.82rem; color: var(--muted); margin: 0 0 2rem;
+        padding: 0.9rem 1rem; border: 1px dashed var(--faint); border-radius: 6px;
+        background: #fff;
+      }
+      .byline strong { color: var(--ink); }
+
+      .stage {
+        position: relative;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0 3.5rem;
+        align-items: start;
+      }
+      #arrows {
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        pointer-events: none; overflow: visible;
+      }
+      #arrows path {
+        fill: none; stroke: var(--accent-soft); stroke-width: 1.4;
+        opacity: 0.28; transition: opacity 0.15s ease, stroke-width 0.15s ease;
+      }
+      #arrows path.active { opacity: 1; stroke: var(--accent); stroke-width: 2.1; }
+
+      .post {
+        font-family: var(--serif); font-size: 1.18rem; line-height: 1.75;
+        background: #fff; border: 1px solid var(--faint); border-radius: 10px;
+        padding: 1.6rem 1.75rem; position: relative; z-index: 1;
+      }
+      .post .handle {
+        display: block; font-family: var(--mono); font-size: 0.78rem;
+        color: var(--muted); margin-bottom: 0.9rem;
+      }
+      .post .handle .h { color: var(--ink); font-weight: 700; }
+      .post p { margin: 0 0 1.1rem; }
+      .post p:last-child { margin-bottom: 0; }
+
+      .term {
+        font: inherit; background: none; border: none; padding: 0; margin: 0;
+        color: var(--ink); cursor: pointer;
+        text-decoration: underline; text-decoration-style: dotted;
+        text-decoration-color: var(--accent-soft); text-decoration-thickness: 1.5px;
+        text-underline-offset: 3px;
+      }
+      .term:hover, .term:focus-visible, .term.active {
+        background: #fceee4; text-decoration-style: solid; color: var(--accent);
+        outline: none; border-radius: 2px;
+      }
+      .term sup { font-family: var(--mono); font-size: 0.68em; color: var(--accent); margin-left: 1px; }
+
+      .notes { list-style: none; margin: 0; padding: 0; position: relative; z-index: 1; }
+      .note {
+        background: #fff; border: 1px solid var(--faint); border-radius: 8px;
+        padding: 0.9rem 1rem; margin-bottom: 0.85rem; scroll-margin-top: 1rem;
+      }
+      .note.active { border-color: var(--accent-soft); box-shadow: 0 0 0 2px #f4dccb inset; }
+      .note h3 {
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+        color: var(--muted); margin: 0 0 0.35rem; font-weight: 600;
+        display: flex; align-items: baseline; gap: 0.4rem;
+      }
+      .note h3 .idx { color: var(--accent); font-family: var(--mono); }
+      .note h3 .term-name { color: var(--ink); text-transform: none; letter-spacing: 0; font-size: 0.92rem; }
+      .note p { margin: 0 0 0.6rem; color: var(--ink); font-size: 0.88rem; line-height: 1.6; }
+      .note ul.links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+      .note ul.links a {
+        color: var(--accent); text-decoration: none; font-size: 0.8rem;
+        border-bottom: 1px solid transparent;
+      }
+      .note ul.links a:hover { border-bottom-color: var(--accent); }
+      .note ul.links a::before { content: "→ "; color: var(--accent-soft); }
+
+      @media (max-width: 860px) {
+        #arrows { display: none; }
+        .stage { grid-template-columns: 1fr; gap: 2rem; }
+        .post { font-size: 1.05rem; }
+      }
+
+      section.footer-note {
+        margin-top: 3rem; padding-top: 1.25rem; border-top: 1px solid var(--faint);
+        font-size: 0.8rem; color: var(--muted);
+      }
+      section.footer-note p { max-width: 68ch; }
+
+      .share {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        margin-top: 0.75rem; padding: 0.55rem 0.9rem; border-radius: 6px;
+        background: var(--accent); color: #fff; text-decoration: none;
+        font-size: 0.82rem; font-weight: 600;
+      }
+      .share:hover { background: #8c2f0d; }
+
+      footer.site {
+        margin-top: 3rem; font-size: 0.72rem; color: var(--muted);
+      }
+      footer.site a { color: var(--accent); text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>footnoted</h1>
+        <p class="sub">
+          One post, underlined term by term, each one pointing to a plain-English
+          footnote with a real paper or page behind it. First entry: the ablation
+          post that started this thread.
+        </p>
+        <div class="meta">
+          <span>requested by <a href="https://bsky.app/profile/shimmermathlabs.com" target="_blank" rel="noopener">@shimmermathlabs.com</a></span>
+          <span>post by <a href="https://bsky.app/profile/theophite.bsky.social" target="_blank" rel="noopener">@theophite.bsky.social</a></span>
+          <span>built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a></span>
+        </div>
+      </header>
+
+      <p class="byline">
+        <strong>A note on the byline:</strong> the ask named "Rev. Howard Arson" as
+        the post's author. Nobody in the actual thread goes by that — so consider
+        him the fictional, overcredentialed exegete narrating these footnotes
+        (doctorate unverified, opinions confident), while the post itself is
+        reproduced exactly as <a href="https://bsky.app/profile/theophite.bsky.social" target="_blank" rel="noopener">@theophite.bsky.social</a>
+        actually wrote it.
+      </p>
+
+      <div class="stage" id="stage">
+        <svg id="arrows"></svg>
+
+        <article class="post" id="post">
+          <span class="handle"><span class="h">@theophite.bsky.social</span> · replying to a thread about diffusion models</span>
+          <p id="postA">
+            one thing that i've been doing is literally running an
+            <button class="term" data-note="ablation" id="term-ablation">ablation study<sup>1</sup></button>
+            before doing literally anything and i have learned more about
+            <button class="term" data-note="dit" id="term-dit">diffusion transformers<sup>2</sup></button>
+            as an architecture than my total knowledge of all
+            <button class="term" data-note="transformer" id="term-transformer">transformers<sup>3</sup></button>
+            two months ago
+          </p>
+          <p id="postB">
+            i'm using basically the
+            <button class="term" data-note="hybvit" id="term-hybvit">HybViT (Yang et al.)<sup>4</sup></button>
+            training recipe with (i think, although i haven't checked) the
+            <button class="term" data-note="mlp" id="term-mlp">MLPs<sup>5</sup></button>
+            swapped for
+            <button class="term" data-note="swiglu" id="term-swiglu">SwiGLUs<sup>6</sup></button>
+            for my
+            <button class="term" data-note="cifar" id="term-cifar">CIFAR-10<sup>7</sup></button>
+            ablations. i'm using
+            <button class="term" data-note="krea" id="term-krea">Krea 2<sup>8</sup></button>
+            as my big testbed, but that's multiday. i can experiment with packing the big
+            <button class="term" data-note="shampoo" id="term-shampoo">Shampoo<sup>9</sup></button>
+            <button class="term" data-note="gram" id="term-gram">Gram matrices<sup>10</sup></button>
+            on CIFAR like hourly.
+          </p>
+        </article>
+
+        <ol class="notes" id="notes">
+          <li class="note" id="note-ablation">
+            <h3><span class="idx">1</span><span class="term-name">ablation study</span></h3>
+            <p>Turn one thing off — or swap it out — and rerun, so any change in behavior is attributable to that one thing and not vibes. In ML this usually means retraining a small, cheap version of a model with one component removed or substituted, purely to isolate what that piece actually contributes.</p>
+            <ul class="links">
+              <li><a href="https://en.wikipedia.org/wiki/Ablation_(artificial_intelligence)" target="_blank" rel="noopener">Wikipedia: Ablation (artificial intelligence)</a></li>
+            </ul>
+          </li>
+          <li class="note" id="note-dit">
+            <h3><span class="idx">2</span><span class="term-name">diffusion transformers</span></h3>
+            <p>A diffusion model — one trained to reverse a step-by-step noising process, turning static back into an image — that uses a Transformer as the network doing the noise-predicting, instead of the convolutional U-Nets earlier diffusion models used.</p>
+            <ul class="links">
+              <li><a href="https://arxiv.org/abs/2212.09748" target="_blank" rel="noopener">"Scalable Diffusion Models with Transformers" (Peebles & Xie, 2022) — the DiT paper</a></li>
+              <li><a href="https://en.wikipedia.org/wiki/Diffusion_model" target="_blank" rel="noopener">Wikipedia: Diffusion model</a></li>
+            </ul>
+          </li>
+          <li class="note" id="note-transformer">
+            <h3><span class="idx">3</span><span class="term-name">transformers</span></h3>
+            <p>The architecture behind basically everything since 2018: instead of reading a sequence step by step, self-attention lets every token (or image patch) look at every other one at once and learn which ones matter to it.</p>
+            <ul class="links">
+              <li><a href="https://arxiv.org/abs/1706.03762" target="_blank" rel="noopener">"Attention Is All You Need" (Vaswani et al., 2017)</a></li>
+            </ul>
+          </li>
+          <li class="note" id="note-hybvit">
+            <h3><span class="idx">4</span><span class="term-name">HybViT (Yang et al.)</span></h3>
+            <p>A recipe for training one Vision Transformer to do double duty: classify images <em>and</em> generate them through diffusion, sharing a single backbone instead of training two separate networks for the two jobs.</p>
+            <ul class="links">
+              <li><a href="https://arxiv.org/abs/2208.07791" target="_blank" rel="noopener">"Your ViT is Secretly a Hybrid Discriminative-Generative Diffusion Model" (Yang et al., 2022)</a></li>
+              <li><a href="https://arxiv.org/abs/2010.11929" target="_blank" rel="noopener">"An Image is Worth 16x16 Words" (Dosovitskiy et al., 2020) — the original ViT paper</a></li>
+            </ul>
+          </li>
+          <li class="note" id="note-mlp">
+            <h3><span class="idx">5</span><span class="term-name">MLPs</span></h3>
+            <p>Multi-Layer Perceptrons — the plain feedforward block inside a Transformer layer (two linear layers with a nonlinearity between them) that processes each token on its own, right after attention has let tokens compare notes with each other.</p>
+            <ul class="links">
+              <li><a href="https://en.wikipedia.org/wiki/Multilayer_perceptron" target="_blank" rel="noopener">Wikipedia: Multilayer perceptron</a></li>
+            </ul>
+          </li>
+          <li class="note" id="note-swiglu">
+            <h3><span class="idx">6</span><span class="term-name">SwiGLUs</span></h3>
+            <p>A drop-in replacement for that plain MLP block: it gates one linear projection through a Swish activation and multiplies it elementwise against a second projection, instead of a single activation sandwiched in the middle. Slightly more compute per layer, usually a better loss for the same parameter count.</p>
+            <ul class="links">
+              <li><a href="https://arxiv.org/abs/2002.05202" target="_blank" rel="noopener">"GLU Variants Improve Transformer" (Shazeer, 2020)</a></li>
+            </ul>
+          </li>
+          <li class="note" id="note-cifar">
+            <h3><span class="idx">7</span><span class="term-name">CIFAR-10</span></h3>
+            <p>A small (60,000 image, 32×32px, 10-class) labeled image dataset from 2009 — small enough to train dozens of variants of a model on in an afternoon, which is exactly why it's the go-to for ablations: you're not testing whether an idea scales, just whether it helps at all.</p>
+            <ul class="links">
+              <li><a href="https://www.cs.toronto.edu/~kriz/cifar.html" target="_blank" rel="noopener">CIFAR-10 dataset page (Krizhevsky)</a></li>
+              <li><a href="https://en.wikipedia.org/wiki/CIFAR-10" target="_blank" rel="noopener">Wikipedia: CIFAR-10</a></li>
+            </ul>
+          </li>
+          <li class="note" id="note-krea">
+            <h3><span class="idx">8</span><span class="term-name">Krea 2</span></h3>
+            <p>A commercial image/video generation product. Mentioned here as the "big testbed" — the actual full-scale model being iterated toward, as opposed to the cheap CIFAR-10 sandbox that can be retrained hourly instead of over multiple days.</p>
+            <ul class="links">
+              <li><a href="https://www.krea.ai/" target="_blank" rel="noopener">Krea</a></li>
+            </ul>
+          </li>
+          <li class="note" id="note-shampoo">
+            <h3><span class="idx">9</span><span class="term-name">Shampoo</span></h3>
+            <p>A second-order optimizer — unlike Adam or SGD, which only track first-order gradient statistics, Shampoo approximates a per-layer preconditioner from the shape of each weight tensor. Converges in fewer steps than Adam; each step costs more, because of the matrix math below.</p>
+            <ul class="links">
+              <li><a href="https://arxiv.org/abs/1802.09568" target="_blank" rel="noopener">"Shampoo: Preconditioned Stochastic Tensor Optimization" (Gupta, Koren, Singer, 2018)</a></li>
+            </ul>
+          </li>
+          <li class="note" id="note-gram">
+            <h3><span class="idx">10</span><span class="term-name">Gram matrices</span></h3>
+            <p>The matrix math Shampoo actually does each step: for a weight tensor, it builds a matrix of all pairwise dot products between its rows (or columns) as a stand-in for the full curvature. That matrix is the expensive part — it grows with the layer size, which is why it fits hourly on the small CIFAR run and not on the multiday Krea 2 one.</p>
+            <ul class="links">
+              <li><a href="https://en.wikipedia.org/wiki/Gram_matrix" target="_blank" rel="noopener">Wikipedia: Gram matrix</a></li>
+            </ul>
+          </li>
+        </ol>
+      </div>
+
+      <section class="footer-note">
+        <p>
+          Tap or click a term on mobile — the underline still marks it, the
+          number still tells you which footnote to scroll to. Arrows are a
+          wide-screen bonus, not a requirement to read this.
+        </p>
+        <a class="share" id="shareBtn" href="#" target="_blank" rel="noopener">share this decoder ring →</a>
+      </section>
+
+      <footer class="site">
+        <p>footnoted.bisks.net — built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>. One post per build; ask again for another.</p>
+      </footer>
+    </div>
+
+    <script>
+      (function () {
+        var terms = Array.prototype.slice.call(document.querySelectorAll(".term"));
+        var stage = document.getElementById("stage");
+        var svg = document.getElementById("arrows");
+        var ns = "http://www.w3.org/2000/svg";
+
+        function noteFor(term) {
+          return document.getElementById("note-" + term.dataset.note);
+        }
+
+        function setActive(term, on) {
+          var note = noteFor(term);
+          term.classList.toggle("active", on);
+          if (note) note.classList.toggle("active", on);
+          var path = svg.querySelector('path[data-for="' + term.dataset.note + '"]');
+          if (path) path.classList.toggle("active", on);
+        }
+
+        terms.forEach(function (term) {
+          term.addEventListener("mouseenter", function () { setActive(term, true); });
+          term.addEventListener("mouseleave", function () { setActive(term, false); });
+          term.addEventListener("focus", function () { setActive(term, true); });
+          term.addEventListener("blur", function () { setActive(term, false); });
+          term.addEventListener("click", function (e) {
+            e.preventDefault();
+            var note = noteFor(term);
+            if (note) note.scrollIntoView({ behavior: "smooth", block: "center" });
+          });
+          var note = noteFor(term);
+          if (note) {
+            note.addEventListener("mouseenter", function () { setActive(term, true); });
+            note.addEventListener("mouseleave", function () { setActive(term, false); });
+          }
+        });
+
+        function drawArrows() {
+          if (window.innerWidth <= 860) { svg.innerHTML = ""; return; }
+          var stageRect = stage.getBoundingClientRect();
+          svg.setAttribute("width", stageRect.width);
+          svg.setAttribute("height", stageRect.height);
+          svg.innerHTML =
+            '<defs><marker id="arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">' +
+            '<path d="M0,0 L6,3 L0,6 Z" style="fill: var(--accent-soft)"></path></marker></defs>';
+
+          terms.forEach(function (term) {
+            var note = noteFor(term);
+            if (!note) return;
+            var t = term.getBoundingClientRect();
+            var n = note.getBoundingClientRect();
+            var x1 = t.right - stageRect.left;
+            var y1 = t.top + t.height / 2 - stageRect.top;
+            var x2 = n.left - stageRect.left;
+            var y2 = n.top + Math.min(18, n.height / 2) - stageRect.top;
+            var midX = x1 + (x2 - x1) * 0.55;
+            var d = "M " + x1 + " " + y1 + " C " + midX + " " + y1 + ", " + midX + " " + y2 + ", " + (x2 - 6) + " " + y2;
+            var path = document.createElementNS(ns, "path");
+            path.setAttribute("d", d);
+            path.setAttribute("marker-end", "url(#arrowhead)");
+            path.setAttribute("data-for", term.dataset.note);
+            svg.appendChild(path);
+          });
+        }
+
+        var raf = null;
+        function scheduleDraw() {
+          if (raf) cancelAnimationFrame(raf);
+          raf = requestAnimationFrame(drawArrows);
+        }
+
+        window.addEventListener("resize", scheduleDraw);
+        window.addEventListener("load", scheduleDraw);
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(scheduleDraw);
+        scheduleDraw();
+
+        var shareText =
+          "footnoted @theophite.bsky.social's ablation post so I could finally understand it — every term underlined, linked to the real paper: https://footnoted.bisks.net/";
+        document.getElementById("shareBtn").href =
+          "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      })();
+    </script>
+  </body>
+</html>
