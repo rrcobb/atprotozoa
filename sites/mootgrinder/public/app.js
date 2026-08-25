@@ -6,11 +6,13 @@
 
 import { moots } from "./lib/moots.js";
 import { SandSim } from "./lib/sand.js";
+import { HopperSim } from "./lib/hopper.js";
 
 const BIN_COLS = 150;
 const BIN_ROWS = 104;
 const BIN_BG = [5, 8, 10, 255];
 const SITE_URL = "https://mootgrinder.bisks.net/";
+const CONSUME_INTERVAL_MS = 380; // how often the grinder bites into the pile while on
 
 const els = {
   form: document.getElementById("form"),
@@ -22,8 +24,11 @@ const els = {
   trayLabel: document.getElementById("trayLabel"),
   grinderBox: document.getElementById("grinderBox"),
   hopper: document.getElementById("hopper"),
-  hopperFill: document.getElementById("hopperFill"),
+  hopperCanvas: document.getElementById("hopperCanvas"),
+  hopperLabel: document.getElementById("hopperLabel"),
   grind: document.getElementById("grind"),
+  power: document.getElementById("power"),
+  powerLabel: document.getElementById("powerLabel"),
   bin: document.getElementById("bin"),
   reset: document.getElementById("reset"),
   download: document.getElementById("download"),
@@ -37,9 +42,44 @@ const binCtx = els.bin.getContext("2d", { willReadFrequently: false });
 const imageData = binCtx.createImageData(BIN_COLS, BIN_ROWS);
 const sim = new SandSim(BIN_COLS, BIN_ROWS);
 
+const hopperCtx = els.hopperCanvas.getContext("2d");
+const hopperSim = new HopperSim(200, 140);
+
 let feedQueue = [];
 let groundCount = 0;
 let lastHandle = "";
+let grinderOn = false;
+let lastConsumeAt = 0;
+let lastTick = 0;
+
+// ---- hopper canvas sizing --------------------------------------------------
+// #app starts hidden (display:none), so the hopper has zero layout size
+// until a handle loads — resize once it's visible, and again on window
+// resize, so the physics world always matches what's on screen.
+
+function resizeHopperCanvas() {
+  const rect = els.hopper.getBoundingClientRect();
+  const w = Math.max(1, Math.round(rect.width));
+  const h = Math.max(1, Math.round(rect.height));
+  if (w < 2 || h < 2) return;
+  const dpr = window.devicePixelRatio || 1;
+  els.hopperCanvas.width = Math.round(w * dpr);
+  els.hopperCanvas.height = Math.round(h * dpr);
+  els.hopperCanvas.style.width = w + "px";
+  els.hopperCanvas.style.height = h + "px";
+  hopperCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  hopperSim.resize(w, h);
+}
+
+let resizeQueued = false;
+window.addEventListener("resize", () => {
+  if (resizeQueued) return;
+  resizeQueued = true;
+  requestAnimationFrame(() => {
+    resizeQueued = false;
+    resizeHopperCanvas();
+  });
+});
 
 // ---- toast ---------------------------------------------------------------
 
@@ -74,6 +114,7 @@ async function run(actor) {
     els.status.className = "status ok";
     els.status.textContent = `loaded ${result.counts.mutuals} mutual${result.counts.mutuals === 1 ? "" : "s"} (of ${result.counts.follows} followed, ${result.counts.followers} followers).`;
     els.app.classList.remove("hidden");
+    requestAnimationFrame(resizeHopperCanvas);
     history.replaceState(null, "", "?handle=" + encodeURIComponent(v));
   } catch (err) {
     els.status.className = "status err";
@@ -111,11 +152,14 @@ function wireDrag(chip, avatar) {
   let dragging = false;
   let clone = null;
   let startX = 0, startY = 0;
+  let prevX = 0, prevY = 0, prevT = 0, velX = 0, velY = 0;
 
   chip.addEventListener("pointerdown", (e) => {
     if (e.button !== undefined && e.button !== 0) return;
-    startX = e.clientX;
-    startY = e.clientY;
+    startX = prevX = e.clientX;
+    startY = prevY = e.clientY;
+    prevT = performance.now();
+    velX = velY = 0;
     dragging = false;
     chip.setPointerCapture(e.pointerId);
 
@@ -133,6 +177,17 @@ function wireDrag(chip, avatar) {
         clone.style.top = ev.clientY - 29 + "px";
         els.hopper.classList.toggle("hover", overHopper(ev.clientX, ev.clientY));
       }
+      const now = performance.now();
+      const dt = now - prevT;
+      if (dt > 4) {
+        // exponential smoothing so the release velocity reads as "the
+        // direction you were dragging" rather than one noisy last sample.
+        velX = velX * 0.5 + ((ev.clientX - prevX) / dt) * 1000 * 0.5;
+        velY = velY * 0.5 + ((ev.clientY - prevY) / dt) * 1000 * 0.5;
+        prevX = ev.clientX;
+        prevY = ev.clientY;
+        prevT = now;
+      }
     };
 
     const onUp = (ev) => {
@@ -147,11 +202,13 @@ function wireDrag(chip, avatar) {
       const dx = ev.clientX - startX, dy = ev.clientY - startY;
       const dist2 = dx * dx + dy * dy;
       if (overHopper(ev.clientX, ev.clientY)) {
-        grind(avatar);
+        dropIntoHopper(avatar, ev.clientX, ev.clientY, velX, velY);
       } else if (!dragging || dist2 < 625) {
         // a tap, or an imprecise touch that barely moved (25px) without
-        // landing on the hopper — treat it as a tap too, mobile-friendly.
-        grind(avatar);
+        // landing on the hopper — treat it as a tap too, mobile-friendly:
+        // drop it in from the top center instead of requiring a precise drag.
+        const r = els.hopper.getBoundingClientRect();
+        dropIntoHopper(avatar, r.left + r.width / 2 + (Math.random() - 0.5) * 20, r.top + 6, 0, 40);
       }
     };
 
@@ -163,6 +220,48 @@ function wireDrag(chip, avatar) {
 function overHopper(x, y) {
   const r = els.hopper.getBoundingClientRect();
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
+// ---- hopper: dropping a pfp in as a real physics object -------------------
+// The hopper no longer grinds on drop — it just gains a falling circle.
+// Circles pile on the funnel walls and each other (see lib/hopper.js);
+// nothing turns into sand until the power switch pulls particles from the
+// bottom of the pile over time (see the consume step in tick()).
+
+function avatarColor(avatar) {
+  let h = 0;
+  const key = avatar.handle || avatar.did || "moot";
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  const r = 90 + (h & 0x3f), g = 60 + ((h >> 6) & 0x3f), b = 140 + ((h >> 12) & 0x3f);
+  return `rgb(${r},${g},${b})`;
+}
+
+// plain <img> load, no crossOrigin — the hopper only ever draws these with
+// drawImage for display, never reads pixels back out, so CORS tainting
+// doesn't matter here and skips a round trip through the /img proxy.
+function loadImgPlain(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function dropIntoHopper(avatar, clientX, clientY, vx, vy) {
+  if (hopperSim.w < 2) resizeHopperCanvas();
+  const rect = els.hopperCanvas.getBoundingClientRect();
+  const x = clientX - rect.left;
+  const y = clientY - rect.top;
+  const r = Math.max(11, Math.min(22, hopperSim.w * 0.085));
+  const MAX_V = 1400;
+  const cvx = Math.max(-MAX_V, Math.min(MAX_V, vx || 0));
+  const cvy = Math.max(-MAX_V, Math.min(MAX_V, vy || 0));
+  const p = hopperSim.add(avatar, x, y, cvx, cvy, r, null, avatarColor(avatar));
+  loadImgPlain(avatar.avatar).then((img) => {
+    if (img) hopperSim.attachImage(p.id, img);
+  });
 }
 
 // ---- sampling a pfp down to grains ---------------------------------------
@@ -336,8 +435,17 @@ function plowTo(g) {
 
 els.reset.addEventListener("click", () => {
   sim.clear();
+  hopperSim.clear();
   feedQueue = [];
   groundCount = 0;
+});
+
+els.power.addEventListener("click", () => {
+  grinderOn = !grinderOn;
+  els.power.classList.toggle("on", grinderOn);
+  els.power.setAttribute("aria-pressed", String(grinderOn));
+  els.powerLabel.textContent = grinderOn ? "on" : "off";
+  showToast(grinderOn ? "grinder on — chewing through the hopper" : "grinder off");
 });
 
 function shareText() {
@@ -406,15 +514,32 @@ els.download.addEventListener("click", () => {
 
 // ---- render loop -----------------------------------------------------------
 
-function tick() {
+function tick(now) {
+  const dt = lastTick ? Math.min(0.05, (now - lastTick) / 1000) : 1 / 60;
+  lastTick = now;
+
   sim.step();
   processFeed();
   sim.render(imageData, BIN_BG);
   binCtx.putImageData(imageData, 0, 0);
 
-  els.grinderBox.classList.toggle("grinding", feedQueue.length > 0);
-  els.hopperFill.style.height = Math.min(100, feedQueue.length / 6) + "%";
-  els.stats.innerHTML = `bin: <b>${sim.count}</b> grains &middot; <b>${groundCount}</b> moot${groundCount === 1 ? "" : "s"} ground`;
+  hopperSim.step(dt, grinderOn);
+  if (grinderOn && hopperSim.particles.length && now - lastConsumeAt > CONSUME_INTERVAL_MS) {
+    const p = hopperSim.lowestInSpout();
+    if (p && p.y > hopperSim.h * 0.55) {
+      hopperSim.remove(p.id);
+      grind(p.avatar);
+      lastConsumeAt = now;
+    }
+  }
+  hopperSim.render(hopperCtx);
+
+  const pileCount = hopperSim.particles.length;
+  els.hopperLabel.textContent = pileCount ? `${pileCount} waiting` : "drop here";
+  els.grinderBox.classList.toggle("grinding", feedQueue.length > 0 || (grinderOn && pileCount > 0));
+  els.stats.innerHTML =
+    `bin: <b>${sim.count}</b> grains &middot; <b>${groundCount}</b> moot${groundCount === 1 ? "" : "s"} ground` +
+    (pileCount ? ` &middot; <b>${pileCount}</b> waiting in hopper` : "");
   refreshShareLink();
 
   requestAnimationFrame(tick);

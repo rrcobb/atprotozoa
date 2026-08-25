@@ -128,16 +128,16 @@
         width: 100%; aspect-ratio: 1.4 / 1; border-radius: 10px 10px 4px 4px;
         background: linear-gradient(180deg, rgba(224,164,88,0.06), rgba(224,164,88,0.02));
         border: 2px dashed var(--border); position: relative; overflow: hidden;
-        display: flex; align-items: center; justify-content: center; transition: border-color 0.15s, background 0.15s;
+        transition: border-color 0.15s, background 0.15s;
       }
       .hopper.hover { border-color: var(--accent); background: rgba(224,164,88,0.14); }
-      .hopper-glass { position: absolute; inset: 6px; border-radius: 8px 8px 3px 3px; background: rgba(255,255,255,0.02); overflow: hidden; }
-      .hopper-fill {
-        position: absolute; left: 0; right: 0; bottom: 0; height: 0%;
-        background: linear-gradient(180deg, #c98a4a, #8a5426);
-        transition: height 0.12s linear;
+      .hopper-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+      .hopper-glass { position: absolute; inset: 0; border-radius: 8px 8px 3px 3px; background: linear-gradient(180deg, rgba(255,255,255,0.06), transparent 40%); pointer-events: none; }
+      .hopper-label {
+        position: absolute; top: 6px; left: 8px; font-size: 0.66rem; color: var(--dim);
+        letter-spacing: 0.04em; text-transform: uppercase; z-index: 2; pointer-events: none;
+        background: rgba(19,13,10,0.55); padding: 1px 5px; border-radius: 4px;
       }
-      .hopper-label { position: relative; font-size: 0.7rem; color: var(--dim); letter-spacing: 0.04em; text-transform: uppercase; z-index: 2; }
       .grinder.grinding .burr-icon { animation: spin 0.5s linear infinite; }
       .body { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding-top: 0.2rem; min-width: 92px; }
       .burr-icon { font-size: 1.5rem; color: var(--accent); }
@@ -147,6 +147,19 @@
       .dial-wrap { width: 90px; text-align: center; }
       .dial-wrap input[type="range"] { width: 100%; accent-color: var(--accent); }
       .dial-labels { display: flex; justify-content: space-between; font-size: 0.55rem; color: var(--dim); }
+
+      .power-btn {
+        display: flex; align-items: center; gap: 0.4rem; width: 100%; justify-content: center;
+        font-family: inherit; cursor: pointer; font-size: 0.7rem; font-weight: 700;
+        letter-spacing: 0.05em; text-transform: uppercase; padding: 0.5rem 0.4rem;
+        border-radius: 5px; border: 1px solid var(--border); background: var(--surface-2); color: var(--muted);
+      }
+      .power-btn .led {
+        width: 8px; height: 8px; border-radius: 50%; background: #6b3a2a; box-shadow: none;
+        transition: background 0.15s, box-shadow 0.15s;
+      }
+      .power-btn.on { color: var(--text); border-color: var(--accent); }
+      .power-btn.on .led { background: #6fe36a; box-shadow: 0 0 6px 1px rgba(111,227,106,0.7); }
       .spout {
         position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%);
         width: 26px; height: 20px; background: #0b0b0b; clip-path: polygon(15% 0, 85% 0, 100% 100%, 0 100%);
@@ -182,8 +195,10 @@
         <h1>moot<span class="accent">grinder</span></h1>
         <p class="intro">
           Paste a <b>Bluesky handle</b> and mootgrinder loads your <b>moots</b> (mutual
-          follows). Drag one into the hopper — it gets ground into a real falling-sand
-          pile, <b>one grain per pixel of their pfp</b>. Poke the pile once it's down there.
+          follows). Drag pfps into the hopper — they fall in as real physics objects and
+          pile up together, so stack as many as you want. Flip the <b>power</b> switch
+          and the grinder chews through the pile, <b>one grain per pixel</b>, into a real
+          falling-sand pile below. Poke the pile once it's down there.
         </p>
       </header>
 
@@ -209,8 +224,9 @@
           <div class="grinder-panel">
             <div class="grinder" id="grinderBox">
               <div class="hopper" id="hopper">
-                <div class="hopper-glass"><div class="hopper-fill" id="hopperFill"></div></div>
-                <div class="hopper-label">drop here</div>
+                <canvas id="hopperCanvas" class="hopper-canvas"></canvas>
+                <div class="hopper-glass"></div>
+                <div class="hopper-label" id="hopperLabel">drop here</div>
               </div>
               <div class="body">
                 <div class="burr-icon" id="burrIcon">&#10227;</div>
@@ -220,6 +236,9 @@
                   <input type="range" id="grind" min="1" max="3" value="2" step="1" />
                   <div class="dial-labels"><span>fine</span><span>coarse</span></div>
                 </div>
+                <button id="power" type="button" class="power-btn" aria-pressed="false">
+                  <span class="led"></span><span id="powerLabel">off</span>
+                </button>
               </div>
               <div class="spout"></div>
             </div>
