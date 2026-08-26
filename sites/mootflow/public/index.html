@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mootflow — a sankey of who's actually engaging with you</title>
+    <meta
+      name="description"
+      content="Paste a Bluesky handle: mootflow sankeys your posts' likes/replies/reposts by who sent them — mutuals, one-way followers, one-way follows, or total strangers. Flip it around to see where your own likes/replies/reposts land."
+    />
+    <meta property="og:title" content="mootflow — a sankey of who's actually engaging with you" />
+    <meta
+      property="og:description"
+      content="Likes, replies, and reposts on your posts, sankeyed by relationship: mutual, follower-only, following-only, or stranger. Bilateral — flip it to see your own outward activity too."
+    />
+    <meta property="og:url" content="https://mootflow.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://mootflow.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="mootflow: a sankey diagram splitting post engagement into mutuals, followers, following, and strangers." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="mootflow — a sankey of who's actually engaging with you" />
+    <meta name="twitter:description" content="Likes, replies, reposts on your posts — sankeyed by mutual / follower / following / stranger. Bilateral." />
+    <meta name="twitter:image" content="https://mootflow.bisks.net/og.png" />
+    <style>
+      .viz-root {
+        color-scheme: light;
+        --surface-1: #fcfcfb;
+        --page: #f9f9f7;
+        --text-primary: #0b0b0b;
+        --text-secondary: #52514e;
+        --text-muted: #898781;
+        --gridline: #e1e0d9;
+        --baseline: #c3c2b7;
+        --border: rgba(11, 11, 11, 0.1);
+        --accent: #1a5fd0;
+
+        --k-like: #2a78d6;
+        --k-reply: #eb6834;
+        --k-repost: #1baf7a;
+        --rel-mutual: #eda100;
+        --rel-follower: #e87ba4;
+        --rel-following: #008300;
+        --rel-stranger: #4a3aa7;
+        --root-fill: #52514e;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:where(:not([data-theme="light"])) .viz-root {
+          color-scheme: dark;
+          --surface-1: #1a1a19;
+          --page: #0d0d0d;
+          --text-primary: #ffffff;
+          --text-secondary: #c3c2b7;
+          --text-muted: #898781;
+          --gridline: #2c2c2a;
+          --baseline: #383835;
+          --border: rgba(255, 255, 255, 0.1);
+          --accent: #5b9bf0;
+
+          --k-like: #3987e5;
+          --k-reply: #d95926;
+          --k-repost: #199e70;
+          --rel-mutual: #c98500;
+          --rel-follower: #d55181;
+          --rel-following: #008300;
+          --rel-stranger: #9085e9;
+          --root-fill: #c3c2b7;
+        }
+      }
+      :root[data-theme="dark"] .viz-root {
+        color-scheme: dark;
+        --surface-1: #1a1a19;
+        --page: #0d0d0d;
+        --text-primary: #ffffff;
+        --text-secondary: #c3c2b7;
+        --text-muted: #898781;
+        --gridline: #2c2c2a;
+        --baseline: #383835;
+        --border: rgba(255, 255, 255, 0.1);
+        --accent: #5b9bf0;
+
+        --k-like: #3987e5;
+        --k-reply: #d95926;
+        --k-repost: #199e70;
+        --rel-mutual: #c98500;
+        --rel-follower: #d55181;
+        --rel-following: #008300;
+        --rel-stranger: #9085e9;
+        --root-fill: #c3c2b7;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--page);
+        color: var(--text-primary);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      .wrap { max-width: 900px; margin: 0 auto; padding: 2.75rem 1.25rem 4rem; }
+
+      header h1 { font-size: 1.6rem; font-weight: 650; margin: 0 0 0.4rem; }
+      header p.sub {
+        color: var(--text-secondary);
+        margin: 0 0 1.75rem;
+        font-size: 0.95rem;
+        line-height: 1.55;
+        max-width: 62ch;
+      }
+
+      form.lookup {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.6rem;
+      }
+      form.lookup input[type="text"] {
+        flex: 1 1 260px;
+        font: inherit;
+        font-size: 0.95rem;
+        padding: 0.6rem 0.8rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface-1);
+        color: var(--text-primary);
+      }
+      form.lookup input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      form.lookup button {
+        font: inherit;
+        font-size: 0.9rem;
+        font-weight: 600;
+        padding: 0.6rem 1.1rem;
+        border-radius: 8px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: #fff;
+        cursor: pointer;
+      }
+      form.lookup button:disabled { opacity: 0.55; cursor: default; }
+
+      .status {
+        min-height: 1.3em;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        margin: 0 0 1.5rem;
+      }
+      .status.err { color: var(--k-reply); }
+
+      .toolbar {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+      }
+      button.pill {
+        font: inherit;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.4rem 0.85rem;
+        cursor: pointer;
+      }
+      button.pill:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+      button.pill[aria-pressed="true"] { color: var(--text-primary); border-color: var(--accent); }
+
+      #results { display: none; }
+      #results.show { display: block; }
+
+      .stats {
+        display: flex;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+      }
+      .stats b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+      .chart-card {
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1.25rem 1rem 0.75rem;
+      }
+
+      svg#sankey { width: 100%; height: auto; display: block; }
+      .node-label { font-size: 12px; fill: var(--text-primary); }
+      .node-value { font-size: 11px; fill: var(--text-secondary); }
+      rect.node { stroke: var(--surface-1); stroke-width: 2px; cursor: pointer; }
+      path.link { cursor: pointer; transition: opacity 120ms ease; }
+      path.link.dim { opacity: 0.16; }
+
+      .tooltip {
+        position: fixed;
+        pointer-events: none;
+        background: var(--surface-1);
+        color: var(--text-primary);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.45rem 0.65rem;
+        font-size: 0.8rem;
+        line-height: 1.4;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+        max-width: 240px;
+        z-index: 10;
+        opacity: 0;
+        transform: translateY(2px);
+        transition: opacity 100ms ease;
+      }
+      .tooltip.show { opacity: 1; }
+      .tooltip .t-title { font-weight: 600; margin-bottom: 0.15rem; }
+      .tooltip .t-sub { color: var(--text-secondary); }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.9rem;
+        margin: 1.1rem 0 0;
+        padding: 0.9rem 0 0.25rem;
+        border-top: 1px solid var(--gridline);
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+      }
+      .legend .item { display: inline-flex; align-items: center; gap: 0.4rem; }
+      .legend .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+
+      .caption {
+        margin-top: 1rem;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        line-height: 1.5;
+        max-width: 62ch;
+      }
+
+      table.flows { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 0.5rem; }
+      table.flows caption { text-align: left; color: var(--text-secondary); font-size: 0.8rem; padding-bottom: 0.5rem; }
+      table.flows th, table.flows td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--gridline); }
+      table.flows th { color: var(--text-muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+      table.flows td.num, table.flows th.num { text-align: right; font-variant-numeric: tabular-nums; }
+      table.flows tfoot td { font-weight: 600; border-bottom: none; border-top: 1px solid var(--baseline); }
+      .table-wrap { display: none; }
+      .table-wrap.show { display: block; }
+      #chart-wrap.hide { display: none; }
+
+      .engagers { margin-top: 1.25rem; }
+      .engagers h2 { font-size: 0.95rem; margin: 0 0 0.6rem; }
+      .engagers ol { list-style: decimal; padding-left: 1.3rem; margin: 0; font-size: 0.85rem; }
+      .engagers li { margin-bottom: 0.3rem; }
+      .engagers .rel-tag {
+        display: inline-block;
+        font-size: 0.68rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        padding: 0.05rem 0.4rem;
+        border-radius: 4px;
+        margin-left: 0.4rem;
+        color: #fff;
+      }
+
+      .share-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1.25rem; }
+      .share-row a, .share-row button {
+        font: inherit;
+        font-size: 0.85rem;
+        padding: 0.5rem 0.9rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface-1);
+        color: var(--text-primary);
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .share-row a:hover, .share-row button:hover { border-color: var(--accent); }
+      #share-canvas { display: none; }
+
+      footer {
+        margin-top: 2.5rem;
+        padding-top: 0.9rem;
+        border-top: 1px solid var(--gridline);
+        color: var(--text-muted);
+        font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="viz-root">
+      <div class="wrap">
+        <header>
+          <h1>mootflow</h1>
+          <p class="sub">
+            drop a handle and mootflow sankeys who's actually engaging with
+            your posts — likes, replies, reposts, split by whether they're a
+            mutual, a one-way follower, a one-way follow, or a total
+            stranger. bilateral: flip it to see where <em>your</em> likes,
+            replies, and reposts land instead.
+          </p>
+        </header>
+
+        <form class="lookup" id="lookup-form">
+          <input type="text" id="handle-input" placeholder="you.bsky.social" autocomplete="off" spellcheck="false" />
+          <button type="submit" id="go-btn">flow it</button>
+        </form>
+        <p class="status" id="status"></p>
+
+        <div id="results">
+          <div class="toolbar">
+            <button class="pill" id="direction-toggle" type="button" aria-pressed="false">↙ inward: who engages with you</button>
+            <button class="pill" id="theme-toggle" type="button" aria-pressed="false">🌗 theme: auto</button>
+            <button class="pill" id="view-toggle" type="button" aria-pressed="false">view as table</button>
+          </div>
+
+          <div class="stats" id="stats"></div>
+
+          <div class="chart-card">
+            <div id="chart-wrap">
+              <svg id="sankey" viewBox="0 0 860 480" role="img" aria-label="Sankey diagram of post engagement split by relationship"></svg>
+            </div>
+            <div class="table-wrap" id="table-wrap"></div>
+            <div class="legend" id="legend"></div>
+          </div>
+
+          <p class="caption" id="caption"></p>
+
+          <div class="engagers" id="engagers" style="display: none;">
+            <h2 id="engagers-title">top engagers</h2>
+            <ol id="engagers-list"></ol>
+          </div>
+
+          <div class="share-row">
+            <a id="share-bluesky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+            <button id="share-download" type="button">download card</button>
+            <button id="share-native" type="button" style="display: none;">share…</button>
+          </div>
+        </div>
+
+        <footer>
+          built by <a href="https://bisks.net">@buildthis.bisks.net</a>, asked
+          for by @brennan.computer · reads your public follow graph and repo
+          — nothing is stored anywhere · part of the
+          <a href="https://bisks.net">atprotozoa</a> zoo
+        </footer>
+      </div>
+    </div>
+
+    <div class="tooltip" id="tooltip" role="status"></div>
+    <canvas id="share-canvas" width="1200" height="630"></canvas>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
