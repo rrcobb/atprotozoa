@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ontology / lexicons — the actual schema files, and what the type system can't say</title>
+    <meta
+      name="description"
+      content="A close read of the real atproto lexicon JSON — app.bsky.feed.post, app.bsky.graph.follow, com.atproto.repo.strongRef, app.bsky.graph.list, com.atproto.label.defs — why each field is shaped the way it is, and a catalog of the specific relationships the type system cannot express: mutuality, retraction, weight, privacy, referential integrity."
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="ontology / lexicons — the actual schema files, and what the type system can't say" />
+    <meta
+      property="og:description"
+      content="Reading the real JSON — post, follow, like, strongRef, list, label — field by field, plus the evolution rules that force every schema to only ever grow. Then: a catalog of what the typed graph structurally cannot hold — mutual edges, retraction, weight, privacy, referential integrity — and why the gaps are the same freedom the rest of this bought."
+    />
+    <meta property="og:url" content="https://ontology.bisks.net/lexicons" />
+    <meta property="og:image" content="https://ontology.bisks.net/lexicons/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="ontology / lexicons — the actual schema files, and what the type system can't say" />
+    <meta
+      name="twitter:description"
+      content="The real JSON behind post, follow, like, strongRef, list, label — why each field is shaped that way, and what the typed graph structurally cannot represent."
+    />
+    <meta name="twitter:image" content="https://ontology.bisks.net/lexicons/og.png" />
+
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.65;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3.5rem 1.25rem 6rem; }
+
+      header h1 { font-size: 1.5rem; margin: 0 0 0.4rem; font-weight: 700; line-height: 1.3; }
+      header p.sub { color: var(--muted); margin: 0 0 1rem; font-size: 0.92rem; }
+      header .meta {
+        color: var(--muted); font-size: 0.78rem; margin: 0 0 2rem;
+        border-top: 1px solid var(--faint); padding-top: 0.9rem;
+      }
+      header .meta a { color: var(--accent); text-decoration: none; }
+      header .meta a:hover { text-decoration: underline; }
+
+      nav.timeline {
+        display: flex; flex-wrap: wrap; gap: 0.4rem 0.6rem;
+        margin: 0 0 2.75rem; padding: 1rem 1.1rem; border: 1px solid var(--faint);
+        border-radius: 6px; font-size: 0.76rem;
+      }
+      nav.timeline a {
+        color: var(--muted); text-decoration: none; white-space: nowrap;
+        border-bottom: 1px dashed var(--faint);
+      }
+      nav.timeline a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+      nav.timeline .sep { color: var(--faint); }
+
+      .lede { font-size: 0.98rem; margin: 0 0 3rem; }
+      .lede p { margin: 0 0 1rem; }
+
+      article section {
+        margin-bottom: 3rem; scroll-margin-top: 1.5rem;
+        border-top: 1px solid var(--faint); padding-top: 1.5rem;
+      }
+      article section .num {
+        color: var(--accent); font-size: 0.75rem; text-transform: uppercase;
+        letter-spacing: 0.08em; font-weight: 700; margin: 0 0 0.2rem;
+      }
+      article section h2 { font-size: 1.15rem; margin: 0 0 0.9rem; font-weight: 700; }
+      article section p { margin: 0 0 1rem; }
+      article section p:last-child { margin-bottom: 0; }
+      article section .implication {
+        color: var(--ink); font-size: 0.9rem; border-left: 2px solid var(--accent);
+        padding-left: 0.9rem; margin: 1.2rem 0; background: #f7f9fe;
+        padding-top: 0.6rem; padding-bottom: 0.6rem; border-radius: 0 4px 4px 0;
+      }
+      article section .implication strong { color: var(--accent); }
+
+      pre.src {
+        background: #0d1117; color: #c9d1d9; font-size: 0.78rem; line-height: 1.5;
+        padding: 0.9rem 1rem; border-radius: 6px; overflow-x: auto; margin: 0 0 1.1rem;
+      }
+      pre.src .k { color: #79c0ff; }
+      pre.src .s { color: #a5d6ff; }
+      pre.src .c { color: #8b949e; }
+
+      table.limits {
+        width: 100%; border-collapse: collapse; font-size: 0.84rem; margin: 0 0 1rem;
+      }
+      table.limits th, table.limits td {
+        text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--faint);
+        vertical-align: top;
+      }
+      table.limits th { color: var(--muted); font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+      table.limits td.no { color: #b3261e; }
+
+      .thesis {
+        border: 1px solid var(--ink); border-radius: 6px; padding: 1.25rem 1.4rem;
+        margin: 0 0 3rem; font-size: 0.95rem;
+      }
+      .thesis .num { color: var(--accent); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
+      .thesis h2 { margin: 0.2rem 0 0.9rem; font-size: 1.25rem; }
+      .thesis p { margin: 0 0 0.9rem; }
+      .thesis p:last-child { margin-bottom: 0; }
+
+      .callout {
+        border: 1px solid var(--faint); border-radius: 6px; padding: 1rem 1.1rem;
+        color: var(--muted); font-size: 0.85rem; margin: 0 0 2.75rem;
+      }
+      .callout a { color: var(--accent); text-decoration: none; }
+      .callout a:hover { text-decoration: underline; }
+
+      footer {
+        margin-top: 3rem; padding-top: 0.9rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+      .share {
+        display: inline-flex; align-items: center; gap: 0.4rem;
+        margin-top: 0.75rem; padding: 0.5rem 0.85rem; border: 1px solid var(--faint);
+        border-radius: 5px; color: var(--ink); text-decoration: none; font-size: 0.82rem;
+      }
+      .share:hover { border-color: var(--accent); color: var(--accent); }
+
+      code { background: var(--faint); padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.86em; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>the actual lexicons: reading the schema files, and what the type system can't say</h1>
+        <p class="sub">
+          the main essay and <a href="/atproto">the choices page</a> both
+          describe atproto's ontology in prose. this page opens the real
+          <code>.json</code> files those descriptions are paraphrasing —
+          <code>app.bsky.feed.post</code>, <code>app.bsky.graph.follow</code>,
+          <code>com.atproto.repo.strongRef</code>, <code>app.bsky.graph.list</code>,
+          <code>com.atproto.label.defs</code> — field by field, then asks the
+          question neither prior page did directly: given this exact type
+          system, what relationships between two people can it represent,
+          and which ones structurally can't exist in it at all?
+        </p>
+        <p class="meta">
+          part of <a href="https://ontology.bisks.net">ontology</a>, on
+          <a href="https://bisks.net">bisks.net</a> — second follow-on
+          requested by <a href="https://bsky.app/profile/shibbi.me">@shibbi.me</a>,
+          built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis</a>.
+          lexicon source pulled from
+          <a href="https://github.com/bluesky-social/atproto" target="_blank" rel="noopener">github.com/bluesky-social/atproto</a>
+          and <a href="https://atproto.com/specs/lexicon" target="_blank" rel="noopener">atproto.com/specs/lexicon</a>
+          as of 2026-08-26; lexicons revise over time, so check the source if this reads stale.
+        </p>
+      </header>
+
+      <div class="lede">
+        <p>
+          A lexicon file isn't a description of a post or a follow. It's a
+          claim about what <em>counts</em> as one — the exact set of fields
+          a record needs to validate, no more and no less, published as JSON
+          at a name anyone can resolve. Reading the actual files instead of
+          a summary of them turns up two things a paraphrase tends to lose:
+          how spare most of these definitions really are, and how much of
+          "the social graph" is quietly outside what any of them can type
+          at all.
+        </p>
+      </div>
+
+      <nav class="timeline" aria-label="jump to a section">
+        <a href="#meta">the schema of a schema</a><span class="sep">/</span>
+        <a href="#follow">the thinnest possible edge</a><span class="sep">/</span>
+        <a href="#refs">one addressing primitive, reused everywhere</a><span class="sep">/</span>
+        <a href="#vocab">open categories, soft enums</a><span class="sep">/</span>
+        <a href="#evolution">additive only, forever</a><span class="sep">/</span>
+        <a href="#limits">what the graph can't hold</a><span class="sep">/</span>
+        <a href="#thesis">so what</a>
+      </nav>
+
+      <article>
+        <section id="meta">
+          <p class="num">clause 1</p>
+          <h2>the schema of a schema is deliberately dumb</h2>
+          <p>
+            Every lexicon file shares one shape: a top-level
+            <code>{ "lexicon": 1, "id": "&lt;nsid&gt;", "defs": {...} }</code>.
+            <code>defs</code> is a map of named type definitions — by
+            convention the one that matters is called <code>main</code> —
+            each tagged with a <code>type</code>: <code>record</code>,
+            <code>object</code>, <code>string</code>, <code>token</code>,
+            <code>union</code>, <code>array</code>, <code>blob</code>,
+            <code>ref</code>, and a handful more for the RPC side
+            (<code>query</code>, <code>procedure</code>,
+            <code>subscription</code>) that a pure data record like a post
+            never uses. A <code>record</code> def adds one more thing: a
+            <code>key</code> strategy — almost always <code>tid</code>, a
+            time-sortable ID the client mints, though a few lexicons use a
+            literal constant key (for singletons like a profile) or let the
+            client pick any string.
+          </p>
+          <div class="implication">
+            <strong>implication:</strong> the meta-schema knows nothing
+            about "social" anything — no built-in idea of a post, a user, a
+            reply. It only standardizes <em>how</em> a shape gets declared
+            and named. All of the actual ontology — that a post has text and
+            an optional reply and an optional embed, that a follow has a
+            subject and nothing else — lives entirely inside one
+            <code>defs.main.record.properties</code> block, in one file,
+            owned by whoever's NSID it's published under. This is
+            <a href="/atproto#namespace">choice 1 from the companion
+            page</a> made concrete: the protocol didn't build a social
+            ontology and expose it — it built a way to publish one, and
+            <code>app.bsky.*</code> is the first tenant, not a built-in.
+          </div>
+        </section>
+
+        <section id="follow">
+          <p class="num">clause 2</p>
+          <h2>the thinnest possible edge: reading <code>app.bsky.graph.follow</code></h2>
+          <pre class="src">{
+  <span class="k">"lexicon"</span>: 1,
+  <span class="k">"id"</span>: <span class="s">"app.bsky.graph.follow"</span>,
+  <span class="k">"defs"</span>: {
+    <span class="k">"main"</span>: {
+      <span class="k">"type"</span>: <span class="s">"record"</span>,
+      <span class="k">"description"</span>: <span class="s">"...Duplicate follows will be ignored by the AppView."</span>,
+      <span class="k">"key"</span>: <span class="s">"tid"</span>,
+      <span class="k">"record"</span>: {
+        <span class="k">"type"</span>: <span class="s">"object"</span>,
+        <span class="k">"required"</span>: [<span class="s">"subject"</span>, <span class="s">"createdAt"</span>],
+        <span class="k">"properties"</span>: {
+          <span class="k">"subject"</span>: { <span class="k">"type"</span>: <span class="s">"string"</span>, <span class="k">"format"</span>: <span class="s">"did"</span> },
+          <span class="k">"createdAt"</span>: { <span class="k">"type"</span>: <span class="s">"string"</span>, <span class="k">"format"</span>: <span class="s">"datetime"</span> },
+          <span class="k">"via"</span>: { <span class="k">"type"</span>: <span class="s">"ref"</span>, <span class="k">"ref"</span>: <span class="s">"com.atproto.repo.strongRef"</span> }
+        }
+      }
+    }
+  }
+}</pre>
+          <p>
+            That's the entire record. A DID to point at, a timestamp, and an
+            optional provenance pointer (<code>via</code> — added later, a
+            <code>strongRef</code> to whatever surfaced the account, e.g. a
+            feed or another post, so a client can show "followed via ...").
+            No relationship ID, no status field, no acceptance step. The
+            description line is doing real work too: <em>"Duplicate follows
+            will be ignored by the AppView"</em> is an admission that the
+            schema itself enforces no uniqueness at all — a repo can contain
+            the same follow record ten times over, each one individually
+            valid, and the lexicon has no vocabulary for "don't." Dedup is
+            entirely a convention some AppView chooses to apply at read
+            time, not a constraint the type system can express.
+          </p>
+          <div class="implication">
+            <strong>implication:</strong> a follow is designed to be
+            <em>independently true</em> — assertable by exactly one signer,
+            about their own act, needing nobody else's cooperation to be
+            valid. That's what makes it cheap to mint and cheap to index.
+            It's also exactly why "mutual follow" isn't a type anywhere in
+            this schema: there is no record that two people co-sign. What
+            a client calls "you follow each other" is two of these thin,
+            unilateral objects, in two different repos, that an AppView
+            happened to join at query time — not a single fact the ontology
+            recognizes as one thing.
+          </div>
+        </section>
+
+        <section id="refs">
+          <p class="num">clause 3</p>
+          <h2>one addressing primitive, reused for everything that points at anything</h2>
+          <p>
+            <a href="/atproto#strongref">The companion page</a> already
+            covers what a <code>strongRef</code> means for a like — URI plus
+            CID, a pointer to one exact, byte-level revision rather than a
+            live, editable thing. What's worth adding once you've read the
+            files: it is the <em>only</em> cross-reference type in the
+            entire social graph. A reply's <code>root</code> and
+            <code>parent</code>, a like's <code>subject</code>, a repost's
+            target, a quote-embed's <code>record</code>, and now a follow's
+            <code>via</code> — every single one of these resolves to the
+            same four-line, two-field <code>{ uri, cid }</code> object
+            defined once in <code>com.atproto.repo.strongRef</code> and
+            <code>ref</code>'d in from everywhere else. There is no second,
+            looser "just point at a URI, don't pin the bytes" reference type
+            anywhere in the core social lexicons — if you want to point at
+            another record at all, you pin it.
+          </p>
+          <div class="implication">
+            <strong>implication:</strong> the entire linked structure of
+            atproto content — threads, quotes, likes, provenance — is one
+            addressing primitive applied uniformly, not a different
+            reference type per relationship. That uniformity is a real
+            design win (one decoder handles every kind of pointer in the
+            system), but it also means the pinned-version behavior from
+            choice 3 on the companion page isn't a special case for likes —
+            it's the default behavior of pointing at <em>anything</em> in
+            this ontology. Every reply is quietly asserting "this exact
+            byte-exact parent," not "whatever the parent currently is,"
+            whether or not any client's UI admits it.
+          </div>
+        </section>
+
+        <section id="vocab">
+          <p class="num">clause 4</p>
+          <h2>open categories, soft enums</h2>
+          <p>
+            <code>app.bsky.graph.list</code>'s <code>purpose</code> field
+            isn't a plain string or an inline closed list — it's a
+            <code>ref</code> to a named <code>token</code> def
+            (<code>app.bsky.graph.defs#listPurpose</code>), which is how the
+            lexicon language expresses "a fixed vocabulary of named things,"
+            similar to an enum. But the more common way a lexicon
+            constrains a string is softer than that: <code>com.atproto.label.defs</code>'
+            <code>val</code> field — the actual text of a moderation
+            label, "porn," "spam," "bot" — is typed as a plain
+            <code>string</code> with a <code>knownValues</code> list
+            attached, and <code>knownValues</code> is documentation, not
+            enforcement. A labeler can publish a label with
+            <code>val: "anything-it-invents"</code> and the record still
+            validates; nothing about the type refuses it.
+          </p>
+          <div class="implication">
+            <strong>implication:</strong> even inside a single field, the
+            lexicon language offers two different closure levels — a
+            <code>token</code>/enum when a fixed vocabulary is really
+            wanted, an open string with <code>knownValues</code> as a hint
+            when it isn't — and the ecosystem's actual moderation vocabulary
+            picked the open one. Anyone running a labeler can mint a new
+            category of judgment the day they need it, with no lexicon
+            change and no one's permission, the same "namespace as ontology"
+            freedom from choice 1 applied one level down, to values instead
+            of whole record types. The cost is the same cost too: a client
+            that's never heard of your invented label value has to decide,
+            unguided, what to do with a fact it doesn't recognize.
+          </div>
+        </section>
+
+        <section id="evolution">
+          <p class="num">clause 5</p>
+          <h2>additive only, forever — schemas can grow but never shrink</h2>
+          <p>
+            The lexicon spec's compatibility rules are short and absolute:
+            new fields must be optional; a required field can never become
+            optional or be removed; a field's name and type are permanent
+            once published; and a change that would break any of that isn't
+            a version bump — it's a brand new NSID. <code>follow</code>
+            picking up <code>via</code> as an optional field is what
+            compliant evolution actually looks like in the wild; there is no
+            path in this system that lets <code>app.bsky.feed.post</code>
+            rename <code>text</code> or make <code>createdAt</code>
+            optional-where-it-used-to-be-required.
+          </p>
+          <div class="implication">
+            <strong>implication:</strong> this rule exists because there is
+            no moment when everyone upgrades together. Every AppView, every
+            archived CAR file, every client library caches lexicon defs
+            independently and decodes records — some written years ago,
+            some written a minute from now — against whatever copy of the
+            schema it happens to hold, with no central deploy that could
+            coordinate a breaking migration. That makes lexicons behave like
+            a public wire format or a long-lived file format, not like an
+            internal company API that a team can version-bump and force
+            every caller to follow. Reading rights are exactly as
+            distributed as writing rights in this ontology, so the schema
+            has to keep being readable by everyone who ever held a copy of
+            it — forever, or until its name is abandoned for a new one.
+          </div>
+        </section>
+
+        <section id="limits">
+          <p class="num">clause 6</p>
+          <h2>what the typed graph can't hold</h2>
+          <p>
+            Put the fields side by side and a pattern falls out: everything
+            this type system can represent is a fact one identity can assert
+            unilaterally, about its own record, without anyone else's
+            cooperation or a central party enforcing consistency. Just as
+            clearly, several ordinary social facts have <em>no</em> type
+            anywhere in these lexicons — not "haven't gotten around to it,"
+            structurally absent:
+          </p>
+          <table class="limits">
+            <tr><th>can represent</th><th>can't represent</th></tr>
+            <tr><td>a one-directional claim, signed by exactly one DID</td>
+                <td class="no">a mutual relationship as a single, jointly-committed fact — "friends" is always two unilateral records an AppView chose to join</td></tr>
+            <tr><td>a label's retraction (<code>neg: true</code> is a real field on <code>com.atproto.label.defs#label</code>)</td>
+                <td class="no">a follow's or like's retraction-with-history — deleting the record just erases it; there's no typed "I used to, then stopped" object for ordinary social edges the way there is for labels</td></tr>
+            <tr><td>presence of an edge (you follow, or you don't)</td>
+                <td class="no">weight, strength, or qualification on that edge — a "close friend" isn't a parameter on <code>follow</code>, it's a wholly separate record type (a list) bolted on beside it</td></tr>
+            <tr><td>a byte-exact pointer to another record via <code>strongRef</code></td>
+                <td class="no">any guarantee that pointer still resolves to anything — a like's subject can point at a since-deleted post forever; the type validates shape, never reachability</td></tr>
+            <tr><td>an individual write, atomically committed to your own repo</td>
+                <td class="no">a transaction spanning two repos, or even two collections in one repo — "this reply implies that thread's reply-count changes" has no typed unit that commits both sides together</td></tr>
+            <tr><td>a public, resolvable record at a stable AT-URI</td>
+                <td class="no">confidentiality as a schema-level concept — none of the core social lexicons have a <code>private: true</code> the type system enforces; visibility is a PDS/service access-control question, not an ontological one here</td></tr>
+          </table>
+          <div class="implication">
+            <strong>implication:</strong> notice the one asymmetry that cuts
+            against the pattern — labels get an explicit retraction field
+            (<code>neg</code>) and ordinary social edges don't. Moderation
+            was considered important enough to need a typed "undo," and
+            follows and likes weren't. That's a real, specific, load-bearing
+            decision about whose history gets preserved by the schema and
+            whose doesn't, not an inevitability of the type system.
+          </div>
+        </section>
+      </article>
+
+      <div class="thesis" id="thesis">
+        <p class="num">so what</p>
+        <h2>the freedom is in the grammar, not just in who holds the pen</h2>
+        <p>
+          The main essay's argument is about custody: who writes the schema
+          of a social relation, and where it lives. Read the actual files
+          and the same argument turns out to run one layer deeper than
+          custody — it's baked into the grammar those files are written in.
+          Every type this lexicon language makes easy to express is
+          exactly the kind of fact one party can assert about itself,
+          unilaterally, with nothing more than its own signature: a follow,
+          a like, a label, a list. Every relationship this analysis found
+          <a href="#limits">missing</a> — mutual commitment, negotiated
+          consent, weighted or private edges, cross-repo transactions,
+          enforced referential integrity — is exactly the kind of fact that
+          would need either two parties to jointly agree, or one central
+          authority positioned to enforce it. A type system that could
+          express those things would need something that looks a lot like
+          the single company database this whole ecosystem is built to
+          avoid.
+        </p>
+        <p>
+          So the omissions aren't a missing feature list waiting on a future
+          lexicon revision — they're closer to a load-bearing wall. The
+          typed graph atproto actually gives you isn't a graph of
+          relationships in the way "the social graph" usually gets talked
+          about; it's a graph of independently-signed, one-directional
+          claims <em>about</em> relationships, and the gap between those two
+          things — the same gap the companion page found between a
+          <code>strongRef</code>'s precision and a UI's presentation of it —
+          is where "mutuals," "close friends," and "who's really connected
+          to whom" quietly move from something the schema asserts to
+          something an app decides to compute and call true.
+        </p>
+      </div>
+
+      <div class="callout">
+        sources: <a href="https://github.com/bluesky-social/atproto/tree/main/lexicons" target="_blank" rel="noopener">the lexicon JSON in bluesky-social/atproto</a>
+        and <a href="https://atproto.com/specs/lexicon" target="_blank" rel="noopener">the lexicon spec at atproto.com</a>, both pulled 2026-08-26 — check them
+        directly, lexicons revise. read <a href="/">the main essay</a> for the
+        forty-year version and <a href="/atproto">the choices page</a> for
+        the seven-choice version this one drills into; for the apps actually
+        built on these lexicons, see <a href="https://fieldguide.bisks.net">field guide</a>.
+        like the rest of this site, this is a bot's reading of the schema,
+        not a substitute for it.
+      </div>
+
+      <a
+        class="share"
+        id="share"
+        href="https://bsky.app/intent/compose?text=the%20actual%20atproto%20lexicon%20files%2C%20field%20by%20field%2C%20and%20a%20catalog%20of%20what%20the%20typed%20graph%20structurally%20can%27t%20hold%3A%20https%3A%2F%2Fontology.bisks.net%2Flexicons"
+        target="_blank"
+        rel="noopener"
+      >
+        share this →
+      </a>
+
+      <footer>
+        built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>,
+        follow-on requested by <a href="https://bsky.app/profile/shibbi.me">@shibbi.me</a> —
+        back to <a href="/atproto">the choices page</a> or
+        <a href="/">the main essay</a>.
+      </footer>
+    </div>
+  </body>
+</html>
