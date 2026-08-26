@@ -55,11 +55,12 @@
       </section>
 
       <footer>
-        scores come from a live <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
-        subscription on <code>net.bisks.socialcredit.vote</code> records and "socialcredit +1"/"-1" replies, recomputed
-        in your browser (no server holds a global index anymore — see the note above the board). Self-votes and
-        repeat votes on the same person within an hour are still dropped the same way, just replayed locally instead
-        of by a central service.
+        scores come from every <code>net.bisks.socialcredit.vote</code> record on the network — found via
+        <code>com.atproto.sync.listReposByCollection</code> and pulled in one full-repo download per voter, not a
+        paginated per-repo walk — plus a live <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        subscription for anything cast just now and for "socialcredit +1"/"-1" replies (which aren't in that
+        collection, so only ones cast during a live session are counted). No server holds this index; it's rebuilt
+        in your own browser, same self-vote and one-vote-per-hour rules either way.
         built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
       </footer>
     </div>
@@ -187,8 +188,16 @@
         const m = await meta();
         const note = $("#tracking-note");
         if (!note) return;
-        const since = m.backfilledFrom ? new Date(m.backfilledFrom) : new Date(m.trackingStartedAt);
-        note.textContent = `tracking live since ${since.toLocaleString()} — ${m.connected ? "connected" : "reconnecting…"} (${m.totalVotes} votes seen)`;
+        const parts = [`${m.connected ? "connected" : "reconnecting…"} (${m.totalVotes} votes seen)`];
+        const gb = m.globalBackfill;
+        if (gb) {
+          parts.push(
+            gb.done
+              ? `network history backfilled (${gb.scannedRepos} repos scanned)`
+              : `scanning network history… ${gb.scannedRepos}/${gb.totalReposSeen || "?"} repos`,
+          );
+        }
+        note.textContent = parts.join(" — ");
       }
 
       load();

@@ -24,10 +24,16 @@ compatibility_date = "2025-01-01"
 # verified each commit's signature before Jetstream re-emits it, the `did` on
 # every event is real — a vote's identity can't be spoofed by a client that
 # skips the cooldown/self-vote checks; a rule-breaking write still lands in
-# the voter's own repo, it's just never counted. The tradeoff of no backend:
-# a first-ever visit only backfills so far back (BACKFILL_MS in
-# sc-client.js), so the board is honestly incomplete/eventually-consistent,
-# not a fake global index.
+# the voter's own repo, it's just never counted. 2026-08-26: the board used
+# to only backfill BACKFILL_MS of Jetstream history (sc-client.js), so a
+# first-ever visit was honestly incomplete. public/lib/global-backfill.js now
+# walks every repo that's ever written a net.bisks.socialcredit.vote record
+# (com.atproto.sync.listReposByCollection to find them, one full-repo CAR
+# download per voter to read them — no paginated listRecords walk, per the
+# "prefer bulk reads" standing order in the builder instructions) and folds
+# the whole network's vote history in. Only "socialcredit +1/-1" reply-votes
+# before a visitor's own live session remain invisible, since those are
+# posts, not records in the bulk-backfillable collection.
 #
 # Brand-new site — served at the root of its own hostname, no
 # bisks.net/<name> path route and no prefix-stripping needed.

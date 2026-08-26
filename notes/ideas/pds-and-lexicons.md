@@ -84,11 +84,28 @@ aggregate view for free:
   locally — closer to steamtags' multi-record-per-repo shape than quadrants'
   single-getRecord one. Opening `/d/<id>` now lists every snapshot anyone's
   published of that doc, alongside your own.
+- kolpelor's `/atlas` — **done, 2026-08-25** (daily-slot pass). Singleton-"self"
+  shape, closer to catspace's `/directory` than docmoot's.
+- war's `/front` — **done, 2026-08-21** (daily-slot pass, previously missing
+  from this list — its lexicon pins the state record to a fixed `"self"` rkey
+  per repo, so `network-index.js` backfills with one `getRecord` per DID
+  instead of a paginated scan).
+- socialcredit — **done, 2026-08-26** (daily-slot pass). Its votes are
+  `key: "tid"`, one record per vote, written into the *voter's* own repo with
+  the target as a field — so unlike every site above, the aggregate view here
+  isn't `listReposByCollection` + `getRecord`/`listRecords` per candidate, it's
+  `listReposByCollection` to find every voter, then a full-repo
+  `com.atproto.sync.getRepo` CAR download per voter (`public/lib/car.js`,
+  copied from sites/backscroll) to pull all of that voter's votes in one
+  request — the "prefer bulk reads over paginated listRecords" standing order
+  (2026-08-25) applied to this pattern for the first time. Replaces the old
+  Jetstream-only 48h backfill that made the leaderboard honestly
+  eventually-consistent; see `public/lib/global-backfill.js`.
 - the remaining lexicon-bearing sites without an aggregate view: alice-meets-bob,
-  clusterpedia, duohaunt, griftmax, hyperobject, kolpelor, padmoot, postwith,
-  socialcredit, velvetrope, war. (keytags is a deliberate exception — its
-  whole point is that a `net.bisks.keytags.set` entry is an opaque hash unless
-  you hold the key, so an aggregate view would have nothing meaningful to show.)
+  clusterpedia, duohaunt, griftmax, hyperobject, padmoot, postwith, velvetrope.
+  (keytags is a deliberate exception — its whole point is that a
+  `net.bisks.keytags.set` entry is an opaque hash unless you hold the key, so
+  an aggregate view would have nothing meaningful to show.)
 
 Steamtags, memex, and verdict now look like a small network of apps sharing a
 data layer. Same house style (copy, don't abstract) — the sites stay
@@ -141,10 +158,10 @@ self-hosting actually helps.
 1. ~~Write the missing lexicon schemas.~~ Done (2026-08-16).
 2. ~~Serve them all at one path~~ (`bisks.net/lexicons/`, done 2026-08-16) +
    add the `_lexicon` DNS record — still needs a human with dashboard access.
-3. Build aggregate views off `listReposByCollection` — done for eight sites so
+3. Build aggregate views off `listReposByCollection` — done for eleven sites so
    far (steamtags, memex, verdict, paintmoot, tallybot, catspace, quadrants,
-   docmoot). Eleven lexicon-bearing sites remain one-repo-only (see the list
-   above); kolpelor's ready-made pair of collections (roster + trade) is the
-   next natural target.
+   docmoot, kolpelor, war, socialcredit). Eight lexicon-bearing sites remain
+   one-repo-only (see the list above); griftmax's single `ascension` collection
+   is the next natural target.
 4. Publish a feed generator, as the flashier protocol-ownership move.
 5. Only then reconsider a PDS, with a specific reason.

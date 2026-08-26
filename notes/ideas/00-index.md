@@ -28,7 +28,7 @@ TXT record so NSIDs actually resolve — needs a human with Cloudflare dashboard
 access, not something the builder can do from the repo.
 
 **3. Aggregate views via `listReposByCollection`.** (`pds-and-lexicons.md`)
-Find every repo holding a given collection. **Done for nine sites so far:**
+Find every repo holding a given collection. **Done for eleven sites so far:**
 steamtags (the reference implementation, `global-index.js`), memex, verdict's
 `/crowd` (as of 2026-08-18, aggregating every judgment on the network into a
 good/bad split, a kindest/harshest judge leaderboard, and the posts people
@@ -50,14 +50,25 @@ a daily-slot pass — its snapshot rkey is a PDS-assigned TID rather than a
 deterministic id, so its `global-index.js` pages a candidate's whole snapshot
 collection via `listRecords` and filters locally, closer to steamtags' shape
 than quadrants'; opening `/d/<id>` now lists every snapshot anyone's
-published of that doc), and kolpelor (2026-08-25, a daily-slot pass — its
+published of that doc), kolpelor (2026-08-25, a daily-slot pass — its
 `/atlas` page is the singleton-"self"-record shape, closer to catspace's
 `/directory` than docmoot's; it's the network-wide counterpart to the
 existing Ἴχνη panel, which only ever scanned the signed-in player's own
-SimCluster). Still one-repo-only: alice-meets-bob, clusterpedia, duohaunt,
-griftmax, hyperobject, padmoot, postwith, socialcredit, velvetrope, war.
-(keytags is a deliberate exception, not a gap — its records
-are opaque hashes unless you hold the key, so there's nothing an aggregate
+SimCluster), war's `/front` (2026-08-21, a daily-slot pass that was missing
+from this list until this pass caught it — its `state` record is pinned to a
+fixed `"self"` rkey per repo, so backfill is one `getRecord` per DID), and
+socialcredit (2026-08-26, a daily-slot pass — the odd one out: votes are
+multi-record-per-repo written into the *voter's* repo with the target as a
+field, so instead of `listReposByCollection` + `getRecord`/`listRecords` per
+candidate, this one is `listReposByCollection` to find every voter, then one
+full-repo `com.atproto.sync.getRepo` CAR download per voter to pull all of
+that voter's votes at once — the first aggregate view built as a bulk-CAR-read
+rather than a paginated `listRecords` walk per the 2026-08-25 standing order;
+see `sites/socialcredit/public/lib/car.js` and `global-backfill.js`). Still
+one-repo-only: alice-meets-bob, clusterpedia, duohaunt, griftmax, hyperobject,
+padmoot, postwith, velvetrope. (keytags is a deliberate exception, not a gap
+— its records are opaque hashes unless you hold the key, so there's nothing
+an aggregate
 view could meaningfully show.)
 
 **4. Cache trigram verdicts.** (`store-ours-rederive-theirs.md`) **Done,
@@ -228,13 +239,16 @@ a page isn't.
 ## If picking one thing
 
 Cheapest real win: **the lexicon work (1–3)**. Steps 1–2 are documentation of
-what already exists; step 3 (the aggregate views) is now live for nine sites
+what already exists; step 3 (the aggregate views) is now live for eleven sites
 and has become a small, reusable `global-index.js` recipe (backfill via
 `listReposByCollection` + a live Jetstream feed) that any of the remaining
 one-repo-only lexicon sites could pick up next. Every remaining one is
-`key: "tid"` or `key: "any"` (multi-record-per-repo, checked 2026-08-25) — a
-paged `listRecords` scan filtered client-side, closer to docmoot's shape than
-catspace/kolpelor's singleton-"self" one.
+`key: "tid"` or `key: "any"` (multi-record-per-repo, checked 2026-08-25),
+closer to docmoot's shape than catspace/kolpelor's singleton-"self" one — but
+per the "prefer bulk reads" standing order (2026-08-25) and socialcredit's
+`global-backfill.js` (2026-08-26, the first to apply it here), that backfill
+should now be a full-repo `com.atproto.sync.getRepo` CAR download per
+candidate repo (`car.js`) rather than a paged `listRecords` scan.
 
 Most fun for the effort: **one hand-built feed generator (5)**. Small, and it
 puts the project inside the Bluesky app instead of behind a link.
