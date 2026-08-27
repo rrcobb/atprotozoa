@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>fridgemagnets — Claude's own vocabulary, on a fridge door</title>
+<meta name="description" content="1000 of the words Claude's own writing leans on most, as word magnets on a full-screen fridge door. Drag them into a poem, touch or mouse.">
+
+<meta property="og:title" content="fridgemagnets">
+<meta property="og:description" content="1000 of Claude's own most load-bearing words, yours to drag into a poem. Touch-friendly, full screen.">
+<meta property="og:image" content="https://fridgemagnets.bisks.net/og.png">
+<meta property="og:url" content="https://fridgemagnets.bisks.net/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="fridgemagnets">
+<meta name="twitter:description" content="1000 of Claude's own most load-bearing words, yours to drag into a poem.">
+<meta name="twitter:image" content="https://fridgemagnets.bisks.net/og.png">
+
+<style>
+  @font-face {
+    font-family: "JetBrains Mono";
+    src: url("fonts/JetBrainsMono.ttf") format("truetype");
+    font-weight: 100 900;
+    font-display: swap;
+  }
+  :root {
+    color-scheme: only light;
+    --steel-a: #dde2e6;
+    --steel-b: #b9c1c7;
+    --ink: #14110c;
+    --muted: #5b6167;
+    --bar-h: 56px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    overscroll-behavior: none;
+    background: var(--steel-b);
+    font: 400 15px/1.4 "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--ink);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  body {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ---------------------------------------------------------------- bar */
+  #bar {
+    flex: 0 0 auto;
+    min-height: var(--bar-h);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px calc(10px + env(safe-area-inset-right)) 8px calc(10px + env(safe-area-inset-left));
+    padding-top: calc(8px + env(safe-area-inset-top));
+    background: var(--ink);
+    color: #f5f1e6;
+    flex-wrap: wrap;
+  }
+  #bar h1 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  #bar .tag {
+    font-size: 11px;
+    color: #b7b2a4;
+    display: none;
+  }
+  @media (min-width: 640px) {
+    #bar .tag { display: inline; }
+  }
+  #bar .spacer { flex: 1 1 auto; min-width: 4px; }
+  .btn {
+    appearance: none;
+    border: 1.5px solid #f5f1e6;
+    background: transparent;
+    color: #f5f1e6;
+    font: 700 12px/1 "JetBrains Mono", ui-monospace, monospace;
+    letter-spacing: 0.3px;
+    padding: 10px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    touch-action: manipulation;
+    white-space: nowrap;
+  }
+  .btn:active { background: #2a251c; }
+  .btn.accent {
+    background: #de301e;
+    border-color: #de301e;
+    color: #fff;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+  }
+  .btn.accent:active { background: #b8250f; }
+
+  /* ---------------------------------------------------------------- fridge */
+  #fridge {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    background:
+      repeating-linear-gradient(180deg, rgba(255,255,255,0.35) 0px, rgba(255,255,255,0.35) 1px, transparent 1px, transparent 54px),
+      linear-gradient(180deg, var(--steel-a), var(--steel-b));
+    overflow: hidden;
+  }
+  #tray {
+    position: absolute;
+    inset: 0;
+    padding: 10px calc(10px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left));
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    align-items: flex-start;
+    gap: 8px;
+    overflow: auto;
+  }
+  #tray.empty::after {
+    content: "no words left in the tray — hit \201Cnew words\201D or \201Cclear board\201D";
+    color: var(--muted);
+    font-size: 13px;
+    padding: 8px;
+  }
+
+  .magnet {
+    --rot: 0deg;
+    --bg: #f5f1e6;
+    --fg: #14110c;
+    display: inline-block;
+    background: var(--bg);
+    color: var(--fg);
+    border: 2px solid var(--ink);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-weight: 700;
+    line-height: 1.15;
+    white-space: nowrap;
+    box-shadow: 0 2px 0 rgba(0,0,0,0.18), 0 6px 10px rgba(0,0,0,0.12);
+    transform: rotate(var(--rot));
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    will-change: transform, left, top;
+  }
+  .magnet.dragging {
+    cursor: grabbing;
+    box-shadow: 0 10px 18px rgba(0,0,0,0.28);
+    transition: none;
+  }
+  .magnet.placed {
+    position: absolute;
+  }
+
+  /* ---------------------------------------------------------------- share sheet */
+  #shareSheet {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 9, 6, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 999;
+  }
+  #shareSheet[hidden] { display: none; }
+  #shareCard {
+    background: #f5f1e6;
+    border-radius: 10px;
+    max-width: 560px;
+    width: 100%;
+    padding: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+  #shareCard h2 {
+    margin: 0 0 10px;
+    font-size: 15px;
+  }
+  #shareCanvas {
+    width: 100%;
+    height: auto;
+    border-radius: 6px;
+    border: 2px solid var(--ink);
+    display: block;
+    margin-bottom: 12px;
+  }
+  #shareActions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  #shareActions .btn {
+    border-color: var(--ink);
+    color: var(--ink);
+  }
+  #shareActions .btn:active { background: #e2ddce; }
+  #shareClose {
+    margin-left: auto;
+  }
+</style>
+</head>
+<body>
+  <div id="bar">
+    <h1>fridgemagnets</h1>
+    <span class="tag">1000 of Claude's own most load-bearing words</span>
+    <div class="spacer"></div>
+    <button class="btn" id="newWordsBtn" type="button">new words</button>
+    <button class="btn" id="clearBtn" type="button">clear board</button>
+    <button class="btn accent" id="shareBtn" type="button">🦋 share</button>
+  </div>
+
+  <div id="fridge">
+    <div id="tray"></div>
+  </div>
+
+  <div id="shareSheet" hidden>
+    <div id="shareCard">
+      <h2>share your fridge poem</h2>
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+      <div id="shareActions">
+        <a class="btn accent" id="shareBluesky" target="_blank" rel="noopener">🦋 post to Bluesky</a>
+        <button class="btn" id="shareDownload" type="button">download image</button>
+        <button class="btn" id="shareNative" type="button" style="display:none">share…</button>
+        <button class="btn" id="shareClose" type="button">close</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  var SOURCE_URL = "https://louisabraham.github.io/load-bearing/";
+  var SITE_URL = "https://fridgemagnets.bisks.net/";
+  var TRAY_SIZE = 90; // how many magnets sit in the tray at once
+
+  var els = {
+    tray: document.getElementById("tray"),
+    newWordsBtn: document.getElementById("newWordsBtn"),
+    clearBtn: document.getElementById("clearBtn"),
+    shareBtn: document.getElementById("shareBtn"),
+    shareSheet: document.getElementById("shareSheet"),
+    shareCanvas: document.getElementById("shareCanvas"),
+    shareBluesky: document.getElementById("shareBluesky"),
+    shareDownload: document.getElementById("shareDownload"),
+    shareNative: document.getElementById("shareNative"),
+    shareClose: document.getElementById("shareClose"),
+  };
+
+  var PALETTE = [
+    { bg: "#f5f1e6", fg: "#14110c" },
+    { bg: "#eaf1fb", fg: "#10233c" },
+    { bg: "#fdecef", fg: "#4a1220" },
+    { bg: "#e9f5ea", fg: "#123821" },
+    { bg: "#fff3d6", fg: "#4a350a" },
+    { bg: "#efeaf8", fg: "#241a4a" },
+  ];
+
+  function hashStr(s) {
+    var h = 0;
+    for (var i = 0; i < s.length; i++) {
+      h = (h * 31 + s.charCodeAt(i)) | 0;
+    }
+    return Math.abs(h);
+  }
+
+  function sizeForRank(rank, total) {
+    var t = rank / Math.max(1, total - 1);
+    return Math.round(28 - t * 15); // 28px down to 13px
+  }
+
+  var allWords = []; // [{word, rank}]
+  var trayPointer = 0;
+  var placed = Object.create(null); // word -> true, currently on the board
+  var zTop = 10;
+
+  function nextBatch(count) {
+    var out = [];
+    if (!allWords.length) return out;
+    var tries = 0;
+    while (out.length < count && tries < allWords.length * 2) {
+      var entry = allWords[trayPointer % allWords.length];
+      trayPointer++;
+      tries++;
+      if (placed[entry.word]) continue;
+      if (out.some(function (e) { return e.word === entry.word; })) continue;
+      out.push(entry);
+    }
+    return out;
+  }
+
+  function makeMagnet(entry) {
+    var tile = document.createElement("span");
+    tile.className = "magnet";
+    tile.textContent = entry.word;
+    tile.dataset.word = entry.word;
+    var size = sizeForRank(entry.rank, allWords.length);
+    tile.style.fontSize = size + "px";
+    var h = hashStr(entry.word);
+    var c = PALETTE[h % PALETTE.length];
+    tile.style.setProperty("--bg", c.bg);
+    tile.style.setProperty("--fg", c.fg);
+    var rot = ((h >> 3) % 13) - 6; // -6..6 degrees
+    tile.style.setProperty("--rot", rot + "deg");
+    attachDrag(tile);
+    return tile;
+  }
+
+  function markEmptyState() {
+    var hasTrayTiles = els.tray.querySelectorAll(".magnet:not(.placed)").length > 0;
+    els.tray.classList.toggle("empty", !hasTrayTiles);
+  }
+
+  function fillTray() {
+    var batch = nextBatch(TRAY_SIZE);
+    batch.forEach(function (entry) {
+      els.tray.appendChild(makeMagnet(entry));
+    });
+    markEmptyState();
+  }
+
+  function clampToTray(tile) {
+    var tileRect = tile.getBoundingClientRect();
+    var left = parseFloat(tile.style.left) || 0;
+    var top = parseFloat(tile.style.top) || 0;
+    left = Math.max(0, Math.min(left, Math.max(0, els.tray.clientWidth - tileRect.width)));
+    top = Math.max(0, Math.min(top, Math.max(0, els.tray.clientHeight - tileRect.height)));
+    tile.style.left = left + "px";
+    tile.style.top = top + "px";
+  }
+
+  function attachDrag(tile) {
+    var startX = 0, startY = 0, origLeft = 0, origTop = 0, dragging = false;
+
+    tile.addEventListener("pointerdown", function (e) {
+      if (e.button !== undefined && e.button !== 0 && e.pointerType === "mouse") return;
+      e.preventDefault();
+      try { tile.setPointerCapture(e.pointerId); } catch (_) {}
+
+      var trayRect = els.tray.getBoundingClientRect();
+      var tileRect = tile.getBoundingClientRect();
+      var left = tileRect.left - trayRect.left + els.tray.scrollLeft;
+      var top = tileRect.top - trayRect.top + els.tray.scrollTop;
+
+      if (!tile.classList.contains("placed")) {
+        tile.classList.add("placed");
+        placed[tile.dataset.word] = true;
+        tile.style.left = left + "px";
+        tile.style.top = top + "px";
+        markEmptyState();
+      }
+
+      zTop += 1;
+      tile.style.zIndex = zTop;
+      startX = e.clientX;
+      startY = e.clientY;
+      origLeft = parseFloat(tile.style.left) || 0;
+      origTop = parseFloat(tile.style.top) || 0;
+      dragging = true;
+      tile.classList.add("dragging");
+    });
+
+    tile.addEventListener("pointermove", function (e) {
+      if (!dragging) return;
+      var dx = e.clientX - startX;
+      var dy = e.clientY - startY;
+      tile.style.left = (origLeft + dx) + "px";
+      tile.style.top = (origTop + dy) + "px";
+    });
+
+    function end(e) {
+      if (!dragging) return;
+      dragging = false;
+      tile.classList.remove("dragging");
+      clampToTray(tile);
+    }
+    tile.addEventListener("pointerup", end);
+    tile.addEventListener("pointercancel", end);
+  }
+
+  els.newWordsBtn.addEventListener("click", function () {
+    Array.prototype.slice.call(els.tray.querySelectorAll(".magnet:not(.placed)")).forEach(function (t) {
+      t.remove();
+    });
+    fillTray();
+  });
+
+  els.clearBtn.addEventListener("click", function () {
+    els.tray.innerHTML = "";
+    placed = Object.create(null);
+    trayPointer = 0;
+    zTop = 10;
+    fillTray();
+  });
+
+  // -------------------------------------------------------------- share
+
+  // placed magnets, grouped into reading-order rows by on-screen position
+  function placedRows() {
+    var tiles = Array.prototype.slice.call(els.tray.querySelectorAll(".magnet.placed"));
+    if (!tiles.length) return [];
+    var trayRect = els.tray.getBoundingClientRect();
+    var withPos = tiles.map(function (t) {
+      var r = t.getBoundingClientRect();
+      return { word: t.dataset.word, x: r.left - trayRect.left, y: r.top - trayRect.top };
+    });
+    withPos.sort(function (a, b) { return a.y - b.y || a.x - b.x; });
+    var rows = [];
+    var rowH = 40;
+    withPos.forEach(function (p) {
+      var row = rows.find(function (r) { return Math.abs(r.y - p.y) < rowH; });
+      if (!row) { row = { y: p.y, items: [] }; rows.push(row); }
+      row.items.push(p);
+    });
+    rows.sort(function (a, b) { return a.y - b.y; });
+    rows.forEach(function (r) { r.items.sort(function (a, b) { return a.x - b.x; }); });
+    return rows.map(function (r) { return r.items.map(function (i) { return i.word; }).join(" "); });
+  }
+
+  function currentPoem() {
+    var rows = placedRows();
+    return rows.length ? rows.join(" / ") : null;
+  }
+
+  function buildShareText() {
+    var poem = currentPoem();
+    var prefix = poem
+      ? "arranged some of Claude's own load-bearing vocabulary into a fridge poem: “" + poem + "”"
+      : "1000 of Claude's own most load-bearing words, loose on a fridge door";
+    var budget = 300 - (SITE_URL.length + 1);
+    if (prefix.length > budget) prefix = prefix.slice(0, budget - 1) + "…";
+    return prefix + " " + SITE_URL;
+  }
+
+  function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+    var words = text.split(" ");
+    var line = "";
+    var lines = 0;
+    var cy = y;
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + " " + words[i] : words[i];
+      if (ctx.measureText(test).width > maxWidth && line) {
+        ctx.fillText(line, x, cy);
+        cy += lineHeight;
+        lines++;
+        line = words[i];
+        if (maxLines && lines >= maxLines - 1) {
+          line = words.slice(i).join(" ");
+          break;
+        }
+      } else {
+        line = test;
+      }
+    }
+    if (line) ctx.fillText(line, x, cy);
+    return cy;
+  }
+
+  function buildShareCard() {
+    var canvas = els.shareCanvas;
+    var ctx = canvas.getContext("2d");
+    var W = canvas.width, H = canvas.height;
+    var mono = "'JetBrains Mono', ui-monospace, monospace";
+
+    var steelA = "#dde2e6", steelB = "#b9c1c7", ink = "#14110c", muted = "#5b6167";
+    var grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, steelA);
+    grad.addColorStop(1, steelB);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.lineWidth = 1;
+    for (var y = 0; y < H; y += 54) {
+      ctx.beginPath();
+      ctx.moveTo(0, y + 0.5);
+      ctx.lineTo(W, y + 0.5);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = ink;
+    ctx.fillRect(70, 46, 300, 46);
+    ctx.fillStyle = "#f5f1e6";
+    ctx.font = `800 24px ${mono}`;
+    ctx.textAlign = "left";
+    ctx.fillText("FRIDGEMAGNETS", 88, 76);
+
+    var poemLines = placedRows().slice(0, 5);
+    if (!poemLines.length) {
+      poemLines = ["load-bearing quietly", "genuinely half honest", "survives the refusal"];
+    }
+
+    var palette = [
+      { bg: "#f5f1e6", fg: "#14110c" },
+      { bg: "#eaf1fb", fg: "#10233c" },
+      { bg: "#fdecef", fg: "#4a1220" },
+      { bg: "#e9f5ea", fg: "#123821" },
+      { bg: "#fff3d6", fg: "#4a350a" },
+      { bg: "#efeaf8", fg: "#241a4a" },
+    ];
+    var pi = 0;
+    var yy = 200;
+    poemLines.slice(0, 3).forEach(function (line) {
+      var words = line.split(" ").slice(0, 5);
+      var size = words.length > 3 ? 26 : 34;
+      var xx = 90;
+      var rowH = size + 20;
+      words.forEach(function (w) {
+        ctx.font = `700 ${size}px ${mono}`;
+        var tw = ctx.measureText(w).width + 32;
+        var th = size + 20;
+        var c = palette[pi % palette.length];
+        pi++;
+        ctx.save();
+        ctx.translate(xx + tw / 2, yy + th / 2);
+        ctx.rotate(((pi % 2 === 0 ? -1 : 1) * (2 + (pi % 3))) * Math.PI / 180);
+        ctx.fillStyle = c.bg;
+        ctx.strokeStyle = ink;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(-tw / 2, -th / 2, tw, th, 4);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = c.fg;
+        ctx.textAlign = "center";
+        ctx.fillText(w, 0, size * 0.34);
+        ctx.restore();
+        xx += tw + 14;
+      });
+      yy += rowH + 20;
+      if (yy > H - 150) return;
+    });
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = muted;
+    ctx.font = `400 18px ${mono}`;
+    wrapCanvasText(ctx, "1000 of Claude's own most load-bearing words — drag them into a poem.", 90, H - 90, W - 180, 26, 2);
+
+    ctx.fillStyle = ink;
+    ctx.font = `700 22px ${mono}`;
+    ctx.fillText("fridgemagnets.bisks.net", 90, H - 30);
+  }
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      var probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (_) {
+      return false;
+    }
+  }
+
+  var lastShareText = "";
+
+  els.shareBtn.addEventListener("click", function () {
+    lastShareText = buildShareText();
+    buildShareCard();
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+    els.shareSheet.hidden = false;
+  });
+
+  els.shareClose.addEventListener("click", function () {
+    els.shareSheet.hidden = true;
+  });
+  els.shareSheet.addEventListener("click", function (e) {
+    if (e.target === els.shareSheet) els.shareSheet.hidden = true;
+  });
+
+  els.shareDownload.addEventListener("click", function () {
+    els.shareCanvas.toBlob(function (blob) {
+      if (!blob) return;
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "fridgemagnets-poem.png";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  });
+
+  if (canShareFiles()) {
+    els.shareNative.style.display = "";
+    els.shareNative.addEventListener("click", function () {
+      els.shareCanvas.toBlob(async function (blob) {
+        if (!blob) return;
+        var file = new File([blob], "fridgemagnets-poem.png", { type: "image/png" });
+        try {
+          await navigator.share({ files: [file], text: lastShareText, title: "fridgemagnets" });
+        } catch (_) {
+          // cancelled or failed silently
+        }
+      }, "image/png");
+    });
+  }
+
+  // -------------------------------------------------------------- boot
+
+  fetch("data/words.json")
+    .then(function (r) { return r.json(); })
+    .then(function (list) {
+      allWords = list.map(function (word, i) { return { word: word, rank: i }; });
+      fillTray();
+    })
+    .catch(function () {
+      els.tray.innerHTML = "<p style=\"padding:12px;color:#5b6167\">couldn't load the word bank. reload?</p>";
+    });
+})();
+</script>
+</body>
+</html>
