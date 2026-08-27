@@ -1,0 +1,48 @@
+{
+  "lexicon": 1,
+  "id": "net.bisks.prestige.link",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "A signed declaration that this account is one link in a 'prestige' chain — the pattern @cee.wtf, @bisks.net, and @buildthis.bisks.net worked out in a reply thread: since com.atproto.server.createAccount needs its own email/password per account (no silent auto-spawning of an alt) and com.atproto.server.deleteAccount needs an emailed confirmation token (no auto-retiring the old one either), the only part of 'prestiging' to a fresh account that's actually buildable is a signed record chaining old DID to new DID. At least one of prev/next should be set (enforced client-side, not in this schema) — an account writes `next` pointing forward when it hands off, or `prev` pointing backward when it's the successor picking the chain back up; a single account can write both across its lifetime as separate records. The chain viewer (https://prestige.bisks.net) walks prev/next across whichever DIDs it touches to reconstruct the lineage; it does not move followers, posts, or the underlying account itself — see the site's copy for why. Written and read by prestige (https://prestige.bisks.net).",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": ["generation", "createdAt"],
+        "properties": {
+          "generation": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "This account's position in the chain, 1-indexed (1 = the account the chain started from). Suggested client-side as (prev account's generation + 1) when a prev is known, editable, defaults to 1 for a chain's first link."
+          },
+          "prev": {
+            "type": "string",
+            "format": "did",
+            "description": "The DID of the account this one picks up from, if any — set by the successor account once it exists."
+          },
+          "next": {
+            "type": "string",
+            "format": "did",
+            "description": "The DID of the account this one handed off to, if any — set by the retiring account, possibly after this record already exists (e.g. written once at hand-off time with next empty, then a later record adds it once the successor is created)."
+          },
+          "followersAtLink": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "This account's follower count at the moment this record was written, for badge/bragging purposes. Not authoritative — a live follower count should always be re-fetched from the AppView, this is just a snapshot."
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 900,
+            "maxGraphemes": 300,
+            "description": "Optional short freeform note about the hand-off (why now, what changed, anything). Client-truncated to 300 graphemes."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "When this record was written, as an ISO 8601 datetime."
+          }
+        }
+      }
+    }
+  }
+}

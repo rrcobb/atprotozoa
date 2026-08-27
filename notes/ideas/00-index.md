@@ -65,11 +65,29 @@ full-repo `com.atproto.sync.getRepo` CAR download per voter to pull all of
 that voter's votes at once — the first aggregate view built as a bulk-CAR-read
 rather than a paginated `listRecords` walk per the 2026-08-25 standing order;
 see `sites/socialcredit/public/lib/car.js` and `global-backfill.js`). Still
-one-repo-only: alice-meets-bob, clusterpedia, duohaunt, griftmax, hyperobject,
-padmoot, postwith, velvetrope. (keytags is a deliberate exception, not a gap
-— its records are opaque hashes unless you hold the key, so there's nothing
-an aggregate
-view could meaningfully show.)
+one-repo-only: alice-meets-bob (deliberately — see below), duohaunt, griftmax,
+padmoot, velvetrope (deliberately, its own `/api` explicitly 410s cross-account
+queue reads: "requests and decisions live only in their authors' PDSes").
+(keytags is a deliberate exception too, not a gap — its records are opaque
+hashes unless you hold the key, so there's nothing an aggregate view could
+meaningfully show.)
+
+This list had drifted stale in three more places, caught by later daily-slot
+passes rather than fixed at the time: **clusterpedia** and **postwith** were
+never actually one-repo-only — both ship a KV-backed global index from launch
+(clusterpedia's wiki state, postwith's cross-user match store), just not via
+`listReposByCollection`, so they were miscategorized here from the start.
+**hyperobject** genuinely was one-repo-only (worse: its "shared" pit was
+per-browser localStorage, not even one repo) until a 2026-08-27 daily-slot
+pass — its `wrangler.toml` still described a Durable Object it had built for
+exactly this and then deleted under the cost wall, same shape as catspace's
+`/directory` before its own fix, except nobody had filled the gap back in
+here. Rebuilt as a KV-backed Worker (same recipe, not `listReposByCollection`
+either — casts/suggestions/reviews are a small fixed set of authored records,
+not a per-user collection to aggregate). alice-meets-bob is the one
+privacy-motivated exception in the list above that's genuinely permanent, same
+reasoning as keytags: an aggregate view of ciphertext nobody but the two
+parties can decrypt has nothing to show.
 
 **4. Cache trigram verdicts.** (`store-ours-rederive-theirs.md`) **Done,
 2026-08-17.** `sites/trigrams/public/lib/unique.js`'s `searchPhrase()` (used by

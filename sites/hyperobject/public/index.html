@@ -415,7 +415,7 @@
 
     <div class="castbox">
       <h2 id="castboxTitle">cast someone into the pit</h2>
-     <p class="sub" id="castboxSub">Sign in with Bluesky. Casts are stored only in this browser; profiles are read from the public AppView.</p>
+     <p class="sub" id="castboxSub">Sign in with Bluesky. The pit is shared — everyone who visits sees the same souls.</p>
       <div id="signinBar" class="signin"></div>
       <form id="f">
         <div class="row">
@@ -448,7 +448,7 @@
     </div>
 
      <div class="pithead">
-       <h2>the pit (this browser)</h2>
+       <h2>the pit</h2>
       <span class="count"><span id="pitCount">0</span> souls beneath</span>
     </div>
     <div id="pitList"></div>
@@ -666,8 +666,7 @@ function renderEntry(entry, isFresh) {
   const castByLine = entry.suggestedBy
     ? `suggested by @${esc(entry.suggestedBy.handle)}, cast by @${esc((entry.lastCastBy || {}).handle || HYPEROBJECT_HANDLE)}`
     : entry.lastCastBy
-    ? `cast by @${esc(entry.lastCastBy.handle)}` +
-      (entry.castBy && entry.castBy.length > 1 ? ` +${entry.castBy.length - 1} more` : "")
+    ? `cast by @${esc(entry.lastCastBy.handle)}`
     : "";
   div.innerHTML = `
     <img class="squish" ${entry.avatar ? `src="${esc(entry.avatar)}"` : ""} alt="" onerror="this.style.visibility='hidden'" />
@@ -686,7 +685,10 @@ let lastKnownDids = new Set();
 
 async function loadPit(highlightDid) {
   try {
-    let entries = []; try { entries = JSON.parse(localStorage.getItem("hyperobject.pit") || "[]"); } catch (_) {}
+    const res = await fetch("/api/pit");
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    const entries = data.entries || [];
     els.pitCount.textContent = String(entries.length);
     els.pitList.innerHTML = "";
     if (!entries.length) {
@@ -730,14 +732,32 @@ async function castInto(rawHandle, note) {
       did = r.did;
     }
 
-    const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
-    const entry = { did, handle: profile.handle, displayName: profile.displayName, avatar: profile.avatar, note: note || "", count: 1, firstCastAt: Date.now(), lastCastAt: Date.now(), lastCastBy: { did: session.did, handle: session.handle } };
-    let entries = []; try { entries = JSON.parse(localStorage.getItem("hyperobject.pit") || "[]"); } catch (_) {}
-    const old = entries.find((e) => e.did === did);
-    if (old) { old.count++; old.lastCastAt = Date.now(); old.lastCastBy = entry.lastCastBy; } else entries.unshift(entry);
-    localStorage.setItem("hyperobject.pit", JSON.stringify(entries));
-    setStatus(`@${entry.handle} has fallen into this browser's pit.`, "ok");
-    setShare(entry.handle); await loadPit(entry.did);
+    const collection = direct ? CAST_COLLECTION : SUGGEST_COLLECTION;
+    const record = { $type: collection, subject: did, note: note || "", createdAt: new Date().toISOString() };
+    setStatus(direct ? "casting..." : "submitting for review...");
+    const writeRes = await dpopFetch(session, `${session.pdsUrl}/xrpc/com.atproto.repo.createRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: session.did, collection, record }),
+    });
+    const written = await writeRes.json().catch(() => ({}));
+    if (!writeRes.ok) throw new Error(written.message || "couldn't write that record to your PDS");
+
+    const applyRes = await fetch(direct ? "/api/cast" : "/api/suggest", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ uri: written.uri }),
+    });
+    const applied = await applyRes.json().catch(() => ({}));
+    if (!applyRes.ok) throw new Error(applied.error || "couldn't apply that record");
+
+    if (direct) {
+      setStatus(`@${applied.entry.handle} has fallen into the pit.`, "ok");
+      setShare(applied.entry.handle);
+      await loadPit(applied.entry.did);
+    } else {
+      setStatus(`submitted @${handle} to isolyth.dev for review.`, "ok");
+    }
     els.input.value = "";
     els.note.value = "";
   } catch (err) {
@@ -758,7 +778,14 @@ let queue = [];
 
 async function loadQueue() {
   if (!isHyperobject()) return;
-  queue = [];
+  try {
+    const res = await fetch("/api/queue");
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    queue = data.queue || [];
+  } catch (_) {
+    queue = [];
+  }
   renderDossier();
 }
 
@@ -810,7 +837,13 @@ async function reviewCurrent(decision) {
     const written = await writeRes.json().catch(() => ({}));
     if (!writeRes.ok) throw new Error(written.message || "couldn't write that stamp to your PDS");
 
-    const data = {};
+    const applyRes = await fetch("/api/review", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ uri: written.uri }),
+    });
+    const data = await applyRes.json().catch(() => ({}));
+    if (!applyRes.ok) throw new Error(data.error || "couldn't apply that stamp");
 
     els.dossierStamp.textContent = decision === "approve" ? "APPROVED" : "DENIED";
     els.dossierStamp.className = "dossier-stamp show " + decision;

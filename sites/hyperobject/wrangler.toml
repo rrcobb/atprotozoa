@@ -6,11 +6,19 @@ compatibility_date = "2025-01-01"
 # @mfzx.net and asked for compensation: a site where they're on top and
 # everyone else is on the bottom. isolyth.dev is hardcoded as the one and only
 # hyperobject, rendered enthroned at the zenith; anyone else can be "cast into
-# the pit" beneath them. The pit is real shared state (a Durable Object) —
-# everyone who visits sees the same growing pit, not a private fiction — and
-# casts are re-verified server-side against the AppView (src/index.ts resolves
-# the submitted DID's real profile itself; a client can't lie about who it's
-# casting in, only who it targets).
+# the pit" beneath them. The pit was originally meant to be real shared state
+# — everyone who visits sees the same growing pit, not a private fiction — via
+# a Durable Object (see the v1/v2 migration tags below), but the DO was
+# deleted once the Cloudflare cost wall ruled them out, and the site shipped
+# stubbed: casts only ever wrote to browser localStorage and the review queue
+# was a permanently-empty stub (loadQueue() unconditionally set queue = []).
+# A daily-slot pass (2026-08-27) rebuilt the same "everyone sees one shared
+# pit" idea as a KV index instead — see src/index.ts's PitStore, same recipe
+# as sites/clusterpedia's WikiStore and sites/postwith's MatchStore. Casts,
+# suggestions, and review stamps are all real net.bisks.hyperobject.* records
+# the browser writes to the *author's own* PDS; the Worker only ever reads a
+# record back off the claimed author's own repo to verify it before applying
+# it to the KV-backed pit/queue.
 #
 # Brand-new site — served at the root of its own hostname, no
 # bisks.net/<name> path route and no prefix-stripping needed.
@@ -21,7 +29,7 @@ routes = [
   { pattern = "hyperobject.bisks.net/*", zone_name = "bisks.net" },
 ]
 
-# run_worker_first: /api/* (the pit Durable Object) and /s/<handle> (personalized
+# run_worker_first: /api/* (the pit KV index) and /s/<handle> (personalized
 # share unfurls) are both dynamic, so the Worker must run BEFORE the
 # static-asset router.
 [assets]
@@ -29,11 +37,14 @@ directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
 
-# v1 is the ledger entry Cloudflare already applied when this site had a DO.
-# It must keep saying what it originally said: a tag is applied once, and
-# rewriting v1 in place to say deleted_classes silently did nothing (Cloudflare
-# skips tags it has already seen) while the deploy failed for dropping a class
-# live DOs still depended on. The deletion has to be a NEW tag.
+[[kv_namespaces]]
+binding = "PIT_STATE"
+
+# Keep the old DO migration history exactly as Cloudflare already applied it —
+# rewriting v1 in place to say deleted_classes silently does nothing
+# (Cloudflare skips tags it has already seen) while risking a deploy failure
+# for dropping a class live DOs still depend on. The live site now uses only
+# the KV binding above.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Pit"]
