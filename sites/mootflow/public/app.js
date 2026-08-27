@@ -16,7 +16,9 @@
 
 import { resolveDid, resolvePds, followGraph, classify, profilesFor, getProfile } from "./lib/identity.js";
 import { fetchRepoRecordsWithKeys } from "./lib/car.js";
-import { attachHandleTypeahead } from "./lib/handle-typeahead.js";
+// handle-typeahead.js is loaded as a plain (non-module) script in index.html
+// and hangs itself off window — it's a copy-pasted IIFE, not an ES module.
+const attachHandleTypeahead = window.attachHandleTypeahead;
 
 const APPVIEW = "https://public.api.bsky.app/xrpc";
 const POST_SCAN_CAP = 80; // most recent posts scanned for inward engagement
