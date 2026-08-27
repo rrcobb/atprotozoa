@@ -4,16 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>fridgemagnets — Claude's own vocabulary, on a fridge door</title>
-<meta name="description" content="1000 of the words Claude's own writing leans on most, as word magnets on a full-screen fridge door. Drag them into a poem, touch or mouse.">
+<meta name="description" content="1000 of the words Claude's own writing leans on most, as word magnets on a full-screen fridge door. Each one tallies how often it turns up live on Bluesky. Drag them into a poem, touch or mouse.">
 
 <meta property="og:title" content="fridgemagnets">
-<meta property="og:description" content="1000 of Claude's own most load-bearing words, yours to drag into a poem. Touch-friendly, full screen.">
+<meta property="og:description" content="1000 of Claude's own most load-bearing words, each one counting live Bluesky mentions. Drag them into a poem. Touch-friendly, full screen.">
 <meta property="og:image" content="https://fridgemagnets.bisks.net/og.png">
 <meta property="og:url" content="https://fridgemagnets.bisks.net/">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="fridgemagnets">
-<meta name="twitter:description" content="1000 of Claude's own most load-bearing words, yours to drag into a poem.">
+<meta name="twitter:description" content="1000 of Claude's own most load-bearing words, each counting live Bluesky mentions, yours to drag into a poem.">
 <meta name="twitter:image" content="https://fridgemagnets.bisks.net/og.png">
 
 <style>
@@ -77,6 +77,25 @@
   @media (min-width: 640px) {
     #bar .tag { display: inline; }
   }
+  #liveDot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #6b6455;
+    flex: 0 0 auto;
+    cursor: default;
+  }
+  #liveDot.live {
+    background: #3ecf6e;
+    box-shadow: 0 0 0 rgba(62, 207, 110, 0.5);
+    animation: livePulse 2s ease-out infinite;
+  }
+  @keyframes livePulse {
+    0% { box-shadow: 0 0 0 0 rgba(62, 207, 110, 0.5); }
+    70% { box-shadow: 0 0 0 6px rgba(62, 207, 110, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(62, 207, 110, 0); }
+  }
   #bar .spacer { flex: 1 1 auto; min-width: 4px; }
   .btn {
     appearance: none;
@@ -134,6 +153,7 @@
     --rot: 0deg;
     --bg: #f5f1e6;
     --fg: #14110c;
+    position: relative;
     display: inline-block;
     background: var(--bg);
     color: var(--fg);
@@ -151,6 +171,25 @@
     -webkit-user-select: none;
     will-change: transform, left, top;
   }
+  .magnet .count-badge {
+    position: absolute;
+    top: -7px;
+    right: -7px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: #de301e;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 16px;
+    text-align: center;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.35);
+    pointer-events: none;
+    transform: rotate(calc(-1 * var(--rot)));
+  }
+  .magnet .count-badge[hidden] { display: none; }
   .magnet.dragging {
     cursor: grabbing;
     box-shadow: 0 10px 18px rgba(0,0,0,0.28);
@@ -210,7 +249,8 @@
 <body>
   <div id="bar">
     <h1>fridgemagnets</h1>
-    <span class="tag">1000 of Claude's own most load-bearing words</span>
+    <span id="liveDot" title="connecting to the Bluesky firehose…"></span>
+    <span class="tag">1000 of Claude's own most load-bearing words, tallied live off Bluesky</span>
     <div class="spacer"></div>
     <button class="btn" id="newWordsBtn" type="button">new words</button>
     <button class="btn" id="clearBtn" type="button">clear board</button>
@@ -220,6 +260,8 @@
   <div id="fridge">
     <div id="tray"></div>
   </div>
+
+  <script src="lib/word-counts.js"></script>
 
   <div id="shareSheet" hidden>
     <div id="shareCard">
@@ -244,6 +286,7 @@
 
   var els = {
     tray: document.getElementById("tray"),
+    liveDot: document.getElementById("liveDot"),
     newWordsBtn: document.getElementById("newWordsBtn"),
     clearBtn: document.getElementById("clearBtn"),
     shareBtn: document.getElementById("shareBtn"),
@@ -281,6 +324,13 @@
   var trayPointer = 0;
   var placed = Object.create(null); // word -> true, currently on the board
   var zTop = 10;
+  var wordCounter = null; // FridgeWordCounter, live "seen N times" tally off Jetstream
+
+  function formatCount(n) {
+    if (n >= 1000000) return (n / 1000000).toFixed(n >= 10000000 ? 0 : 1).replace(/\.0$/, "") + "m";
+    if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k";
+    return String(n);
+  }
 
   function nextBatch(count) {
     var out = [];
@@ -300,7 +350,6 @@
   function makeMagnet(entry) {
     var tile = document.createElement("span");
     tile.className = "magnet";
-    tile.textContent = entry.word;
     tile.dataset.word = entry.word;
     var size = sizeForRank(entry.rank, allWords.length);
     tile.style.fontSize = size + "px";
@@ -310,8 +359,37 @@
     tile.style.setProperty("--fg", c.fg);
     var rot = ((h >> 3) % 13) - 6; // -6..6 degrees
     tile.style.setProperty("--rot", rot + "deg");
+
+    var label = document.createTextNode(entry.word);
+    tile.appendChild(label);
+
+    var badge = document.createElement("span");
+    badge.className = "count-badge";
+    badge.hidden = true;
+    tile.appendChild(badge);
+
+    updateBadge(tile);
     attachDrag(tile);
     return tile;
+  }
+
+  function updateBadge(tile) {
+    if (!wordCounter) return;
+    var count = wordCounter.counts[tile.dataset.word] || 0;
+    var badge = tile.querySelector(".count-badge");
+    if (!badge) return;
+    if (count > 0) {
+      badge.textContent = formatCount(count);
+      badge.hidden = false;
+      badge.title = tile.dataset.word + " seen " + count + (count === 1 ? " time" : " times") + " since you opened this page";
+    } else {
+      badge.hidden = true;
+    }
+  }
+
+  function refreshAllBadges() {
+    var tiles = els.tray.querySelectorAll(".magnet");
+    for (var i = 0; i < tiles.length; i++) updateBadge(tiles[i]);
   }
 
   function markEmptyState() {
@@ -607,6 +685,19 @@
     .then(function (list) {
       allWords = list.map(function (word, i) { return { word: word, rank: i }; });
       fillTray();
+
+      if (window.FridgeWordCounter) {
+        wordCounter = new window.FridgeWordCounter(list);
+        wordCounter.onUpdate = function (counter) {
+          refreshAllBadges();
+          els.liveDot.className = counter.connected ? "live" : "";
+          els.liveDot.title =
+            (counter.connected ? "live — " : counter.status + " — ") +
+            formatCount(counter.postsSeen) + " posts seen, " +
+            formatCount(counter.matchesSeen) + " word matches counted since you opened this page";
+        };
+        wordCounter.start();
+      }
     })
     .catch(function () {
       els.tray.innerHTML = "<p style=\"padding:12px;color:#5b6167\">couldn't load the word bank. reload?</p>";
