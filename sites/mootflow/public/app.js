@@ -78,6 +78,56 @@ async function pooled(items, limit, worker) {
   await Promise.all(Array.from({ length: n }, runner));
 }
 
+// ---- fallback for the repo CAR download (see lib/car.js's CAR_MAX_BYTES) --
+//
+// fetchRepoRecordsWithKeys throws on an oversized (>200MB) or malformed repo
+// — real for large accounts, per riziles.bsky.social's 2026-08-27 report
+// that mootflow fails on them. Rather than surface a hard error, sample the
+// account's most recent records per collection via com.atproto.repo.
+// listRecords (reverse=true = newest first). REPO_FALLBACK_PAGE_CAP is a
+// genuine safety bound now that this is back to one request per ~100
+// records, not a habitual-caution leftover — see
+// notes/40-new-site-playbook.md's standing order on bulk reads.
+const REPO_FALLBACK_PAGE_CAP = 20; // ~2000 most-recent records per collection
+
+async function listRecordsRecent(pds, did, collection, onProgress) {
+  const out = [];
+  let cursor = "";
+  for (let page = 0; page < REPO_FALLBACK_PAGE_CAP; page++) {
+    const u = new URL(pds.replace(/\/$/, "") + "/xrpc/com.atproto.repo.listRecords");
+    u.searchParams.set("repo", did);
+    u.searchParams.set("collection", collection);
+    u.searchParams.set("limit", "100");
+    u.searchParams.set("reverse", "true");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    let d;
+    try {
+      d = await jget(u.toString());
+    } catch {
+      break;
+    }
+    const records = d.records || [];
+    for (const r of records) out.push({ uri: r.uri, value: r.value });
+    if (onProgress) onProgress(`sampling your recent ${collection.split(".").pop()}s... ${out.length}`);
+    cursor = d.cursor;
+    if (!cursor || !records.length) break;
+  }
+  return out;
+}
+
+async function fetchRecentRecordsViaListRecords(pds, did, onProgress) {
+  const [posts, likes, reposts] = await Promise.all([
+    listRecordsRecent(pds, did, "app.bsky.feed.post", onProgress),
+    listRecordsRecent(pds, did, "app.bsky.feed.like", onProgress),
+    listRecordsRecent(pds, did, "app.bsky.feed.repost", onProgress),
+  ]);
+  return { records: [...posts, ...likes, ...reposts] };
+}
+
+function rkeyOf(uri) {
+  return (uri || "").split("/").pop() || "";
+}
+
 async function getLikers(uri) {
   const out = [];
   let cursor = "";
@@ -451,24 +501,33 @@ function render() {
 
   const totals = relationTotals(slice.counts);
   const g = state.graph;
+  const graphCapped = g.followTruncated || g.followerTruncated;
   const statBits = [
-    `<span><b>${fmt(g.followCount)}</b> follows</span>`,
-    `<span><b>${fmt(g.followerCount)}</b> followers</span>`,
+    `<span><b>${fmt(g.followCount)}</b> follows${g.followTruncated ? "+" : ""}</span>`,
+    `<span><b>${fmt(g.followerCount)}</b> followers${g.followerTruncated ? "+" : ""}</span>`,
     `<span><b>${fmt(totals.mutual)}</b> mutual interactions</span>`,
   ];
   if (state.direction === "inward") {
     statBits.push(`<span>scanned <b>${fmt(state.inward.scanned)}</b> of <b>${fmt(state.inward.total)}</b> posts</span>`);
   }
+  if (graphCapped) {
+    statBits.push(`<span title="your follow graph is big enough that mootflow capped the walk — relationships are based on a large sample, not the complete graph">follow graph capped</span>`);
+  }
   els.stats.innerHTML = statBits.join("");
 
+  const sampleNote = state.sampled
+    ? ` Your repo was too large to download in one shot, so this is based on a sample of your most recent posts, likes, and reposts rather than your entire history.`
+    : "";
+
   els.caption.textContent =
-    state.direction === "inward"
+    (state.direction === "inward"
       ? `Based on your ${fmt(state.inward.scanned)} most recent posts` +
         (state.inward.scanned < state.inward.total
           ? ` (of ${fmt(state.inward.total)} total — mootflow caps the scan so it doesn't sit there forever on very active accounts).`
           : ` — your entire post history.`) +
         ` Ribbon color = the relationship of whoever liked, replied, or reposted, from your own follow graph.`
-      : `Derived from your entire repo — every like, reply, and repost you've ever made, no sampling. Ribbon color = the relationship of whoever you engaged with.`;
+      : `Derived from your entire repo — every like, reply, and repost you've ever made${state.sampled ? "" : ", no sampling"}. Ribbon color = the relationship of whoever you engaged with.`) +
+    sampleNote;
 
   renderEngagers(slice.engagerCounts);
 
@@ -665,14 +724,28 @@ async function run(rawHandle) {
     if (!pds) throw new Error("couldn't find a PDS for that account");
 
     setStatus("downloading your repo (posts, likes, reposts)...");
-    const { records } = await fetchRepoRecordsWithKeys(
-      pds,
-      did,
-      ["app.bsky.feed.post", "app.bsky.feed.like", "app.bsky.feed.repost"],
-      setStatus,
-    );
+    let records, sampled;
+    try {
+      ({ records } = await fetchRepoRecordsWithKeys(
+        pds,
+        did,
+        ["app.bsky.feed.post", "app.bsky.feed.like", "app.bsky.feed.repost"],
+        setStatus,
+      ));
+      sampled = false;
+    } catch (err) {
+      console.error("repo CAR download failed, sampling recent records instead:", err);
+      setStatus("your repo is too big to download in one shot — sampling your most recent activity instead...");
+      ({ records } = await fetchRecentRecordsViaListRecords(pds, did, setStatus));
+      sampled = true;
+    }
 
-    const myPosts = records.filter((r) => r.value.$type === "app.bsky.feed.post").reverse();
+    // Newest-first by rkey (TIDs sort lexicographically by time), so this
+    // works whether records arrived oldest-first (the CAR's MST walk) or
+    // already newest-first (the listRecords fallback's reverse=true pages).
+    const myPosts = records
+      .filter((r) => r.value.$type === "app.bsky.feed.post")
+      .sort((a, b) => (rkeyOf(a.uri) < rkeyOf(b.uri) ? 1 : rkeyOf(a.uri) > rkeyOf(b.uri) ? -1 : 0));
 
     setStatus("tallying your outward activity...");
     const outward = await buildOutward(records, did, graph);
@@ -682,7 +755,7 @@ async function run(rawHandle) {
       setStatus(`scanning your posts for engagement... ${done}/${total}`);
     });
 
-    state = { did, profile, graph, inward, outward, direction: "inward" };
+    state = { did, profile, graph, inward, outward, direction: "inward", sampled };
     els.directionToggle.textContent = "↙ inward: who engages with you";
     els.directionToggle.setAttribute("aria-pressed", "false");
     render();

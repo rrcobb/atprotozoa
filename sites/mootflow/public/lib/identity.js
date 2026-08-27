@@ -7,10 +7,19 @@
 // getFollows/getFollowers aren't repo-backed, so there's no bulk CAR
 // download equivalent for them (see notes/40-new-site-playbook.md's standing
 // order on bulk reads) — pagination here is the correct approach, not a
-// habitual-caution leftover. No page cap: a real follow graph shouldn't be
-// silently truncated.
+// habitual-caution leftover.
+//
+// GRAPH_PAGE_CAP below *is* a genuine safety bound, not habitual caution:
+// riziles.bsky.social reported (2026-08-27) that mootflow fails on large
+// accounts. An account with a few hundred thousand follows/followers turns
+// this into thousands of sequential requests, which can hang the tab for
+// minutes and balloon memory building the Sets. classify() only needs set
+// membership, so a large-but-capped sample still classifies the overwhelming
+// majority of interactions correctly — only accounts that actually hit the
+// cap get an approximate note (see followTruncated/followerTruncated below).
 
 const PUB = "https://public.api.bsky.app/xrpc";
+const GRAPH_PAGE_CAP = 300; // ~30k follows/followers per side before capping
 
 async function jget(url) {
   const r = await fetch(url);
@@ -66,7 +75,8 @@ export async function resolvePds(did) {
 async function graphAll(endpoint, key, did, onPage) {
   const out = [];
   let cursor = "";
-  while (true) {
+  let truncated = false;
+  for (let page = 0; page < GRAPH_PAGE_CAP; page++) {
     const u = new URL(`${PUB}/${endpoint}`);
     u.searchParams.set("actor", did);
     u.searchParams.set("limit", "100");
@@ -81,13 +91,16 @@ async function graphAll(endpoint, key, did, onPage) {
     if (onPage) onPage(out.length);
     cursor = d.cursor;
     if (!cursor) break;
+    if (page === GRAPH_PAGE_CAP - 1) truncated = true;
   }
-  return out;
+  return { items: out, truncated };
 }
 
 // Full follow graph for `did`: everyone they follow and everyone who follows
 // them, as DID sets — the raw material for classifying any third DID as
-// mutual / follower-only / following-only / stranger.
+// mutual / follower-only / following-only / stranger. followTruncated /
+// followerTruncated are only ever true for accounts big enough to hit
+// GRAPH_PAGE_CAP — the common case is a complete graph.
 export async function followGraph(did, { onStep } = {}) {
   if (onStep) onStep("mapping who you follow...");
   const follows = await graphAll("app.bsky.graph.getFollows", "follows", did, (n) =>
@@ -98,10 +111,12 @@ export async function followGraph(did, { onStep } = {}) {
     onStep && onStep(`mapping who follows you back... ${n}`),
   );
   return {
-    followSet: new Set(follows.map((f) => f.did)),
-    followerSet: new Set(followers.map((f) => f.did)),
-    followCount: follows.length,
-    followerCount: followers.length,
+    followSet: new Set(follows.items.map((f) => f.did)),
+    followerSet: new Set(followers.items.map((f) => f.did)),
+    followCount: follows.items.length,
+    followerCount: followers.items.length,
+    followTruncated: follows.truncated,
+    followerTruncated: followers.truncated,
   };
 }
 
