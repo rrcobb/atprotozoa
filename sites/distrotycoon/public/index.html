@@ -1,0 +1,884 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>distrotycoon — build a linux distro, win the internet</title>
+<meta name="description" content="Design your own distro, compile a joke install script, then grind phoronix, reddit, hacker news, x, mastodon & bluesky until the whole peanut gallery agrees with you." />
+<meta property="og:title" content="distrotycoon — build a linux distro, win the internet" />
+<meta property="og:description" content="Design your own distro, compile a joke install script, then grind phoronix, reddit, hacker news, x, mastodon & bluesky until the whole peanut gallery agrees with you." />
+<meta property="og:url" content="https://distrotycoon.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://distrotycoon.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="distrotycoon — a terminal window mid-flamewar, distrotycoon.bisks.net" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="distrotycoon — build a linux distro, win the internet" />
+<meta name="twitter:description" content="Design your own distro, compile a joke install script, then grind phoronix, reddit, hacker news, x, mastodon & bluesky until the whole peanut gallery agrees with you." />
+<meta name="twitter:image" content="https://distrotycoon.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #090c09;
+    --fg: #dcf5e2;
+    --dim: #6f8d76;
+    --accent: #39ff88;
+    --accent2: #ffb347;
+    --card: #0f140f;
+    --border: #1f2e21;
+    --danger: #ff6b6b;
+    --fa: #39ff88;
+    --fa2: #ffb347;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 10% -10%, #103019 0%, transparent 55%),
+      radial-gradient(ellipse at 95% 0%, #201a08 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 2.2rem 1rem 5rem; }
+  .wrap { width: 100%; max-width: 720px; }
+  h1 {
+    font-size: 2rem; line-height: 1.15; margin: 0 0 0.25rem; text-align: center; letter-spacing: -0.02em;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.86rem; text-align: center; margin: 0 0 1.6rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 1.1rem 1.2rem; margin-bottom: 1rem;
+  }
+  h2 { font-size: 0.92rem; margin: 0 0 0.6rem; color: var(--fg); text-transform: lowercase; letter-spacing: 0.02em; }
+  .hint { font-size: 0.78rem; color: var(--dim); margin: 0.35rem 0 0; line-height: 1.4; }
+  button { font-family: inherit; }
+  input[type=text] { font-family: inherit; }
+  a { color: var(--accent); }
+
+  /* ---- picker grids ---- */
+  .pick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  .pick-grid.one-col { grid-template-columns: 1fr; }
+  .pick-opt {
+    text-align: left; background: #0d130d; border: 1.5px solid var(--border); border-radius: 10px;
+    padding: 0.6rem 0.7rem; cursor: pointer; color: var(--fg); font-family: inherit;
+  }
+  .pick-opt:hover { border-color: var(--dim); }
+  .pick-opt.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .pick-opt .pn { font-weight: 700; font-size: 0.88rem; }
+  .pick-opt .pl { font-size: 0.68rem; color: var(--accent2); margin: 0.1rem 0 0.2rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .pick-opt .pd { font-size: 0.74rem; color: var(--dim); line-height: 1.35; }
+  .pick-opt .ps { font-size: 0.68rem; color: var(--dim); margin-top: 0.3rem; }
+  .pick-opt.faction { padding: 0.75rem 0.8rem; }
+
+  .nameRow { display: flex; gap: 0.5rem; margin-bottom: 0.2rem; }
+  #nameInput {
+    flex: 1; background: #0d130d; border: 1.5px solid var(--border); border-radius: 10px; color: var(--fg);
+    padding: 0.6rem 0.7rem; font-size: 0.9rem;
+  }
+  #nameInput:focus { outline: none; border-color: var(--accent); }
+  .roll-btn {
+    background: #0d130d; border: 1.5px solid var(--border); border-radius: 10px; color: var(--fg);
+    padding: 0.6rem 0.8rem; cursor: pointer; font-size: 0.9rem;
+  }
+  .roll-btn:hover { border-color: var(--accent2); }
+
+  .compile-btn {
+    width: 100%; margin-top: 0.4rem; border: none; border-radius: 10px; padding: 0.8rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #06120a; font-weight: 800;
+    font-size: 0.95rem; cursor: pointer; letter-spacing: 0.02em;
+  }
+  .compile-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+  /* ---- terminal / boot ---- */
+  .term {
+    background: #060906; border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem 1rem;
+    font-size: 0.78rem; line-height: 1.55; min-height: 220px; white-space: pre-wrap; color: var(--accent);
+  }
+  .term .l0 { color: var(--dim); }
+  .term .cursor { display: inline-block; width: 0.5em; background: var(--accent); animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ---- tycoon screen ---- */
+  .distro-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
+  .distro-name { font-size: 1.3rem; font-weight: 800; }
+  .distro-sub { font-size: 0.76rem; color: var(--dim); margin-top: 0.15rem; }
+  .faction-badge {
+    display: inline-block; padding: 0.22rem 0.6rem; border-radius: 999px; font-weight: 700; font-size: 0.7rem;
+    white-space: nowrap;
+  }
+  .manifesto { font-size: 0.76rem; color: var(--dim); margin-top: 0.55rem; font-style: italic; line-height: 1.4; }
+
+  .overall-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.4rem; }
+  .overall-label { font-size: 0.78rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; }
+  .overall-pct { font-size: 1.1rem; font-weight: 800; color: var(--accent); }
+  .overall-track { height: 10px; border-radius: 6px; background: var(--border); overflow: hidden; }
+  .overall-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 6px; transition: width 0.4s; }
+
+  .statrow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; text-align: center; margin-top: 0.9rem; }
+  .statrow .n { font-size: 1.05rem; font-weight: 800; }
+  .statrow .l { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); }
+
+  .plat-grid { display: grid; grid-template-columns: 1fr; gap: 0.55rem; }
+  .plat {
+    background: #0d130d; border: 1.5px solid var(--border); border-radius: 12px; padding: 0.7rem 0.8rem;
+  }
+  .plat.done { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .plat-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.4rem; }
+  .plat-name { font-size: 0.84rem; font-weight: 700; }
+  .plat-pct { font-size: 0.8rem; color: var(--dim); font-weight: 700; }
+  .plat.done .plat-pct { color: var(--accent); }
+  .plat-track { height: 8px; border-radius: 5px; background: var(--border); overflow: hidden; margin-bottom: 0.5rem; }
+  .plat-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 5px; transition: width 0.3s; }
+  .plat-bottom { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+  .plat-quip { font-size: 0.68rem; color: var(--dim); line-height: 1.3; flex: 1; }
+  .argue-btn {
+    border: none; border-radius: 8px; padding: 0.4rem 0.7rem; font-weight: 700; font-size: 0.72rem; cursor: pointer;
+    background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #06120a; white-space: nowrap;
+  }
+  .argue-btn:disabled { opacity: 0.3; cursor: default; background: var(--border); color: var(--dim); }
+
+  .toast-wrap { position: fixed; left: 50%; bottom: 1.1rem; transform: translateX(-50%); z-index: 30; width: 92%; max-width: 520px; pointer-events: none; }
+  .toast {
+    background: #0d130d; border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem 0.8rem;
+    font-size: 0.76rem; margin-top: 0.4rem; opacity: 0; transform: translateY(6px); transition: opacity 0.25s, transform 0.25s;
+  }
+  .toast.up { border-color: var(--accent); color: var(--accent); }
+  .toast.down { border-color: var(--danger); color: var(--danger); }
+  .toast.show { opacity: 1; transform: translateY(0); }
+
+  .log { list-style: none; margin: 0; padding: 0; font-size: 0.76rem; color: var(--dim); max-height: 170px; overflow-y: auto; }
+  .log li { padding: 0.26rem 0; border-bottom: 1px dashed var(--border); }
+  .log li:last-child { border-bottom: none; }
+  .log li.up { color: var(--accent); }
+  .log li.down { color: var(--danger); }
+
+  /* ---- win screen ---- */
+  .win-title { text-align: center; font-size: 1.5rem; font-weight: 800; margin-bottom: 0.3rem; }
+  .win-sub { text-align: center; color: var(--dim); font-size: 0.82rem; margin-bottom: 1rem; }
+  .win-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.6rem; text-align: center; margin-bottom: 0.9rem; }
+  .win-stats .n { font-size: 1.15rem; font-weight: 800; color: var(--accent); }
+  .win-stats .l { font-size: 0.64rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); }
+
+  .share-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.7rem; }
+  .share-btn {
+    flex: 1; min-width: 140px; text-align: center; text-decoration: none; border: none; border-radius: 10px;
+    padding: 0.65rem; font-weight: 700; font-size: 0.84rem; cursor: pointer; font-family: inherit;
+  }
+  .share-post { background: linear-gradient(90deg, #6fb2ff, #7ee8c7); color: #0a1420; }
+  .share-native { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #06120a; display: none; }
+  .share-dl { background: #0d130d; color: var(--fg); border: 1px solid var(--border); }
+  #shareCanvas { display: none; }
+
+  .reset-row { text-align: center; margin-top: 1.2rem; }
+  .reset-btn { background: none; border: none; color: var(--dim); font-size: 0.72rem; text-decoration: underline; cursor: pointer; }
+
+  footer { text-align: center; color: var(--dim); font-size: 0.72rem; margin-top: 1.4rem; }
+  footer a { color: var(--dim); }
+
+  @media (max-width: 420px) { .pick-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>distrotycoon</h1>
+  <p class="tag">build your own linux distro, then win the internet one comment section at a time.</p>
+
+  <!-- ===== BUILD SCREEN ===== -->
+  <div id="screen-build">
+    <div class="card">
+      <h2>name your distro</h2>
+      <div class="nameRow">
+        <input id="nameInput" type="text" placeholder="e.g. GlorpOS" maxlength="24" />
+        <button class="roll-btn" id="rollNameBtn" type="button">🎲 roll</button>
+      </div>
+      <p class="hint">leave it blank and we'll roll one for you at compile time.</p>
+    </div>
+
+    <div class="card">
+      <h2>pick your base</h2>
+      <div class="pick-grid" id="baseGrid"></div>
+    </div>
+
+    <div class="card">
+      <h2>pick your faction</h2>
+      <div class="pick-grid one-col" id="factionGrid"></div>
+      <p class="hint">purely cosmetic. both sides argue exactly as hard.</p>
+    </div>
+
+    <div class="card">
+      <h2>bootloader</h2>
+      <div class="pick-grid" id="bootGrid"></div>
+    </div>
+    <div class="card">
+      <h2>init system</h2>
+      <div class="pick-grid" id="initGrid"></div>
+    </div>
+    <div class="card">
+      <h2>package manager</h2>
+      <div class="pick-grid" id="pkgGrid"></div>
+    </div>
+    <div class="card">
+      <h2>desktop</h2>
+      <div class="pick-grid" id="deGrid"></div>
+    </div>
+
+    <button class="compile-btn" id="compileBtn" disabled>compile &amp; boot</button>
+  </div>
+
+  <!-- ===== BOOT SCREEN ===== -->
+  <div id="screen-boot" class="card" style="display:none">
+    <h2 id="bootHeading">compiling...</h2>
+    <div class="term" id="termOut"></div>
+  </div>
+
+  <!-- ===== TYCOON SCREEN ===== -->
+  <div id="screen-tycoon" style="display:none">
+    <div class="card">
+      <div class="distro-head">
+        <div>
+          <div class="distro-name" id="tyName">—</div>
+          <div class="distro-sub" id="tySub">—</div>
+        </div>
+        <span class="faction-badge" id="tyFactionBadge">—</span>
+      </div>
+      <div class="manifesto" id="tyManifesto"></div>
+      <div class="statrow">
+        <div class="stat"><div class="n" id="statStab">0</div><div class="l">stability</div></div>
+        <div class="stat"><div class="n" id="statRice">0</div><div class="l">rice</div></div>
+        <div class="stat"><div class="n" id="statPower">0</div><div class="l">discourse power</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="overall-row">
+        <span class="overall-label">global discourse domination</span>
+        <span class="overall-pct" id="overallPct">0%</span>
+      </div>
+      <div class="overall-track"><div class="overall-fill" id="overallFill" style="width:0%"></div></div>
+    </div>
+
+    <div class="card">
+      <h2>the peanut galleries</h2>
+      <div class="plat-grid" id="platGrid"></div>
+    </div>
+
+    <div class="card">
+      <h2>discourse log</h2>
+      <ul class="log" id="logList"><li>nothing yet. go argue.</li></ul>
+    </div>
+
+    <div class="reset-row">
+      <button class="reset-btn" id="resetBtnTycoon">scrap this distro &amp; start over</button>
+    </div>
+  </div>
+
+  <!-- ===== WIN SCREEN ===== -->
+  <div id="screen-win" class="card" style="display:none">
+    <div class="win-title">🏆 the discourse is yours</div>
+    <div class="win-sub" id="winSub">—</div>
+    <div class="win-stats">
+      <div><div class="n" id="winTime">0:00</div><div class="l">time to conquer</div></div>
+      <div><div class="n" id="winClicks">0</div><div class="l">arguments started</div></div>
+      <div><div class="n" id="winEvents">0</div><div class="l">flamewars survived</div></div>
+    </div>
+    <div class="hint">every peanut gallery — phoronix, reddit, hacker news, x, mastodon, bluesky — now agrees with you. this will last approximately no time at all.</div>
+    <div class="share-row">
+      <a id="shareBluesky" class="share-btn share-post" target="_blank" rel="noopener">🦋 post to Bluesky</a>
+      <button id="shareNative" class="share-btn share-native">📤 share card</button>
+      <button id="shareDownload" class="share-btn share-dl">⬇ download card</button>
+    </div>
+    <canvas id="shareCanvas" width="1200" height="630"></canvas>
+    <div class="reset-row">
+      <button class="reset-btn" id="resetBtnWin">build another distro</button>
+    </div>
+  </div>
+
+  <footer>
+    built for <a href="https://bsky.app/profile/bisks.net" target="_blank" rel="noopener">bisks.net</a> by
+    <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis</a> ·
+    <a href="https://bisks.net/" target="_blank" rel="noopener">more atprotozoa</a>
+  </footer>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "distrotycoon_v1";
+
+  var BASES = [
+    { id: "deb", name: "Debuntu", label: "Debian-alike", desc: "boring on purpose. still running when the sun explodes.", s: 3, r: 0, p: 1 },
+    { id: "arch", name: "Archon", label: "Arch-alike", desc: "you will bring it up. nobody will ask.", s: 0, r: 2, p: 3 },
+    { id: "gentoo", name: "Gentooth", label: "Gentoo-alike", desc: "compiles for nine hours to save four milliseconds.", s: -1, r: 1, p: 4 },
+    { id: "scratch", name: "FromScratchOS", label: "Linux From Scratch", desc: "no distro, no friends, only make menuconfig.", s: -2, r: 3, p: 5 },
+  ];
+
+  var FACTIONS = [
+    {
+      id: "collective", name: "The Inclusive Collective", short: "the Collective",
+      tagline: "ships a CODE_OF_CONDUCT.md before a kernel. renamed master to main in the README before the repo existed.",
+      accent: "#c77dff", accent2: "#ff8fc4",
+      bootLine: "drafting CODE_OF_CONDUCT.md before the kernel finishes compiling",
+    },
+    {
+      id: "founder", name: "Founder Mode", short: "Founder Mode",
+      tagline: "ships a manifesto before a changelog. PID 1 is either the one true init or a deep-state psyop, depending on the thread.",
+      accent: "#6fb2ff", accent2: "#ffb347",
+      bootLine: "drafting a manifesto.md before the changelog exists",
+    },
+  ];
+
+  var BOOT = [
+    { id: "grub", name: "GRUB", line: "installing GRUB because it is 2003 forever", s: 2, r: 0, p: 0 },
+    { id: "sdboot", name: "systemd-boot", line: "installing systemd-boot (yes, systemd again)", s: 1, r: 1, p: 1 },
+    { id: "refind", name: "rEFInd", line: "installing rEFInd for a boot menu nobody asked to be this pretty", s: 0, r: 2, p: 1 },
+    { id: "uboot", name: "u-boot (on a laptop, for reasons)", line: "installing u-boot on a laptop, for reasons", s: -2, r: 1, p: 3 },
+  ];
+  var INIT = [
+    { id: "systemd", name: "systemd", line: "setting systemd as PID 1, opening a 40-tab argument in advance", s: 2, r: 0, p: 2 },
+    { id: "openrc", name: "OpenRC", line: "setting OpenRC as PID 1, muttering about simplicity", s: 1, r: 1, p: 1 },
+    { id: "runit", name: "runit", line: "setting runit as PID 1, nobody notices, that is the point", s: 1, r: 1, p: 2 },
+    { id: "s6", name: "s6", line: "setting s6 as PID 1 (nobody has personally witnessed this boot)", s: -2, r: 2, p: 4 },
+  ];
+  var PKG = [
+    { id: "apt", name: "apt", line: "bootstrapping apt, apologizing for dpkg in advance", s: 2, r: 0, p: 0 },
+    { id: "pacman", name: "pacman", line: "bootstrapping pacman, printing the arch wiki URL from memory", s: 0, r: 1, p: 2 },
+    { id: "portage", name: "portage", line: "bootstrapping portage, emerging the will to live", s: -1, r: 0, p: 3 },
+    { id: "nix", name: "nix", line: "bootstrapping nix, the flake broke the flake", s: -2, r: 3, p: 2 },
+  ];
+  var DE = [
+    { id: "gnome", name: "GNOME", line: "compositing GNOME, removing three settings nobody wanted", s: 2, r: 1, p: 0 },
+    { id: "kde", name: "KDE Plasma", line: "compositing KDE Plasma, enabling all 900 settings", s: 0, r: 2, p: 1 },
+    { id: "i3", name: "i3", line: "tiling with i3, deleting the mouse driver out of principle", s: 0, r: 1, p: 2 },
+    { id: "sway", name: "sway (rice-maxxed, 40 dotfiles deep)", line: "compositing sway, importing 40 dotfiles from a stranger's github", s: -2, r: 4, p: 3 },
+  ];
+
+  var PLATFORMS = [
+    { id: "phoronix", name: "Phoronix comments", emoji: "🐧", resistance: 1.3,
+      quips: ["\"have you tried the other init\" appears within 4 comments.", "a benchmark chart with no methodology enters the chat."] },
+    { id: "reddit", name: "r/linux", emoji: "👽", resistance: 1.1,
+      quips: ["someone links a 2011 flamewar as evidence.", "a mod removes the thread for \"tone\" and reposts it themselves."] },
+    { id: "hn", name: "hacker news", emoji: "🔶", resistance: 1.7,
+      quips: ["\"this is basically just X from 1987\" — top comment, 340 points.", "someone asks if it's written in Rust. it is not. this is a problem."] },
+    { id: "x", name: "X (the app)", emoji: "✖️", resistance: 0.85,
+      quips: ["a blue check quote-posts you with a chart.", "the discourse moves so fast nobody remembers what started it."] },
+    { id: "mastodon", name: "Mastodon", emoji: "🐘", resistance: 1.25,
+      quips: ["you get quote-boosted into a content warning.", "someone writes a very long, very fair, very unread reply."] },
+    { id: "bluesky", name: "Bluesky", emoji: "🦋", resistance: 0.9,
+      quips: ["someone screenshots it for a subtoot.", "your reply gets 40 likes and 0 of them read past the first line."] },
+  ];
+
+  var CLICK_LINES = [
+    function (p) { return "you post on " + p + ". the discourse trembles slightly."; },
+    function (p) { return "you reply on " + p + " with a well-actually. it lands."; },
+    function (p) { return "you drop a chart with no source on " + p + ". it works."; },
+    function (p) { return "you argue on " + p + " until someone logs off first."; },
+    function (p) { return "you post \"skill issue\" on " + p + " and move on."; },
+    function (p) { return "you link the manifesto in a reply on " + p + "."; },
+  ];
+
+  var POS_EVENTS = [
+    function (p) { return "someone on " + p + " says \"actually that's a good point\" and immediately deletes it."; },
+    function (p) { return "you win an argument on " + p + " by simply outlasting everyone."; },
+    function (p) { return "a screenshot of your take goes semi-viral on " + p + "."; },
+    function (p) { return "a bot account agrees with you on " + p + ". you'll take it."; },
+    function (p) { return "someone quote-posts you on " + p + " and it backfires on them."; },
+    function (p) { return "your reply gets the little checkmark treatment on " + p + "."; },
+  ];
+  var NEG_EVENTS = [
+    function (p) { return "someone links a decade-old thread on " + p + " as a gotcha."; },
+    function (p) { return "\"have you tried the other one\" — top reply on " + p + "."; },
+    function (p) { return "you get ratio'd on " + p + " by a bot."; },
+    function (p) { return "a mod removes your post on " + p + " for \"tone\"."; },
+    function (p) { return "someone on " + p + " says \"ok but why does this need to be political\" unironically."; },
+  ];
+
+  // ---- state ----
+  function rand(min, max) { return min + Math.random() * (max - min); }
+  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+  function byId(arr, id) { for (var i = 0; i < arr.length; i++) if (arr[i].id === id) return arr[i]; return arr[0]; }
+  function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
+
+  function freshMeters() {
+    var m = {};
+    PLATFORMS.forEach(function (p) { m[p.id] = 0; });
+    return m;
+  }
+
+  function loadState() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        var s = JSON.parse(raw);
+        if (s && s.phase) return s;
+      }
+    } catch (_) {}
+    return { phase: "build" };
+  }
+
+  var state = loadState();
+  function saveState() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (_) {} }
+
+  // ---- build screen selection ----
+  var sel = { base: null, faction: null, boot: BOOT[0].id, init: INIT[0].id, pkg: PKG[0].id, de: DE[0].id };
+
+  var PREFIXES = ["Glorp", "Vex", "Cringe", "Based", "Cozy", "Feral", "Damp", "Unhinged", "Sentient", "Artisanal", "Post-Ironic", "Ratio'd", "Ambient", "Chronically", "Certified"];
+  var SUFFIXES = ["OS", "Linux", "ix", "droid", "GNU/Whatever", "BSD (relax, it's a bit)"];
+  function rollName() { return pick(PREFIXES) + pick(SUFFIXES); }
+
+  function renderPickGrid(container, arr, selectedId, onPick, faction) {
+    container.innerHTML = "";
+    arr.forEach(function (opt) {
+      var div = document.createElement("button");
+      div.type = "button";
+      div.className = "pick-opt" + (opt.id === selectedId ? " selected" : "") + (faction ? " faction" : "");
+      var statLine = (!faction) ? ("<div class='ps'>stab " + fmtSigned(opt.s) + " · rice " + fmtSigned(opt.r) + " · power " + fmtSigned(opt.p) + "</div>") : "";
+      var labelLine = opt.label ? ("<div class='pl'>" + opt.label + "</div>") : "";
+      div.innerHTML =
+        "<div class='pn'" + (faction ? " style='color:" + opt.accent + "'" : "") + ">" + opt.name + "</div>" +
+        labelLine +
+        "<div class='pd'>" + (opt.desc || opt.tagline) + "</div>" +
+        statLine;
+      div.addEventListener("click", function () { onPick(opt.id); });
+      container.appendChild(div);
+    });
+  }
+  function fmtSigned(n) { return (n >= 0 ? "+" : "") + n; }
+
+  function renderBuildScreen() {
+    renderPickGrid(document.getElementById("baseGrid"), BASES, sel.base, function (id) { sel.base = id; renderBuildScreen(); });
+    renderPickGrid(document.getElementById("factionGrid"), FACTIONS, sel.faction, function (id) { sel.faction = id; renderBuildScreen(); }, true);
+    renderPickGrid(document.getElementById("bootGrid"), BOOT, sel.boot, function (id) { sel.boot = id; renderBuildScreen(); });
+    renderPickGrid(document.getElementById("initGrid"), INIT, sel.init, function (id) { sel.init = id; renderBuildScreen(); });
+    renderPickGrid(document.getElementById("pkgGrid"), PKG, sel.pkg, function (id) { sel.pkg = id; renderBuildScreen(); });
+    renderPickGrid(document.getElementById("deGrid"), DE, sel.de, function (id) { sel.de = id; renderBuildScreen(); });
+    document.getElementById("compileBtn").disabled = !(sel.base && sel.faction);
+  }
+
+  document.getElementById("rollNameBtn").addEventListener("click", function () {
+    document.getElementById("nameInput").value = rollName();
+  });
+
+  document.getElementById("compileBtn").addEventListener("click", function () {
+    if (!sel.base || !sel.faction) return;
+    var name = (document.getElementById("nameInput").value || "").trim().slice(0, 24) || rollName();
+    var build = { name: name, baseId: sel.base, factionId: sel.faction, bootId: sel.boot, initId: sel.init, pkgId: sel.pkg, deId: sel.de };
+    var stats = computeStats(build);
+    state = { phase: "boot", build: build, stats: stats, meters: freshMeters(), clicks: 0, events: 0, log: [], startedAt: null, lastTick: null };
+    saveState();
+    showScreen("boot");
+    runBootSequence(build, function () {
+      state.phase = "tycoon";
+      state.startedAt = Date.now();
+      state.lastTick = Date.now();
+      saveState();
+      showScreen("tycoon");
+      renderTycoon();
+    });
+  });
+
+  function computeStats(build) {
+    var base = byId(BASES, build.baseId);
+    var boot = byId(BOOT, build.bootId);
+    var init = byId(INIT, build.initId);
+    var pkg = byId(PKG, build.pkgId);
+    var de = byId(DE, build.deId);
+    return {
+      s: base.s + boot.s + init.s + pkg.s + de.s,
+      r: base.r + boot.r + init.r + pkg.r + de.r,
+      p: base.p + boot.p + init.p + pkg.p + de.p,
+    };
+  }
+
+  // ---- boot terminal sequence ----
+  function runBootSequence(build, done) {
+    var base = byId(BASES, build.baseId);
+    var faction = byId(FACTIONS, build.factionId);
+    var boot = byId(BOOT, build.bootId);
+    var init = byId(INIT, build.initId);
+    var pkg = byId(PKG, build.pkgId);
+    var de = byId(DE, build.deId);
+
+    var lines = [
+      "$ ./configure --base=" + base.id + " --faction=" + faction.id,
+      "checking whether the build system is even real... yes",
+      "partitioning disk (this does not touch windows, we checked)",
+      boot.line,
+      init.line,
+      pkg.line,
+      de.line,
+      faction.bootLine,
+      "writing /etc/motd",
+      "mounting the internet at /mnt/opinions",
+      "$ " + build.name + " booted. uptime: 0s. ego: infinite.",
+      "ready to argue.",
+    ];
+
+    var termOut = document.getElementById("termOut");
+    document.getElementById("bootHeading").textContent = "compiling " + build.name + "...";
+    termOut.innerHTML = "";
+    var i = 0;
+    function step() {
+      if (i >= lines.length) {
+        setTimeout(done, 500);
+        return;
+      }
+      var div = document.createElement("div");
+      div.className = i === 0 ? "" : "l0";
+      div.textContent = lines[i];
+      termOut.appendChild(div);
+      termOut.scrollTop = termOut.scrollHeight;
+      i++;
+      setTimeout(step, i === 1 ? 250 : rand(180, 420));
+    }
+    step();
+  }
+
+  // ---- screens ----
+  function showScreen(name) {
+    ["build", "boot", "tycoon", "win"].forEach(function (s) {
+      document.getElementById("screen-" + s).style.display = s === name ? "" : "none";
+    });
+  }
+
+  // ---- tycoon rendering ----
+  var toastWrap = document.getElementById("toastWrap");
+  function toast(text, mood) {
+    var el = document.createElement("div");
+    el.className = "toast " + mood;
+    el.textContent = text;
+    toastWrap.appendChild(el);
+    requestAnimationFrame(function () { el.classList.add("show"); });
+    setTimeout(function () {
+      el.classList.remove("show");
+      setTimeout(function () { el.remove(); }, 300);
+    }, 2600);
+  }
+
+  function addLog(text, mood) {
+    state.log = state.log || [];
+    state.log.unshift({ t: text, c: mood || "" });
+    state.log = state.log.slice(0, 30);
+  }
+
+  function overallPct() {
+    var vals = PLATFORMS.map(function (p) { return state.meters[p.id]; });
+    var sum = vals.reduce(function (a, b) { return a + b; }, 0);
+    return sum / PLATFORMS.length;
+  }
+
+  function doneCount() {
+    var n = 0;
+    PLATFORMS.forEach(function (p) { if (state.meters[p.id] >= 100) n++; });
+    return n;
+  }
+
+  function renderTycoon() {
+    var build = state.build, stats = state.stats;
+    var faction = byId(FACTIONS, build.factionId);
+    var base = byId(BASES, build.baseId);
+
+    document.getElementById("tyName").textContent = build.name;
+    document.getElementById("tySub").textContent = base.label + " · " + faction.short;
+    var badge = document.getElementById("tyFactionBadge");
+    badge.textContent = faction.name;
+    badge.style.background = "linear-gradient(90deg, " + faction.accent + ", " + faction.accent2 + ")";
+    badge.style.color = "#0a0c14";
+    document.getElementById("tyManifesto").textContent = "“" + faction.tagline + "”";
+
+    document.getElementById("statStab").textContent = fmtSigned(stats.s);
+    document.getElementById("statRice").textContent = fmtSigned(stats.r);
+    document.getElementById("statPower").textContent = fmtSigned(stats.p);
+
+    var op = overallPct();
+    document.getElementById("overallPct").textContent = Math.floor(op) + "%";
+    document.getElementById("overallFill").style.width = op + "%";
+
+    var grid = document.getElementById("platGrid");
+    grid.innerHTML = "";
+    PLATFORMS.forEach(function (p) {
+      var v = state.meters[p.id];
+      var done = v >= 100;
+      var div = document.createElement("div");
+      div.className = "plat" + (done ? " done" : "");
+      div.innerHTML =
+        "<div class='plat-top'><span class='plat-name'>" + p.emoji + " " + p.name + "</span><span class='plat-pct'>" + Math.floor(v) + "%</span></div>" +
+        "<div class='plat-track'><div class='plat-fill' style='width:" + v + "%'></div></div>" +
+        "<div class='plat-bottom'><span class='plat-quip'>" + (done ? "converted. it's over for them." : pick(p.quips)) + "</span>" +
+        "<button class='argue-btn' data-p='" + p.id + "'" + (done ? " disabled" : "") + ">argue</button></div>";
+      grid.appendChild(div);
+    });
+    grid.querySelectorAll(".argue-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () { argueOn(btn.getAttribute("data-p")); });
+    });
+
+    var logList = document.getElementById("logList");
+    var log = state.log || [];
+    logList.innerHTML = log.length
+      ? log.map(function (l) { return "<li class='" + l.c + "'>" + l.t + "</li>"; }).join("")
+      : "<li>nothing yet. go argue.</li>";
+
+    saveState();
+  }
+
+  function argueOn(platformId) {
+    var p = byId(PLATFORMS, platformId);
+    if (state.meters[p.id] >= 100) return;
+    var gain = (2.2 + state.stats.p * 0.28) / p.resistance;
+    gain = clamp(gain, 1, 14);
+    state.meters[p.id] = clamp(state.meters[p.id] + gain, 0, 100);
+    state.clicks = (state.clicks || 0) + 1;
+    addLog(pick(CLICK_LINES)(p.name), "");
+    checkWinAndRender();
+  }
+
+  function passiveTick(seconds) {
+    var dc = doneCount();
+    PLATFORMS.forEach(function (p) {
+      if (state.meters[p.id] >= 100) return;
+      var rate = (0.16 + state.stats.p * 0.028 + state.stats.r * 0.014 + dc * 0.05) / p.resistance;
+      rate = Math.max(0.02, rate);
+      state.meters[p.id] = clamp(state.meters[p.id] + rate * seconds, 0, 100);
+    });
+  }
+
+  function maybeEvent() {
+    if (Math.random() > 0.09) return;
+    var candidates = PLATFORMS.filter(function (p) { return state.meters[p.id] < 100; });
+    if (!candidates.length) return;
+    var p = pick(candidates);
+    var positive = Math.random() < 0.68;
+    var pool = positive ? POS_EVENTS : NEG_EVENTS;
+    var text = pick(pool)(p.name);
+    var delta = positive ? rand(3, 8) : -rand(2, 6);
+    state.meters[p.id] = clamp(state.meters[p.id] + delta, 0, 100);
+    state.events = (state.events || 0) + 1;
+    addLog(text, positive ? "up" : "down");
+    toast(text, positive ? "up" : "down");
+  }
+
+  function checkWinAndRender() {
+    renderTycoon();
+    if (overallReady()) {
+      finishGame();
+    } else {
+      saveState();
+    }
+  }
+
+  function overallReady() {
+    return PLATFORMS.every(function (p) { return state.meters[p.id] >= 100; });
+  }
+
+  var tickTimer = null;
+  function startTicking() {
+    if (tickTimer) return;
+    tickTimer = setInterval(function () {
+      if (state.phase !== "tycoon") return;
+      passiveTick(1);
+      maybeEvent();
+      state.lastTick = Date.now();
+      if (overallReady()) {
+        finishGame();
+      } else {
+        renderTycoon();
+      }
+    }, 1000);
+  }
+
+  function finishGame() {
+    state.phase = "win";
+    state.finishedAt = Date.now();
+    saveState();
+    renderWin();
+    showScreen("win");
+  }
+
+  function fmtTime(ms) {
+    var sec = Math.max(0, Math.round(ms / 1000));
+    var m = Math.floor(sec / 60), s = sec % 60;
+    var h = Math.floor(m / 60); m = m % 60;
+    if (h > 0) return h + "h " + m + "m " + s + "s";
+    return m + "m " + s + "s";
+  }
+
+  var lastShareText = "";
+  function renderWin() {
+    var build = state.build;
+    var faction = byId(FACTIONS, build.factionId);
+    var base = byId(BASES, build.baseId);
+    var elapsed = (state.finishedAt || Date.now()) - (state.startedAt || Date.now());
+
+    document.getElementById("winSub").textContent = build.name + " (" + base.label + ", " + faction.short + ") has converted every peanut gallery.";
+    document.getElementById("winTime").textContent = fmtTime(elapsed);
+    document.getElementById("winClicks").textContent = state.clicks || 0;
+    document.getElementById("winEvents").textContent = state.events || 0;
+
+    lastShareText = buildShareText();
+    document.getElementById("shareBluesky").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+  }
+
+  function buildShareText() {
+    var build = state.build;
+    var faction = byId(FACTIONS, build.factionId);
+    var base = byId(BASES, build.baseId);
+    var elapsed = (state.finishedAt || Date.now()) - (state.startedAt || Date.now());
+    var url = "https://distrotycoon.bisks.net/";
+    var text = "my distro " + build.name + " (" + base.label + ", " + faction.short + ") just conquered phoronix, reddit, hacker news, x, mastodon & bluesky in " + fmtTime(elapsed) + ". " + url;
+    if (text.length > 300) text = text.slice(0, 296) + "... " + url;
+    return text;
+  }
+
+  function buildShareCard() {
+    var build = state.build;
+    var faction = byId(FACTIONS, build.factionId);
+    var base = byId(BASES, build.baseId);
+    var canvas = document.getElementById("shareCanvas");
+    var ctx = canvas.getContext("2d");
+    var W = canvas.width, H = canvas.height;
+    var mono = "ui-monospace, monospace";
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = "#090c09";
+    ctx.fillRect(0, 0, W, H);
+    var glow = ctx.createRadialGradient(W * 0.1, -H * 0.1, 0, W * 0.1, -H * 0.1, W * 0.55);
+    glow.addColorStop(0, faction.accent + "33");
+    glow.addColorStop(1, "rgba(9,12,9,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+    var glow2 = ctx.createRadialGradient(W * 0.95, 0, 0, W * 0.95, 0, W * 0.5);
+    glow2.addColorStop(0, "#1c2a1c");
+    glow2.addColorStop(1, "rgba(9,12,9,0)");
+    ctx.fillStyle = glow2;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = "left";
+    var titleGrad = ctx.createLinearGradient(60, 0, 560, 0);
+    titleGrad.addColorStop(0, "#39ff88");
+    titleGrad.addColorStop(1, "#ffb347");
+    ctx.fillStyle = titleGrad;
+    ctx.font = "800 50px " + mono;
+    ctx.fillText(build.name, 60, 100);
+
+    ctx.fillStyle = "#dcf5e2";
+    ctx.font = "700 24px " + mono;
+    ctx.fillText(base.label + " · " + faction.short, 60, 140);
+
+    var cardX = 60, cardY = 180, cardW = W - 120, cardH = H - 260;
+    ctx.strokeStyle = "#1f2e21";
+    ctx.lineWidth = 1.5;
+    ctx.fillStyle = "#0f140f";
+    ctx.beginPath();
+    ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#39ff88";
+    ctx.font = "800 84px " + mono;
+    ctx.fillText("100%", W / 2, cardY + 120);
+    ctx.fillStyle = "#6f8d76";
+    ctx.font = "600 20px " + mono;
+    ctx.fillText("GLOBAL DISCOURSE DOMINATION", W / 2, cardY + 155);
+
+    ctx.font = "40px " + mono;
+    var emojis = PLATFORMS.map(function (p) { return p.emoji; });
+    var totalW = emojis.length * 66;
+    var startX = W / 2 - totalW / 2 + 33;
+    emojis.forEach(function (e, i) { ctx.fillText(e, startX + i * 66, cardY + 220); });
+
+    var elapsed = (state.finishedAt || Date.now()) - (state.startedAt || Date.now());
+    ctx.fillStyle = "#dcf5e2";
+    ctx.font = "600 20px " + mono;
+    ctx.fillText("conquered in " + fmtTime(elapsed), W / 2, cardY + 270);
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#39ff88";
+    ctx.font = "700 22px " + mono;
+    ctx.fillText("distrotycoon.bisks.net", 60, H - 40);
+  }
+
+  document.getElementById("shareDownload").addEventListener("click", function () {
+    buildShareCard();
+    var canvas = document.getElementById("shareCanvas");
+    canvas.toBlob(function (blob) {
+      if (!blob) return;
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = (state.build.name || "distrotycoon") + "-victory.png";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  });
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      var probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (_) { return false; }
+  }
+  if (canShareFiles()) {
+    var nativeBtn = document.getElementById("shareNative");
+    nativeBtn.style.display = "";
+    nativeBtn.addEventListener("click", function () {
+      buildShareCard();
+      var canvas = document.getElementById("shareCanvas");
+      canvas.toBlob(function (blob) {
+        if (!blob) return;
+        var file = new File([blob], "distrotycoon-victory.png", { type: "image/png" });
+        navigator.share({ files: [file], text: lastShareText, title: "distrotycoon" }).catch(function () {});
+      }, "image/png");
+    });
+  }
+
+  function resetAll() {
+    localStorage.removeItem(STORAGE_KEY);
+    state = { phase: "build" };
+    sel = { base: null, faction: null, boot: BOOT[0].id, init: INIT[0].id, pkg: PKG[0].id, de: DE[0].id };
+    document.getElementById("nameInput").value = "";
+    renderBuildScreen();
+    showScreen("build");
+  }
+  document.getElementById("resetBtnTycoon").addEventListener("click", function () {
+    if (!confirm("scrap this distro and start over?")) return;
+    resetAll();
+  });
+  document.getElementById("resetBtnWin").addEventListener("click", resetAll);
+
+  // ---- boot ----
+  renderBuildScreen();
+  if (state.phase === "build") {
+    showScreen("build");
+  } else if (state.phase === "boot") {
+    // an in-progress compile never got a done callback recorded (e.g. reload
+    // mid-animation) — safest is to drop back to build rather than resume a
+    // one-shot terminal typewriter.
+    state = { phase: "build" };
+    saveState();
+    showScreen("build");
+  } else if (state.phase === "tycoon") {
+    var elapsedOffline = state.lastTick ? clamp((Date.now() - state.lastTick) / 1000, 0, 3 * 3600) : 0;
+    if (elapsedOffline > 1) passiveTick(elapsedOffline);
+    state.lastTick = Date.now();
+    if (overallReady()) {
+      finishGame();
+    } else {
+      showScreen("tycoon");
+      renderTycoon();
+      startTicking();
+    }
+  } else if (state.phase === "win") {
+    renderWin();
+    showScreen("win");
+  }
+  startTicking();
+})();
+</script>
+</body>
+</html>
