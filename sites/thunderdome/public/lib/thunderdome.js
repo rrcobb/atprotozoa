@@ -9,7 +9,7 @@
 
 const PUB = "https://public.api.bsky.app/xrpc";
 
-const GRAPH_PAGES = 8; // ≤ ~800 follows / followers scanned for moots
+const GRAPH_PAGES = 400; // backstop, not a budget — raised 2026-08-28 across the moot-family sites (same treatment as kevinmoot's bfs.js FOLLOWERS_PAGES; a fixed page count on getFollows/getFollowers was a speed knob dressed as a data cap, not a correctness bound)
 const FEED_PAGES = 2; // ≤ ~200 posts per account scanned for bisks
 const CHALLENGERS = 8; // how many random moots we draw a challenger roster from
 

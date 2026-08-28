@@ -11,7 +11,7 @@ const PUB = "https://public.api.bsky.app/xrpc";
 // 40 pages = up to ~4000 follows and ~4000 followers scanned per side. Plenty
 // for a normal account; huge accounts get a capped-but-real census instead of
 // an infinite crawl (see `capped` on the returned object).
-const GRAPH_PAGES = 40;
+const GRAPH_PAGES = 400; // backstop, not a budget — raised 2026-08-28 across the moot-family sites (same treatment as kevinmoot's bfs.js FOLLOWERS_PAGES; a fixed page count on getFollows/getFollowers was a speed knob dressed as a data cap, not a correctness bound)
 
 async function jget(url) {
   const r = await fetch(url);

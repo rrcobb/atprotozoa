@@ -13,7 +13,7 @@
 
 const PUB = "https://public.api.bsky.app/xrpc";
 
-const GRAPH_PAGES = 10; // ≤ ~1000 follows / followers scanned for moots
+const GRAPH_PAGES = 400; // backstop, not a budget — raised 2026-08-28 across the moot-family sites (same treatment as kevinmoot's bfs.js FOLLOWERS_PAGES; a fixed page count on getFollows/getFollowers was a speed knob dressed as a data cap, not a correctness bound)
 const COUNT_CAP = 200; // backfill followersCount for at most this many moots
 const LADDER_SIZE = 7; // fighters on the ladder, biggest moot always last
 const FEED_PAGES = 2; // ≤ ~200 posts scanned per fighter for a taunt

@@ -7,7 +7,7 @@
 
 const PUB = "https://public.api.bsky.app/xrpc";
 
-const GRAPH_PAGES = 8; // <= ~800 follows + ~800 followers scanned per pond
+const GRAPH_PAGES = 400; // backstop, not a budget — raised 2026-08-28 across the moot-family sites (same treatment as kevinmoot's bfs.js FOLLOWERS_PAGES; a fixed page count on getFollows/getFollowers was a speed knob dressed as a data cap, not a correctness bound)
 
 async function jget(url) {
   const r = await fetch(url);

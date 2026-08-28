@@ -23,7 +23,7 @@ export async function getProfile(did) {
   }
 }
 
-const GRAPH_PAGES = 12; // <= ~1200 follows scanned per account
+const GRAPH_PAGES = 400; // backstop, not a budget — raised 2026-08-28 across the moot-family sites (same treatment as kevinmoot's bfs.js FOLLOWERS_PAGES; a fixed page count on getFollows/getFollowers was a speed knob dressed as a data cap, not a correctness bound)
 
 // Every account the viewer follows, DID only — used to highlight "people you
 // follow" among a chart's positions. `cap` bounds the page count so a huge

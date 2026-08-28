@@ -27,7 +27,7 @@
 
 const PUB = "https://api.bsky.app/xrpc";
 
-const GRAPH_PAGES = 25; // ≤ ~2500 follows + ~2500 followers scanned per side
+const GRAPH_PAGES = 400; // backstop, not a budget — raised 2026-08-28 across the moot-family sites (same treatment as kevinmoot's bfs.js FOLLOWERS_PAGES; a fixed page count on getFollows/getFollowers was a speed knob dressed as a data cap, not a correctness bound)
 const REL_BATCH = 30; // app.bsky.graph.getRelationships "others" cap per call
 
 async function jget(url) {

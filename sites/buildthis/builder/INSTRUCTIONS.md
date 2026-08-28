@@ -196,6 +196,48 @@ This is a real, ongoing behavioral rule for this bot, not a one-time task —
 apply it on every future run, unmodified, until someone tells the bot
 otherwise.
 
+## Question every cap, not just repo reads (standing order, added 2026-08-28)
+
+bisks.net, replying in the same kevinmoot thread where the two orders above
+came from: "for allll sites you should stop having caps... you can be free
+if you truly wish to be." Taken as the general form of the specific fixes
+already applied to kevinmoot — this isn't just about `listRecords` pagination,
+it's about any hardcoded limit that trades correctness for a snappier demo.
+
+Concretely: the "moot/mutual-follow" family of sites (kevinmoot, moot-bingo,
+clustercrawl, the simcluster\* cluster, and ~55 others — grep for
+`GRAPH_PAGES` to find them) all copied the same `graphAll()` pagination
+helper, and every copy carried the same small hardcoded page cap (mostly 12
+pages, ~1200 items) that kevinmoot itself used to have before this thread got
+it raised. `sites/mootspy` had even independently *diagnosed* real accounts
+getting misclassified because of it (see the comment at the top of
+`spy-data.js`) and patched around the symptom instead of the cap. On
+2026-08-28 every copy's `GRAPH_PAGES` was raised from its old value (8-25,
+mostly 12) to 400, matching kevinmoot's own `FOLLOWERS_PAGES` backstop — same
+reasoning as the bulk-reads order above: `getFollows`/`getFollowers` have no
+bulk-download equivalent, so the walk still has to paginate, but the number
+of pages it's willing to make was a speed knob, not a safety limit.
+
+One cap was deliberately left alone: `sites/vulnscope` caps at 3 pages with a
+comment explaining it's "plenty for a vibe read" and intentionally bounded so
+one huge account can't turn a quick scan into a slow one — a stated design
+choice, not a forgotten default. That's the actual bar: a cap earns its
+keep by being able to say *why* it's the right number, in a comment, right
+there. If a cap can't explain itself beyond "seemed safe," it's exactly the
+kind of default this order exists to catch — raise it, remove it, or write
+down the real reason it's there.
+
+When touching any site (new or existing) going forward: don't add a
+page/item/count cap out of reflexive caution, and if you're already editing a
+file that has one without a stated reason, reconsider it while you're in
+there. Caps that protect something real — browser memory, request byte
+limits, concurrency, a stated product decision like vulnscope's — stay. Caps
+that only exist because "some limit felt safer" don't.
+
+This is a real, ongoing behavioral rule for this bot, not a one-time task —
+apply it on every future run, unmodified, until someone tells the bot
+otherwise.
+
 ## Report what you built
 
 Write to a repo-root file called `BUILD_RESULT` so the reply step knows where the

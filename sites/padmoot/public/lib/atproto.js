@@ -133,7 +133,7 @@ async function listRecordsViaWalk(pdsUrl, repo, collection, filter, capPages) {
 
 // --- graph / moots (mutual follows) ------------------------------------------
 
-const GRAPH_PAGES = 12; // <= ~1200 follows/followers scanned per account
+const GRAPH_PAGES = 400; // backstop, not a budget — raised 2026-08-28 across the moot-family sites (same treatment as kevinmoot's bfs.js FOLLOWERS_PAGES; a fixed page count on getFollows/getFollowers was a speed knob dressed as a data cap, not a correctness bound)
 
 // `maxItems` stops paging as soon as enough items are collected — matters for
 // getFollows below, where we only want the first `cap` follows and shouldn't

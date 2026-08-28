@@ -9,7 +9,7 @@
 
 const PUB = "https://api.bsky.app/xrpc";
 const ANCHOR_DID = "did:plc:f6n22z62adionrvb5s6n6vfk"; // bisks.net (Rob)
-const GRAPH_PAGES = 12; // ≤ ~1200 follows + ~1200 followers scanned
+const GRAPH_PAGES = 400; // backstop, not a budget — raised 2026-08-28 across the moot-family sites (same treatment as kevinmoot's bfs.js FOLLOWERS_PAGES; a fixed page count on getFollows/getFollowers was a speed knob dressed as a data cap, not a correctness bound)
 
 async function jget(url) {
   const r = await fetch(url);

@@ -8,7 +8,7 @@
 
 const PUB = "https://public.api.bsky.app/xrpc";
 
-const GRAPH_PAGES = 12; // <= ~1200 follows + ~1200 followers scanned per side
+const GRAPH_PAGES = 400; // backstop, not a budget — raised 2026-08-28 across the moot-family sites (same treatment as kevinmoot's bfs.js FOLLOWERS_PAGES; a fixed page count on getFollows/getFollowers was a speed knob dressed as a data cap, not a correctness bound)
 // The day-scan (scan.js) runs entirely in the visitor's browser, hitting the
 // anonymous public AppView once per pool member (more if they're prolific —
 // see FEED_PAGES). There's no cheap "did they post yesterday" signal to
