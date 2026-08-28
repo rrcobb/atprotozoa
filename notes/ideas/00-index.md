@@ -64,13 +64,21 @@ candidate, this one is `listReposByCollection` to find every voter, then one
 full-repo `com.atproto.sync.getRepo` CAR download per voter to pull all of
 that voter's votes at once — the first aggregate view built as a bulk-CAR-read
 rather than a paginated `listRecords` walk per the 2026-08-25 standing order;
-see `sites/socialcredit/public/lib/car.js` and `global-backfill.js`). Still
-one-repo-only: alice-meets-bob (deliberately — see below), duohaunt, griftmax,
-padmoot, velvetrope (deliberately, its own `/api` explicitly 410s cross-account
-queue reads: "requests and decisions live only in their authors' PDSes").
-(keytags is a deliberate exception too, not a gap — its records are opaque
-hashes unless you hold the key, so there's nothing an aggregate view could
-meaningfully show.)
+see `sites/socialcredit/public/lib/car.js` and `global-backfill.js`), and
+padmoot's `/radio` (2026-08-28, a daily-slot pass — its pattern lexicon is
+`key: "tid"`, multi-record-per-repo like docmoot/steamtags, but padmoot
+already carried its own CAR reader (`lib/car.js`) wired into `lib/atproto.js`'s
+`listRecords()` from an earlier per-handle "look up a moot's patterns" feature,
+so `/radio`'s backfill just calls that existing CAR-first `listRecords()`
+instead of hand-rolling a second paginated walk — the standing order applied
+by reuse rather than a new implementation; see
+`sites/padmoot/public/lib/global-index.js`). Still one-repo-only:
+alice-meets-bob (deliberately — see below), duohaunt, griftmax, velvetrope
+(deliberately, its own `/api` explicitly 410s cross-account queue reads:
+"requests and decisions live only in their authors' PDSes"). (keytags is a
+deliberate exception too, not a gap — its records are opaque hashes unless
+you hold the key, so there's nothing an aggregate view could meaningfully
+show.)
 
 This list had drifted stale in three more places, caught by later daily-slot
 passes rather than fixed at the time: **clusterpedia** and **postwith** were
