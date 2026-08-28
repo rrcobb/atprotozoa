@@ -92,6 +92,17 @@
       }
       .try a { cursor: pointer; }
 
+      .astra-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.82rem;
+        color: var(--muted);
+        margin: 0 0 8px;
+      }
+      .astra-row label { cursor: pointer; user-select: none; }
+      .astra-row input { cursor: pointer; }
+
       .status { min-height: 1.4em; color: var(--muted); margin: 0 0 16px; }
       .status.err { color: var(--harsh); }
 
@@ -324,6 +335,16 @@
         />
         <button id="go" type="submit">plot it</button>
       </form>
+      <p class="astra-row">
+        <label
+          ><input type="checkbox" id="astraMode" />
+          ✨ ASTRA mode</label
+        >
+        <span
+          title="recalibrates both axes against five fixed reference accounts instead of the raw keyword-rate squash: @astrra.space = true neutral, @shimmermathlabs.com = fully mogging, @personhood.removal.surgery = fully lawful, @dollspace.gay = fully chaos, @shreyanjain.net = fully gooning"
+          >(recalibrates against @astrra.space &amp; friends — hover for the anchors)</span
+        >
+      </p>
       <p class="try">
         try:
         <a data-h="bsky.app">bsky.app</a> ·
@@ -416,7 +437,7 @@
       if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
     </script>
     <script type="module">
-      import { plot, CELLS } from "./lib/network.js";
+      import { plot, CELLS, applyAstraMode } from "./lib/network.js";
 
       // How many of the 9 boxes actually have someone in them — the "do they
       // cover the gamut" number the starter-pack mode is built around.
@@ -439,6 +460,25 @@
       const share = $("share");
 
       let lastResult = null;
+      const astraCheckbox = $("astraMode");
+
+      // If ASTRA mode is checked, recalibrate a finished plot() result
+      // against the five fixed anchor accounts. Falls back to the raw
+      // result (with a status note) if the anchors themselves fail to
+      // resolve/download.
+      async function maybeAstra(result) {
+        if (!astraCheckbox.checked) return result;
+        try {
+          return await applyAstraMode(result, { onStep: (s) => setStatus(s) });
+        } catch (err) {
+          setStatus(
+            "ASTRA calibration failed, showing raw scores — " +
+              (err.message || "error"),
+            true,
+          );
+          return result;
+        }
+      }
 
       // Build the nine labelled cells once.
       function buildCells() {
@@ -519,6 +559,9 @@
           dots.appendChild(d);
         }
 
+        const astraNote = result.astra
+          ? " (ASTRA calibrated — recentered on @astrra.space & friends)"
+          : "";
         if (result.mode === "list") {
           const cov = coverage(result.plotted);
           const source = result.title
@@ -528,6 +571,7 @@
             `plotted ${result.plotted.length} accounts from ${source}` +
             (result.creator ? ` (by @${result.creator.handle})` : "") +
             ` — covers ${cov} of 9 boxes. hover a face; click to open the profile.` +
+            astraNote +
             (result.isReference
               ? " (cached offline snapshot — sanity check, not a live read)"
               : "");
@@ -536,7 +580,8 @@
           counts.textContent =
             `plotted ${result.plotted.length} accounts from ${result.self.handle}'s ` +
             `${result.kind} — ${c.follows} follows, ${c.followers} followers, ` +
-            `${c.mutuals} mutuals. hover a face; click to open the profile.`;
+            `${c.mutuals} mutuals. hover a face; click to open the profile.` +
+            astraNote;
         }
         $("legendSelf").hidden = result.mode === "list";
         legend.hidden = false;
@@ -647,11 +692,12 @@
         resetForRun();
         setStatus("resolving handle…");
         try {
-          const result = await plot(actor, {
+          let result = await plot(actor, {
             onStep: (s) => setStatus(s),
             onProgress: (done, total) =>
               setStatus(`reading full post histories… ${done}/${total}`),
           });
+          result = await maybeAstra(result);
           await showResult(result);
         } catch (err) {
           setStatus(err.message || "something went wrong", true);
@@ -674,7 +720,8 @@
         try {
           const r = await fetch("data/reference-pack.json");
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          const result = await r.json();
+          let result = await r.json();
+          result = await maybeAstra(result);
           await showResult(result);
           if (result.plotted.length) {
             const when = result.generatedAt
@@ -713,13 +760,14 @@
       }
 
       function shareText(result) {
+        const astraTag = result.astra ? " [ASTRA calibrated]" : "";
         if (result.mode === "list") {
           const cov = coverage(result.plotted);
           const what = result.title
             ? `"${result.title}"`
             : `a pasted group of ${result.plotted.length}`;
           return (
-            `plotted ${what} on the alignment chart 🧭 — ${result.plotted.length} accounts, ` +
+            `plotted ${what} on the alignment chart 🧭${astraTag} — ${result.plotted.length} accounts, ` +
             `covering ${cov}/9 boxes.\n\n` +
             `plot your own → https://alignment-chart.bisks.net/`
           );
@@ -732,7 +780,7 @@
           ? ` my polar opposite: @${opp.handle} (${opp.cell != null ? CELLS[opp.cell].name : "too quiet to read"}).`
           : "";
         return (
-          `I'm ${cellName} on the network alignment chart 🧭${oppLine}\n\n` +
+          `I'm ${cellName} on the network alignment chart 🧭${astraTag}${oppLine}\n\n` +
           `plot your own network → https://alignment-chart.bisks.net/`
         );
       }
@@ -818,10 +866,12 @@
         );
         ctx.fillStyle = "#6b6b6b";
         ctx.font = "400 22px ui-monospace, monospace";
+        const astraSuffix = result.astra ? " · ASTRA calibrated" : "";
         ctx.fillText(
-          isList
+          (isList
             ? `${result.kind} · ${result.plotted.length} accounts · covers ${cov}/9 boxes`
-            : `${result.kind} · ${result.plotted.length} accounts plotted`,
+            : `${result.kind} · ${result.plotted.length} accounts plotted`) +
+            astraSuffix,
           W / 2,
           isList ? 178 : 168,
         );

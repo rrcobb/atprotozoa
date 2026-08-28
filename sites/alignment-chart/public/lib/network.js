@@ -472,6 +472,12 @@ function hashUnit(did, salt) {
   return ((h >>> 0) % 1000) / 1000 * 2 - 1; // -1..1
 }
 
+// Per-DID jitter offset, shared by classify() and astraApply() so a
+// recalibrated point scatters with the exact same nudge as its original one.
+function jitterFor(did) {
+  return { jx: hashUnit(did, "x") * 0.22, jy: hashUnit(did, "y") * 0.22 };
+}
+
 // Classify one account's text blob.
 //   x/y: the honest score in [-1,1] — used for the CELL and the roster.
 //   px/py: a lightly-jittered PLOT position, so people who score identically
@@ -480,8 +486,7 @@ function hashUnit(did, salt) {
 //   x: -1 (CHILL) … +1 (HARSH);  y: -1 (GOONING) … +1 (MOGGING)
 export function classify(did, text) {
   const empty = !text || text.length < 8;
-  const jx = hashUnit(did, "x") * 0.22;
-  const jy = hashUnit(did, "y") * 0.22;
+  const { jx, jy } = jitterFor(did);
   if (empty) {
     // quiet accounts have no read at all — park them in a loose center cloud
     return { x: 0, y: 0, px: jx, py: jy, cell: null, empty: true };
@@ -512,6 +517,128 @@ export const CELLS = [
   { name: "Neutral Degen", flavor: "brainrot equilibrium, no thoughts head empty" },
   { name: "Chaotic Goon", flavor: "harsh + gooning: unwell and unafraid to say so" },
 ];
+
+// ── ASTRA mode ──────────────────────────────────────────────────────────
+// Added 2026-08-28 at @shimmermathlabs.com's request (reply-tag: "the
+// calibration is off"): instead of trusting the raw keyword-rate squash,
+// recenter and rescale both axes against five fixed reference accounts from
+// the original nine-handle thread. astrra.space anchors true neutral (the
+// origin, both axes); the other four anchor one extreme each.
+export const ASTRA_ANCHORS = {
+  center: "astrra.space", // → (0, 0), true neutral on both axes
+  xLawful: "personhood.removal.surgery", // → x = -1 (lawful / chill)
+  xChaos: "dollspace.gay", // → x = +1 (chaos / harsh)
+  yMog: "shimmermathlabs.com", // → y = +1 (mogging)
+  yGoon: "shreyanjain.net", // → y = -1 (gooning)
+};
+
+// Memoized for the life of the page — the five anchor accounts don't change
+// mid-session, so a second ASTRA plot shouldn't pay for five more repo
+// downloads.
+let astraCalibCache = null;
+
+// Resolve + classify one anchor account's RAW (unjittered) x/y.
+async function anchorRaw(handle) {
+  const did = await resolveDid(handle);
+  const text = await feedText(did);
+  return classify(did, text);
+}
+
+// Fetch + classify the five ASTRA anchor accounts and return a calibration
+// object for astraRecalibrate()/astraApply(). Call this once per session
+// (it's memoized) rather than per plotted account.
+export async function computeAstraCalibration({ onStep } = {}) {
+  if (astraCalibCache) return astraCalibCache;
+  if (onStep) onStep("calibrating ASTRA mode against reference accounts…");
+  const [center, xLawful, xChaos, yMog, yGoon] = await Promise.all([
+    anchorRaw(ASTRA_ANCHORS.center),
+    anchorRaw(ASTRA_ANCHORS.xLawful),
+    anchorRaw(ASTRA_ANCHORS.xChaos),
+    anchorRaw(ASTRA_ANCHORS.yMog),
+    anchorRaw(ASTRA_ANCHORS.yGoon),
+  ]);
+  astraCalibCache = { center, xLawful, xChaos, yMog, yGoon };
+  return astraCalibCache;
+}
+
+// General 3-point piecewise-linear interpolation: given three (raw, mapped)
+// control points, map an arbitrary raw value onto the mapped scale, with
+// linear extrapolation past either end. Points are sorted by raw value
+// first — deliberately, because three real accounts' keyword-rate scores
+// don't reliably fall in "semantic" order. (Confirmed against live data:
+// shimmermathlabs.com's raw MOGGING-axis score came out slightly *below*
+// astrra.space's, even though it's the account pinned to fully-mogging.
+// Branching on "is raw above or below the center anchor" - which a naive
+// two-slope remap does - would then scale it against the wrong anchor
+// entirely. Sorting by raw and interpolating between whichever two control
+// points bracket it sidesteps that: each anchor still lands exactly on its
+// pinned value, regardless of how the three raw scores happen to order.)
+function piecewiseLinear(raw, points) {
+  const pts = points
+    .slice()
+    .sort((a, b) => a.raw - b.raw)
+    .map((p, i, arr) =>
+      i > 0 && Math.abs(p.raw - arr[i - 1].raw) < 1e-9
+        ? { ...p, raw: p.raw + 1e-6 }
+        : p,
+    );
+  const seg = (a, b, x) => {
+    const span = b.raw - a.raw;
+    return span === 0 ? a.val : a.val + ((x - a.raw) / span) * (b.val - a.val);
+  };
+  if (raw <= pts[0].raw) return seg(pts[0], pts[1], raw);
+  if (raw >= pts[2].raw) return seg(pts[1], pts[2], raw);
+  return raw <= pts[1].raw ? seg(pts[0], pts[1], raw) : seg(pts[1], pts[2], raw);
+}
+
+// Recalibrate one raw (x, y) pair against the ASTRA anchors. Not clamped to
+// [-1,1] here — same as the plain squash(), someone more extreme than the
+// anchor itself pokes past the edge until render/plot time clamps it.
+export function astraRecalibrate(rawX, rawY, calib) {
+  const x = piecewiseLinear(rawX, [
+    { raw: calib.center.x, val: 0 },
+    { raw: calib.xLawful.x, val: -1 },
+    { raw: calib.xChaos.x, val: 1 },
+  ]);
+  const y = piecewiseLinear(rawY, [
+    { raw: calib.center.y, val: 0 },
+    { raw: calib.yGoon.y, val: -1 },
+    { raw: calib.yMog.y, val: 1 },
+  ]);
+  return { x, y };
+}
+
+// Recompute one already-classified person's position under ASTRA
+// calibration. Leaves "empty" (no post history) accounts alone — there's no
+// raw signal to recalibrate, so they stay in the normal loose center cloud.
+export function astraApply(person, calib) {
+  if (person.empty) return person;
+  const { x, y } = astraRecalibrate(person.x, person.y, calib);
+  const { jx, jy } = jitterFor(person.did);
+  const clamp = (v) => Math.max(-0.98, Math.min(0.98, v));
+  return {
+    ...person,
+    x,
+    y,
+    px: clamp(x + jx),
+    py: clamp(y + jy),
+    cell: cellOf(x, y),
+  };
+}
+
+// Post-process a finished plot()/plotList()/plotHandles() result under
+// ASTRA mode: fetch the five anchors (memoized) and remap every already-
+// classified person against them. No extra repo downloads for the people
+// already in result.plotted — only the (up to five, minus any overlap) new
+// anchor accounts.
+export async function applyAstraMode(result, { onStep } = {}) {
+  const calib = await computeAstraCalibration({ onStep });
+  return {
+    ...result,
+    astra: true,
+    plotted: result.plotted.map((p) => astraApply(p, calib)),
+  };
+}
 
 // Plot the whole pool. Downloads each account's whole post history with
 // limited concurrency, classifies each, and returns
