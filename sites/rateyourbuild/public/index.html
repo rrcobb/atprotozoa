@@ -128,6 +128,20 @@
         return new Date(ms).toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" });
       }
 
+      // Per notes/45-sharing-and-virality.md tier 2 ("always"): the composed
+      // text carries the actual URL, not just an og:title on the page it
+      // points to — a `?site=` deep link (handled in boot()) lands a reader
+      // straight on the rated card instead of the bare front page.
+      function buildShareUrl(name) {
+        return `https://rateyourbuild.bisks.net/?site=${encodeURIComponent(name)}`;
+      }
+      function buildShareText(site, score) {
+        return `rated "${site.title}" ${score}/10 on rateyourbuild — rate @buildthis.bisks.net's whole back catalog: ${buildShareUrl(site.name)}`;
+      }
+      function shareIntentHref(text) {
+        return `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`;
+      }
+
       let session = null;
       let catalog = [];
       let genres = [];
@@ -179,6 +193,10 @@
           const disabled = session ? "" : "disabled";
           return `<button class="rate-btn${active}" data-score="${n}" ${disabled} title="rate ${n}/10">${n}</button>`;
         }).join("");
+        const justRated = lastRatedNote && lastRatedNote.subject === site.name;
+        const statusHtml = justRated
+          ? `rated ${lastRatedNote.score}/10. <a class="share-link" target="_blank" rel="noopener" href="${esc(shareIntentHref(buildShareText(site, lastRatedNote.score)))}">share on bluesky</a>`
+          : "";
         return `
           <div class="card" data-name="${esc(site.name)}">
             <div class="card-main">
@@ -191,7 +209,7 @@
             <div class="card-foot">
               <div class="score-block">${scoreHtml}</div>
               <div class="rate-row" data-subject="${esc(site.name)}">${btns}</div>
-              <div class="rate-row-status">${lastRatedNote && lastRatedNote.subject === site.name ? `rated ${lastRatedNote.score}/10.` : ""}</div>
+              <div class="rate-row-status">${statusHtml}</div>
             </div>
           </div>`;
       }
@@ -485,6 +503,22 @@
         }
       }
 
+      // A shared card link (?site=<name>, see buildShareUrl) lands here on
+      // the right card instead of the bare front page — filter to it and
+      // scroll it into view once the catalog and first render are ready.
+      function jumpToSharedSite() {
+        const name = new URLSearchParams(location.search).get("site");
+        if (!name) return;
+        const site = catalog.find((s) => s.name === name);
+        if (!site) return;
+        $("#search").value = site.title;
+        $("#sort").value = "weighted";
+        visibleCount = PAGE_SIZE;
+        renderBrowse();
+        const card = document.querySelector(`.card[data-name="${CSS.escape(name)}"]`);
+        if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+
       async function boot() {
         try {
           session = (await completeLoginIfCallback()) || (await getSession());
@@ -495,6 +529,7 @@
         renderAuthBar();
         await loadCatalog();
         renderAll();
+        jumpToSharedSite();
         index.start();
       }
       boot();
