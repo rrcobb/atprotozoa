@@ -17,33 +17,40 @@
 //   - followers (who follows `did`) are an AppView-computed reverse index,
 //     not a record in anyone's repo — there's no bulk endpoint for "everyone
 //     who follows me," so app.bsky.graph.getFollowers has to stay paginated.
-//     FOLLOWERS_PAGES bounds that walk for genuine safety (a mega-followed
-//     account could otherwise be tens of thousands of sequential requests
-//     for one BFS node) rather than out of habitual caution — it's set high
-//     enough that it won't quietly truncate an ordinary account's followers.
+//     FOLLOWERS_PAGES bounds that walk. Raised 2026-08-28 (bisks.net, same
+//     thread as the CAR fix): a page cap is exactly the kind of "mess up
+//     correctness for speed" tradeoff the 2026-08-25 bulk-reads order was
+//     written to kill, and letting a search run slow beats letting it be
+//     wrong. It still has to stop *somewhere* short of literal infinity (a
+//     true mega-followed account has millions of followers, which is a
+//     different problem than "we didn't want to wait"), so the number below
+//     is a last-resort backstop, not a budget.
 //
 // Even with follows fully read, BFS still needs to bound its own breadth:
 // computing one account's moot set is two network reads, and BFS needs it
-// for every account on the frontier, which multiplies fast. So this is
-// capped on two axes: accounts expanded per round (FRONTIER_CAP) and total
-// accounts expanded across the whole search (default accountBudget) — real
-// search-breadth/time limits, not per-account data truncation. Bidirectional
-// search (grow the smaller of the two frontiers each round, stop the instant
-// the frontiers touch) keeps the typical case — most reachable pairs are 2-4
-// moots apart — cheap; the caps exist for the pairs that aren't close, so a
-// bad query degrades to "couldn't find a path in budget" instead of hanging
-// the tab.
+// for every account on the frontier, which multiplies fast. This is capped
+// on two axes: accounts expanded per round (FRONTIER_CAP) and total accounts
+// expanded across the whole search (default accountBudget). Both were raised
+// 2026-08-28 for the same reason as FOLLOWERS_PAGES — these bound how long a
+// tab is willing to sit there, not how correct the answer is, so they should
+// be as generous as "still eventually finishes" allows rather than tuned for
+// snappiness. Bidirectional search (grow the smaller of the two frontiers
+// each round, stop the instant the frontiers touch) keeps the typical case —
+// most reachable pairs are 2-4 moots apart — cheap regardless; the caps only
+// bite for pairs that are genuinely far apart or disconnected, where a bad
+// query now degrades to "searched a lot longer, still didn't find it"
+// instead of hanging the tab forever.
 
 import { jget, pooledEach, resolvePds } from "./identity.js";
 import { fetchRepoRecordsWithKeys } from "./car.js";
 
 const PUB = "https://api.bsky.app/xrpc";
-const FOLLOWERS_PAGES = 50; // <= ~5000 followers scanned per account — no bulk read exists for this side, see header
-const FALLBACK_FOLLOWS_PAGES = 50; // paginated fallback, only used if the CAR read fails
+const FOLLOWERS_PAGES = 400; // <= ~40,000 followers scanned per account — backstop, not a budget; see header
+const FALLBACK_FOLLOWS_PAGES = 400; // paginated fallback, only used if the CAR read fails
 const FETCH_CONCURRENCY = 6;
-const FRONTIER_CAP = 45; // accounts expanded per round, per side
-const DEFAULT_ACCOUNT_BUDGET = 220; // total accounts whose moot set gets computed
-const DEFAULT_MAX_ROUNDS = 10;
+const FRONTIER_CAP = 150; // accounts expanded per round, per side
+const DEFAULT_ACCOUNT_BUDGET = 1500; // total accounts whose moot set gets computed
+const DEFAULT_MAX_ROUNDS = 18;
 
 async function graphAll(endpoint, key, did, maxPages) {
   const out = [];
