@@ -132,6 +132,18 @@
   }
   .manifesto { font-size: 0.76rem; color: var(--dim); margin-top: 0.55rem; font-style: italic; line-height: 1.4; }
 
+  .script-toggle {
+    display: block; margin: 0.7rem 0 0; background: none; border: 2px dashed var(--dim); border-radius: 10px;
+    padding: 0.4rem 0.65rem; font-size: 0.72rem; font-weight: 600; color: var(--dim); cursor: pointer; font-family: inherit;
+  }
+  .script-toggle:hover { border-color: var(--fg); color: var(--fg); }
+  .script-pre { margin-top: 0.6rem; min-height: 0; font-size: 0.7rem; }
+  .script-copy {
+    margin-top: 0.5rem; background: #f4f6f9; border: 2px solid var(--border); border-radius: 10px;
+    padding: 0.4rem 0.7rem; font-size: 0.72rem; font-weight: 700; cursor: pointer; font-family: inherit;
+  }
+  .script-copy.copied { background: var(--accent); color: #fff; border-color: var(--accent-dk); }
+
   .overall-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.4rem; }
   .overall-label { font-size: 0.78rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
   .overall-pct { font-size: 1.1rem; font-weight: 800; color: var(--accent-dk); }
@@ -284,6 +296,9 @@
         <div class="stat"><div class="n" id="statRice">0</div><div class="l">rice</div></div>
         <div class="stat"><div class="n" id="statPower">0</div><div class="l">discourse power</div></div>
       </div>
+      <button class="script-toggle" id="scriptToggleBtn" type="button">view install script ▾</button>
+      <div class="term script-pre" id="scriptPre" style="display:none"></div>
+      <button class="script-copy" id="scriptCopyBtn" type="button" style="display:none">copy script</button>
     </div>
 
     <div class="card">
@@ -368,28 +383,28 @@
   ];
 
   var BOOT = [
-    { id: "grub", name: "GRUB", line: "installing GRUB because it is 2003 forever", s: 2, r: 0, p: 0 },
-    { id: "sdboot", name: "systemd-boot", line: "installing systemd-boot (yes, systemd again)", s: 1, r: 1, p: 1 },
-    { id: "refind", name: "rEFInd", line: "installing rEFInd for a boot menu nobody asked to be this pretty", s: 0, r: 2, p: 1 },
-    { id: "uboot", name: "u-boot (on a laptop, for reasons)", line: "installing u-boot on a laptop, for reasons", s: -2, r: 1, p: 3 },
+    { id: "grub", name: "GRUB", desc: "the bootloader that has outlived several empires.", line: "installing GRUB because it is 2003 forever", cmd: "grub-install /dev/sda && update-grub", s: 2, r: 0, p: 0 },
+    { id: "sdboot", name: "systemd-boot", desc: "boots fast, mostly because it refuses to do much else.", line: "installing systemd-boot (yes, systemd again)", cmd: "bootctl install", s: 1, r: 1, p: 1 },
+    { id: "refind", name: "rEFInd", desc: "a boot menu so pretty you'll forget you're dual-booting nothing.", line: "installing rEFInd for a boot menu nobody asked to be this pretty", cmd: "refind-install", s: 0, r: 2, p: 1 },
+    { id: "uboot", name: "u-boot (on a laptop, for reasons)", desc: "an embedded bootloader, deployed somewhere it has no business being.", line: "installing u-boot on a laptop, for reasons", cmd: "cp u-boot.bin /dev/mmcblk0  # yes, on a laptop, we know", s: -2, r: 1, p: 3 },
   ];
   var INIT = [
-    { id: "systemd", name: "systemd", line: "setting systemd as PID 1, opening a 40-tab argument in advance", s: 2, r: 0, p: 2 },
-    { id: "openrc", name: "OpenRC", line: "setting OpenRC as PID 1, muttering about simplicity", s: 1, r: 1, p: 1 },
-    { id: "runit", name: "runit", line: "setting runit as PID 1, nobody notices, that is the point", s: 1, r: 1, p: 2 },
-    { id: "s6", name: "s6", line: "setting s6 as PID 1 (nobody has personally witnessed this boot)", s: -2, r: 2, p: 4 },
+    { id: "systemd", name: "systemd", desc: "PID 1, cron, DNS, and a personality, whether you asked or not.", line: "setting systemd as PID 1, opening a 40-tab argument in advance", cmd: "ln -sf /lib/systemd/systemd /sbin/init", s: 2, r: 0, p: 2 },
+    { id: "openrc", name: "OpenRC", desc: "shell scripts with strong opinions about simplicity.", line: "setting OpenRC as PID 1, muttering about simplicity", cmd: "rc-update add default boot", s: 1, r: 1, p: 1 },
+    { id: "runit", name: "runit", desc: "three files, no drama, allegedly.", line: "setting runit as PID 1, nobody notices, that is the point", cmd: "ln -sf /etc/sv/* /var/service/", s: 1, r: 1, p: 2 },
+    { id: "s6", name: "s6", desc: "correct in a way nobody can prove, because nobody can find the docs.", line: "setting s6 as PID 1 (nobody has personally witnessed this boot)", cmd: "s6-linux-init-maker -p /run /etc/s6-init", s: -2, r: 2, p: 4 },
   ];
   var PKG = [
-    { id: "apt", name: "apt", line: "bootstrapping apt, apologizing for dpkg in advance", s: 2, r: 0, p: 0 },
-    { id: "pacman", name: "pacman", line: "bootstrapping pacman, printing the arch wiki URL from memory", s: 0, r: 1, p: 2 },
-    { id: "portage", name: "portage", line: "bootstrapping portage, emerging the will to live", s: -1, r: 0, p: 3 },
-    { id: "nix", name: "nix", line: "bootstrapping nix, the flake broke the flake", s: -2, r: 3, p: 2 },
+    { id: "apt", name: "apt", desc: ".deb files and a mild, permanent sense of apology.", line: "bootstrapping apt, apologizing for dpkg in advance", cmd: "apt update && apt install -y everything", s: 2, r: 0, p: 0 },
+    { id: "pacman", name: "pacman", desc: "rolling release, rolling regret, occasionally.", line: "bootstrapping pacman, printing the arch wiki URL from memory", cmd: "pacman -Syu --noconfirm", s: 0, r: 1, p: 2 },
+    { id: "portage", name: "portage", desc: "compiles everything from source so you can really feel the wait.", line: "bootstrapping portage, emerging the will to live", cmd: "emerge -avuDN @world  # go make tea, several teas", s: -1, r: 0, p: 3 },
+    { id: "nix", name: "nix", desc: "reproducible builds, irreproducible mental model.", line: "bootstrapping nix, the flake broke the flake", cmd: "nix-channel --update && nixos-rebuild switch", s: -2, r: 3, p: 2 },
   ];
   var DE = [
-    { id: "gnome", name: "GNOME", line: "compositing GNOME, removing three settings nobody wanted", s: 2, r: 1, p: 0 },
-    { id: "kde", name: "KDE Plasma", line: "compositing KDE Plasma, enabling all 900 settings", s: 0, r: 2, p: 1 },
-    { id: "i3", name: "i3", line: "tiling with i3, deleting the mouse driver out of principle", s: 0, r: 1, p: 2 },
-    { id: "sway", name: "sway (rice-maxxed, 40 dotfiles deep)", line: "compositing sway, importing 40 dotfiles from a stranger's github", s: -2, r: 4, p: 3 },
+    { id: "gnome", name: "GNOME", desc: "opinionated minimalism. the opinion is that you don't need that setting.", line: "compositing GNOME, removing three settings nobody wanted", cmd: "apt install gnome-shell  # quietly removing 3 settings", s: 2, r: 1, p: 0 },
+    { id: "kde", name: "KDE Plasma", desc: "every setting that exists, plus several that shouldn't.", line: "compositing KDE Plasma, enabling all 900 settings", cmd: "pacman -S plasma-meta  # enabling all 900 settings", s: 0, r: 2, p: 1 },
+    { id: "i3", name: "i3", desc: "no mouse, no bar, no mercy.", line: "tiling with i3, deleting the mouse driver out of principle", cmd: "rm /usr/lib/xorg/modules/input/*mouse* # principle", s: 0, r: 1, p: 2 },
+    { id: "sway", name: "sway (rice-maxxed, 40 dotfiles deep)", desc: "wayland tiling, forty stolen dotfiles, zero regrets.", line: "compositing sway, importing 40 dotfiles from a stranger's github", cmd: "git clone https://github.com/some-stranger/dotfiles ~/.config", s: -2, r: 4, p: 3 },
   ];
 
   var PLATFORMS = [
@@ -628,6 +643,7 @@
     document.getElementById("statStab").textContent = fmtSigned(stats.s);
     document.getElementById("statRice").textContent = fmtSigned(stats.r);
     document.getElementById("statPower").textContent = fmtSigned(stats.p);
+    document.getElementById("scriptPre").textContent = buildInstallScript(build);
 
     var op = overallPct();
     document.getElementById("overallPct").textContent = Math.floor(op) + "%";
@@ -659,6 +675,63 @@
 
     saveState();
   }
+
+  function buildInstallScript(build) {
+    var base = byId(BASES, build.baseId);
+    var faction = byId(FACTIONS, build.factionId);
+    var boot = byId(BOOT, build.bootId);
+    var init = byId(INIT, build.initId);
+    var pkg = byId(PKG, build.pkgId);
+    var de = byId(DE, build.deId);
+    var lines = [
+      "#!/bin/sh",
+      "# " + build.name + " install script",
+      "# base: " + base.label + " | faction: " + faction.short,
+      "set -e",
+      "",
+      "echo \"partitioning disk (not touching windows, we checked)\"",
+      "",
+      "# bootloader: " + boot.name,
+      boot.cmd,
+      "",
+      "# init system: " + init.name,
+      init.cmd,
+      "",
+      "# package manager: " + pkg.name,
+      pkg.cmd,
+      "",
+      "# desktop: " + de.name,
+      de.cmd,
+      "",
+      "echo \"" + build.name + " installed. uptime: 0s. ego: infinite.\"",
+      "echo \"ready to argue.\"",
+    ];
+    return lines.join("\n");
+  }
+
+  document.getElementById("scriptToggleBtn").addEventListener("click", function () {
+    var pre = document.getElementById("scriptPre");
+    var copyBtn = document.getElementById("scriptCopyBtn");
+    var show = pre.style.display === "none";
+    pre.style.display = show ? "" : "none";
+    copyBtn.style.display = show ? "" : "none";
+    this.textContent = show ? "hide install script ▴" : "view install script ▾";
+  });
+
+  document.getElementById("scriptCopyBtn").addEventListener("click", function () {
+    var btn = this;
+    var text = document.getElementById("scriptPre").textContent;
+    function flash() {
+      btn.textContent = "copied!";
+      btn.classList.add("copied");
+      setTimeout(function () { btn.textContent = "copy script"; btn.classList.remove("copied"); }, 1400);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(flash).catch(flash);
+    } else {
+      flash();
+    }
+  });
 
   function argueOn(platformId) {
     var p = byId(PLATFORMS, platformId);
