@@ -527,7 +527,10 @@
           counts.textContent =
             `plotted ${result.plotted.length} accounts from ${source}` +
             (result.creator ? ` (by @${result.creator.handle})` : "") +
-            ` — covers ${cov} of 9 boxes. hover a face; click to open the profile.`;
+            ` — covers ${cov} of 9 boxes. hover a face; click to open the profile.` +
+            (result.isReference
+              ? " (cached offline snapshot — sanity check, not a live read)"
+              : "");
         } else {
           const c = result.counts;
           counts.textContent =
@@ -608,7 +611,27 @@
         }
       }
 
-      async function run(actor) {
+      // Shared by the live run() path and the offline reference: given a
+      // finished { plotted, ... } result, draw the grid, roster, and share
+      // card. Split out so loadReference() below doesn't have to duplicate it.
+      async function showResult(result) {
+        if (!result.plotted.length) {
+          setStatus("no accounts to plot — is the handle right?", true);
+          return;
+        }
+        setStatus("");
+        render(result);
+        lastResult = result;
+        share.hidden = false;
+        $("shareBluesky").href =
+          "https://bsky.app/intent/compose?text=" +
+          encodeURIComponent(shareText(result));
+        setStatus("building your share card…");
+        await buildShareCard(result);
+        setStatus("");
+      }
+
+      function resetForRun() {
         go.disabled = true;
         handle.disabled = true;
         legend.hidden = true;
@@ -618,6 +641,10 @@
         lastResult = null;
         frame.hidden = false;
         buildCells();
+      }
+
+      async function run(actor) {
+        resetForRun();
         setStatus("resolving handle…");
         try {
           const result = await plot(actor, {
@@ -625,22 +652,38 @@
             onProgress: (done, total) =>
               setStatus(`reading full post histories… ${done}/${total}`),
           });
-          if (!result.plotted.length) {
-            setStatus("no accounts to plot — is the handle right?", true);
-          } else {
-            setStatus("");
-            render(result);
-            lastResult = result;
-            share.hidden = false;
-            $("shareBluesky").href =
-              "https://bsky.app/intent/compose?text=" +
-              encodeURIComponent(shareText(result));
-            setStatus("building your share card…");
-            await buildShareCard(result);
-            setStatus("");
-          }
+          await showResult(result);
         } catch (err) {
           setStatus(err.message || "something went wrong", true);
+        } finally {
+          go.disabled = false;
+          handle.disabled = false;
+        }
+      }
+
+      // The offline reference @antiali.as asked for: a pre-computed snapshot
+      // of segyges' "range of acceptable opinions" pack (see
+      // public/data/reference-pack.json, built by scripts/probe3.mjs), loaded
+      // straight from disk instead of re-fetched and re-classified live. It's
+      // a fixed sanity check — it won't drift as those 16 accounts keep
+      // posting, so it's a stable thing to compare a live re-run against if
+      // the classifier's output ever looks wrong again.
+      async function loadReference() {
+        resetForRun();
+        setStatus("loading cached reference snapshot…");
+        try {
+          const r = await fetch("data/reference-pack.json");
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const result = await r.json();
+          await showResult(result);
+          if (result.plotted.length) {
+            const when = result.generatedAt
+              ? ` generated ${result.generatedAt.slice(0, 10)}`
+              : "";
+            setStatus(`offline reference —${when}, no network calls, won't drift`);
+          }
+        } catch (err) {
+          setStatus(err.message || "couldn't load the reference snapshot", true);
         } finally {
           go.disabled = false;
           handle.disabled = false;
@@ -901,12 +944,16 @@
         const v = handle.value.trim();
         if (v) run(v);
       });
-      document.querySelectorAll(".try a").forEach((a) =>
+      document.querySelectorAll(".try a[data-h]").forEach((a) =>
         a.addEventListener("click", () => {
           handle.value = a.dataset.h;
           run(a.dataset.h);
         }),
       );
+      $("loadReference").addEventListener("click", () => {
+        handle.value = "";
+        loadReference();
+      });
 
       buildCells();
     </script>

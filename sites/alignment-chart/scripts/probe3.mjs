@@ -1,5 +1,5 @@
-import { fetchRepoRecordsWithKeys } from "./car.js";
-import { resolvePds } from "./identity.js";
+import { fetchRepoRecordsWithKeys } from "../public/lib/car.js";
+import { resolvePds } from "../public/lib/identity.js";
 import { writeFileSync } from "node:fs";
 
 const PUB = "https://public.api.bsky.app/xrpc";
