@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>rateyourbuild — rate every site the bot has built</title>
+    <meta
+      name="description"
+      content="RateYourMusic for the atprotozoa constellation: rate every site @buildthis.bisks.net has built, 0 to 10. Genre charts, a prompters leaderboard, sortable by build date — all weighted by vote count so one rating can't send a site to #1."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="rateyourbuild — rate every site the bot has built" />
+    <meta
+      property="og:description"
+      content="RateYourMusic for the atprotozoa constellation: rate every bot-built site 0-10, weighted by vote count. Genre charts, a prompters leaderboard, sort by build date."
+    />
+    <meta property="og:url" content="https://rateyourbuild.bisks.net/" />
+    <meta property="og:image" content="https://rateyourbuild.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="rateyourbuild — rate every site the bot has built" />
+    <meta
+      name="twitter:description"
+      content="RateYourMusic for the atprotozoa constellation: rate every bot-built site 0-10, weighted by vote count."
+    />
+    <meta name="twitter:image" content="https://rateyourbuild.bisks.net/og.png" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net/">bisks.net</a>
+        <h1>rate<span onclick='var e=document.getElementById("authHandle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">y</span>ourbuild</h1>
+        <p class="tag">
+          every site <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+          has ever built, rated 0-10 — RateYourMusic for a bot's back catalog. Ratings write to
+          your own PDS as <code>net.bisks.rateyourbuild.rating</code> and every chart is weighted
+          by vote count, same idea as RYM: a single 10/10 can't out-rank a site with fifty honest
+          scores averaging 8. asked for by @angussoftware.dev.
+        </p>
+        <nav class="tabs">
+          <a class="tab-link active" data-tab="browse">browse &amp; rate</a>
+          <a class="tab-link" data-tab="genres">genres</a>
+          <a class="tab-link" data-tab="prompters">prompters</a>
+        </nav>
+      </header>
+
+      <section id="session-section">
+        <div class="session-row" id="signed-out-row">
+          <input id="authHandle" type="text" placeholder="your bluesky handle" />
+          <button id="authGo">sign in to rate</button>
+        </div>
+        <div class="session-row" id="signed-in-row" style="display: none">
+          <span>rating as <strong id="who"></strong></span>
+          <button class="secondary" id="authSignout">sign out</button>
+        </div>
+        <p class="status" id="auth-status"></p>
+      </section>
+
+      <section id="tab-browse" class="tab-panel">
+        <div class="controls">
+          <input id="search" type="text" placeholder="search name, blurb, or prompter…" autocomplete="off" />
+          <select id="genre-filter"><option value="">all genres</option></select>
+          <select id="sort">
+            <option value="weighted">top rated (weighted)</option>
+            <option value="votes">most rated</option>
+            <option value="newest">newest built</option>
+            <option value="oldest">oldest built</option>
+            <option value="az">a–z</option>
+          </select>
+        </div>
+        <p class="meta" id="browse-meta">loading catalog…</p>
+        <div id="browse-list"></div>
+        <button class="secondary" id="show-more" style="display: none">show more</button>
+      </section>
+
+      <section id="tab-genres" class="tab-panel" hidden>
+        <p class="meta">
+          top-rated sites in each genre, same weighting as the main chart. click a genre's "see all" to
+          jump to the full filtered list.
+        </p>
+        <div id="genre-boards"><p class="empty">loading…</p></div>
+      </section>
+
+      <section id="tab-prompters" class="tab-panel" hidden>
+        <p class="meta">
+          every prompter's ratings across <em>all</em> the sites they've asked for, pooled into one
+          score and weighted by their total vote count — a prompter with one 10/10 site sits below
+          one with twenty solidly-8/10 sites, same RYM "artist" logic applied to whoever's doing the
+          asking.
+        </p>
+        <div id="prompter-board"><p class="empty">loading…</p></div>
+      </section>
+
+      <footer>
+        Ratings are <code>net.bisks.rateyourbuild.rating</code> records written straight to your own
+        PDS, read back network-wide via
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        plus a full history backfill — there's no backend, every chart here is recomputed in your
+        browser. The catalog itself is a snapshot of every
+        <code>sites/*/site.json</code> manifest in the
+        <a href="https://tangled.org/bisks.net/atprotozoa" target="_blank" rel="noopener">atprotozoa</a>
+        repo, regenerated each time the bot builds something new. Schema:
+        <a href="/lexicons/net.bisks.rateyourbuild.rating.json">lexicon</a>. Built by
+        <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
+      import { GlobalIndex } from "/lib/global-index.js";
+
+      const $ = (s, root = document) => root.querySelector(s);
+      const COLLECTION = "net.bisks.rateyourbuild.rating";
+      const GENRE_ORDER = ["toy", "game", "tool", "joke", "explainer", "art"];
+      // RYM-style Bayesian prior: a site needs roughly this many ratings
+      // before its own average outweighs the site-wide mean. Kept small
+      // (rather than IMDB's typical few thousand) because this whole
+      // constellation has a small, known audience — a handful of ratings is
+      // already a meaningful signal here, not noise.
+      const PRIOR_VOTES = 5;
+      const PAGE_SIZE = 40;
+
+      function esc(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      }
+      function fmtMonth(ms) {
+        if (!ms) return "";
+        return new Date(ms).toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" });
+      }
+
+      let session = null;
+      let catalog = [];
+      let genres = [];
+      let snapshot = { bySubject: new Map(), entries: [] };
+      let visibleCount = PAGE_SIZE;
+      let activeTab = "browse";
+      let lastRatedNote = null; // { subject, score } — see submitRating
+
+      const index = new GlobalIndex({
+        onUpdate: (snap) => {
+          snapshot = snap;
+          renderAll();
+        },
+      });
+
+      // --- weighting -----------------------------------------------------
+
+      function globalMean() {
+        let sum = 0, count = 0;
+        for (const s of snapshot.bySubject.values()) { sum += s.sum; count += s.count; }
+        return count ? sum / count : 5;
+      }
+      function weighted(sum, count, mean) {
+        if (!count) return null;
+        const v = count, r = sum / v;
+        return (v / (v + PRIOR_VOTES)) * r + (PRIOR_VOTES / (v + PRIOR_VOTES)) * mean;
+      }
+      function statsFor(name) {
+        return snapshot.bySubject.get(name) || null;
+      }
+      function ownScore(name) {
+        if (!session) return null;
+        const e = snapshot.entries.find((e) => e.did === session.did && e.subject === name);
+        return e ? e.score : null;
+      }
+
+      // --- rendering: a rated-site card -----------------------------------
+
+      function renderCard(site) {
+        const stats = statsFor(site.name);
+        const mean = globalMean();
+        const w = stats ? weighted(stats.sum, stats.count, mean) : null;
+        const own = ownScore(site.name);
+        const scoreHtml = w != null
+          ? `<span class="score-big">${w.toFixed(1)}</span><span class="score-sub">${stats.count} rating${stats.count === 1 ? "" : "s"}</span>`
+          : `<span class="score-big unrated">—</span><span class="score-sub">not yet rated</span>`;
+        const btns = Array.from({ length: 11 }, (_, n) => {
+          const active = own === n ? " active" : "";
+          const disabled = session ? "" : "disabled";
+          return `<button class="rate-btn${active}" data-score="${n}" ${disabled} title="rate ${n}/10">${n}</button>`;
+        }).join("");
+        return `
+          <div class="card" data-name="${esc(site.name)}">
+            <div class="card-main">
+              <a class="card-title" href="${esc(site.url)}" target="_blank" rel="noopener">${esc(site.title)}</a>
+              <span class="pill">${esc(site.genre)}</span>
+              ${site.builtAt ? `<span class="built-badge">${fmtMonth(Date.parse(site.builtAt))}</span>` : ""}
+            </div>
+            <p class="card-blurb">${esc(site.blurb)}</p>
+            ${site.by ? `<p class="by">asked for by @${esc(site.by)}</p>` : ""}
+            <div class="card-foot">
+              <div class="score-block">${scoreHtml}</div>
+              <div class="rate-row" data-subject="${esc(site.name)}">${btns}</div>
+              <div class="rate-row-status">${lastRatedNote && lastRatedNote.subject === site.name ? `rated ${lastRatedNote.score}/10.` : ""}</div>
+            </div>
+          </div>`;
+      }
+
+      // --- browse tab ------------------------------------------------------
+
+      function filteredSorted() {
+        const q = $("#search").value.trim().toLowerCase();
+        const genre = $("#genre-filter").value;
+        const sort = $("#sort").value;
+        const mean = globalMean();
+
+        let list = catalog.filter((s) => {
+          if (genre && s.genre !== genre) return false;
+          if (!q) return true;
+          return (
+            s.name.toLowerCase().includes(q) ||
+            s.title.toLowerCase().includes(q) ||
+            s.blurb.toLowerCase().includes(q) ||
+            (s.by || "").toLowerCase().includes(q)
+          );
+        });
+
+        const withScore = list.map((s) => {
+          const stats = statsFor(s.name);
+          return { site: s, stats, w: stats ? weighted(stats.sum, stats.count, mean) : null };
+        });
+
+        withScore.sort((a, b) => {
+          if (sort === "az") return a.site.name.localeCompare(b.site.name);
+          if (sort === "newest" || sort === "oldest") {
+            const at = a.site.builtAt ? Date.parse(a.site.builtAt) : sort === "newest" ? -Infinity : Infinity;
+            const bt = b.site.builtAt ? Date.parse(b.site.builtAt) : sort === "newest" ? -Infinity : Infinity;
+            return sort === "newest" ? bt - at : at - bt;
+          }
+          if (sort === "votes") {
+            return (b.stats?.count || 0) - (a.stats?.count || 0) || (b.w || 0) - (a.w || 0);
+          }
+          // weighted (default): rated sites first, highest weighted score first
+          if (a.w == null && b.w == null) return a.site.name.localeCompare(b.site.name);
+          if (a.w == null) return 1;
+          if (b.w == null) return -1;
+          return b.w - a.w || (b.stats.count - a.stats.count);
+        });
+
+        return { list: withScore.map((x) => x.site), sort };
+      }
+
+      function renderBrowse() {
+        const { list, sort } = filteredSorted();
+        const total = list.length;
+        const slice = list.slice(0, visibleCount);
+        $("#browse-meta").textContent =
+          `showing ${slice.length} of ${total} sites` + (total !== catalog.length ? ` (of ${catalog.length} total)` : "");
+
+        if (!slice.length) {
+          $("#browse-list").innerHTML = `<p class="empty">nothing matches that search.</p>`;
+          $("#show-more").style.display = "none";
+          return;
+        }
+
+        // Chronological sorts get month/year group headers — this is the
+        // "sort by month/year" ask made concrete, not just a sort order.
+        if (sort === "newest" || sort === "oldest") {
+          let lastGroup = null;
+          let html = "";
+          for (const site of slice) {
+            const group = site.builtAt ? fmtMonth(Date.parse(site.builtAt)) : "build date unknown";
+            if (group !== lastGroup) {
+              html += `<div class="group-header">${esc(group)}</div>`;
+              lastGroup = group;
+            }
+            html += renderCard(site);
+          }
+          $("#browse-list").innerHTML = html;
+        } else {
+          $("#browse-list").innerHTML = slice.map(renderCard).join("");
+        }
+
+        $("#show-more").style.display = total > slice.length ? "" : "none";
+      }
+
+      // --- genres tab --------------------------------------------------------
+
+      function renderGenreBoards() {
+        const mean = globalMean();
+        const ranked = (genre) => {
+          const list = catalog.filter((s) => s.genre === genre).map((s) => {
+            const stats = statsFor(s.name);
+            return { site: s, stats, w: stats ? weighted(stats.sum, stats.count, mean) : null };
+          });
+          list.sort((a, b) => {
+            if (a.w == null && b.w == null) return a.site.name.localeCompare(b.site.name);
+            if (a.w == null) return 1;
+            if (b.w == null) return -1;
+            return b.w - a.w || b.stats.count - a.stats.count;
+          });
+          return list;
+        };
+
+        const html = genres
+          .map((genre) => {
+            const list = ranked(genre);
+            const top = list.slice(0, 8);
+            const rows = top
+              .map((x, i) => {
+                const scoreHtml = x.w != null ? `${x.w.toFixed(1)} <span class="board-sub">(${x.stats.count})</span>` : `<span class="board-sub">unrated</span>`;
+                return `<a class="board-row" href="${esc(x.site.url)}" target="_blank" rel="noopener">
+                  <span class="board-rank">#${i + 1}</span>
+                  <span class="board-name">${esc(x.site.title)}</span>
+                  <span class="board-score">${scoreHtml}</span>
+                </a>`;
+              })
+              .join("");
+            return `<div class="board">
+              <div class="board-title"><span>${esc(genre)} <span class="board-sub">(${list.length})</span></span>
+                <a href="#" class="see-all" data-genre="${esc(genre)}">see all →</a></div>
+              ${rows || `<p class="empty" style="padding:0 0.9rem 0.6rem">nothing here yet.</p>`}
+            </div>`;
+          })
+          .join("");
+        $("#genre-boards").innerHTML = html || `<p class="empty">no sites in the catalog.</p>`;
+      }
+
+      // --- prompters tab -----------------------------------------------------
+
+      function renderPrompters() {
+        const mean = globalMean();
+        const byPrompter = new Map();
+        for (const site of catalog) {
+          if (!site.by) continue;
+          let p = byPrompter.get(site.by);
+          if (!p) { p = { by: site.by, sum: 0, count: 0, siteCount: 0 }; byPrompter.set(site.by, p); }
+          p.siteCount += 1;
+          const stats = statsFor(site.name);
+          if (stats) { p.sum += stats.sum; p.count += stats.count; }
+        }
+        const ranked = Array.from(byPrompter.values()).map((p) => ({
+          ...p,
+          w: p.count ? weighted(p.sum, p.count, mean) : null,
+        }));
+        ranked.sort((a, b) => {
+          if (a.w == null && b.w == null) return b.siteCount - a.siteCount || a.by.localeCompare(b.by);
+          if (a.w == null) return 1;
+          if (b.w == null) return -1;
+          return b.w - a.w || b.count - a.count;
+        });
+
+        const rows = ranked
+          .map((p, i) => {
+            const scoreHtml = p.w != null
+              ? `${p.w.toFixed(1)} <span class="board-sub">(${p.count} rating${p.count === 1 ? "" : "s"})</span>`
+              : `<span class="board-sub">unrated</span>`;
+            return `<a class="board-row" href="https://bsky.app/profile/${encodeURIComponent(p.by)}" target="_blank" rel="noopener">
+              <span class="board-rank">#${i + 1}</span>
+              <span class="board-name">@${esc(p.by)} <span class="board-sub">(${p.siteCount} site${p.siteCount === 1 ? "" : "s"})</span></span>
+              <span class="board-score">${scoreHtml}</span>
+            </a>`;
+          })
+          .join("");
+        $("#prompter-board").innerHTML = rows ? `<div class="board">${rows}</div>` : `<p class="empty">nobody's prompted a site yet.</p>`;
+      }
+
+      function renderAll() {
+        renderBrowse();
+        renderGenreBoards();
+        renderPrompters();
+      }
+
+      // --- tabs ---------------------------------------------------------------
+
+      document.querySelectorAll(".tab-link").forEach((a) => {
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          activeTab = a.dataset.tab;
+          document.querySelectorAll(".tab-link").forEach((x) => x.classList.toggle("active", x === a));
+          document.querySelectorAll(".tab-panel").forEach((p) => (p.hidden = p.id !== `tab-${activeTab}`));
+        });
+      });
+      $("#genre-boards").addEventListener("click", (e) => {
+        const a = e.target.closest(".see-all");
+        if (!a) return;
+        e.preventDefault();
+        $("#genre-filter").value = a.dataset.genre;
+        $("#sort").value = "weighted";
+        visibleCount = PAGE_SIZE;
+        $(".tab-link[data-tab='browse']").click();
+        renderBrowse();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+
+      // --- browse controls ------------------------------------------------
+
+      $("#search").addEventListener("input", () => { visibleCount = PAGE_SIZE; renderBrowse(); });
+      $("#genre-filter").addEventListener("change", () => { visibleCount = PAGE_SIZE; renderBrowse(); });
+      $("#sort").addEventListener("change", () => { visibleCount = PAGE_SIZE; renderBrowse(); });
+      $("#show-more").addEventListener("click", () => { visibleCount += PAGE_SIZE; renderBrowse(); });
+
+      // --- rating -----------------------------------------------------------
+
+      document.addEventListener("click", async (e) => {
+        const btn = e.target.closest(".rate-btn");
+        if (!btn || btn.disabled) return;
+        const row = btn.closest(".rate-row");
+        const subject = row.dataset.subject;
+        const score = Number(btn.dataset.score);
+        await submitRating(subject, score, row);
+      });
+
+      async function submitRating(subject, score, row) {
+        if (!session) return;
+        const statusEl = row.nextElementSibling;
+        row.querySelectorAll(".rate-btn").forEach((b) => (b.disabled = true));
+        if (statusEl) statusEl.textContent = "saving…";
+        try {
+          const ratedAt = new Date().toISOString();
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              repo: session.did,
+              collection: COLLECTION,
+              rkey: subject,
+              record: { $type: COLLECTION, subject, score, ratedAt },
+            }),
+          });
+          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+          // applyOwn triggers an immediate re-render (new snapshot -> renderAll),
+          // which replaces this whole card's DOM — including statusEl — before
+          // we'd get a chance to write into it. lastRatedNote lets the fresh
+          // render show the confirmation instead of a detached, invisible node.
+          lastRatedNote = { subject, score };
+          index.applyOwn(session.did, subject, score, ratedAt);
+          setTimeout(() => {
+            if (lastRatedNote && lastRatedNote.subject === subject) {
+              lastRatedNote = null;
+              renderAll();
+            }
+          }, 4000);
+        } catch (err) {
+          if (statusEl) { statusEl.textContent = `couldn't save that: ${err.message}`; statusEl.className = "rate-row-status"; }
+          row.querySelectorAll(".rate-btn").forEach((b) => (b.disabled = false));
+        }
+      }
+
+      // --- auth ---------------------------------------------------------------
+
+      function renderAuthBar() {
+        $("#signed-out-row").style.display = session ? "none" : "flex";
+        $("#signed-in-row").style.display = session ? "flex" : "none";
+        if (session) $("#who").textContent = "@" + session.handle;
+      }
+      $("#authGo").addEventListener("click", async () => {
+        const h = $("#authHandle").value.trim();
+        if (!h) return;
+        const status = $("#auth-status");
+        status.textContent = "redirecting to your PDS…";
+        status.className = "status";
+        try {
+          await login(h);
+        } catch (e) {
+          status.textContent = `sign-in failed: ${e.message}`;
+          status.className = "status err";
+        }
+      });
+      $("#authHandle").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("#authGo").click();
+      });
+      $("#authSignout").addEventListener("click", async () => {
+        await clearSession();
+        session = null;
+        renderAuthBar();
+        renderAll();
+      });
+
+      // --- boot -----------------------------------------------------------------
+
+      async function loadCatalog() {
+        const res = await fetch("/data/catalog.json");
+        catalog = await res.json();
+        genres = GENRE_ORDER.filter((g) => catalog.some((s) => s.genre === g)).concat(
+          Array.from(new Set(catalog.map((s) => s.genre))).filter((g) => !GENRE_ORDER.includes(g)).sort(),
+        );
+        const genreSelect = $("#genre-filter");
+        for (const g of genres) {
+          const opt = document.createElement("option");
+          opt.value = g;
+          opt.textContent = g;
+          genreSelect.appendChild(opt);
+        }
+      }
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          $("#auth-status").textContent = e.message;
+          $("#auth-status").className = "status err";
+        }
+        renderAuthBar();
+        await loadCatalog();
+        renderAll();
+        index.start();
+      }
+      boot();
+    </script>
+  </body>
+</html>

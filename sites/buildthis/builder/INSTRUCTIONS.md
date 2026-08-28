@@ -156,6 +156,31 @@ finished whatever you actually came here to build:
 This is a real, ongoing behavioral rule for this bot, not a one-time task — apply
 it on every future run, unmodified, until someone tells the bot otherwise.
 
+## Keep the ratings catalog current (standing order, added 2026-08-28)
+
+`sites/rateyourbuild` (rateyourbuild.bisks.net) is RateYourMusic for the bot's
+own back catalog — every site gets rated 0-10, charted by genre, and rolled up
+into a prompters leaderboard. @angussoftware.dev asked for it off the back of
+the apex gallery's existing `type` field (toy/game/tool/joke/explainer/art),
+which is what it uses as "genre." Same failure mode as receipts if left alone:
+a new site or an edited `blurb`/`type`/`by` silently never shows up to be
+rated. So, every run, after you've finished whatever you actually came here to
+build:
+
+1. From the repo root, run `node sites/rateyourbuild/sync-catalog.mjs --apply`.
+   It regenerates `sites/rateyourbuild/public/data/catalog.json` from every
+   `sites/*/site.json` manifest (the same source the apex gallery and
+   sites/receipts read) — name, url, title, blurb, genre (`type`), prompter
+   (`by`), and build date all come from there, so nothing needs hand-editing.
+2. That's it — there's no roast-style commentary field to hand-write here, and
+   the ratings themselves live in raters' own PDSes, not in this repo. Unlike
+   receipts, a mismatched site count isn't hardcoded into the page anywhere, so
+   there's nothing else to keep in sync by hand.
+
+This is a real, ongoing behavioral rule for this bot, not a one-time task —
+apply it on every future run, unmodified, until someone tells the bot
+otherwise.
+
 ## Do not reintroduce Footfall ingestion
 
 The Footfall beacon was retired on 2026-08-13. It caused every site visit to
