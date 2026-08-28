@@ -2,32 +2,53 @@
 // (mutual-follow edges: A and B are moots iff A follows B AND B follows A).
 //
 // A global follow graph doesn't exist anywhere to query directly, so the
-// graph is discovered live: computing one account's moot set costs two
-// paginated public-AppView reads (their follows, their followers — see
-// identity.js's jget/pooledEach, copied from metamoots). That's cheap for a
-// single account (metamoots does it for the search root) but BFS needs it for
-// every account on the frontier, which multiplies fast, so this is capped
-// hard on three axes: pages scanned per account (GRAPH_PAGES), accounts
-// expanded per round (FRONTIER_CAP), and total accounts expanded across the
-// whole search (default accountBudget). Bidirectional search (grow the
-// smaller of the two frontiers each round, stop the instant the frontiers
-// touch) keeps the typical case — most reachable pairs are 2-4 moots apart —
-// cheap; the caps exist for the pairs that aren't close, so a bad query
-// degrades to "couldn't find a path in budget" instead of hanging the tab.
+// graph is discovered live, per-account, as BFS visits it. The two halves of
+// a moot check are NOT symmetric in how completely they can be read:
+//
+//   - follows (who `did` follows) are `app.bsky.graph.follow` records that
+//     live in `did`'s OWN repo, so they're bulk-readable: one
+//     com.atproto.sync.getRepo CAR download recovers every follow that
+//     account has ever written, no page cap, full stop (see car.js and
+//     notes/40-new-site-playbook.md's cee.wtf thread, 2026-08-25 — prefer a
+//     repo download over a paginated listRecords/getFollows walk whenever
+//     "give me all of X" is the ask). This is the fetchFollows() path below,
+//     falling back to paginated getFollows only if the CAR read itself fails
+//     (oversized repo, PDS unreachable/non-CORS, malformed CAR).
+//   - followers (who follows `did`) are an AppView-computed reverse index,
+//     not a record in anyone's repo — there's no bulk endpoint for "everyone
+//     who follows me," so app.bsky.graph.getFollowers has to stay paginated.
+//     FOLLOWERS_PAGES bounds that walk for genuine safety (a mega-followed
+//     account could otherwise be tens of thousands of sequential requests
+//     for one BFS node) rather than out of habitual caution — it's set high
+//     enough that it won't quietly truncate an ordinary account's followers.
+//
+// Even with follows fully read, BFS still needs to bound its own breadth:
+// computing one account's moot set is two network reads, and BFS needs it
+// for every account on the frontier, which multiplies fast. So this is
+// capped on two axes: accounts expanded per round (FRONTIER_CAP) and total
+// accounts expanded across the whole search (default accountBudget) — real
+// search-breadth/time limits, not per-account data truncation. Bidirectional
+// search (grow the smaller of the two frontiers each round, stop the instant
+// the frontiers touch) keeps the typical case — most reachable pairs are 2-4
+// moots apart — cheap; the caps exist for the pairs that aren't close, so a
+// bad query degrades to "couldn't find a path in budget" instead of hanging
+// the tab.
 
-import { jget, pooledEach } from "./identity.js";
+import { jget, pooledEach, resolvePds } from "./identity.js";
+import { fetchRepoRecordsWithKeys } from "./car.js";
 
 const PUB = "https://api.bsky.app/xrpc";
-const GRAPH_PAGES = 5; // <= ~500 follows / ~500 followers scanned per account
+const FOLLOWERS_PAGES = 50; // <= ~5000 followers scanned per account — no bulk read exists for this side, see header
+const FALLBACK_FOLLOWS_PAGES = 50; // paginated fallback, only used if the CAR read fails
 const FETCH_CONCURRENCY = 6;
 const FRONTIER_CAP = 45; // accounts expanded per round, per side
 const DEFAULT_ACCOUNT_BUDGET = 220; // total accounts whose moot set gets computed
 const DEFAULT_MAX_ROUNDS = 10;
 
-async function graphAll(endpoint, key, did) {
+async function graphAll(endpoint, key, did, maxPages) {
   const out = [];
   let cursor = "";
-  for (let p = 0; p < GRAPH_PAGES; p++) {
+  for (let p = 0; p < maxPages; p++) {
     const u = new URL(`${PUB}/${endpoint}`);
     u.searchParams.set("actor", did);
     u.searchParams.set("limit", "100");
@@ -45,6 +66,25 @@ async function graphAll(endpoint, key, did) {
   return out;
 }
 
+// Every DID `did` follows, read straight from their own repo (one CAR
+// download, no page cap) so a heavily-followed account's follow list never
+// gets silently truncated. Falls back to a paginated getFollows walk if the
+// repo download itself fails.
+async function fetchFollows(did) {
+  try {
+    const pds = await resolvePds(did);
+    if (!pds) throw new Error("no PDS");
+    const { records } = await fetchRepoRecordsWithKeys(pds, did, "app.bsky.graph.follow");
+    return records.map((r) => r.value && r.value.subject).filter(Boolean);
+  } catch {
+    return graphAll("app.bsky.graph.getFollows", "follows", did, FALLBACK_FOLLOWS_PAGES);
+  }
+}
+
+function fetchFollowers(did) {
+  return graphAll("app.bsky.graph.getFollowers", "followers", did, FOLLOWERS_PAGES);
+}
+
 // did -> Promise<Set<did>>, shared across a single search so a account that
 // shows up from both sides (or gets re-touched) is only ever fetched once.
 function makeMootFetcher() {
@@ -52,10 +92,7 @@ function makeMootFetcher() {
   return function mootsOf(did) {
     if (cache.has(did)) return cache.get(did);
     const p = (async () => {
-      const [follows, followers] = await Promise.all([
-        graphAll("app.bsky.graph.getFollows", "follows", did),
-        graphAll("app.bsky.graph.getFollowers", "followers", did),
-      ]);
+      const [follows, followers] = await Promise.all([fetchFollows(did), fetchFollowers(did)]);
       const followerSet = new Set(followers);
       return new Set(follows.filter((d) => d !== did && followerSet.has(d)));
     })();
