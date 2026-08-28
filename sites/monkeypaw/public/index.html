@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>monkey paw curler — bisks.net</title>
+    <meta
+      name="description"
+      content="Type a wish. The paw curls a finger shut and grants it, W.W. Jacobs-style — correct as worded, never as intended. A DO A BREAKTHROUGH button keeps curling the fist further, escalating the catch forever."
+    />
+    <meta property="og:title" content="monkey paw curler" />
+    <meta
+      property="og:description"
+      content="Type a wish, the paw grants it with a catch. Press DO A BREAKTHROUGH and it curls one knuckle further — every time, forever, worse."
+    />
+    <meta property="og:url" content="https://monkeypaw.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://monkeypaw.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="monkey paw curler — a wish granter whose fist closes one knuckle at a time, each press worse than the last." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="monkey paw curler" />
+    <meta
+      name="twitter:description"
+      content="Type a wish, the paw grants it with a catch. Press DO A BREAKTHROUGH and it curls one knuckle further — every time, forever, worse."
+    />
+    <meta name="twitter:image" content="https://monkeypaw.bisks.net/og.png" />
+    <!-- House look: plain, black-on-white, one mono, hairline-separated —
+         matches bisks.net apex. A single curse-red accent for the paw and
+         its toll, instead of the house blue, since this one's cursed. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --curse: #7a1730;
+        --curse-bg: #fbf3f4;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 860px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      h1 { font-size: 1.7rem; margin: 0 0 0.4rem; font-weight: 800; letter-spacing: -0.01em; }
+      h1 .slash { color: var(--muted); font-weight: 400; font-size: 0.95rem; display: block; margin-top: 0.3rem; }
+      p.intro { color: var(--muted); margin: 0 0 1.6rem; font-size: 0.88rem; max-width: 66ch; }
+      p.intro b { color: var(--ink); font-weight: 600; }
+      p.intro code { background: #f4f4f4; border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.85em; }
+
+      .configRow { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+      input[type="text"] {
+        flex: 1; min-width: 220px; font-family: inherit; font-size: 0.92rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint); border-radius: 4px;
+        background: #fff; color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--curse); outline-offset: 1px; }
+      button {
+        font-family: inherit; cursor: pointer; font-size: 0.88rem;
+        padding: 0.6rem 1.1rem; border: 1px solid var(--ink); background: var(--ink);
+        color: #fff; border-radius: 4px; font-weight: 600;
+      }
+      button:hover:not(:disabled) { background: #333; }
+      button:disabled { opacity: 0.45; cursor: default; }
+      .btn2 {
+        background: #fff; color: var(--ink); border: 1px solid var(--faint);
+        font-weight: 400; text-decoration: none; display: inline-block;
+        font-size: 0.82rem; padding: 0.5rem 0.85rem; border-radius: 4px; cursor: pointer;
+      }
+      .btn2:hover { border-color: var(--ink); }
+
+      .status { min-height: 1.3rem; font-size: 0.82rem; margin: 0.5rem 0 0; color: var(--muted); }
+      .status.err { color: var(--curse); }
+
+      .shareRow { display: flex; gap: 0.6rem; flex-wrap: wrap; margin: 0.8rem 0 1.8rem; }
+
+      .tollBoard {
+        display: none; align-items: baseline; gap: 0.6rem; flex-wrap: wrap;
+        border: 1px solid var(--faint); border-radius: 8px; padding: 0.7rem 1rem;
+        margin: 0 0 1.6rem; background: var(--curse-bg);
+      }
+      .tollBoard.on { display: flex; }
+      .tollBoard .label { font-size: 0.76rem; color: var(--muted); }
+      .tollBoard .amount { font-size: 1.35rem; font-weight: 800; color: var(--curse); letter-spacing: -0.01em; }
+
+      .grid { display: flex; flex-direction: column; gap: 1rem; }
+      .card {
+        border: 1px solid var(--faint); border-radius: 8px; padding: 1.1rem 1.2rem;
+        background: #fff; display: flex; gap: 1.1rem; align-items: flex-start;
+        transition: border-color 0.2s, background 0.2s;
+      }
+      .card.curling { border-color: var(--curse); background: var(--curse-bg); }
+      .cardBody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.55rem; }
+
+      .pawCol { flex: none; width: 96px; display: flex; flex-direction: column; align-items: center; gap: 0.3rem; }
+      .paw { position: relative; width: 96px; height: 96px; }
+      .paw .palm {
+        position: absolute; left: 50%; top: 58%; width: 40px; height: 40px;
+        border-radius: 50%; background: var(--ink); transform: translate(-50%, -50%);
+      }
+      .paw .finger {
+        position: absolute; width: 11px; height: 30px; background: var(--ink);
+        border-radius: 6px; transform-origin: 50% 100%;
+        transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      .card.curling .paw .palm,
+      .card.curling .paw .finger { background: var(--curse); }
+      .fingerCount { font-size: 0.72rem; color: var(--muted); }
+
+      .origWish {
+        font-size: 0.87rem; color: var(--ink); white-space: pre-wrap; word-break: break-word;
+        border-left: 3px solid var(--faint); padding: 0.4rem 0.7rem; background: #f7f7f7; border-radius: 0 4px 4px 0;
+      }
+      .stageChip {
+        display: none; font-size: 0.74rem; font-weight: 700; padding: 0.25rem 0.55rem;
+        border-radius: 999px; background: #f0f0f0; color: var(--muted); align-self: flex-start;
+      }
+      .stageChip.on { display: inline-block; }
+      .card.curling .stageChip { background: #f3e0e4; color: var(--curse); }
+
+      .grantText {
+        font-size: 0.85rem; color: var(--ink); white-space: pre-wrap; word-break: break-word;
+        border-left: 3px solid var(--curse); padding: 0.4rem 0.7rem; background: var(--curse-bg); border-radius: 0 4px 4px 0;
+      }
+      .tollLine { font-size: 0.75rem; color: var(--curse); font-weight: 700; }
+
+      .cardFoot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.2rem; flex-wrap: wrap; }
+      .cardFoot .btnRow { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .curlBtn {
+        font-family: inherit; cursor: pointer; font-size: 0.78rem; font-weight: 700;
+        padding: 0.5rem 0.75rem; border-radius: 4px; border: 1px solid var(--curse);
+        background: var(--curse); color: #fff;
+      }
+      .curlBtn:hover { background: #5c1224; }
+      .shareLink { color: var(--muted); text-decoration: none; font-size: 0.76rem; }
+      .shareLink:hover { color: var(--curse); text-decoration: underline; }
+
+      .empty { color: var(--muted); font-size: 0.86rem; padding: 1rem 0; }
+
+      details.how { margin-top: 2.6rem; font-size: 0.84rem; color: var(--muted); }
+      details.how summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+      details.how .body { margin-top: 0.8rem; line-height: 1.75; }
+      details.how b { color: var(--ink); }
+      details.how code { background: #f4f4f4; border-radius: 3px; padding: 0.05rem 0.3rem; font-size: 0.9em; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--curse); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+
+      @media (max-width: 480px) {
+        .card { flex-direction: column; align-items: stretch; }
+        .pawCol { width: 100%; flex-direction: row; justify-content: center; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>MONKEY PAW CURLER<span class="slash">· wishes granted correctly, never kindly</span></h1>
+      <p class="intro">
+        Type a wish. The paw curls one knuckle shut and grants it — worded
+        exactly right, meant nowhere close to how you meant it. Each wish
+        gets a <b>DO A BREAKTHROUGH</b> button: press it and the fist curls
+        one knuckle further, the catch gets worse, the toll goes up. It never
+        really stops either.
+      </p>
+
+      <form class="configRow" id="wishForm">
+        <input type="text" id="wishInput" placeholder="i wish for…" spellcheck="false" maxlength="180" autocomplete="off" />
+        <button id="curlGo" type="submit">curl the paw</button>
+      </form>
+      <p class="status" id="status">runs entirely in your browser — no wish is sent anywhere, which is somehow not reassuring.</p>
+
+      <div class="shareRow" id="shareRow" style="display:none">
+        <a class="btn2" id="sharePage" target="_blank" rel="noopener">share the curler →</a>
+      </div>
+
+      <div class="tollBoard" id="tollBoard">
+        <span class="label">total toll accrued, all wishes</span>
+        <span class="amount" id="tollAmount">0</span>
+      </div>
+
+      <div class="grid" id="grid">
+        <div class="empty" id="emptyMsg">no wishes yet. it's waiting.</div>
+      </div>
+
+      <details class="how">
+        <summary>how this works</summary>
+        <div class="body">
+          Type anything and press <b>curl the paw</b> — that's press #1, the
+          initial grant. It doesn't call any model: your wish text plus the
+          press count are hashed (FNV-1a, same trick as
+          <code>sites/dobreakthrough</code>) to deterministically pick a
+          mechanism, an ominous aside, and a template from fixed banks, so
+          the same wish at the same press count always curls the same way.
+          Every <b>DO A BREAKTHROUGH</b> press adds one to the count and
+          curls the paw's fist one knuckle further, cycling through eight
+          stages before lapping back around at a higher toll. Nothing is
+          sent anywhere — it's all math in your browser. It is a joke
+          generator, not an oracle, and it definitely isn't a real monkey's
+          paw. (Probably.)
+        </div>
+      </details>
+
+      <footer>
+        built for <a href="https://bsky.app/profile/heartpunk.com" target="_blank" rel="noopener">@heartpunk.com</a>,
+        who asked for a monkey paw curler and a breakthrough — this is both, wearing the escalation
+        mechanic from <a href="https://dobreakthrough.bisks.net" target="_blank" rel="noopener">dobreakthrough</a> —
+        by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+        sibling of <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { curl, fmtToll } from "./lib/paw.js";
+
+      const $ = (id) => document.getElementById(id);
+      const wishForm = $("wishForm"), wishInput = $("wishInput"), statusEl = $("status");
+      const gridEl = $("grid"), emptyMsg = $("emptyMsg");
+      const shareRow = $("shareRow"), sharePage = $("sharePage");
+      const tollBoard = $("tollBoard"), tollAmount = $("tollAmount");
+
+      const FAN_ANGLES = [-52, -26, 0, 26, 52];
+      const PAW_CX = 48, PAW_CY = 56, PAW_R = 17, F_W = 11, F_H = 30;
+
+      // amounts[i] = wish i's current toll, so the combined board is a live
+      // sum, not a running total of every press ever made.
+      const amounts = new Map();
+      let nextId = 0;
+
+      function setStatus(text, cls) {
+        statusEl.className = "status" + (cls ? " " + cls : "");
+        statusEl.textContent = text;
+      }
+
+      function escapeHtml(s) {
+        return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function updateTollBoard() {
+        const total = [...amounts.values()].reduce((a, b) => a + b, 0);
+        if (!amounts.size) {
+          tollBoard.classList.remove("on");
+          return;
+        }
+        tollBoard.classList.add("on");
+        tollAmount.textContent = fmtToll(total);
+      }
+
+      function buildPaw() {
+        const paw = document.createElement("div");
+        paw.className = "paw";
+        const palm = document.createElement("div");
+        palm.className = "palm";
+        paw.appendChild(palm);
+        FAN_ANGLES.forEach((angle) => {
+          const rad = (angle * Math.PI) / 180;
+          const x = PAW_CX + PAW_R * Math.sin(rad);
+          const y = PAW_CY - PAW_R * Math.cos(rad);
+          const f = document.createElement("div");
+          f.className = "finger";
+          f.style.left = x - F_W / 2 + "px";
+          f.style.top = y - F_H + "px";
+          const closed = angle + (angle >= 0 ? 140 : -140);
+          f.dataset.open = String(angle);
+          f.dataset.closed = String(closed);
+          f.style.transform = `rotate(${angle}deg)`;
+          paw.appendChild(f);
+        });
+        return paw;
+      }
+
+      function setPawFingers(paw, curledCount) {
+        const fingers = paw.querySelectorAll(".finger");
+        fingers.forEach((f, i) => {
+          const useClosed = i < curledCount;
+          f.style.transform = `rotate(${useClosed ? f.dataset.closed : f.dataset.open}deg)`;
+        });
+      }
+
+      function cardClass(fingers) {
+        return fingers > 0 ? "curling" : "";
+      }
+
+      function addWish(text) {
+        const id = nextId++;
+        const level0 = 1;
+
+        const card = document.createElement("div");
+        card.className = "card";
+
+        const pawCol = document.createElement("div");
+        pawCol.className = "pawCol";
+        const paw = buildPaw();
+        pawCol.appendChild(paw);
+        const fingerCount = document.createElement("div");
+        fingerCount.className = "fingerCount";
+        pawCol.appendChild(fingerCount);
+
+        const body = document.createElement("div");
+        body.className = "cardBody";
+        body.innerHTML =
+          `<div class="origWish">"${escapeHtml(text)}"</div>` +
+          `<div class="stageChip"></div>` +
+          `<div class="grantText"></div>` +
+          `<div class="tollLine"></div>` +
+          `<div class="cardFoot">` +
+            `<div class="btnRow"><button class="curlBtn" type="button">DO A BREAKTHROUGH 🐒</button></div>` +
+            `<div class="btnRow"><a class="shareLink" target="_blank" rel="noopener" style="display:none">share this curl →</a></div>` +
+          `</div>`;
+
+        card.appendChild(pawCol);
+        card.appendChild(body);
+        gridEl.insertBefore(card, gridEl.firstChild);
+
+        const stageEl = body.querySelector(".stageChip");
+        const grantEl = body.querySelector(".grantText");
+        const tollEl = body.querySelector(".tollLine");
+        const curlBtn = body.querySelector(".curlBtn");
+        const shareEl = body.querySelector(".shareLink");
+
+        function press(level) {
+          const result = curl(id, text, level);
+          card.className = "card " + cardClass(result.fingers);
+          setPawFingers(paw, result.fingers);
+          fingerCount.textContent = `${result.fingers}/5 knuckles curled`;
+          stageEl.textContent = result.stage;
+          stageEl.classList.add("on");
+          grantEl.textContent = result.grant;
+          amounts.set(id, result.toll);
+          tollEl.textContent = result.toll > 0 ? `toll: ${fmtToll(result.toll)} and climbing` : "toll: nothing yet";
+          updateTollBoard();
+          const bangs = "!".repeat(Math.min(result.level, 5));
+          curlBtn.textContent = `DO A BREAKTHROUGH AGAIN${bangs}`;
+
+          const shareText = `${result.stage}\n\n${result.grant}\n\ncurl your own → https://monkeypaw.bisks.net/`;
+          shareEl.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+          shareEl.style.display = "";
+        }
+
+        curlBtn.addEventListener("click", () => {
+          const level = (curlBtn.dataset.level ? parseInt(curlBtn.dataset.level, 10) : level0) + 1;
+          curlBtn.dataset.level = String(level);
+          press(level);
+        });
+
+        press(level0);
+        emptyMsg.style.display = "none";
+      }
+
+      wishForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const text = wishInput.value.trim();
+        if (!text) { wishInput.focus(); return; }
+        addWish(text);
+        setStatus("granted. read the fine print.");
+        wishInput.value = "";
+        wishInput.focus();
+
+        shareRow.style.display = "";
+        sharePage.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(
+          "made a wish at the monkey paw curler. it was granted. it was not what i meant. https://monkeypaw.bisks.net/"
+        );
+      });
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
