@@ -1,22 +1,37 @@
 // network.js — turn a Bluesky handle into a plottable network: its people
-// (mutuals, widened to plain follows) plus a few recent posts each, then run a
-// deliberately silly heuristic to place everyone on a D&D-style alignment grid.
+// (mutuals, widened to plain follows) plus each one's WHOLE post history, then
+// run a deliberately silly heuristic to place everyone on a D&D-style
+// alignment grid.
 //
 // AXES (it's a bit, not a classifier):
 //   x = CHILL ←→ HARSH     (soft/cozy vibes vs. beef/dunks/rage)
 //   y = MOGGING (top) ←→ GOONING (bottom)   (locked-in/grinding vs. down-bad/horny)
 //
-// Everything here reads Bluesky's PUBLIC AppView anonymously (public.api.bsky.app,
-// CORS *, no auth): resolveHandle, getFollows, getFollowers, getProfile,
-// getAuthorFeed. Graph fetching copied+trimmed from moot-bingo/lib/moots.js
+// Graph (mutuals/follows) still reads Bluesky's PUBLIC AppView anonymously
+// (public.api.bsky.app, CORS *, no auth): resolveHandle, getFollows,
+// getFollowers, getProfile. Copied+trimmed from moot-bingo/lib/moots.js
 // (copy, don't abstract).
+//
+// Changed 2026-08-28 at @antiali.as's request ("don't just read a handful of
+// posts, you can do the whole CARs"): the vibe read used to be one page of
+// getAuthorFeed (FEED_POSTS=20). Per the bot's standing bulk-reads order
+// (builder/INSTRUCTIONS.md, @cee.wtf's 2026-08-25 thread: prefer one
+// com.atproto.sync.getRepo CAR download over a paginated walk), each
+// account's text now comes from a single repo download — every post they've
+// ever made, not a 20-post sample — via lib/car.js + lib/identity.js (copied
+// from sites/backscroll, the reference impl). Falls back to the old one-page
+// getAuthorFeed read only if the repo download fails (no PDS found,
+// oversize/malformed CAR, non-CORS PDS).
+
+import { fetchRepoRecordsWithKeys } from "./car.js";
+import { resolvePds } from "./identity.js";
 
 const PUB = "https://public.api.bsky.app/xrpc";
 
 const GRAPH_PAGES = 8; // ≤ ~800 follows + ~800 followers scanned for mutuals
 const MIN_POOL = 12; // below this, widen mutuals → follows so a grid has bodies
-const MAX_PLOT = 60; // hard cap on accounts we fetch feeds for (keeps it fast)
-const FEED_POSTS = 20; // recent posts pulled per account for the vibe read
+const MAX_PLOT = 60; // hard cap on accounts we fetch repos for (keeps it fast)
+const FEED_POSTS = 100; // fallback-only: getAuthorFeed page size if the repo download fails
 
 async function jget(url) {
   const r = await fetch(url);
@@ -230,14 +245,14 @@ export async function plotList(raw, { onStep, onProgress } = {}) {
   };
 }
 
-// Fetch feeds + classify a pool of accounts with limited concurrency. Shared
-// by plotNetwork and plotList. selfDid marks one account as isSelf (or null
-// for list mode, where nobody is "you").
+// Fetch each account's post history + classify, with limited concurrency.
+// Shared by plotNetwork and plotList. selfDid marks one account as isSelf (or
+// null for list mode, where nobody is "you").
 async function classifyPeople(people, { onProgress } = {}, selfDid) {
   const total = people.length;
   const out = new Array(total);
   let done = 0;
-  const CONC = 6;
+  const CONC = 4; // repo CAR downloads are heavier than the old feed page, so a bit gentler than before
   let cursor = 0;
   async function worker() {
     while (cursor < people.length) {
@@ -264,9 +279,28 @@ export async function plot(raw, { onStep, onProgress } = {}) {
   return plotNetwork(raw, { onStep, onProgress });
 }
 
-// Pull recent post text for one account. Returns a single lowercased blob of
-// their own post text (skips reposts — we want THEIR vibe, not what they share).
-async function feedText(did) {
+// Pull an account's WHOLE post-history text via one repo CAR download —
+// their entire app.bsky.feed.post collection, not a page-capped sample.
+// Returns a single lowercased blob of their own words (replies excluded, same
+// as the old getAuthorFeed posts_no_replies filter — replies are conversation,
+// not their unprompted vibe; reposts never show up here since they live in a
+// separate collection). Throws on failure so feedText can fall back.
+async function feedTextViaRepo(did) {
+  const pds = await resolvePds(did);
+  if (!pds) throw new Error("no PDS found");
+  const { records } = await fetchRepoRecordsWithKeys(pds, did, "app.bsky.feed.post");
+  const parts = [];
+  for (const { value: rec } of records) {
+    if (rec.reply) continue;
+    if (rec.text) parts.push(rec.text);
+  }
+  return parts.join("  \n").toLowerCase();
+}
+
+// Fallback-only: one page of recent posts off the public AppView, for an
+// account whose repo can't be downloaded (no PDS found, oversize/malformed
+// CAR, non-CORS PDS).
+async function feedTextViaFeed(did) {
   const u = new URL(`${PUB}/app.bsky.feed.getAuthorFeed`);
   u.searchParams.set("actor", did);
   u.searchParams.set("limit", String(FEED_POSTS));
@@ -285,6 +319,15 @@ async function feedText(did) {
     if (t) parts.push(t);
   }
   return parts.join("  \n").toLowerCase();
+}
+
+// Pull post text for one account: whole repo first, one-page feed fallback.
+async function feedText(did) {
+  try {
+    return await feedTextViaRepo(did);
+  } catch {
+    return await feedTextViaFeed(did);
+  }
 }
 
 // ── The heuristic (a bit) ─────────────────────────────────────────────────
@@ -397,8 +440,9 @@ export const CELLS = [
   { name: "Chaotic Goon", flavor: "harsh + gooning: unwell and unafraid to say so" },
 ];
 
-// Plot the whole pool. Fetches feeds with limited concurrency, classifies each,
-// and returns [{ ...profile, x, y, cell, empty, isSelf }]. Reports progress via
+// Plot the whole pool. Downloads each account's whole post history with
+// limited concurrency, classifies each, and returns
+// [{ ...profile, x, y, cell, empty, isSelf }]. Reports progress via
 // onProgress(done, total).
 export async function plotNetwork(actor, { onStep, onProgress } = {}) {
   const net = await networkPool(actor, { onStep });
