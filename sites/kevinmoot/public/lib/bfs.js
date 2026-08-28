@@ -52,6 +52,76 @@ const FRONTIER_CAP = 150; // accounts expanded per round, per side
 const DEFAULT_ACCOUNT_BUDGET = 1500; // total accounts whose moot set gets computed
 const DEFAULT_MAX_ROUNDS = 18;
 
+// Persistent cross-search moot-set cache -----------------------------------
+//
+// makeMootFetcher()'s in-memory Map only lives for one findMootPath() call,
+// so retracing the same pair — or a different pair whose search frontiers
+// happen to overlap (common: popular accounts show up in lots of chains) —
+// redid two full network reads per account every time. A moot set is the
+// expensive-to-compute, cheap-to-store *output* of that work (a short array
+// of DIDs, versus the full follows+followers used to derive it), so it's
+// what's worth persisting across page loads: localStorage, namespaced per
+// DID.
+//
+// TTL is 6 hours: a follow/unfollow shouldn't stay invisible for days, but
+// most retraces (someone swaps A/B, a thread has two people tracing
+// overlapping accounts within the same sitting) happen within minutes and
+// should be instant. This is a freshness choice with a stated reason, not a
+// size/count cap — see notes/40-new-site-playbook.md's cee.wtf thread,
+// 2026-08-28, on caps needing to justify themselves.
+const CACHE_PREFIX = "kevinmoot:moots:v1:";
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
+function readCachedMoots(did) {
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + did);
+    if (!raw) return null;
+    const { ts, m } = JSON.parse(raw);
+    if (!Array.isArray(m) || Date.now() - ts > CACHE_TTL_MS) return null;
+    return m;
+  } catch {
+    return null;
+  }
+}
+
+// Drop expired entries so a full localStorage (quota is a real per-origin
+// browser limit, unlike the page caps above) has somewhere to make room
+// before caching is simply skipped.
+function pruneExpiredCache() {
+  try {
+    const stale = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(CACHE_PREFIX)) continue;
+      try {
+        const { ts } = JSON.parse(localStorage.getItem(k));
+        if (Date.now() - ts > CACHE_TTL_MS) stale.push(k);
+      } catch {
+        stale.push(k);
+      }
+    }
+    for (const k of stale) localStorage.removeItem(k);
+  } catch {
+    // localStorage unavailable — nothing to prune
+  }
+}
+
+function writeCachedMoots(did, moots) {
+  const key = CACHE_PREFIX + did;
+  const payload = JSON.stringify({ ts: Date.now(), m: moots });
+  try {
+    localStorage.setItem(key, payload);
+  } catch {
+    pruneExpiredCache();
+    try {
+      localStorage.setItem(key, payload);
+    } catch {
+      // still full (or storage disabled, e.g. private browsing) — caching
+      // is an optimization, not a requirement, so just skip this entry
+    }
+  }
+}
+
 async function graphAll(endpoint, key, did, maxPages) {
   const out = [];
   let cursor = "";
@@ -94,14 +164,25 @@ function fetchFollowers(did) {
 
 // did -> Promise<Set<did>>, shared across a single search so a account that
 // shows up from both sides (or gets re-touched) is only ever fetched once.
+// Backed by the persistent localStorage cache above, so accounts already
+// resolved in a *previous* search (or an earlier round of this one, across
+// page loads) skip the network entirely.
 function makeMootFetcher() {
   const cache = new Map();
   return function mootsOf(did) {
     if (cache.has(did)) return cache.get(did);
+    const cached = readCachedMoots(did);
+    if (cached) {
+      const p = Promise.resolve(new Set(cached));
+      cache.set(did, p);
+      return p;
+    }
     const p = (async () => {
       const [follows, followers] = await Promise.all([fetchFollows(did), fetchFollowers(did)]);
       const followerSet = new Set(followers);
-      return new Set(follows.filter((d) => d !== did && followerSet.has(d)));
+      const moots = follows.filter((d) => d !== did && followerSet.has(d));
+      writeCachedMoots(did, moots);
+      return new Set(moots);
     })();
     cache.set(did, p);
     return p;

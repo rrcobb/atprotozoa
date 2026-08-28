@@ -9,6 +9,38 @@ const PUB = "https://api.bsky.app/xrpc";
 
 const GRAPH_PAGES = 400; // backstop, not a budget — raised 2026-08-28 across the moot-family sites (same treatment as kevinmoot's bfs.js FOLLOWERS_PAGES; a fixed page count on getFollows/getFollowers was a speed knob dressed as a data cap, not a correctness bound)
 
+// Small localStorage-backed cache for values that rarely change but get
+// re-looked-up constantly (a handle's DID, a DID's PDS host). Same idea as
+// bfs.js's moot-set cache — see that file's header for the reasoning on why
+// persisting across page loads/searches is worth it. Kept separate per-key
+// TTLs below since a handle->DID mapping and a DID's PDS drift at very
+// different rates.
+const LS_PREFIX = "kevinmoot:v1:";
+
+function lsGet(key, ttlMs) {
+  try {
+    const raw = localStorage.getItem(LS_PREFIX + key);
+    if (!raw) return undefined;
+    const { ts, v } = JSON.parse(raw);
+    if (Date.now() - ts > ttlMs) return undefined;
+    return v;
+  } catch {
+    return undefined;
+  }
+}
+
+function lsSet(key, v) {
+  try {
+    localStorage.setItem(LS_PREFIX + key, JSON.stringify({ ts: Date.now(), v }));
+  } catch {
+    // storage disabled (private browsing) or quota exceeded — caching is an
+    // optimization, not a requirement, so just skip it
+  }
+}
+
+const HANDLE_TTL_MS = 24 * 60 * 60 * 1000; // handle->DID rarely changes; a day keeps re-traces of the same accounts off the network without risking a stale rehandle sticking around for long
+const PDS_TTL_MS = 7 * 24 * 60 * 60 * 1000; // PDS migrations are rare, deliberate events, not something worth rechecking every session
+
 export async function jget(url) {
   const r = await fetch(url);
   if (!r.ok) {
@@ -30,10 +62,14 @@ export async function resolveDid(actor) {
     .split("/")[0];
   if (!a) throw new Error("empty handle");
   if (a.startsWith("did:")) return a;
+  const cacheKey = "handle:" + a.toLowerCase();
+  const cached = lsGet(cacheKey, HANDLE_TTL_MS);
+  if (cached) return cached;
   const d = await jget(
     `${PUB}/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(a)}`,
   );
   if (!d.did) throw new Error(`couldn't resolve "${a}"`);
+  lsSet(cacheKey, d.did);
   return d.did;
 }
 
@@ -103,6 +139,11 @@ const pdsCache = new Map(); // did -> serviceEndpoint | null
 
 export async function resolvePds(did) {
   if (pdsCache.has(did)) return pdsCache.get(did);
+  const cached = lsGet("pds:" + did, PDS_TTL_MS);
+  if (cached) {
+    pdsCache.set(did, cached);
+    return cached;
+  }
   let endpoint = null;
   try {
     let doc;
@@ -120,6 +161,9 @@ export async function resolvePds(did) {
     endpoint = null;
   }
   pdsCache.set(did, endpoint);
+  // Only persist a successful lookup — a transient resolution failure
+  // shouldn't get baked in as "no PDS" for a week.
+  if (endpoint) lsSet("pds:" + did, endpoint);
   return endpoint;
 }
 
