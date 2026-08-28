@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>typecheck — a personality read on your whole repo</title>
+<meta name="description" content="Enter a Bluesky handle. We download every post they've ever made in one shot and run a four-axis personality read off word choice and posting rhythm. Not real science." />
+<meta property="og:title" content="typecheck — a personality read on your whole repo" />
+<meta property="og:description" content="Enter a Bluesky handle. We download every post they've ever made in one shot and run a four-axis personality read off word choice and posting rhythm. Not real science." />
+<meta property="og:url" content="https://typecheck.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://typecheck.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="typecheck: a terminal-styled card reading out a four-letter personality type with axis bars." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="typecheck — a personality read on your whole repo" />
+<meta name="twitter:description" content="Enter a Bluesky handle. We download every post they've ever made in one shot and run a four-axis personality read off word choice and posting rhythm. Not real science." />
+<meta name="twitter:image" content="https://typecheck.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #070a08;
+    --bg2: #0d1310;
+    --fg: #ddf5e6;
+    --dim: #7fa08c;
+    --accent: #3dffa0;
+    --accent2: #ffb454;
+    --card: #0f1613;
+    --border: #1f3128;
+    --err: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #103524 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #2a2410 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 4rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 580px; }
+  h1 {
+    font-size: 1.9rem;
+    line-height: 1.25;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2.25rem; line-height: 1.55; }
+  .tag code { color: var(--accent2); }
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #17c97a);
+    color: #04140b;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit; font-weight: 700; font-size: 0.9rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 2.6em; margin-bottom: 1rem; line-height: 1.5; }
+  .status.err { color: var(--err); }
+
+  .card { display: none; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.75rem; box-shadow: 0 0 60px -22px var(--accent); }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.4rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); background: var(--bg2); }
+  .who .handle { font-weight: 700; }
+  .who .count { color: var(--dim); font-size: 0.75rem; }
+
+  .typeglyph { text-align: center; font-size: 3.2rem; font-weight: 800; letter-spacing: 0.15em; color: var(--accent); margin-bottom: 0.15rem; }
+  .typename { text-align: center; font-size: 1.3rem; font-weight: 800; margin-bottom: 0.3rem; }
+  .typeblurb { text-align: center; color: var(--dim); font-size: 0.92rem; margin: 0 0 1.6rem; line-height: 1.5; }
+
+  .axes { display: flex; flex-direction: column; gap: 0.85rem; margin-bottom: 1.4rem; }
+  .axis-labels { display: flex; justify-content: space-between; font-size: 0.78rem; margin-bottom: 0.3rem; }
+  .axis-labels .lead { color: var(--accent); font-weight: 700; }
+  .axis-labels .trail { color: var(--dim); }
+  .axis-labels .pct { color: var(--dim); }
+  .axis-bar { position: relative; height: 8px; border-radius: 4px; background: var(--bg2); border: 1px solid var(--border); overflow: hidden; }
+  .axis-fill { position: absolute; top: 0; left: 0; bottom: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 4px; }
+
+  .swayed { font-size: 0.82rem; color: var(--dim); margin: 0 0 1.6rem; line-height: 1.6; }
+  .swayed b { color: var(--fg); }
+  .swayed code { color: var(--accent2); background: var(--bg2); padding: 0.05em 0.35em; border-radius: 4px; }
+
+  .share { margin-top: 0.5rem; }
+  canvas#shareCanvas { display: none; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px;
+    padding: 0.65rem 0.9rem; font: inherit; font-size: 0.85rem; font-weight: 700;
+    cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #04140b; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  .disclaimer { margin-top: 1.4rem; padding-top: 1.1rem; border-top: 1px dashed var(--border); font-size: 0.72rem; color: var(--dim); line-height: 1.6; }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>typecheck</h1>
+    <p class="tag">
+      A Myers-Briggs-shaped read on your entire Bluesky repo. We download every
+      post you've ever made in one <code>com.atproto.sync.getRepo</code> call
+      (no page limit, no cursor loop) and score four axes off word choice and
+      posting rhythm. It is not a real personality instrument. It has opinions anyway.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">run</button>
+    </form>
+    <p class="hint">works on any public handle. reads the whole history, however long that is.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut"></div>
+          <div class="count" id="countOut"></div>
+        </div>
+      </div>
+
+      <div class="typeglyph" id="typeglyph"></div>
+      <div class="typename" id="typename"></div>
+      <div class="typeblurb" id="typeblurb"></div>
+
+      <div class="axes" id="axes"></div>
+
+      <div class="swayed" id="swayed"></div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your type</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+      </div>
+
+      <div class="disclaimer">
+        Scored from keyword lists and posting-interval variance, not a trained
+        model, not a real assessment, not evidence of anything. Four letters,
+        zero clinical validity, entirely for fun.
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script type="module">
+import { resolvePds } from "./lib/identity.js";
+import { fetchRepoRecordsWithKeys } from "./lib/car.js";
+import { analyzePosts, TYPES } from "./lib/analyze.js";
+
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+
+const API = "https://public.api.bsky.app/xrpc/";
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function cleanHandle(raw) {
+  let h = (raw || "").trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+// Fallback only: com.atproto.sync.getRepo can fail (oversized repo,
+// non-CORS PDS, malformed CAR) — when it does, walk the public AppView's
+// paginated author feed instead, capped generously rather than left
+// unbounded, per notes/40-new-site-playbook.md's "keep pagination as a
+// fallback for when the bulk read itself fails, not the only path."
+async function fetchViaPaginatedFeed(did, onProgress) {
+  const posts = [];
+  let cursor;
+  for (let page = 0; page < 60; page++) {
+    const params = { actor: did, limit: "100" };
+    if (cursor) params.cursor = cursor;
+    const feed = await xrpc("app.bsky.feed.getAuthorFeed", params);
+    for (const item of feed.feed || []) {
+      if (item.post && item.post.author && item.post.author.did === did && item.post.record) {
+        posts.push({ text: item.post.record.text || "", createdAt: item.post.record.createdAt });
+      }
+    }
+    if (onProgress) onProgress(`walking author feed (fallback)... ${posts.length} posts so far`);
+    cursor = feed.cursor;
+    if (!cursor || !feed.feed || !feed.feed.length) break;
+  }
+  return posts;
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  countOut: document.getElementById("countOut"),
+  typeglyph: document.getElementById("typeglyph"),
+  typename: document.getElementById("typename"),
+  typeblurb: document.getElementById("typeblurb"),
+  axes: document.getElementById("axes"),
+  swayed: document.getElementById("swayed"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+const AXIS_ORDER = [
+  { key: "ei", left: "E", right: "I", name: "extraversion / introversion" },
+  { key: "sn", left: "N", right: "S", name: "intuition / sensing" },
+  { key: "tf", left: "F", right: "T", name: "feeling / thinking" },
+  { key: "jp", left: "J", right: "P", name: "judging / perceiving" },
+];
+
+function renderAxes(axes) {
+  els.axes.innerHTML = AXIS_ORDER.map((a) => {
+    const axis = axes[a.key];
+    const leadIsLeft = axis.letter === a.left;
+    const fillPct = leadIsLeft ? axis.pct : 100 - axis.pct;
+    return `
+      <div>
+        <div class="axis-labels">
+          <span class="${leadIsLeft ? "lead" : "trail"}">${a.left}</span>
+          <span class="pct">${axis.pct}% ${axis.letter} &middot; ${a.name}</span>
+          <span class="${leadIsLeft ? "trail" : "lead"}">${a.right}</span>
+        </div>
+        <div class="axis-bar"><div class="axis-fill" style="width:${fillPct}%"></div></div>
+      </div>`;
+  }).join("");
+}
+
+function shareUrlFor(handle, result) {
+  const p = new URLSearchParams({
+    t: result.type,
+    e: String(result.axes.ei.pct),
+    n: String(result.axes.sn.pct),
+    f: String(result.axes.tf.pct),
+    j: String(result.axes.jp.pct),
+    c: String(result.postCount),
+  });
+  return "https://typecheck.bisks.net/s/" + encodeURIComponent(handle) + "?" + p.toString();
+}
+
+function shareTextFor(profile, result, handle) {
+  const [name] = TYPES[result.type] || [result.type];
+  const countStr = result.postCount.toLocaleString();
+  return (
+    `@${profile.handle || handle} typechecks as ${result.type} — ${name}, read off ${countStr} posts (whole repo, no pagination). ` +
+    `\n\nrun your own → ${shareUrlFor(handle, result)}`
+  );
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+async function buildShareCard(profile, handle, result) {
+  const [name, blurb] = TYPES[result.type] || [result.type, ""];
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile.avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#070a08";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.12, -H * 0.1, 0, W * 0.12, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#103524");
+  glow.addColorStop(1, "rgba(7,10,8,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#3dffa0";
+  ctx.font = `800 50px ${mono}`;
+  ctx.fillText("typecheck", 60, 96);
+
+  const who = "@" + (profile.handle || handle);
+  ctx.fillStyle = "#ddf5e6";
+  ctx.font = `700 28px ${mono}`;
+  let textX = 60;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 146, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 60, 118, 56, 56);
+    ctx.restore();
+    textX = 132;
+  }
+  ctx.fillText(who, textX, 156);
+
+  const cardX = 60, cardY = 218, cardW = W - 120, cardH = H - 278;
+  ctx.fillStyle = "#0f1613";
+  ctx.strokeStyle = "#1f3128";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#3dffa0";
+  ctx.font = `800 70px ${mono}`;
+  ctx.fillText(result.type.split("").join(" "), W / 2, cardY + 92);
+
+  ctx.fillStyle = "#ddf5e6";
+  ctx.font = `800 30px ${mono}`;
+  ctx.fillText(name, W / 2, cardY + 138);
+
+  ctx.fillStyle = "#7fa08c";
+  ctx.font = `400 16px ${mono}`;
+  ctx.fillText(`read off ${result.postCount.toLocaleString()} posts`, W / 2, cardY + 164);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffb454";
+  ctx.fillRect(cardX + 48, cardY + 190, 4, 64);
+  ctx.fillStyle = "#ddf5e6";
+  ctx.font = `400 19px ${mono}`;
+  wrapCanvasText(ctx, blurb, cardX + 68, cardY + 210, cardW - 136, 26);
+
+  const barY = cardY + cardH - 78;
+  const barLabels = [
+    ["E", result.axes.ei.letter === "E" ? result.axes.ei.pct : 100 - result.axes.ei.pct, "I"],
+    ["N", result.axes.sn.letter === "N" ? result.axes.sn.pct : 100 - result.axes.sn.pct, "S"],
+    ["F", result.axes.tf.letter === "F" ? result.axes.tf.pct : 100 - result.axes.tf.pct, "T"],
+    ["J", result.axes.jp.letter === "J" ? result.axes.jp.pct : 100 - result.axes.jp.pct, "P"],
+  ];
+  const barW = (cardW - 96 - 3 * 20) / 4;
+  barLabels.forEach(([l, pct, r], i) => {
+    const bx = cardX + 48 + i * (barW + 20);
+    ctx.fillStyle = "#7fa08c";
+    ctx.font = `700 13px ${mono}`;
+    ctx.textAlign = "left";
+    ctx.fillText(l, bx, barY - 8);
+    ctx.textAlign = "right";
+    ctx.fillText(r, bx + barW, barY - 8);
+    ctx.fillStyle = "#1f3128";
+    ctx.fillRect(bx, barY, barW, 8);
+    ctx.fillStyle = "#3dffa0";
+    ctx.fillRect(bx, barY, barW * (pct / 100), 8);
+  });
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#3dffa0";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("typecheck.bisks.net", 60, H - 40);
+}
+
+async function run(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("resolving " + handle + " ...");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+    }
+    profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+
+    let posts = [];
+    try {
+      const pds = await resolvePds(did);
+      if (!pds) throw new Error("no PDS in DID document");
+      const { records } = await fetchRepoRecordsWithKeys(pds, did, "app.bsky.feed.post", (msg) => setStatus(msg));
+      posts = records.map((r) => ({ text: r.value.text || "", createdAt: r.value.createdAt }));
+    } catch (repoErr) {
+      setStatus("full repo download failed (" + repoErr.message + "), falling back to recent posts via the public feed...");
+      posts = await fetchViaPaginatedFeed(did, (msg) => setStatus(msg));
+    }
+
+    if (!posts.length) {
+      setStatus("no posts found for that account.", true);
+      els.go.disabled = false;
+      return;
+    }
+
+    const result = analyzePosts(posts);
+    const [name, blurb] = TYPES[result.type] || [result.type, ""];
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + profile.handle;
+    els.countOut.textContent = result.postCount.toLocaleString() + " posts, whole repo";
+    els.typeglyph.textContent = result.type.split("").join(" ");
+    els.typename.textContent = name;
+    els.typeblurb.textContent = blurb;
+    renderAxes(result.axes);
+    els.swayed.innerHTML = result.swayed.length
+      ? `<b>swayed by:</b> ${result.swayed.map((w) => `<code>${w.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]))}</code>`).join(" ")}`
+      : "";
+
+    setStatus("");
+    els.card.classList.add("show");
+
+    lastShareText = shareTextFor(profile, result, handle);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+    await buildShareCard(profile, handle, result);
+  } catch (err) {
+    setStatus("couldn't run that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  run(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "typecheck-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "typecheck-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "typecheck" });
+      } catch (_) {
+        // cancelled or unsupported — no-op
+      }
+    }, "image/png");
+  });
+}
+
+// /s/<handle> share links auto-run on load, same as sites/didscope.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+if (pathHandle) {
+  const h = decodeURIComponent(pathHandle);
+  els.input.value = h;
+  run(h);
+}
+</script>
+</body>
+</html>
