@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>kevinmoot — how many moots separate you?</title>
+<meta name="description" content="Pick two Bluesky accounts and trace the shortest mutual-follow chain between them, one moot at a time." />
+<meta property="og:title" content="kevinmoot — how many moots separate you?" />
+<meta property="og:description" content="Pick two Bluesky accounts and trace the shortest mutual-follow chain between them, one moot at a time." />
+<meta property="og:url" content="https://kevinmoot.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://kevinmoot.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="kevinmoot: a case-file card tracing a red-string chain of mutual follows between two accounts." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="kevinmoot — how many moots separate you?" />
+<meta name="twitter:description" content="Pick two Bluesky accounts and trace the shortest mutual-follow chain between them, one moot at a time." />
+<meta name="twitter:image" content="https://kevinmoot.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #14100a;
+    --bg2: #1c150c;
+    --cork: #e9d9ae;
+    --cork-line: #c9b283;
+    --fg: #f2e6d4;
+    --dim: #a99a80;
+    --accent: #ffb347;
+    --accent2: #ff5f5f;
+    --card: #241a0f;
+    --border: #4a3a22;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 18% -10%, #3a2410 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #2a1030 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3.5rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 640px; }
+  .case-tag {
+    display: inline-block;
+    font-size: 0.7rem;
+    letter-spacing: 0.18em;
+    color: var(--accent2);
+    border: 1px solid var(--accent2);
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    margin-bottom: 0.9rem;
+  }
+  h1 {
+    font-size: 2rem;
+    line-height: 1.15;
+    margin: 0 0 0.5rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.94rem; line-height: 1.5; margin: 0 0 2rem; max-width: 54ch; }
+  .tag b { color: var(--fg); }
+
+  form.panel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.3rem 1.3rem 1.1rem;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: end;
+    gap: 0.9rem 0.8rem;
+  }
+  form.panel label { display: block; font-size: 0.78rem; color: var(--dim); }
+  .who-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.35rem; }
+  .who-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex: none; background: var(--border); }
+  input[type="text"] {
+    width: 100%;
+    background: #120d07;
+    border: 1px solid var(--border);
+    color: var(--fg);
+    font: inherit;
+    font-size: 0.95rem;
+    padding: 0.55rem 0.6rem;
+    border-radius: 8px;
+    outline: none;
+  }
+  input[type="text"]:focus { border-color: var(--accent); }
+  .swap-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--accent);
+    border-radius: 50%;
+    width: 34px; height: 34px;
+    font-size: 1rem;
+    cursor: pointer;
+    align-self: center;
+  }
+  .swap-btn:hover { border-color: var(--accent); }
+  button#go {
+    grid-column: 1 / -1;
+    margin-top: 0.3rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: #1a1208;
+    font-weight: 700;
+    border: none;
+    border-radius: 9px;
+    padding: 0.7rem 1rem;
+    font: inherit;
+    font-size: 0.98rem;
+    cursor: pointer;
+  }
+  button#go:disabled { opacity: 0.55; cursor: default; }
+
+  .status { margin: 1rem 0 0; font-size: 0.85rem; color: var(--dim); }
+  .status.error { color: var(--accent2); }
+
+  .log {
+    margin-top: 0.7rem;
+    background: #0d0a05;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.7rem 0.85rem;
+    max-height: 180px;
+    overflow-y: auto;
+    font-size: 0.76rem;
+    line-height: 1.55;
+    color: var(--dim);
+  }
+  .log div { white-space: pre-wrap; }
+
+  .result {
+    margin-top: 1.6rem;
+    background: var(--cork);
+    background-image:
+      radial-gradient(circle at 8% 15%, rgba(0,0,0,0.06) 0, transparent 40%),
+      radial-gradient(circle at 85% 80%, rgba(0,0,0,0.06) 0, transparent 40%);
+    border: 1px solid var(--cork-line);
+    border-radius: 14px;
+    padding: 1.6rem 1.3rem 1.4rem;
+    color: #2a1d10;
+    text-align: center;
+  }
+  .degree-big { font-size: 4.2rem; font-weight: 800; line-height: 1; color: var(--accent2); text-shadow: 0 1px 0 rgba(255,255,255,0.3); }
+  .degree-label { font-size: 1rem; font-weight: 700; margin-top: 0.35rem; letter-spacing: 0.02em; }
+
+  .chain {
+    margin-top: 1.4rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+  }
+  .string {
+    width: 34px;
+    height: 2px;
+    background: repeating-linear-gradient(90deg, var(--accent2) 0 6px, transparent 6px 10px);
+    flex: none;
+  }
+  .pin {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+    text-decoration: none;
+    color: #2a1d10;
+    width: 76px;
+  }
+  .pin-avatar {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #d8c391;
+    border: 2px solid #fff8e6;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+  }
+  .pin-handle {
+    font-size: 0.68rem;
+    font-weight: 700;
+    max-width: 76px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .share-row { margin-top: 1.5rem; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6rem; }
+  .share-btn {
+    background: #2a1d10;
+    color: var(--cork);
+    border: none;
+    border-radius: 8px;
+    padding: 0.55rem 0.9rem;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .share-btn:hover { opacity: 0.88; }
+
+  .fail {
+    margin-top: 1.6rem;
+    background: var(--card);
+    border: 1px solid var(--accent2);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+    color: var(--fg);
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  .footer {
+    margin-top: 2.4rem;
+    color: var(--dim);
+    font-size: 0.78rem;
+    line-height: 1.6;
+  }
+  .footer a { color: var(--accent2); }
+
+  @media (max-width: 480px) {
+    form.panel { grid-template-columns: 1fr; }
+    .swap-btn { justify-self: center; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="case-tag">case file · mutual-follow division</div>
+  <h1>kevinmoot</h1>
+  <p class="tag">Pick two accounts. We trace the shortest chain of <b>moots</b> (mutual follows) between them — six degrees of Kevin Bacon, except the co-star credit is a follow-back.</p>
+
+  <form id="form" class="panel">
+    <label>person A
+      <div class="who-row">
+        <img id="avatarA" class="who-avatar" hidden alt="" />
+        <input id="inputA" type="text" placeholder="handle.bsky.social" autocomplete="off" required />
+      </div>
+    </label>
+    <button type="button" id="swap" class="swap-btn" title="swap">⇅</button>
+    <label>person B
+      <div class="who-row">
+        <img id="avatarB" class="who-avatar" hidden alt="" />
+        <input id="inputB" type="text" placeholder="handle.bsky.social" autocomplete="off" required />
+      </div>
+    </label>
+    <button type="submit" id="go">trace the chain</button>
+  </form>
+
+  <div id="status" class="status" hidden></div>
+  <div id="log" class="log" hidden></div>
+
+  <div id="result" class="result" hidden>
+    <div class="degree-big"><span id="degreeNum"></span></div>
+    <div id="degreeLabel" class="degree-label"></div>
+    <div id="chain" class="chain"></div>
+    <div class="share-row">
+      <a id="shareBluesky" class="share-btn" target="_blank" rel="noopener">share on bluesky</a>
+      <button id="shareDownload" type="button" class="share-btn">download card</button>
+      <button id="shareNative" type="button" class="share-btn" style="display:none">share…</button>
+    </div>
+    <canvas id="shareCanvas" width="1200" height="630" style="display:none"></canvas>
+  </div>
+
+  <div id="fail" class="fail" hidden></div>
+
+  <p class="footer">
+    a "moot" is a mutual follow — you follow them, they follow you. this crawls the public
+    Bluesky AppView live, in your browser, to find the shortest chain of moots between two
+    accounts; nothing is stored server-side, and the search gives up after a bounded amount of
+    crawling rather than hammering the API forever.<br />
+    part of <a href="https://bisks.net">atprotozoa</a> ·
+    built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+  </p>
+
+<script src="lib/handle-typeahead.js"></script>
+<script type="module">
+import { resolveDid, getProfile, getProfiles } from "./lib/identity.js";
+import { findMootPath } from "./lib/bfs.js";
+
+const els = {
+  form: document.getElementById("form"),
+  inputA: document.getElementById("inputA"),
+  inputB: document.getElementById("inputB"),
+  avatarA: document.getElementById("avatarA"),
+  avatarB: document.getElementById("avatarB"),
+  swap: document.getElementById("swap"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  log: document.getElementById("log"),
+  result: document.getElementById("result"),
+  degreeNum: document.getElementById("degreeNum"),
+  degreeLabel: document.getElementById("degreeLabel"),
+  chain: document.getElementById("chain"),
+  fail: document.getElementById("fail"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+  shareNative: document.getElementById("shareNative"),
+  shareCanvas: document.getElementById("shareCanvas"),
+};
+
+let selectedA = null;
+let selectedB = null;
+let lastShareText = "";
+
+function showAvatar(img, src) {
+  if (src) { img.src = src; img.hidden = false; } else { img.hidden = true; }
+}
+
+if (window.attachHandleTypeahead) {
+  window.attachHandleTypeahead(els.inputA, {
+    onSelect: (a) => { selectedA = a; showAvatar(els.avatarA, a.avatar); },
+  });
+  window.attachHandleTypeahead(els.inputB, {
+    onSelect: (b) => { selectedB = b; showAvatar(els.avatarB, b.avatar); },
+  });
+}
+
+els.inputA.addEventListener("input", () => { selectedA = null; els.avatarA.hidden = true; });
+els.inputB.addEventListener("input", () => { selectedB = null; els.avatarB.hidden = true; });
+
+els.swap.addEventListener("click", () => {
+  const va = els.inputA.value, vb = els.inputB.value;
+  els.inputA.value = vb; els.inputB.value = va;
+  const sa = selectedA; selectedA = selectedB; selectedB = sa;
+  const srcA = els.avatarA.src, hidA = els.avatarA.hidden;
+  showAvatar(els.avatarA, els.avatarB.hidden ? "" : els.avatarB.src);
+  showAvatar(els.avatarB, hidA ? "" : srcA);
+});
+
+function logLine(text) {
+  const p = document.createElement("div");
+  p.textContent = text;
+  els.log.appendChild(p);
+  els.log.scrollTop = els.log.scrollHeight;
+}
+
+function setStatus(text, isError) {
+  els.status.hidden = !text;
+  els.status.textContent = text || "";
+  els.status.classList.toggle("error", !!isError);
+}
+
+async function resolveInput(raw, selected) {
+  if (selected) {
+    return { did: selected.did, handle: selected.handle, displayName: selected.displayName || selected.handle, avatar: selected.avatar || "" };
+  }
+  const did = await resolveDid(raw);
+  return await getProfile(did);
+}
+
+function degreeLabelText(n) {
+  if (n === 0) return "same account";
+  if (n === 1) return "direct moots";
+  if (n === 2) return "2 degrees — one moot in common";
+  return n + " degrees of moot separation";
+}
+
+async function trace() {
+  els.result.hidden = true;
+  els.fail.hidden = true;
+  els.log.hidden = false;
+  els.log.innerHTML = "";
+  els.go.disabled = true;
+  setStatus("resolving accounts…");
+
+  try {
+    const [profA, profB] = await Promise.all([
+      resolveInput(els.inputA.value, selectedA),
+      resolveInput(els.inputB.value, selectedB),
+    ]);
+    if (profA.did === profB.did) {
+      setStatus("");
+      await showResult({ degrees: 0, path: [profA.did] }, profA, profB);
+      return;
+    }
+    logLine(`@${profA.handle}  <->  @${profB.handle}`);
+    history.replaceState(null, "", `/s/${encodeURIComponent(profA.handle)}/${encodeURIComponent(profB.handle)}`);
+
+    setStatus("tracing the moot chain…");
+    const result = await findMootPath(profA.did, profB.did, {
+      onStep: (info) => {
+        if (info.note) { logLine(info.note); return; }
+        const side = info.side === "a" ? profA.handle : profB.handle;
+        logLine(`round ${info.round}: expanding ${info.expanding} account${info.expanding === 1 ? "" : "s"} from @${side}'s side — ${info.accountsChecked} checked so far`);
+      },
+    });
+
+    if (result.degrees === null) {
+      showFailure(result, profA, profB);
+      setStatus("");
+      return;
+    }
+    setStatus("");
+    await showResult(result, profA, profB);
+  } catch (err) {
+    setStatus("couldn't finish that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+function showFailure(result, profA, profB) {
+  const reasonText = {
+    budget: `hit our search budget before finding a path — could still be connected, just deeper than we're willing to crawl for you (checked ~${result.accountsChecked} accounts).`,
+    maxrounds: `searched a lot of ground without finding a path (checked ~${result.accountsChecked} accounts) — might just be too many degrees apart.`,
+    deadend: `ran out of moots on both sides — looks like @${profA.handle} and @${profB.handle} aren't connected through mutuals at all.`,
+  }[result.reason] || "couldn't find a path.";
+  els.fail.hidden = false;
+  els.fail.textContent = reasonText;
+}
+
+function buildShareText(profA, profB, degrees, chainText, url) {
+  const label = degreeLabelText(degrees);
+  const head = `@${profA.handle} and @${profB.handle}: ${label}.`;
+  let text = `${head} ${chainText} ${url}`;
+  if (text.length <= 300) return text;
+  text = `${head} ${url}`;
+  if (text.length <= 300) return text;
+  const budget = Math.max(0, 300 - url.length - 1);
+  return head.slice(0, budget - 1).trimEnd() + " " + url;
+}
+
+async function showResult(result, profA, profB) {
+  const dids = result.path;
+  const profiles = dids.length > 1 ? await getProfiles(dids) : new Map();
+  profiles.set(profA.did, profA);
+  profiles.set(profB.did, profB);
+
+  const pathProfiles = dids.map((d) => profiles.get(d) || { did: d, handle: d, displayName: d, avatar: "" });
+
+  els.degreeNum.textContent = result.degrees;
+  els.degreeLabel.textContent = degreeLabelText(result.degrees);
+  els.chain.innerHTML = "";
+  pathProfiles.forEach((p, i) => {
+    if (i > 0) {
+      const s = document.createElement("div");
+      s.className = "string";
+      els.chain.appendChild(s);
+    }
+    const node = document.createElement("a");
+    node.className = "pin";
+    node.href = `https://bsky.app/profile/${p.handle}`;
+    node.target = "_blank";
+    node.rel = "noopener";
+    node.innerHTML =
+      `<img class="pin-avatar" src="${p.avatar || ""}" alt="" onerror="this.style.visibility='hidden'" />` +
+      `<span class="pin-handle">@${p.handle}</span>`;
+    els.chain.appendChild(node);
+  });
+  els.result.hidden = false;
+
+  const url = `https://kevinmoot.bisks.net/s/${encodeURIComponent(profA.handle)}/${encodeURIComponent(profB.handle)}`;
+  const chainText = pathProfiles.map((p) => "@" + p.handle).join(" -> ");
+  lastShareText = buildShareText(profA, profB, result.degrees, chainText, url);
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+  await buildShareCard(profA, profB, result.degrees, pathProfiles);
+}
+
+function loadImg(url) {
+  return new Promise((resolve) => {
+    if (!url) { resolve(null); return; }
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+async function buildShareCard(profA, profB, degrees, pathProfiles) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#14100a";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.6);
+  glow.addColorStop(0, "#3a2410");
+  glow.addColorStop(1, "rgba(20,16,10,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffb347";
+  ctx.font = `800 52px ${mono}`;
+  ctx.fillText("kevinmoot", 60, 96);
+
+  ctx.fillStyle = "#a99a80";
+  ctx.font = `400 20px ${mono}`;
+  ctx.fillText("case file: mutual-follow division", 60, 128);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ff5f5f";
+  ctx.font = `800 200px ${mono}`;
+  ctx.fillText(String(degrees), W / 2, 370);
+
+  ctx.fillStyle = "#f2e6d4";
+  ctx.font = `700 28px ${mono}`;
+  ctx.fillText(degreeLabelText(degrees), W / 2, 420);
+
+  const nodes = pathProfiles.length <= 6 ? pathProfiles.slice() : pathProfiles.slice(0, 5).concat(["+" + (pathProfiles.length - 5)]);
+  const n = nodes.length;
+  const rowY = 530;
+  const r = 32;
+  const spacing = Math.min(170, (W - 200) / Math.max(1, n - 1));
+  const startX = W / 2 - (spacing * (n - 1)) / 2;
+
+  if (n > 1) {
+    ctx.strokeStyle = "#ff5f5f";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([2, 8]);
+    ctx.beginPath();
+    ctx.moveTo(startX, rowY);
+    ctx.lineTo(startX + spacing * (n - 1), rowY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  for (let i = 0; i < n; i++) {
+    const x = startX + spacing * i;
+    const item = nodes[i];
+    ctx.beginPath();
+    ctx.fillStyle = "#241a0f";
+    ctx.strokeStyle = "#ffb347";
+    ctx.lineWidth = 3;
+    ctx.arc(x, rowY, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    if (typeof item === "string") {
+      ctx.fillStyle = "#f2e6d4";
+      ctx.font = `700 18px ${mono}`;
+      ctx.textAlign = "center";
+      ctx.fillText(item, x, rowY + 6);
+      continue;
+    }
+    const avatar = await loadImg(item.avatar);
+    if (avatar) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, rowY, r - 3, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(avatar, x - r + 3, rowY - r + 3, (r - 3) * 2, (r - 3) * 2);
+      ctx.restore();
+    }
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ffb347";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("kevinmoot.bisks.net", 60, H - 40);
+
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#a99a80";
+  ctx.font = `400 18px ${mono}`;
+  ctx.fillText(`@${profA.handle}  <->  @${profB.handle}`, W - 60, H - 40);
+}
+
+els.form.addEventListener("submit", (e) => { e.preventDefault(); trace(); });
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "kevinmoot-" + (els.inputA.value + "-" + els.inputB.value).replace(/[^a-z0-9.-]/gi, "_") + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "kevinmoot.png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "kevinmoot" });
+      } catch (_) {
+        // cancelled or unsupported — no-op
+      }
+    }, "image/png");
+  });
+}
+
+(function initFromUrl() {
+  const m = location.pathname.match(/^\/s\/([^/]+)\/([^/]+)\/?$/);
+  let a, b;
+  if (m) {
+    a = decodeURIComponent(m[1]);
+    b = decodeURIComponent(m[2]);
+  } else {
+    const qs = new URLSearchParams(location.search);
+    a = qs.get("a");
+    b = qs.get("b");
+  }
+  if (a && b) {
+    els.inputA.value = a;
+    els.inputB.value = b;
+    trace();
+  }
+})();
+</script>
+</div>
+</body>
+</html>

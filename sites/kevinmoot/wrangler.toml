@@ -1,0 +1,23 @@
+name = "atprotozoa-kevinmoot"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Everything expensive (the actual bidirectional BFS across the mutual-follow
+# graph) runs client-side (see public/lib/bfs.js) — the Worker's only job is
+# the OG/share unfurl: /s/<handleA>/<handleB> (src/index.ts) resolves both
+# handles server-side and stamps per-pair og:title/og:description/og:url onto
+# the static shell, WITHOUT running the real (expensive, many-request) search
+# — the card just teases the question, the client computes the real answer
+# when the link is opened. Falls through to ASSETS for everything else.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes
+# (same gotcha called out in buildthis/logs/wrangler.toml).
+routes = [{ pattern = "kevinmoot.bisks.net/*", zone_name = "bisks.net" }]
+
+# run_worker_first: /s/<a>/<b> is dynamic (personalized OG tags per pair), so
+# the Worker must run BEFORE the static-asset router, same as sites/didscope.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
