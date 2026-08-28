@@ -300,10 +300,12 @@
         <h1>network alignment chart</h1>
         <p>
           Type a Bluesky handle and we'll pull its network — mutuals first,
-          widened to follows. Or paste a starter pack / list link and we'll
-          plot its whole membership instead. Either way we download each
-          person's whole post history (their full repo, not a sample) and
-          drop everyone onto a 3×3 D&amp;D alignment grid.
+          widened to follows. Paste a starter pack / list link and we'll plot
+          its whole membership instead. Or just paste a bunch of handles —
+          space- or comma-separated, <code>@</code> optional — and we'll plot
+          exactly those accounts, no list required. Either way we download
+          each person's whole post history (their full repo, not a sample)
+          and drop everyone onto a 3×3 D&amp;D alignment grid.
           <span class="bit"
             >The classifier is a keyword vibe-check running in your browser. It is
             a bit. Do not take your box personally.</span
@@ -315,7 +317,7 @@
         <input
           id="handle"
           type="text"
-          placeholder="handle.bsky.social — or a starter pack / list link"
+          placeholder="handle.bsky.social — a starter pack / list link — or @a @few @handles"
           autocomplete="off"
           autocapitalize="none"
           spellcheck="false"
@@ -329,6 +331,12 @@
         <a data-h="bisks.net">bisks.net</a> ·
         <a data-h="https://bsky.app/starter-pack/segyges.bsky.social/3mu3kuozvh72a"
           >"range of acceptable opinions" starter pack</a
+        >
+        ·
+        <a
+          data-h="shibbi.me mara.x0f.nl shimmermathlabs.com dollspace.gay personhood.removal.surgery astrra.space demigirlboss.bsky.social heartpunk.com shreyanjain.net"
+          title="a pasted list, no starter pack behind it — nine handles @antiali.as/@shimmermathlabs.com asked to see plotted"
+          >a pasted group of 9</a
         >
         ·
         <a id="loadReference"
@@ -393,7 +401,9 @@
         (com.atproto.sync.getRepo) straight from their PDS for the vibe read
         — falling back to one page of getAuthorFeed if a repo won't download.
         no login either way. requested by
-        <a href="https://bsky.app/profile/antiali.as">@antiali.as</a> via
+        <a href="https://bsky.app/profile/antiali.as">@antiali.as</a> and
+        <a href="https://bsky.app/profile/shimmermathlabs.com">@shimmermathlabs.com</a>
+        via
         <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
         · one of the little sites at <a href="https://bisks.net">bisks.net</a>
       </footer>
@@ -511,8 +521,11 @@
 
         if (result.mode === "list") {
           const cov = coverage(result.plotted);
+          const source = result.title
+            ? `the "${result.title}" ${result.kind}`
+            : "a pasted list of accounts";
           counts.textContent =
-            `plotted ${result.plotted.length} accounts from the "${result.title}" starter pack` +
+            `plotted ${result.plotted.length} accounts from ${source}` +
             (result.creator ? ` (by @${result.creator.handle})` : "") +
             ` — covers ${cov} of 9 boxes. hover a face; click to open the profile.`;
         } else {
@@ -659,8 +672,11 @@
       function shareText(result) {
         if (result.mode === "list") {
           const cov = coverage(result.plotted);
+          const what = result.title
+            ? `"${result.title}"`
+            : `a pasted group of ${result.plotted.length}`;
           return (
-            `plotted "${result.title}" on the alignment chart 🧭 — ${result.plotted.length} accounts, ` +
+            `plotted ${what} on the alignment chart 🧭 — ${result.plotted.length} accounts, ` +
             `covering ${cov}/9 boxes.\n\n` +
             `plot your own → https://alignment-chart.bisks.net/`
           );
@@ -739,7 +755,7 @@
         ctx.fillStyle = "#6b6b6b";
         ctx.font = "700 24px ui-monospace, monospace";
         ctx.fillText(
-          isList ? "STARTER PACK ALIGNMENT CHART" : "NETWORK ALIGNMENT CHART",
+          isList ? "GROUP ALIGNMENT CHART" : "NETWORK ALIGNMENT CHART",
           W / 2,
           76,
         );
@@ -747,7 +763,11 @@
         ctx.font = "700 40px ui-monospace, monospace";
         wrapText(
           ctx,
-          isList ? `"${result.title}"` : "@" + (self.handle || result.self.handle),
+          isList
+            ? result.title
+              ? `"${result.title}"`
+              : `${result.plotted.length} accounts`
+            : "@" + (self.handle || result.self.handle),
           W / 2,
           132,
           W - 120,
@@ -757,7 +777,7 @@
         ctx.font = "400 22px ui-monospace, monospace";
         ctx.fillText(
           isList
-            ? `starter pack · ${result.plotted.length} accounts · covers ${cov}/9 boxes`
+            ? `${result.kind} · ${result.plotted.length} accounts · covers ${cov}/9 boxes`
             : `${result.kind} · ${result.plotted.length} accounts plotted`,
           W / 2,
           isList ? 178 : 168,
@@ -866,7 +886,9 @@
           const a = document.createElement("a");
           a.href = URL.createObjectURL(blob);
           const who = (
-            lastResult.mode === "list" ? lastResult.title : lastResult.self.handle
+            lastResult.mode === "list"
+              ? lastResult.title || `group-${lastResult.plotted.length}`
+              : lastResult.self.handle
           ).replace(/[^a-z0-9.-]/gi, "_");
           a.download = `alignment-chart-${who}.png`;
           a.click();

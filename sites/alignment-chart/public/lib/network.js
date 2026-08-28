@@ -12,6 +12,13 @@
 // getFollowers, getProfile. Copied+trimmed from moot-bingo/lib/moots.js
 // (copy, don't abstract).
 //
+// Changed 2026-08-28 at @shimmermathlabs.com's request (via @antiali.as's
+// original alignment-chart post): plotting used to require either a single
+// handle (→ its network) or an actual starter-pack/list AT-record. Now a
+// pasted bunch of @mentions with no list behind them (plotHandles below)
+// works too — "plot these accounts" doesn't need them to already be bundled
+// into a pack.
+//
 // Changed 2026-08-28 at @antiali.as's request ("don't just read a handful of
 // posts, you can do the whole CARs"): the vibe read used to be one page of
 // getAuthorFeed (FEED_POSTS=20). Per the bot's standing bulk-reads order
@@ -271,11 +278,61 @@ async function classifyPeople(people, { onProgress } = {}, selfDid) {
   return out;
 }
 
-// Try list/starter-pack input first, fall back to treating `raw` as a handle
-// and plotting its network. This is the entry point index.html calls.
+// ── A pasted bunch of handles (no list/starter-pack behind them) ────────
+// For "plot these specific accounts" asks that don't come as a starter pack —
+// just a handful of @mentions pasted in. Split on whitespace/commas; anything
+// that doesn't look like more than one token falls through to plotNetwork
+// instead (a lone handle should still get the network treatment).
+function splitHandles(raw) {
+  return (raw || "")
+    .split(/[\s,]+/)
+    .map((h) => h.trim())
+    .filter(Boolean);
+}
+
+// Resolve + classify an explicit list of handles (not a list/starter-pack
+// AT-record — just names someone pasted in). Skips any handle that fails to
+// resolve rather than failing the whole plot on one typo.
+export async function plotHandles(raw, { onStep, onProgress } = {}) {
+  const tokens = splitHandles(raw);
+  if (onStep) onStep(`resolving ${tokens.length} handles…`);
+  const profiles = [];
+  for (const t of tokens) {
+    try {
+      const did = await resolveDid(t);
+      const prof = await jget(
+        `${PUB}/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`,
+      );
+      profiles.push(profileOf(prof));
+    } catch {
+      // one bad handle shouldn't sink the rest of the list
+    }
+  }
+  if (!profiles.length) throw new Error("none of those handles resolved");
+
+  const plotted = await classifyPeople(
+    profiles.slice(0, MAX_PLOT),
+    { onProgress },
+    null,
+  );
+  return {
+    mode: "list",
+    title: null,
+    creator: null,
+    listUri: null,
+    kind: "pasted list",
+    counts: { items: profiles.length },
+    plotted,
+  };
+}
+
+// Try list/starter-pack input first, then a pasted multi-handle list, and
+// fall back to treating `raw` as a single handle and plotting its network.
+// This is the entry point index.html calls.
 export async function plot(raw, { onStep, onProgress } = {}) {
   const listInput = await resolveListInput(raw);
   if (listInput) return plotList(raw, { onStep, onProgress });
+  if (splitHandles(raw).length > 1) return plotHandles(raw, { onStep, onProgress });
   return plotNetwork(raw, { onStep, onProgress });
 }
 
