@@ -15,16 +15,26 @@
 //     falling back to paginated getFollows only if the CAR read itself fails
 //     (oversized repo, PDS unreachable/non-CORS, malformed CAR).
 //   - followers (who follows `did`) are an AppView-computed reverse index,
-//     not a record in anyone's repo — there's no bulk endpoint for "everyone
-//     who follows me," so app.bsky.graph.getFollowers has to stay paginated.
-//     FOLLOWERS_PAGES bounds that walk. Raised 2026-08-28 (bisks.net, same
-//     thread as the CAR fix): a page cap is exactly the kind of "mess up
-//     correctness for speed" tradeoff the 2026-08-25 bulk-reads order was
-//     written to kill, and letting a search run slow beats letting it be
-//     wrong. It still has to stop *somewhere* short of literal infinity (a
-//     true mega-followed account has millions of followers, which is a
-//     different problem than "we didn't want to wait"), so the number below
-//     is a last-resort backstop, not a budget.
+//     not a record in anyone's repo, so there's no *repo* bulk-download
+//     equivalent — but microcosm.blue's Constellation (see
+//     fetchFollowersConstellation() below) independently indexes the same
+//     app.bsky.graph.follow records by their .subject, straight off the
+//     firehose, in pages ~10x bigger than the AppView's (1000 vs 100). That's
+//     the closest thing to a bulk followers read that exists, so it's tried
+//     first; app.bsky.graph.getFollowers is now the *fallback*, only walked
+//     if Constellation itself errors. Flagged by orpach.neocities.org,
+//     2026-08-28, in this same kevinmoot thread ("It might be better for
+//     doing graph-type things... I can only see requests to the bluesky
+//     appview getfollowers endpoint in the network view"). FOLLOWERS_PAGES
+//     bounds the fallback walk, CONSTELLATION_PAGES bounds the primary one.
+//     Raised 2026-08-28 (bisks.net, same thread as the CAR fix): a page cap
+//     is exactly the kind of "mess up correctness for speed" tradeoff the
+//     2026-08-25 bulk-reads order was written to kill, and letting a search
+//     run slow beats letting it be wrong. Both still have to stop
+//     *somewhere* short of literal infinity (a true mega-followed account
+//     has millions of followers, which is a different problem than "we
+//     didn't want to wait"), so the numbers below are last-resort backstops,
+//     not budgets.
 //
 // Even with follows fully read, BFS still needs to bound its own breadth:
 // computing one account's moot set is two network reads, and BFS needs it
@@ -45,7 +55,9 @@ import { jget, pooledEach, resolvePds } from "./identity.js";
 import { fetchRepoRecordsWithKeys } from "./car.js";
 
 const PUB = "https://api.bsky.app/xrpc";
-const FOLLOWERS_PAGES = 400; // <= ~40,000 followers scanned per account — backstop, not a budget; see header
+const CONSTELLATION = "https://constellation.microcosm.blue";
+const CONSTELLATION_PAGES = 400; // <= ~400,000 followers scanned per account, at up to 1000/page — backstop, not a budget; see header
+const FOLLOWERS_PAGES = 400; // <= ~40,000 followers scanned per account — backstop for the fallback walk, not a budget; see header
 const FALLBACK_FOLLOWS_PAGES = 400; // paginated fallback, only used if the CAR read fails
 const FETCH_CONCURRENCY = 6;
 const FRONTIER_CAP = 150; // accounts expanded per round, per side
@@ -158,8 +170,40 @@ async function fetchFollows(did) {
   }
 }
 
-function fetchFollowers(did) {
-  return graphAll("app.bsky.graph.getFollowers", "followers", did, FOLLOWERS_PAGES);
+// Every DID linking to `did` via app.bsky.graph.follow's .subject — i.e.
+// `did`'s followers — read from microcosm.blue's Constellation, a
+// community-run backlink index built off the firehose (not the Bluesky
+// AppView). Its pages run up to 1000 linking DIDs, versus the AppView's 100,
+// so this is an order of magnitude fewer requests than the paginated walk
+// below whenever it's up. Falls back to that walk if Constellation itself
+// errors (outage, CORS hiccup, a shape change) — no different in spirit from
+// fetchFollows() above preferring the repo CAR and falling back to
+// getFollows.
+async function fetchFollowersConstellation(did) {
+  const out = [];
+  let cursor = "";
+  for (let p = 0; p < CONSTELLATION_PAGES; p++) {
+    const u = new URL(`${CONSTELLATION}/links/distinct-dids`);
+    u.searchParams.set("target", did);
+    u.searchParams.set("collection", "app.bsky.graph.follow");
+    u.searchParams.set("path", ".subject");
+    u.searchParams.set("limit", "1000");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    const d = await jget(u.toString());
+    const page = d.linking_dids || [];
+    out.push(...page);
+    cursor = d.cursor;
+    if (!cursor || !page.length) break;
+  }
+  return out;
+}
+
+async function fetchFollowers(did) {
+  try {
+    return await fetchFollowersConstellation(did);
+  } catch {
+    return graphAll("app.bsky.graph.getFollowers", "followers", did, FOLLOWERS_PAGES);
+  }
 }
 
 // did -> Promise<Set<did>>, shared across a single search so a account that

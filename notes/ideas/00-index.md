@@ -243,6 +243,17 @@ future curator/digest bot (#10, #11) rather than for anything that exists
 today. Nothing wired in; the typeahead swap specifically stays declined —
 see the note for why the reasoning didn't depend on the operator.
 
+**microcosm.blue — partially adopted.** (`microcosm-blue.md`, surveyed
+2026-08-28 at bisks.net's request, prompted by orpach.neocities.org flagging
+it for graph-type queries in the kevinmoot thread) Unlike waow.tech, this one
+shipped a real change: Constellation, its firehose-backed backlink index,
+indexes `app.bsky.graph.follow` records by `.subject` — i.e. it already
+answers "who follows this DID" independently of the AppView, in ~10x bigger
+pages than `getFollowers`. kevinmoot's `bfs.js` now tries Constellation first
+for followers, falling back to the old paginated AppView walk on error.
+Spacedust (live filtered firehose) and Slingshot (identity/record cache) were
+surveyed but not tried — see the note for where they'd fit.
+
 ---
 
 ## The threads
