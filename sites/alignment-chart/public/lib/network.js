@@ -138,6 +138,132 @@ export async function networkPool(actor, { onStep } = {}) {
   };
 }
 
+// ── Starter packs / lists as an alternate input ─────────────────────────
+// Instead of a handle's network, you can plot a starter pack or list's whole
+// membership. Accepts an AT-URI (list or starter pack), a bsky.app starter
+// pack link, or a bsky.app list link. Returns null if `raw` isn't shaped like
+// any of those, so callers can fall back to treating it as a handle.
+async function resolveListInput(raw) {
+  const s = (raw || "").trim();
+  let m;
+  if (/^at:\/\/[^/]+\/app\.bsky\.graph\.list\/[^/]+$/.test(s)) {
+    return { listUri: s };
+  }
+  if (/^at:\/\/[^/]+\/app\.bsky\.graph\.starterpack\/[^/]+$/.test(s)) {
+    return { spUri: s };
+  }
+  if ((m = /bsky\.app\/starter-pack\/([^/?#]+)\/([^/?#]+)/.exec(s))) {
+    const did = await resolveDid(m[1]);
+    return { spUri: `at://${did}/app.bsky.graph.starterpack/${m[2]}` };
+  }
+  if ((m = /bsky\.app\/profile\/([^/?#]+)\/lists\/([^/?#]+)/.exec(s))) {
+    const did = await resolveDid(m[1]);
+    return { listUri: `at://${did}/app.bsky.graph.list/${m[2]}` };
+  }
+  return null;
+}
+
+// Page through a list's full membership (no bulk-download equivalent for
+// list items, so cursor-walk it — same pattern as graphAll above).
+async function listAll(listUri) {
+  const out = [];
+  let cursor = "";
+  let meta = null;
+  for (let p = 0; p < GRAPH_PAGES; p++) {
+    const u = new URL(`${PUB}/app.bsky.graph.getList`);
+    u.searchParams.set("list", listUri);
+    u.searchParams.set("limit", "100");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    const d = await jget(u.toString());
+    if (!meta) {
+      meta = {
+        name: d.list?.name,
+        creator: d.list?.creator ? profileOf(d.list.creator) : null,
+      };
+    }
+    for (const it of d.items || []) if (it.subject) out.push(it.subject);
+    cursor = d.cursor;
+    if (!cursor) break;
+  }
+  return { items: out, meta };
+}
+
+// Resolve + plot a starter pack or list's membership. Throws if `raw` isn't
+// list-shaped — callers should try resolveListInput first (see plot()).
+export async function plotList(raw, { onStep, onProgress } = {}) {
+  const parsed = await resolveListInput(raw);
+  if (!parsed) throw new Error("not a starter pack or list link");
+
+  let listUri = parsed.listUri;
+  let title = null;
+  let creator = null;
+
+  if (parsed.spUri) {
+    if (onStep) onStep("resolving starter pack…");
+    const d = await jget(
+      `${PUB}/app.bsky.graph.getStarterPack?starterPack=${encodeURIComponent(parsed.spUri)}`,
+    );
+    const sp = d.starterPack;
+    if (!sp) throw new Error("starter pack not found");
+    listUri = sp.record?.list || sp.list?.uri;
+    title = sp.record?.name || sp.list?.name || "starter pack";
+    creator = sp.creator ? profileOf(sp.creator) : null;
+  }
+  if (!listUri) throw new Error("couldn't find the list behind that starter pack");
+
+  if (onStep) onStep("reading the list…");
+  const { items, meta } = await listAll(listUri);
+  if (!title) title = meta?.name || "list";
+  if (!creator) creator = meta?.creator || null;
+
+  const people = items.map(profileOf).slice(0, MAX_PLOT);
+  const plotted = await classifyPeople(people, { onProgress }, null);
+
+  return {
+    mode: "list",
+    title,
+    creator,
+    listUri,
+    kind: "starter pack",
+    counts: { items: items.length },
+    plotted,
+  };
+}
+
+// Fetch feeds + classify a pool of accounts with limited concurrency. Shared
+// by plotNetwork and plotList. selfDid marks one account as isSelf (or null
+// for list mode, where nobody is "you").
+async function classifyPeople(people, { onProgress } = {}, selfDid) {
+  const total = people.length;
+  const out = new Array(total);
+  let done = 0;
+  const CONC = 6;
+  let cursor = 0;
+  async function worker() {
+    while (cursor < people.length) {
+      const i = cursor++;
+      const p = people[i];
+      const text = await feedText(p.did);
+      const c = classify(p.did, text);
+      out[i] = { ...p, ...c, isSelf: selfDid ? p.did === selfDid : false };
+      done++;
+      if (onProgress) onProgress(done, total);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(CONC, people.length || 1) }, worker),
+  );
+  return out;
+}
+
+// Try list/starter-pack input first, fall back to treating `raw` as a handle
+// and plotting its network. This is the entry point index.html calls.
+export async function plot(raw, { onStep, onProgress } = {}) {
+  const listInput = await resolveListInput(raw);
+  if (listInput) return plotList(raw, { onStep, onProgress });
+  return plotNetwork(raw, { onStep, onProgress });
+}
+
 // Pull recent post text for one account. Returns a single lowercased blob of
 // their own post text (skips reposts — we want THEIR vibe, not what they share).
 async function feedText(did) {
@@ -277,25 +403,12 @@ export const CELLS = [
 export async function plotNetwork(actor, { onStep, onProgress } = {}) {
   const net = await networkPool(actor, { onStep });
   const people = [net.self, ...net.pool].slice(0, MAX_PLOT + 1);
-  const total = people.length;
-
-  const out = new Array(total);
-  let done = 0;
-  const CONC = 6;
-  let cursor = 0;
-
-  async function worker() {
-    while (cursor < people.length) {
-      const i = cursor++;
-      const p = people[i];
-      const text = await feedText(p.did);
-      const c = classify(p.did, text);
-      out[i] = { ...p, ...c, isSelf: p.did === net.self.did };
-      done++;
-      if (onProgress) onProgress(done, total);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(CONC, people.length) }, worker));
-
-  return { self: net.self, kind: net.kind, counts: net.counts, plotted: out };
+  const plotted = await classifyPeople(people, { onProgress }, net.self.did);
+  return {
+    mode: "network",
+    self: net.self,
+    kind: net.kind,
+    counts: net.counts,
+    plotted,
+  };
 }

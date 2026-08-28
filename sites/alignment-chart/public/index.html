@@ -299,9 +299,11 @@
       <header>
         <h1>network alignment chart</h1>
         <p>
-          Type a Bluesky handle. We pull its network — mutuals first, widened to
-          follows — read a handful of each person's recent posts, and drop
-          everyone onto a 3×3 D&amp;D alignment grid.
+          Type a Bluesky handle and we'll pull its network — mutuals first,
+          widened to follows. Or paste a starter pack / list link and we'll
+          plot its whole membership instead. Either way we read a handful of
+          each person's recent posts and drop everyone onto a 3×3 D&amp;D
+          alignment grid.
           <span class="bit"
             >The classifier is a keyword vibe-check running in your browser. It is
             a bit. Do not take your box personally.</span
@@ -313,18 +315,21 @@
         <input
           id="handle"
           type="text"
-          placeholder="handle.bsky.social  (or @handle, or a profile URL)"
+          placeholder="handle.bsky.social — or a starter pack / list link"
           autocomplete="off"
           autocapitalize="none"
           spellcheck="false"
         />
-        <button id="go" type="submit">plot the network</button>
+        <button id="go" type="submit">plot it</button>
       </form>
       <p class="try">
         try:
         <a data-h="bsky.app">bsky.app</a> ·
         <a data-h="pfrazee.com">pfrazee.com</a> ·
-        <a data-h="bisks.net">bisks.net</a>
+        <a data-h="bisks.net">bisks.net</a> ·
+        <a data-h="https://bsky.app/starter-pack/segyges.bsky.social/3mu3kuozvh72a"
+          >"range of acceptable opinions" starter pack</a
+        >
       </p>
 
       <p id="status" class="status"></p>
@@ -342,7 +347,7 @@
         <span><span class="sw" style="background: var(--harsh)"></span>harsh</span>
         <span><span class="sw" style="background: var(--mog)"></span>mogging</span>
         <span><span class="sw" style="background: var(--goon)"></span>gooning</span>
-        <span><span class="sw" style="background: var(--self)"></span>you (gold ring)</span>
+        <span id="legendSelf"><span class="sw" style="background: var(--self)"></span>you (gold ring)</span>
         <span style="opacity: 0.6">faded = too quiet to read, parked near center</span>
       </div>
       <p id="counts" class="counts"></p>
@@ -393,7 +398,13 @@
       if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
     </script>
     <script type="module">
-      import { plotNetwork, CELLS } from "./lib/network.js";
+      import { plot, CELLS } from "./lib/network.js";
+
+      // How many of the 9 boxes actually have someone in them — the "do they
+      // cover the gamut" number the starter-pack mode is built around.
+      function coverage(plotted) {
+        return new Set(plotted.filter((p) => p.cell !== null).map((p) => p.cell)).size;
+      }
 
       const $ = (id) => document.getElementById(id);
       const form = $("form");
@@ -490,11 +501,20 @@
           dots.appendChild(d);
         }
 
-        const c = result.counts;
-        counts.textContent =
-          `plotted ${result.plotted.length} accounts from ${result.self.handle}'s ` +
-          `${result.kind} — ${c.follows} follows, ${c.followers} followers, ` +
-          `${c.mutuals} mutuals. hover a face; click to open the profile.`;
+        if (result.mode === "list") {
+          const cov = coverage(result.plotted);
+          counts.textContent =
+            `plotted ${result.plotted.length} accounts from the "${result.title}" starter pack` +
+            (result.creator ? ` (by @${result.creator.handle})` : "") +
+            ` — covers ${cov} of 9 boxes. hover a face; click to open the profile.`;
+        } else {
+          const c = result.counts;
+          counts.textContent =
+            `plotted ${result.plotted.length} accounts from ${result.self.handle}'s ` +
+            `${result.kind} — ${c.follows} follows, ${c.followers} followers, ` +
+            `${c.mutuals} mutuals. hover a face; click to open the profile.`;
+        }
+        $("legendSelf").hidden = result.mode === "list";
         legend.hidden = false;
         counts.hidden = false;
 
@@ -579,7 +599,7 @@
         buildCells();
         setStatus("resolving handle…");
         try {
-          const result = await plotNetwork(actor, {
+          const result = await plot(actor, {
             onStep: (s) => setStatus(s),
             onProgress: (done, total) =>
               setStatus(`reading recent posts… ${done}/${total}`),
@@ -629,6 +649,14 @@
       }
 
       function shareText(result) {
+        if (result.mode === "list") {
+          const cov = coverage(result.plotted);
+          return (
+            `plotted "${result.title}" on the alignment chart 🧭 — ${result.plotted.length} accounts, ` +
+            `covering ${cov}/9 boxes.\n\n` +
+            `plot your own → https://alignment-chart.bisks.net/`
+          );
+        }
         const self = result.plotted.find((p) => p.isSelf) || result.self;
         const cellName =
           self && self.cell != null ? CELLS[self.cell].name : "too quiet to read";
@@ -678,9 +706,13 @@
         const ctx = canvas.getContext("2d");
         const W = canvas.width;
         const H = canvas.height;
-        const self = result.plotted.find((p) => p.isSelf) || result.self;
+        const isList = result.mode === "list";
+        const self = isList
+          ? null
+          : result.plotted.find((p) => p.isSelf) || result.self;
         const cellName =
           self && self.cell != null ? CELLS[self.cell].name : "too quiet to read";
+        const cov = isList ? coverage(result.plotted) : null;
 
         // self drawn last so its ring sits on top; preload avatars in that order
         const ordered = result.plotted
@@ -698,16 +730,29 @@
         ctx.textAlign = "center";
         ctx.fillStyle = "#6b6b6b";
         ctx.font = "700 24px ui-monospace, monospace";
-        ctx.fillText("NETWORK ALIGNMENT CHART", W / 2, 76);
+        ctx.fillText(
+          isList ? "STARTER PACK ALIGNMENT CHART" : "NETWORK ALIGNMENT CHART",
+          W / 2,
+          76,
+        );
         ctx.fillStyle = "#111111";
-        ctx.font = "700 46px ui-monospace, monospace";
-        ctx.fillText("@" + (self.handle || result.self.handle), W / 2, 132);
+        ctx.font = "700 40px ui-monospace, monospace";
+        wrapText(
+          ctx,
+          isList ? `"${result.title}"` : "@" + (self.handle || result.self.handle),
+          W / 2,
+          132,
+          W - 120,
+          46,
+        );
         ctx.fillStyle = "#6b6b6b";
         ctx.font = "400 22px ui-monospace, monospace";
         ctx.fillText(
-          `${result.kind} · ${result.plotted.length} accounts plotted`,
+          isList
+            ? `starter pack · ${result.plotted.length} accounts · covers ${cov}/9 boxes`
+            : `${result.kind} · ${result.plotted.length} accounts plotted`,
           W / 2,
-          168,
+          isList ? 178 : 168,
         );
 
         const gs = 780;
@@ -791,7 +836,14 @@
         ctx.textAlign = "center";
         ctx.fillStyle = "#111111";
         ctx.font = "700 34px ui-monospace, monospace";
-        wrapText(ctx, `you are: ${cellName.toUpperCase()}`, W / 2, gy + gs + 92, gs, 40);
+        wrapText(
+          ctx,
+          isList ? `covers ${cov} of 9 boxes` : `you are: ${cellName.toUpperCase()}`,
+          W / 2,
+          gy + gs + 92,
+          gs,
+          40,
+        );
 
         ctx.fillStyle = "#6b6b6b";
         ctx.font = "400 20px ui-monospace, monospace";
@@ -805,7 +857,9 @@
           if (!blob) return;
           const a = document.createElement("a");
           a.href = URL.createObjectURL(blob);
-          const who = (lastResult.self.handle || "card").replace(/[^a-z0-9.-]/gi, "_");
+          const who = (
+            lastResult.mode === "list" ? lastResult.title : lastResult.self.handle
+          ).replace(/[^a-z0-9.-]/gi, "_");
           a.download = `alignment-chart-${who}.png`;
           a.click();
           URL.revokeObjectURL(a.href);
