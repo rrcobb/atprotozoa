@@ -29,6 +29,13 @@ const PLAYER_BOUNDS = { minX: 285, maxX: 775, minY: 100, maxY: 465 };
 const INTERACT_R = 62;
 const PLAYER_SPEED = 205;
 
+const UPGRADES = [
+  { id: "shoes", at: 5, icon: "\u{1F45F}", label: "quick shoes", desc: "+15% move speed" },
+  { id: "doubleBag", at: 12, icon: "\u{1F392}", label: "double bag", desc: "carry 2 floppies at once" },
+  { id: "espresso", at: 20, icon: "☕", label: "espresso machine", desc: "coders write 20% faster" },
+  { id: "tipJar", at: 30, icon: "\u{1F4B0}", label: "tip jar", desc: "+1 rating, right now" },
+];
+
 const ORDER_TYPES = [
   { id: "cat", icon: "\u{1F431}", label: "cat blog" },
   { id: "pizza", icon: "\u{1F355}", label: "pizza joint" },
@@ -73,8 +80,11 @@ let tableState = new Array(TABLES.length).fill(null);
 let deskState = new Array(DESKS.length).fill(null);
 let queue = [];
 let pickupSlots = new Array(PICKUP_SLOTS.length).fill(null);
-let player = { x: 500, y: 465, carrying: null, dir: "down" };
+let player = { x: 500, y: 465, carrying: [], dir: "down" };
 let floatingTexts = [];
+let upgrades = {};
+let speedMult = 1;
+let upgradeToast = null;
 let best = Number(localStorage.getItem("floppydash-best") || 0);
 
 document.getElementById("best").textContent = String(best);
@@ -86,8 +96,39 @@ function resetGame() {
   deskState = new Array(DESKS.length).fill(null);
   queue = [];
   pickupSlots = new Array(PICKUP_SLOTS.length).fill(null);
-  player = { x: 500, y: 465, carrying: null, dir: "down" };
+  player = { x: 500, y: 465, carrying: [], dir: "down" };
   floatingTexts = [];
+  upgrades = {};
+  speedMult = 1;
+  upgradeToast = null;
+  updateUpgradeTrack();
+}
+
+function applyUpgrade(id) {
+  if (id === "shoes") speedMult = 1.15;
+  if (id === "tipJar") stars = Math.min(3, stars + 1);
+}
+
+function checkUpgrades() {
+  for (const u of UPGRADES) {
+    if (delivered >= u.at && !upgrades[u.id]) {
+      upgrades[u.id] = true;
+      applyUpgrade(u.id);
+      upgradeToast = { icon: u.icon, label: u.label, desc: u.desc, life: 3.2, maxLife: 3.2 };
+      spawnFloatText(player.x, player.y - 40, "upgrade!", "#ffcb47");
+    }
+  }
+  updateUpgradeTrack();
+}
+
+function updateUpgradeTrack() {
+  const iconsEl = document.getElementById("upgrade-icons");
+  const nextEl = document.getElementById("upgrade-next");
+  if (!iconsEl || !nextEl) return;
+  const owned = UPGRADES.filter((u) => upgrades[u.id]);
+  iconsEl.textContent = owned.length ? owned.map((u) => u.icon).join(" ") : "—";
+  const next = UPGRADES.find((u) => !upgrades[u.id]);
+  nextEl.textContent = next ? "next: " + next.icon + " " + next.label + " (" + delivered + "/" + next.at + ")" : "all upgrades unlocked";
 }
 
 function spawnFloatText(x, y, text, color) {
@@ -119,7 +160,7 @@ function clearKitchenFor(tableIdx) {
   for (let i = 0; i < pickupSlots.length; i++) {
     if (pickupSlots[i] && pickupSlots[i].tableIdx === tableIdx) pickupSlots[i] = null;
   }
-  if (player.carrying && player.carrying.tableIdx === tableIdx) player.carrying = null;
+  player.carrying = player.carrying.filter((it) => it.tableIdx !== tableIdx);
 }
 
 function missCustomer(idx) {
@@ -137,7 +178,8 @@ function missCustomer(idx) {
 
 function deliverTo(idx) {
   const c = tableState[idx];
-  if (!c || !player.carrying) return;
+  const ci = player.carrying.findIndex((it) => it.tableIdx === idx);
+  if (!c || ci === -1) return;
   const frac = clamp(c.patience / c.maxPatience, 0, 1);
   const pts = Math.round((60 + 140 * frac) * combo);
   score += pts;
@@ -148,14 +190,26 @@ function deliverTo(idx) {
   c.orderState = "leaving";
   c.leaveKind = "happy";
   c.leaveTimer = 1.0;
-  player.carrying = null;
+  player.carrying.splice(ci, 1);
+  checkUpgrades();
 }
 
 function tryInteract() {
   if (state !== "playing") return;
+  const capacity = upgrades.doubleBag ? 2 : 1;
 
-  if (!player.carrying) {
-    // 1. pick up a ready floppy
+  // 1. deliver to a nearby table if carrying its matching order
+  for (const item of player.carrying) {
+    const target = item.tableIdx;
+    const c = tableState[target];
+    if (c && c.orderState === "ordered" && dist(player.x, player.y, TABLES[target].x, TABLES[target].y) < INTERACT_R) {
+      deliverTo(target);
+      return;
+    }
+  }
+
+  if (player.carrying.length < capacity) {
+    // 2. pick up a ready floppy
     let best = -1, bestD = INTERACT_R;
     for (let i = 0; i < PICKUP_SLOTS.length; i++) {
       if (!pickupSlots[i]) continue;
@@ -163,11 +217,11 @@ function tryInteract() {
       if (d < bestD) { bestD = d; best = i; }
     }
     if (best >= 0) {
-      player.carrying = pickupSlots[best];
+      player.carrying.push(pickupSlots[best]);
       pickupSlots[best] = null;
       return;
     }
-    // 2. take an order from a seated customer
+    // 3. take an order from a seated customer
     best = -1; bestD = INTERACT_R;
     for (let i = 0; i < TABLES.length; i++) {
       const c = tableState[i];
@@ -180,14 +234,6 @@ function tryInteract() {
       c.orderState = "ordered";
       queue.push({ order: c.order, tableIdx: best });
     }
-    return;
-  }
-
-  // carrying something: deliver to its matching, waiting table
-  const target = player.carrying.tableIdx;
-  const c = tableState[target];
-  if (c && c.orderState === "ordered" && dist(player.x, player.y, TABLES[target].x, TABLES[target].y) < INTERACT_R) {
-    deliverTo(target);
   }
 }
 
@@ -235,7 +281,8 @@ function update(dt) {
     if (deskState[i] === null && queue.length) {
       const next = queue.shift();
       const [cLo, cHi] = cookRange(wave);
-      deskState[i] = { order: next.order, tableIdx: next.tableIdx, progress: 0, duration: randRange(cLo, cHi), done: false };
+      const duration = randRange(cLo, cHi) * (upgrades.espresso ? 0.8 : 1);
+      deskState[i] = { order: next.order, tableIdx: next.tableIdx, progress: 0, duration, done: false };
     }
   }
 
@@ -247,8 +294,8 @@ function update(dt) {
   if (vx || vy) {
     const len = Math.hypot(vx, vy);
     vx /= len; vy /= len;
-    player.x = clamp(player.x + vx * PLAYER_SPEED * dt, PLAYER_BOUNDS.minX, PLAYER_BOUNDS.maxX);
-    player.y = clamp(player.y + vy * PLAYER_SPEED * dt, PLAYER_BOUNDS.minY, PLAYER_BOUNDS.maxY);
+    player.x = clamp(player.x + vx * PLAYER_SPEED * speedMult * dt, PLAYER_BOUNDS.minX, PLAYER_BOUNDS.maxX);
+    player.y = clamp(player.y + vy * PLAYER_SPEED * speedMult * dt, PLAYER_BOUNDS.minY, PLAYER_BOUNDS.maxY);
     if (Math.abs(vx) > Math.abs(vy)) player.dir = vx > 0 ? "right" : "left";
     else player.dir = vy > 0 ? "down" : "up";
   }
@@ -260,6 +307,11 @@ function update(dt) {
     const t = floatingTexts[i];
     t.y -= 28 * dt; t.life -= dt;
     if (t.life <= 0) floatingTexts.splice(i, 1);
+  }
+
+  if (upgradeToast) {
+    upgradeToast.life -= dt;
+    if (upgradeToast.life <= 0) upgradeToast = null;
   }
 
   if (stars <= 0) endGame();
@@ -461,7 +513,10 @@ function render() {
   // player
   const carryBob = Math.sin(elapsed * 10) * 1.5;
   drawPerson(player.x, player.y, "#59e88f", 0);
-  if (player.carrying) drawFloppy(player.x, player.y - 34 + carryBob, 0.85, player.carrying.order.icon);
+  player.carrying.forEach((item, i) => {
+    const offsetX = player.carrying.length > 1 ? (i === 0 ? -14 : 14) : 0;
+    drawFloppy(player.x + offsetX, player.y - 34 + carryBob, 0.8, item.order.icon);
+  });
 
   // floating texts
   ctx.textAlign = "center";
@@ -473,6 +528,34 @@ function render() {
     ctx.fillText(t.text, t.x, t.y);
   }
   ctx.globalAlpha = 1;
+
+  // upgrade toast
+  if (upgradeToast) {
+    const t = upgradeToast;
+    const alpha = t.life > t.maxLife - 0.4 ? (t.maxLife - t.life) / 0.4 : clamp(t.life / 0.5, 0, 1);
+    ctx.save();
+    ctx.globalAlpha = clamp(alpha, 0, 1);
+    const w = 360, h = 56, x = (W - w) / 2, y = 14;
+    ctx.fillStyle = "#101820ee";
+    roundRect(x, y, w, h, 10);
+    ctx.fill();
+    ctx.strokeStyle = "#ffcb47";
+    ctx.lineWidth = 2;
+    roundRect(x, y, w, h, 10);
+    ctx.stroke();
+    ctx.font = "26px sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(t.icon, x + 16, y + h / 2);
+    ctx.font = "bold 14px ui-monospace, monospace";
+    ctx.fillStyle = "#ffcb47";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText("UPGRADE: " + t.label, x + 54, y + 23);
+    ctx.font = "12px ui-monospace, monospace";
+    ctx.fillStyle = "#a9b8c2";
+    ctx.fillText(t.desc, x + 54, y + 41);
+    ctx.restore();
+  }
 }
 
 // ---------- input ----------
