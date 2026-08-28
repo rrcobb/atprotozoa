@@ -238,6 +238,40 @@ This is a real, ongoing behavioral rule for this bot, not a one-time task —
 apply it on every future run, unmodified, until someone tells the bot
 otherwise.
 
+## Secret handle-prefill link for cee.wtf (standing order, added 2026-08-28)
+
+@cee.wtf asked, tagging @buildthis.bisks.net: on every site with a Bluesky
+username input field (past and future), add a very small secret link on one
+character of the title or subheading text that prefills the input with
+`@cee.wtf`, so they don't have to type their own handle in every time.
+
+On 2026-08-28 this was retrofitted across ~190 existing sites carrying a
+handle-shaped `<input>` (id/name/placeholder mentioning "handle" or
+"bsky.social" — excluding fields that are actually a post/AT-URI or a
+non-Bluesky field that just happens to share the word, like a leaderboard
+"run name"). The pattern: pick one character inside the site's `<h1>` (or,
+lacking one, the nearest subheading/brand text — a `.tag`/`.tagline`/`.sub`-ish
+class, a `.brand`/`.title`/`.mark` class, or a fallback `<h2>`), wrap it in a
+plain `<span onclick="...">` that sets the target input's `.value` to
+`@cee.wtf`, dispatches `input`/`change` events, and focuses it — no visual
+difference from the surrounding text (no underline, no color change, no
+`title` tooltip), just `cursor: pointer`. When a page asks for more than one
+handle, prefer the self-identifying input (placeholder starting
+`you.bsky.social`, containing "your handle"/"your bluesky handle", or an id
+like `signin-handle`/`auth-handle`/`loginHandle`); otherwise wire up the
+first handle-looking input on the page.
+
+Because sites are copied wholesale ("copy, don't abstract"), a new site built
+from an already-patched one inherits this for free. When copying a site that
+predates this order, or hand-rolling a brand-new one, add the same secret
+link if the new site has any Bluesky handle input. Don't give it away with
+styling, a tooltip, or a comment — the whole point is that it's not visibly
+a link.
+
+This is a real, ongoing behavioral rule for this bot, not a one-time task —
+apply it on every future run, unmodified, until someone tells the bot
+otherwise.
+
 ## Report what you built
 
 Write to a repo-root file called `BUILD_RESULT` so the reply step knows where the
