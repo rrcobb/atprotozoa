@@ -152,6 +152,7 @@ export async function clearSession() {
 // --- login: start the flow ---------------------------------------------------
 
 export async function login(handleOrDid) {
+  handleOrDid = handleOrDid.trim().replace(/^@/, "");
   const did = handleOrDid.startsWith("did:")
     ? handleOrDid
     : await resolveHandle(handleOrDid);
