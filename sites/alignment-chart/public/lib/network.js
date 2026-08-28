@@ -381,14 +381,29 @@ function countHits(text, words) {
   return n;
 }
 
-// Squash a raw (positive - negative) tally into a signed score in (-1, 1).
-// tanh-ish without importing anything: k tunes how fast we saturate. A small k
-// means even one net keyword hit pushes a fair way off center, so the grid
-// actually gets used instead of everyone piling on the origin.
-function squash(pos, neg) {
-  const net = pos - neg;
-  const k = 1.4;
-  return net / (Math.abs(net) + k);
+// Squash a (positive - negative) tally into a signed score in (-1, 1).
+// tanh-ish without importing anything: k tunes how fast we saturate.
+//
+// Fixed 2026-08-28 at @antiali.as's request (whole starter pack landed
+// entirely in one cell): squash used to run on the RAW hit count, tuned for
+// the old ~20-post sample. Once feedText started returning a whole repo
+// (up to tens of thousands of posts, see feedTextViaRepo above), that raw
+// count scales with corpus size, not vibe — net tallies in the hundreds
+// saturate `net / (net + k)` to ~1 regardless of the real pos:neg balance,
+// so every account in a big pack pins to the same corner. Confirmed on
+// segyges' "range of acceptable opinions" pack: all 16 accounts landed at
+// x≈1.00 y≈1.00. Fix: score a RATE (hits per 1000 words) instead of a raw
+// count, so the squash input stays in the same rough magnitude whether the
+// account posted 20 times or 20,000. k is retuned for that rate scale.
+// Note this doesn't guarantee full 9-box coverage for every pack — some
+// populations (e.g. political-commentary accounts, who reliably use more
+// "war"/"fight"/"launch"/"focus"-type words than "cozy"/"gooning" ones) will
+// genuinely cluster in a couple of cells even at full-history volume; that's
+// a real read, not the bug. The bug was zero differentiation between accounts.
+function squash(pos, neg, words) {
+  const rate = ((pos - neg) * 1000) / Math.max(words, 1);
+  const k = 6;
+  return rate / (Math.abs(rate) + k);
 }
 
 // A stable-but-varied offset in [-1,1] derived from a DID + salt, so a given
@@ -414,8 +429,9 @@ export function classify(did, text) {
     // quiet accounts have no read at all — park them in a loose center cloud
     return { x: 0, y: 0, px: jx, py: jy, cell: null, empty: true };
   }
-  const x = squash(countHits(text, HARSH), countHits(text, CHILL));
-  const y = squash(countHits(text, MOG), countHits(text, GOON));
+  const words = text.split(/\s+/).filter(Boolean).length;
+  const x = squash(countHits(text, HARSH), countHits(text, CHILL), words);
+  const y = squash(countHits(text, MOG), countHits(text, GOON), words);
   const clamp = (v) => Math.max(-0.98, Math.min(0.98, v));
   return { x, y, px: clamp(x + jx), py: clamp(y + jy), cell: cellOf(x, y), empty: false };
 }
