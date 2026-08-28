@@ -91,6 +91,13 @@
         <div id="prompter-board"><p class="empty">loading…</p></div>
       </section>
 
+      <div id="prompter-modal" class="modal-overlay" hidden>
+        <div class="modal-panel" role="dialog" aria-modal="true">
+          <button class="modal-close" id="prompter-modal-close" aria-label="close">×</button>
+          <div id="prompter-modal-body"></div>
+        </div>
+      </div>
+
       <footer>
         Ratings are <code>net.bisks.rateyourbuild.rating</code> records written straight to your own
         PDS, read back network-wide via
@@ -140,6 +147,9 @@
       }
       function shareIntentHref(text) {
         return `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`;
+      }
+      function buildPrompterShareUrl(by) {
+        return `https://rateyourbuild.bisks.net/?prompter=${encodeURIComponent(by)}`;
       }
 
       let session = null;
@@ -205,7 +215,7 @@
               ${site.builtAt ? `<span class="built-badge">${fmtMonth(Date.parse(site.builtAt))}</span>` : ""}
             </div>
             <p class="card-blurb">${esc(site.blurb)}</p>
-            ${site.by ? `<p class="by">asked for by @${esc(site.by)}</p>` : ""}
+            ${site.by ? `<p class="by">asked for by <a href="#" class="prompter-link" data-prompter="${esc(site.by)}">@${esc(site.by)}</a></p>` : ""}
             <div class="card-foot">
               <div class="score-block">${scoreHtml}</div>
               <div class="rate-row" data-subject="${esc(site.name)}">${btns}</div>
@@ -363,7 +373,7 @@
             const scoreHtml = p.w != null
               ? `${p.w.toFixed(1)} <span class="board-sub">(${p.count} rating${p.count === 1 ? "" : "s"})</span>`
               : `<span class="board-sub">unrated</span>`;
-            return `<a class="board-row" href="https://bsky.app/profile/${encodeURIComponent(p.by)}" target="_blank" rel="noopener">
+            return `<a class="board-row" href="#" data-prompter="${esc(p.by)}">
               <span class="board-rank">#${i + 1}</span>
               <span class="board-name">@${esc(p.by)} <span class="board-sub">(${p.siteCount} site${p.siteCount === 1 ? "" : "s"})</span></span>
               <span class="board-score">${scoreHtml}</span>
@@ -377,7 +387,93 @@
         renderBrowse();
         renderGenreBoards();
         renderPrompters();
+        if (openPrompter) renderPrompterModal(openPrompter);
       }
+
+      // --- prompter detail modal ---------------------------------------------
+      // "click a user, see every site they made with each site's rating" —
+      // the same weighting as the prompters board, just scoped to one prompter
+      // and broken out site-by-site instead of pooled into a single number.
+
+      let openPrompter = null;
+
+      function renderPrompterModal(by) {
+        const mean = globalMean();
+        const sites = catalog
+          .filter((s) => s.by === by)
+          .map((s) => {
+            const stats = statsFor(s.name);
+            return { site: s, stats, w: stats ? weighted(stats.sum, stats.count, mean) : null };
+          });
+        sites.sort((a, b) => {
+          if (a.w == null && b.w == null) return a.site.name.localeCompare(b.site.name);
+          if (a.w == null) return 1;
+          if (b.w == null) return -1;
+          return b.w - a.w || b.stats.count - a.stats.count;
+        });
+
+        let pooledSum = 0, pooledCount = 0;
+        for (const x of sites) if (x.stats) { pooledSum += x.stats.sum; pooledCount += x.stats.count; }
+        const pooledW = pooledCount ? weighted(pooledSum, pooledCount, mean) : null;
+
+        const rows = sites
+          .map(({ site, stats, w }) => {
+            const scoreHtml = w != null
+              ? `${w.toFixed(1)} <span class="board-sub">(${stats.count} rating${stats.count === 1 ? "" : "s"})</span>`
+              : `<span class="board-sub">unrated</span>`;
+            return `<a class="board-row" href="${esc(site.url)}" target="_blank" rel="noopener">
+              <span class="board-name">${esc(site.title)} <span class="board-sub">${esc(site.genre)}</span></span>
+              <span class="board-score">${scoreHtml}</span>
+            </a>`;
+          })
+          .join("");
+
+        const shareText = `@${by} has prompted ${sites.length} site${sites.length === 1 ? "" : "s"} from @buildthis.bisks.net` +
+          (pooledW != null ? `, weighted ${pooledW.toFixed(1)}/10` : "") + ` — ${buildPrompterShareUrl(by)}`;
+
+        $("#prompter-modal-body").innerHTML = `
+          <h2 class="modal-title">@${esc(by)}</h2>
+          <p class="meta">
+            ${sites.length} site${sites.length === 1 ? "" : "s"} prompted
+            ${pooledW != null ? `· weighted score <strong>${pooledW.toFixed(1)}</strong> (${pooledCount} rating${pooledCount === 1 ? "" : "s"})` : "· not yet rated"}
+          </p>
+          <div class="board">${rows || `<p class="empty" style="padding:0 0.9rem 0.6rem">nothing here yet.</p>`}</div>
+          <div class="modal-actions">
+            <a class="secondary-link" href="https://bsky.app/profile/${encodeURIComponent(by)}" target="_blank" rel="noopener">view @${esc(by)} on bluesky ↗</a>
+            <a class="secondary-link" target="_blank" rel="noopener" href="${esc(shareIntentHref(shareText))}">share this prompter</a>
+          </div>`;
+      }
+
+      function openPrompterModal(by) {
+        openPrompter = by;
+        renderPrompterModal(by);
+        $("#prompter-modal").hidden = false;
+        const url = new URL(location.href);
+        url.searchParams.set("prompter", by);
+        history.replaceState(null, "", url);
+      }
+      function closePrompterModal() {
+        openPrompter = null;
+        $("#prompter-modal").hidden = true;
+        const url = new URL(location.href);
+        url.searchParams.delete("prompter");
+        history.replaceState(null, "", url);
+      }
+
+      document.addEventListener("click", (e) => {
+        const link = e.target.closest("[data-prompter]");
+        if (link) {
+          e.preventDefault();
+          openPrompterModal(link.dataset.prompter);
+          return;
+        }
+        if (e.target.id === "prompter-modal-close" || e.target.id === "prompter-modal") {
+          closePrompterModal();
+        }
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !$("#prompter-modal").hidden) closePrompterModal();
+      });
 
       // --- tabs ---------------------------------------------------------------
 
@@ -530,6 +626,8 @@
         await loadCatalog();
         renderAll();
         jumpToSharedSite();
+        const sharedPrompter = new URLSearchParams(location.search).get("prompter");
+        if (sharedPrompter) openPrompterModal(sharedPrompter);
         index.start();
       }
       boot();
