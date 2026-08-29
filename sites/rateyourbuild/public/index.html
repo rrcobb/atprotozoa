@@ -63,9 +63,12 @@
           <select id="genre-filter"><option value="">all genres</option></select>
           <select id="sort">
             <option value="weighted">top rated (weighted)</option>
+            <option value="mine">your rating</option>
             <option value="votes">most rated</option>
             <option value="newest">newest built</option>
             <option value="oldest">oldest built</option>
+            <option value="supergenre">super-genre</option>
+            <option value="subgenre">subgenre</option>
             <option value="az">a–z</option>
           </select>
         </div>
@@ -76,9 +79,13 @@
 
       <section id="tab-genres" class="tab-panel" hidden>
         <p class="meta">
-          top-rated sites in each genre, same weighting as the main chart. click a genre name for its
+          top-rated sites in each genre, grouped by super-genre. click a genre name (underlined) for its
           own page (description, subgenres, super-genre) or "see all" to jump to the full filtered list.
         </p>
+        <div class="mode-toggle" role="group" aria-label="score sort mode">
+          <button type="button" class="mode-btn" data-mode="community">community score</button>
+          <button type="button" class="mode-btn" data-mode="mine">your ratings</button>
+        </div>
         <div id="genre-boards"><p class="empty">loading…</p></div>
       </section>
 
@@ -89,6 +96,10 @@
           one with twenty solidly-8/10 sites, same RYM "artist" logic applied to whoever's doing the
           asking.
         </p>
+        <div class="mode-toggle" role="group" aria-label="score sort mode">
+          <button type="button" class="mode-btn" data-mode="community">community score</button>
+          <button type="button" class="mode-btn" data-mode="mine">your ratings</button>
+        </div>
         <div id="prompter-board"><p class="empty">loading…</p></div>
       </section>
 
@@ -117,6 +128,11 @@
       <section id="page-super" class="tab-panel" hidden>
         <a class="back-link" href="/">← back to rateyourbuild</a>
         <div id="super-page-body"><p class="empty">loading…</p></div>
+      </section>
+
+      <section id="page-subgenre" class="tab-panel" hidden>
+        <a class="back-link" href="/">← back to rateyourbuild</a>
+        <div id="subgenre-page-body"><p class="empty">loading…</p></div>
       </section>
 
       <section id="page-reviewer" class="tab-panel" hidden>
@@ -181,6 +197,11 @@
       function pluralGenre(g) {
         return /[a-z]$/.test(g) ? g + (g.endsWith("s") ? "" : "s") : g;
       }
+      function superLabel(genre) {
+        const g = GENRES[genre];
+        const sup = g ? SUPERS[g.super] : null;
+        return sup ? sup.label : "other";
+      }
       function shortDid(did) {
         const bare = did.replace(/^did:[a-z]+:/, "");
         return bare.length > 10 ? bare.slice(0, 10) + "…" : bare;
@@ -211,6 +232,12 @@
       let lastRatedNote = null; // { subject, score } — see submitRating
       let route = { view: "browse" };
       let composerScore = null;
+      // "sort by the users ratings rather than community scores" — applies to
+      // every board that isn't the browse tab's own per-control sort select:
+      // genre tab boards, prompters tab, and genre/super/subgenre pages. The
+      // browse tab gets its own "your rating" entry in #sort instead, since it
+      // already has a dedicated control for this.
+      let scoreMode = "community"; // "community" | "mine"
 
       const index = new GlobalIndex({
         onUpdate: (snap) => {
@@ -228,6 +255,8 @@
       function parseRoute() {
         let m = location.pathname.match(/^\/site\/([^/]+)\/?$/);
         if (m) return { view: "site", name: decodeURIComponent(m[1]) };
+        m = location.pathname.match(/^\/genre\/([^/]+)\/([^/]+)\/?$/);
+        if (m) return { view: "subgenre", genre: decodeURIComponent(m[1]), subgenre: decodeURIComponent(m[2]) };
         m = location.pathname.match(/^\/genre\/([^/]+)\/?$/);
         if (m) return { view: "genre", key: decodeURIComponent(m[1]) };
         m = location.pathname.match(/^\/super\/([^/]+)\/?$/);
@@ -270,6 +299,7 @@
         $("#page-site").hidden = route.view !== "site";
         $("#page-genre").hidden = route.view !== "genre";
         $("#page-super").hidden = route.view !== "super";
+        $("#page-subgenre").hidden = route.view !== "subgenre";
         $("#page-reviewer").hidden = route.view !== "reviewer";
       }
 
@@ -278,8 +308,10 @@
         if (route.view === "site") renderSitePage(route.name);
         else if (route.view === "genre") renderGenrePage(route.key);
         else if (route.view === "super") renderSuperPage(route.key);
+        else if (route.view === "subgenre") renderSubgenrePage(route.genre, route.subgenre);
         else if (route.view === "reviewer") renderReviewerPage(route.actor);
         else renderAll();
+        syncModeToggles();
       }
 
       // --- weighting -----------------------------------------------------
@@ -304,7 +336,18 @@
       function ownScore(name) {
         return ownRecord(name)?.score ?? null;
       }
-      function scoredList(list) {
+      // mode "mine" ranks by the signed-in rater's own score instead of the
+      // weighted community score — only sites they've actually rated show up,
+      // same as "your rating" in the browse sort: a personal ranking, not a
+      // community one with a smaller sample.
+      function scoredList(list, mode = scoreMode) {
+        if (mode === "mine") {
+          if (!session) return [];
+          return list
+            .map((s) => ({ site: s, stats: statsFor(s.name), w: ownScore(s.name) }))
+            .filter((x) => x.w != null)
+            .sort((a, b) => b.w - a.w || a.site.name.localeCompare(b.site.name));
+        }
         const mean = globalMean();
         return list
           .map((s) => {
@@ -392,7 +435,7 @@
             <div class="card-main">
               <a class="card-title" href="/site/${esc(site.name)}">${esc(site.title)}</a>
               <a class="pill" href="/genre/${esc(site.genre)}">${esc(site.genre)}</a>
-              ${site.subgenre ? `<a class="pill pill-sub" href="/genre/${esc(site.genre)}">${esc(site.subgenre)}</a>` : ""}
+              ${site.subgenre ? `<a class="pill pill-sub" href="/genre/${esc(site.genre)}/${esc(site.subgenre)}">${esc(site.subgenre)}</a>` : ""}
               ${site.builtAt ? `<span class="built-badge">${fmtMonth(Date.parse(site.builtAt))}</span>` : ""}
             </div>
             <p class="card-blurb">${esc(site.blurb)}</p>
@@ -439,8 +482,23 @@
             const bt = b.site.builtAt ? Date.parse(b.site.builtAt) : sort === "newest" ? -Infinity : Infinity;
             return sort === "newest" ? bt - at : at - bt;
           }
+          if (sort === "supergenre") {
+            const as = superLabel(a.site.genre), bs = superLabel(b.site.genre);
+            return as.localeCompare(bs) || a.site.genre.localeCompare(b.site.genre) || a.site.name.localeCompare(b.site.name);
+          }
+          if (sort === "subgenre") {
+            const asg = a.site.subgenre || "￿", bsg = b.site.subgenre || "￿";
+            return asg.localeCompare(bsg) || a.site.name.localeCompare(b.site.name);
+          }
           if (sort === "votes") {
             return (b.stats?.count || 0) - (a.stats?.count || 0) || (b.w || 0) - (a.w || 0);
+          }
+          if (sort === "mine") {
+            const ao = ownScore(a.site.name), bo = ownScore(b.site.name);
+            if (ao == null && bo == null) return a.site.name.localeCompare(b.site.name);
+            if (ao == null) return 1;
+            if (bo == null) return -1;
+            return bo - ao || a.site.name.localeCompare(b.site.name);
           }
           // weighted (default): rated sites first, highest weighted score first
           if (a.w == null && b.w == null) return a.site.name.localeCompare(b.site.name);
@@ -452,12 +510,21 @@
         return { list: withScore.map((x) => x.site), sort };
       }
 
+      const GROUPED_SORTS = new Set(["newest", "oldest", "supergenre", "subgenre"]);
+      function groupLabelFor(site, sort) {
+        if (sort === "newest" || sort === "oldest") return site.builtAt ? fmtMonth(Date.parse(site.builtAt)) : "build date unknown";
+        if (sort === "supergenre") return superLabel(site.genre);
+        if (sort === "subgenre") return site.subgenre || "no subgenre";
+        return null;
+      }
+
       function renderBrowse() {
         const { list, sort } = filteredSorted();
         const total = list.length;
         const slice = list.slice(0, visibleCount);
         $("#browse-meta").textContent =
-          `showing ${slice.length} of ${total} sites` + (total !== catalog.length ? ` (of ${catalog.length} total)` : "");
+          `showing ${slice.length} of ${total} sites` + (total !== catalog.length ? ` (of ${catalog.length} total)` : "") +
+          (sort === "mine" && !session ? " — sign in above to sort by your own ratings" : "");
 
         if (!slice.length) {
           $("#browse-list").innerHTML = `<p class="empty">nothing matches that search.</p>`;
@@ -465,13 +532,14 @@
           return;
         }
 
-        // Chronological sorts get month/year group headers — this is the
-        // "sort by month/year" ask made concrete, not just a sort order.
-        if (sort === "newest" || sort === "oldest") {
+        // Chronological/genre-grouped sorts get group headers — this is the
+        // "sort by month/year" and "sort by super & subgenre" asks made
+        // concrete, not just a sort order.
+        if (GROUPED_SORTS.has(sort)) {
           let lastGroup = null;
           let html = "";
           for (const site of slice) {
-            const group = site.builtAt ? fmtMonth(Date.parse(site.builtAt)) : "build date unknown";
+            const group = groupLabelFor(site, sort);
             if (group !== lastGroup) {
               html += `<div class="group-header">${esc(group)}</div>`;
               lastGroup = group;
@@ -487,36 +555,68 @@
       }
 
       // --- genres tab --------------------------------------------------------
+      // Grouped by super-genre (play/utility), each genre board lists its
+      // subgenres inline and respects the community/mine score-mode toggle.
+
+      function boardScoreLabel(x, mode) {
+        if (mode === "mine") return `${x.w.toFixed(1)} <span class="board-sub">your rating</span>`;
+        return `${x.w.toFixed(1)} <span class="board-sub">(${x.stats.count})</span>`;
+      }
+
+      function renderGenreBoard(genre, mode) {
+        const inGenre = catalog.filter((s) => s.genre === genre);
+        const list = scoredList(inGenre, mode);
+        const top = list.slice(0, 8);
+        const rows = top
+          .map((x, i) => `<a class="board-row" href="/site/${esc(x.site.name)}">
+              <span class="board-rank">#${i + 1}</span>
+              <span class="board-name">${esc(x.site.title)}</span>
+              <span class="board-score">${boardScoreLabel(x, mode)}</span>
+            </a>`)
+          .join("");
+        const subgenreCounts = new Map();
+        for (const s of inGenre) if (s.subgenre) subgenreCounts.set(s.subgenre, (subgenreCounts.get(s.subgenre) || 0) + 1);
+        const subgenreList = Array.from(subgenreCounts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+        const emptyMsg = mode === "mine" ? (session ? "you haven't rated anything here yet." : "sign in to sort by your ratings.") : "nothing here yet.";
+        return `<div class="board">
+          <div class="board-title">
+            <a class="board-title-name" href="/genre/${esc(genre)}">${esc(genre)} <span class="board-sub">(${inGenre.length})</span></a>
+            <a href="#" class="see-all" data-genre="${esc(genre)}">see all →</a></div>
+          ${subgenreList.length ? `<div class="board-subgenres">subgenres: ${subgenreList.map(([sg, c]) => `<a class="pill" href="/genre/${esc(genre)}/${esc(sg)}">${esc(sg)} <span class="board-sub">(${c})</span></a>`).join(" ")}</div>` : ""}
+          ${rows || `<p class="empty" style="padding:0 0.9rem 0.6rem">${emptyMsg}</p>`}
+        </div>`;
+      }
 
       function renderGenreBoards() {
-        const html = genres
-          .map((genre) => {
-            const list = scoredList(catalog.filter((s) => s.genre === genre));
-            const unrated = catalog.filter((s) => s.genre === genre && !statsFor(s.name)).length;
-            const top = list.slice(0, 8);
-            const rows = top
-              .map((x, i) => {
-                return `<a class="board-row" href="/site/${esc(x.site.name)}">
-                  <span class="board-rank">#${i + 1}</span>
-                  <span class="board-name">${esc(x.site.title)}</span>
-                  <span class="board-score">${x.w.toFixed(1)} <span class="board-sub">(${x.stats.count})</span></span>
-                </a>`;
-              })
-              .join("");
-            return `<div class="board">
-              <div class="board-title">
-                <a class="board-title-name" href="/genre/${esc(genre)}">${esc(genre)} <span class="board-sub">(${list.length + unrated})</span></a>
-                <a href="#" class="see-all" data-genre="${esc(genre)}">see all →</a></div>
-              ${rows || `<p class="empty" style="padding:0 0.9rem 0.6rem">nothing here yet.</p>`}
-            </div>`;
-          })
-          .join("");
-        $("#genre-boards").innerHTML = html || `<p class="empty">no sites in the catalog.</p>`;
+        const mode = scoreMode;
+        const superGroups = new Map(); // superKey (or "__other__") -> [genre,...]
+        for (const genre of genres) {
+          const meta = GENRES[genre];
+          const supKey = meta ? meta.super : "__other__";
+          if (!superGroups.has(supKey)) superGroups.set(supKey, []);
+          superGroups.get(supKey).push(genre);
+        }
+        const order = [...Object.keys(SUPERS), "__other__"].filter((k) => superGroups.has(k));
+        const sections = order.map((supKey) => {
+          const supMeta = SUPERS[supKey];
+          const heading = supMeta
+            ? `<h3 class="super-heading"><a href="/super/${esc(supKey)}">${esc(supMeta.label)}</a></h3>`
+            : `<h3 class="super-heading super-heading-other">other</h3>`;
+          const boards = superGroups.get(supKey).map((genre) => renderGenreBoard(genre, mode)).join("");
+          return `<div class="super-group">${heading}${boards}</div>`;
+        });
+        $("#genre-boards").innerHTML = sections.join("") || `<p class="empty">no sites in the catalog.</p>`;
       }
 
       // --- prompters tab -----------------------------------------------------
+      // mode "mine" pools only the signed-in rater's own scores across a
+      // prompter's sites (a plain average — no Bayesian prior against the
+      // community mean, since this is explicitly *your* opinion, not a
+      // popularity estimate) and drops prompters you haven't rated anything
+      // from, same "personal ranking, not a community one" rule as elsewhere.
 
       function renderPrompters() {
+        const mode = scoreMode;
         const mean = globalMean();
         const byPrompter = new Map();
         for (const site of catalog) {
@@ -524,13 +624,19 @@
           let p = byPrompter.get(site.by);
           if (!p) { p = { by: site.by, sum: 0, count: 0, siteCount: 0 }; byPrompter.set(site.by, p); }
           p.siteCount += 1;
-          const stats = statsFor(site.name);
-          if (stats) { p.sum += stats.sum; p.count += stats.count; }
+          if (mode === "mine") {
+            const own = session ? ownScore(site.name) : null;
+            if (own != null) { p.sum += own; p.count += 1; }
+          } else {
+            const stats = statsFor(site.name);
+            if (stats) { p.sum += stats.sum; p.count += stats.count; }
+          }
         }
-        const ranked = Array.from(byPrompter.values()).map((p) => ({
+        let ranked = Array.from(byPrompter.values()).map((p) => ({
           ...p,
-          w: p.count ? weighted(p.sum, p.count, mean) : null,
+          w: p.count ? (mode === "mine" ? p.sum / p.count : weighted(p.sum, p.count, mean)) : null,
         }));
+        if (mode === "mine") ranked = ranked.filter((p) => p.w != null);
         ranked.sort((a, b) => {
           if (a.w == null && b.w == null) return b.siteCount - a.siteCount || a.by.localeCompare(b.by);
           if (a.w == null) return 1;
@@ -541,7 +647,9 @@
         const rows = ranked
           .map((p, i) => {
             const scoreHtml = p.w != null
-              ? `${p.w.toFixed(1)} <span class="board-sub">(${p.count} rating${p.count === 1 ? "" : "s"})</span>`
+              ? (mode === "mine"
+                ? `${p.w.toFixed(1)} <span class="board-sub">(${p.count} of yours)</span>`
+                : `${p.w.toFixed(1)} <span class="board-sub">(${p.count} rating${p.count === 1 ? "" : "s"})</span>`)
               : `<span class="board-sub">unrated</span>`;
             return `<a class="board-row" href="#" data-prompter="${esc(p.by)}">
               <span class="board-rank">#${i + 1}</span>
@@ -550,7 +658,10 @@
             </a>`;
           })
           .join("");
-        $("#prompter-board").innerHTML = rows ? `<div class="board">${rows}</div>` : `<p class="empty">nobody's prompted a site yet.</p>`;
+        const emptyMsg = mode === "mine"
+          ? (session ? "you haven't rated any of their sites yet." : "sign in to sort by your ratings.")
+          : "nobody's prompted a site yet.";
+        $("#prompter-board").innerHTML = rows ? `<div class="board">${rows}</div>` : `<p class="empty">${emptyMsg}</p>`;
       }
 
       function renderAll() {
@@ -569,11 +680,11 @@
       function computeRankings(site, w) {
         if (w == null) return [];
         const out = [];
-        const genreRank = scoredList(catalog.filter((s) => s.genre === site.genre)).findIndex((x) => x.site.name === site.name) + 1;
+        const genreRank = scoredList(catalog.filter((s) => s.genre === site.genre), "community").findIndex((x) => x.site.name === site.name) + 1;
         if (genreRank >= 1 && genreRank <= 10) out.push(`ranked #${genreRank} in ${pluralGenre(site.genre)}`);
 
         if (site.subgenre) {
-          const subRank = scoredList(catalog.filter((s) => s.genre === site.genre && s.subgenre === site.subgenre)).findIndex((x) => x.site.name === site.name) + 1;
+          const subRank = scoredList(catalog.filter((s) => s.genre === site.genre && s.subgenre === site.subgenre), "community").findIndex((x) => x.site.name === site.name) + 1;
           if (subRank >= 1 && subRank <= 10) out.push(`ranked #${subRank} in ${site.subgenre}`);
         }
 
@@ -584,11 +695,11 @@
             const sd = new Date(s.builtAt);
             return sd.getUTCFullYear() === d.getUTCFullYear() && sd.getUTCMonth() === d.getUTCMonth();
           });
-          const cohortRank = scoredList(cohort).findIndex((x) => x.site.name === site.name) + 1;
+          const cohortRank = scoredList(cohort, "community").findIndex((x) => x.site.name === site.name) + 1;
           if (cohortRank >= 1 && cohortRank <= 10) out.push(`ranked #${cohortRank} for ${fmtMonthYear(d.getTime())}`);
         }
 
-        const overallRank = scoredList(catalog).findIndex((x) => x.site.name === site.name) + 1;
+        const overallRank = scoredList(catalog, "community").findIndex((x) => x.site.name === site.name) + 1;
         if (overallRank >= 1 && overallRank <= 10) out.push(`ranked #${overallRank} overall`);
 
         return out;
@@ -652,7 +763,7 @@
             <p class="detail-blurb">${esc(site.blurb)}</p>
             <div class="detail-pills">
               <a class="pill" href="/genre/${esc(site.genre)}">${esc(site.genre)}</a>
-              ${site.subgenre ? `<a class="pill pill-sub" href="/genre/${esc(site.genre)}">${esc(site.subgenre)}</a>` : ""}
+              ${site.subgenre ? `<a class="pill pill-sub" href="/genre/${esc(site.genre)}/${esc(site.subgenre)}">${esc(site.subgenre)}</a>` : ""}
               ${site.by ? `<a class="pill pill-by" href="#" data-prompter="${esc(site.by)}">asked by @${esc(site.by)}</a>` : ""}
             </div>
             <p class="detail-meta">
@@ -719,10 +830,25 @@
       // joke/explainer/art), subgenre = a distinct site.tag value under that
       // genre, super-genre = the play/utility grouping in lib/genres.js.
 
+      function modeToggleHtml() {
+        return `<div class="mode-toggle" role="group" aria-label="score sort mode">
+          <button type="button" class="mode-btn" data-mode="community">community score</button>
+          <button type="button" class="mode-btn" data-mode="mine">your ratings</button>
+        </div>`;
+      }
+      function syncModeToggles() {
+        document.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === scoreMode));
+      }
+      function boardEmptyMsg(mode, fallback) {
+        if (mode !== "mine") return fallback;
+        return session ? "you haven't rated anything here yet." : "sign in to sort by your ratings.";
+      }
+
       function renderGenrePage(key) {
         const container = $("#genre-page-body");
         const meta = GENRES[key];
         const inGenre = catalog.filter((s) => s.genre === key);
+        const mode = scoreMode;
         if (!meta) {
           if (!inGenre.length) {
             container.innerHTML = `<p class="empty">no genre named "${esc(key)}".</p>`;
@@ -730,13 +856,14 @@
           }
           // A stray site.type outside the six documented genres (data drift,
           // not a taxonomy gap) — still render a bare board rather than 404.
-          const ranked = scoredList(inGenre);
+          const ranked = scoredList(inGenre, mode);
           container.innerHTML = `
             <div class="detail-head">
               <h2 class="detail-title">${esc(key)}</h2>
               <p class="detail-blurb">${inGenre.length} site${inGenre.length === 1 ? "" : "s"} carry this genre tag — it's outside the usual six, so there's no description or super-genre for it yet.</p>
             </div>
-            <div class="board">${renderBoardRows(ranked)}</div>`;
+            ${modeToggleHtml()}
+            <div class="board">${renderBoardRows(ranked, mode, boardEmptyMsg(mode, "nothing rated in this genre yet."))}</div>`;
           return;
         }
 
@@ -744,7 +871,7 @@
         const subgenreCounts = new Map();
         for (const s of inGenre) if (s.subgenre) subgenreCounts.set(s.subgenre, (subgenreCounts.get(s.subgenre) || 0) + 1);
         const subgenreList = Array.from(subgenreCounts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-        const ranked = scoredList(inGenre);
+        const ranked = scoredList(inGenre, mode);
 
         container.innerHTML = `
           <div class="detail-head">
@@ -754,21 +881,25 @@
               super-genre: <a class="pill" href="/super/${esc(meta.super)}">${esc(superMeta.label)}</a>
               · ${inGenre.length} site${inGenre.length === 1 ? "" : "s"}
             </p>
-            ${subgenreList.length ? `<div class="subgenre-row">subgenres: ${subgenreList.map(([sg, c]) => `<span class="pill">${esc(sg)} <span class="board-sub">(${c})</span></span>`).join(" ")}</div>` : ""}
+            ${subgenreList.length ? `<div class="subgenre-row">subgenres: ${subgenreList.map(([sg, c]) => `<a class="pill" href="/genre/${esc(key)}/${esc(sg)}">${esc(sg)} <span class="board-sub">(${c})</span></a>`).join(" ")}</div>` : ""}
           </div>
-          <div class="board">${renderBoardRows(ranked)}</div>`;
+          ${modeToggleHtml()}
+          <div class="board">${renderBoardRows(ranked, mode, boardEmptyMsg(mode, "nothing rated in this genre yet."))}</div>`;
       }
 
-      function renderBoardRows(ranked) {
+      function renderBoardRows(ranked, mode, emptyMsg) {
         return ranked
           .map((x, i) => `<a class="board-row" href="/site/${esc(x.site.name)}">
             <span class="board-rank">#${i + 1}</span>
             <span class="board-name">${esc(x.site.title)}${x.site.subgenre ? ` <span class="board-sub">${esc(x.site.subgenre)}</span>` : ""}</span>
-            <span class="board-score">${x.w.toFixed(1)} <span class="board-sub">(${x.stats.count})</span></span>
+            <span class="board-score">${boardScoreLabel(x, mode)}</span>
           </a>`)
-          .join("") || `<p class="empty" style="padding:0 0.9rem 0.6rem">nothing rated in this genre yet.</p>`;
+          .join("") || `<p class="empty" style="padding:0 0.9rem 0.6rem">${esc(emptyMsg || "nothing rated here yet.")}</p>`;
       }
 
+      // "on each sub/super/genre page, list the site for that page by score"
+      // — the super page's own board is every site across its member genres,
+      // ranked the same way as a genre page, not just the genre breakdown.
       function renderSuperPage(key) {
         const container = $("#super-page-body");
         const meta = SUPERS[key];
@@ -776,8 +907,10 @@
           container.innerHTML = `<p class="empty">no super-genre named "${esc(key)}".</p>`;
           return;
         }
+        const mode = scoreMode;
         const members = Object.keys(GENRES).filter((g) => GENRES[g].super === key);
-        const rows = members
+        const inSuper = catalog.filter((s) => members.includes(s.genre));
+        const genreRows = members
           .map((g) => {
             const count = catalog.filter((s) => s.genre === g).length;
             return `<a class="board-row" href="/genre/${esc(g)}">
@@ -786,12 +919,39 @@
             </a>`;
           })
           .join("");
+        const ranked = scoredList(inSuper, mode);
         container.innerHTML = `
           <div class="detail-head">
             <h2 class="detail-title">${esc(meta.label)}</h2>
             <p class="detail-blurb">${esc(meta.description)}</p>
+            <p class="detail-meta">${inSuper.length} site${inSuper.length === 1 ? "" : "s"} across ${members.length} genre${members.length === 1 ? "" : "s"}</p>
           </div>
-          <div class="board">${rows}</div>`;
+          <div class="board">${genreRows}</div>
+          ${modeToggleHtml()}
+          <div class="board">${renderBoardRows(ranked, mode, boardEmptyMsg(mode, "nothing rated here yet."))}</div>`;
+      }
+
+      // A dedicated page per (genre, subgenre) pair — subgenre names aren't
+      // unique across genres (e.g. "leaderboard" shows up under joke, tool,
+      // and toy), so the route and lookup are always scoped by genre.
+      function renderSubgenrePage(genreKey, subgenreKey) {
+        const container = $("#subgenre-page-body");
+        const inSubgenre = catalog.filter((s) => s.genre === genreKey && s.subgenre === subgenreKey);
+        if (!inSubgenre.length) {
+          container.innerHTML = `<p class="empty">no subgenre named "${esc(subgenreKey)}" under "${esc(genreKey)}".</p>`;
+          return;
+        }
+        const mode = scoreMode;
+        const genreMeta = GENRES[genreKey];
+        const ranked = scoredList(inSubgenre, mode);
+        container.innerHTML = `
+          <div class="detail-head">
+            <h2 class="detail-title">${esc(subgenreKey)}</h2>
+            <p class="detail-blurb">a subgenre of <a class="pill" href="/genre/${esc(genreKey)}">${esc(genreKey)}</a>${genreMeta ? ` · super-genre <a class="pill" href="/super/${esc(genreMeta.super)}">${esc(SUPERS[genreMeta.super].label)}</a>` : ""}</p>
+            <p class="detail-meta">${inSubgenre.length} site${inSubgenre.length === 1 ? "" : "s"}</p>
+          </div>
+          ${modeToggleHtml()}
+          <div class="board">${renderBoardRows(ranked, mode, boardEmptyMsg(mode, "nothing rated in this subgenre yet."))}</div>`;
       }
 
       // --- reviewer page ---------------------------------------------------
@@ -957,6 +1117,20 @@
       });
       document.addEventListener("keydown", (e) => {
         if (e.key === "Escape" && !$("#prompter-modal").hidden) closePrompterModal();
+      });
+
+      // "anywhere there is a score sortable list, make a way to sort it by
+      // the users ratings rather than community scores" — one global toggle
+      // (genres tab, prompters tab, genre/super/subgenre pages all share it),
+      // separate from the browse tab's own "your rating" #sort option.
+      document.addEventListener("click", (e) => {
+        const btn = e.target.closest(".mode-btn");
+        if (!btn) return;
+        e.preventDefault();
+        const mode = btn.dataset.mode;
+        if (mode === scoreMode) return;
+        scoreMode = mode;
+        renderRoute();
       });
 
       // --- tabs ---------------------------------------------------------------

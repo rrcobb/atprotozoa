@@ -147,6 +147,23 @@ async function renderSuperPage(env: Env, request: Request, key: string): Promise
   );
 }
 
+// Subgenre names aren't unique across genres (e.g. "leaderboard" appears
+// under joke, tool, and toy) so this route — and its lookup — is always
+// scoped to a (genre, subgenre) pair, unlike /genre and /super.
+async function renderSubgenrePage(env: Env, request: Request, genreKey: string, subgenreKey: string): Promise<Response> {
+  const count = SITES.filter((s) => s.genre === genreKey && s.subgenre === subgenreKey).length;
+  if (!count) return shell(env, request);
+  const genreMeta = (GENRES as Record<string, { label: string; super: string; description: string }>)[genreKey];
+  const desc = `${count} site${count === 1 ? "" : "s"} tagged "${subgenreKey}" under the ${genreMeta?.label || genreKey} genre. Rate them 0-10 on rateyourbuild.`;
+  return stampedShell(
+    env,
+    request,
+    `rateyourbuild: ${subgenreKey} (${genreKey})`,
+    desc,
+    `/genre/${encodeURIComponent(genreKey)}/${encodeURIComponent(subgenreKey)}`,
+  );
+}
+
 // /reviewer/<handle-or-did> — "a page where I can see mine, or all of
 // another user's, reviews." The actual review list is client-rendered from
 // the network-wide rating index (no server-side access to that data), but a
@@ -184,6 +201,9 @@ export default {
 
     const site = url.pathname.match(/^\/site\/([^/]+)\/?$/);
     if (site) return renderSitePage(env, request, decodeURIComponent(site[1]));
+
+    const subgenre = url.pathname.match(/^\/genre\/([^/]+)\/([^/]+)\/?$/);
+    if (subgenre) return renderSubgenrePage(env, request, decodeURIComponent(subgenre[1]), decodeURIComponent(subgenre[2]));
 
     const genre = url.pathname.match(/^\/genre\/([^/]+)\/?$/);
     if (genre) return renderGenrePage(env, request, decodeURIComponent(genre[1]));
