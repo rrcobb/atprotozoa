@@ -129,7 +129,8 @@
         <p class="meta">
           any reviewer can check "flag this review — the app itself seemed bugged" when they write a
           review — this is every review with that box checked, newest first, for sweeping the whole
-          catalog for real bug reports instead of just opinions.
+          catalog for real bug reports instead of just opinions. once a fix lands for a flagged site,
+          it gets a ✅ fixed badge here and you'll get a 🔔 alert if it was your review.
         </p>
         <div id="bug-reports"><p class="empty">loading…</p></div>
       </section>
@@ -267,6 +268,7 @@
 
       let session = null;
       let catalog = [];
+      let bugfixes = [];
       let genres = [];
       let snapshot = { bySubject: new Map(), entries: [] };
       let engagementSnapshot = { votesByReview: new Map(), repliesByReview: new Map() };
@@ -1160,12 +1162,14 @@
           : site
             ? `<a class="review-site" href="/site/${esc(site.name)}">${esc(site.title)}</a><a class="pill" href="/genre/${esc(site.genre)}">${esc(site.genre)}</a>`
             : `<span class="review-site">${esc(entry.subject)}</span>`;
+        const fix = entry.bugged ? bugFixFor(entry.subject, entry.ratedAt) : null;
         return `<div class="review-row">
           <div class="review-row-head">
             ${siteHtml}
             <a class="review-handle" href="${esc(reviewerHref)}" title="see all of ${esc(handle)}'s reviews">${esc(handle)}</a>
             <span class="review-score">${entry.score}/10</span>
             ${entry.bugged ? `<span class="bug-tag" title="flagged as a bug report">🐛 bug</span>` : ""}
+            ${fix ? `<span class="fixed-tag" title="${esc(fix.note || "a fix was logged for this site after this review")}">✅ fixed${fix.fixedAt ? " " + esc(new Date(fix.fixedAt).toLocaleDateString(undefined, { dateStyle: "medium" })) : ""}</span>` : ""}
             <span class="review-date">${esc(when)}</span>
           </div>
           ${entry.text ? `<p class="review-text">${esc(entry.text)}</p>` : ""}
@@ -1958,6 +1962,35 @@
         }
       }
 
+      // public/data/bugfixes.json — see subscription-index.js's checkBugFixes
+      // and the standing order in sites/buildthis/builder/INSTRUCTIONS.md.
+      // A hand-appended log of "this site got a bug fix on this date", so a
+      // bugged review can be cross-referenced against a fix that landed after it.
+      async function loadBugfixes() {
+        try {
+          const res = await fetch("/data/bugfixes.json");
+          const data = await res.json();
+          bugfixes = Array.isArray(data) ? data : [];
+        } catch (_) {
+          bugfixes = [];
+        }
+      }
+
+      // Most recent logged fix for `subject` that landed after `ratedAt`
+      // (the bugged review's own timestamp), or null. Used both for the
+      // "✅ fixed" badge on a bugged review row and (via checkBugFixes) the
+      // alert fired to whoever flagged it.
+      function bugFixFor(subject, ratedAt) {
+        let best = null;
+        for (const fix of bugfixes) {
+          if (fix.subject !== subject) continue;
+          const fixedAt = Date.parse(fix.fixedAt);
+          if (!Number.isFinite(fixedAt) || fixedAt <= ratedAt) continue;
+          if (!best || fixedAt > Date.parse(best.fixedAt)) best = fix;
+        }
+        return best;
+      }
+
       // A shared card link (?site=<name>, older links from before /site/<name>
       // existed) lands here on the right card instead of the bare front page.
       function jumpToSharedSite() {
@@ -1977,7 +2010,7 @@
         }
         renderAuthBar();
         const subsReady = subscriptions.setSession(session);
-        await loadCatalog();
+        await Promise.all([loadCatalog(), loadBugfixes()]);
         route = parseRoute();
         renderRoute();
         if (route.view === "browse") {
@@ -1989,6 +2022,7 @@
         engagement.start();
         await subsReady;
         subscriptions.checkNewReleases(catalog, GENRES, SUPERS);
+        subscriptions.checkBugFixes(bugfixes);
       }
       boot();
     </script>

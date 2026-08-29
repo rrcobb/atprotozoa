@@ -16,10 +16,22 @@
 //   - a new site release is detected by diffing the just-fetched
 //     catalog.json against the last-seen set of names in localStorage, once
 //     per page load.
+//   - a "your bugged review got fixed" alert (added 2026-08-29, per
+//     @angussoftware.dev) is detected by cross-referencing the rater's own
+//     bugged=true ratings (read straight from their PDS, not the network-wide
+//     index — a small, fast, own-repo read) against
+//     public/data/bugfixes.json, a small manifest the bot appends to by hand
+//     whenever a future run actually fixes a bug that was flagged this way
+//     (see the standing order in sites/buildthis/builder/INSTRUCTIONS.md).
+//     There's no way to prove *the* flagged bug was fixed rather than some
+//     other change landing — this is an honest best-effort match on "a fix
+//     was logged for this site after you flagged it," same spirit as the
+//     rest of this module's caveats.
 // Nothing pushes while the tab or browser is closed — that would need a
 // server, which is exactly what this constellation avoids paying for.
 
 const COLLECTION = "net.bisks.rateyourbuild.subscription";
+const RATING_COLLECTION = "net.bisks.rateyourbuild.rating";
 const CATALOG_SEEN_KEY = "rateyourbuild:catalog-seen:v1";
 const MAX_ALERTS = 200; // local UI history only — a real localStorage/memory cap, not a network one
 
@@ -30,6 +42,10 @@ function rkeyFor(kind, target, genre) {
 
 function alertsKey(did) {
   return `rateyourbuild:alerts:v1:${did}`;
+}
+
+function bugfixesSeenKey(did) {
+  return `rateyourbuild:bugfixes-seen:v1:${did}`;
 }
 
 async function xrpcJson(url) {
@@ -44,6 +60,7 @@ export class SubscriptionAlerts {
     this.onUpdate = typeof onUpdate === "function" ? onUpdate : () => {};
     this.session = null;
     this.subs = new Map(); // rkey -> { kind, target, genre }
+    this.buggedRatings = new Map(); // subject -> ratedAt (ms) for this rater's own bugged=true reviews
     this.alerts = [];
     this.loaded = false;
   }
@@ -76,6 +93,7 @@ export class SubscriptionAlerts {
   async setSession(session) {
     this.session = session;
     this.subs.clear();
+    this.buggedRatings.clear();
     this.alerts = [];
     this.loaded = false;
     if (!session) {
@@ -88,6 +106,11 @@ export class SubscriptionAlerts {
       await this.loadSubscriptions();
     } catch (err) {
       console.warn("rateyourbuild: couldn't load subscriptions", err);
+    }
+    try {
+      await this.loadBuggedRatings();
+    } catch (err) {
+      console.warn("rateyourbuild: couldn't load own bugged ratings", err);
     }
     this.loaded = true;
     this.emit();
@@ -128,6 +151,29 @@ export class SubscriptionAlerts {
         const v = rec?.value;
         if (!rkey || !v || typeof v.kind !== "string" || typeof v.target !== "string") continue;
         this.subs.set(rkey, { kind: v.kind, target: v.target, genre: typeof v.genre === "string" ? v.genre : null });
+      }
+      cursor = typeof data.cursor === "string" ? data.cursor : undefined;
+      if (!cursor || !records.length) break;
+    }
+  }
+
+  // A rater's own bugged=true reviews, read straight from their PDS (a small
+  // own-repo walk, not the network-wide index) so "did a fix land for one of
+  // my bug reports" doesn't have to wait on global-index.js's backfill.
+  async loadBuggedRatings() {
+    const base = this.session.pdsUrl.replace(/\/$/, "");
+    let cursor;
+    for (;;) {
+      const params = new URLSearchParams({ repo: this.session.did, collection: RATING_COLLECTION, limit: "100" });
+      if (cursor) params.set("cursor", cursor);
+      const data = await xrpcJson(`${base}/xrpc/com.atproto.repo.listRecords?${params}`);
+      const records = Array.isArray(data.records) ? data.records : [];
+      for (const rec of records) {
+        const rkey = typeof rec?.uri === "string" ? rec.uri.split("/").pop() : "";
+        const v = rec?.value;
+        if (!rkey || !v || v.bugged !== true) continue;
+        const subject = typeof v.subject === "string" && v.subject ? v.subject : rkey;
+        this.buggedRatings.set(subject, Date.parse(v.ratedAt) || 0);
       }
       cursor = typeof data.cursor === "string" ? data.cursor : undefined;
       if (!cursor || !records.length) break;
@@ -267,6 +313,50 @@ export class SubscriptionAlerts {
     } catch (_) {
       // Losing this cache just means the next visit re-treats the current
       // catalog as the baseline instead of alerting on the real diff.
+    }
+  }
+
+  // "if I leave review as bugged, then you see that and later fix it, I
+  // want to always receive a notification" (@angussoftware.dev, 2026-08-29).
+  // bugfixes is public/data/bugfixes.json — a small manifest the bot appends
+  // to by hand whenever a future run fixes a bug that was flagged this way.
+  // For each of this rater's own bugged reviews, alert once if a fix was
+  // logged for that site after the review was written. Runs once per page
+  // load, same shape as checkNewReleases; dedupes per (subject, fixedAt) in
+  // localStorage so a fix already seen doesn't re-alert on every visit.
+  checkBugFixes(bugfixes) {
+    if (!this.loaded || !this.session || !Array.isArray(bugfixes) || !bugfixes.length) return;
+    let seen;
+    try {
+      seen = new Set(JSON.parse(localStorage.getItem(bugfixesSeenKey(this.session.did)) || "[]"));
+    } catch (_) {
+      seen = new Set();
+    }
+    let changed = false;
+    for (const fix of bugfixes) {
+      const subject = typeof fix?.subject === "string" ? fix.subject : "";
+      const fixedAt = Date.parse(fix?.fixedAt);
+      if (!subject || !Number.isFinite(fixedAt)) continue;
+      const ratedAt = this.buggedRatings.get(subject);
+      if (ratedAt === undefined || fixedAt <= ratedAt) continue;
+      const seenKey = `${subject}:${fix.fixedAt}`;
+      if (seen.has(seenKey)) continue;
+      seen.add(seenKey);
+      changed = true;
+      this.pushAlert({
+        message: fix.note
+          ? `the bug you flagged on "${subject}" looks fixed: ${fix.note}`
+          : `the bug you flagged on "${subject}" looks fixed — worth another look`,
+        href: `/site/${encodeURIComponent(subject)}`,
+      });
+    }
+    if (changed) {
+      try {
+        localStorage.setItem(bugfixesSeenKey(this.session.did), JSON.stringify(Array.from(seen)));
+      } catch (_) {
+        // Losing this cache just means an already-seen fix might alert again
+        // on a future visit — noisy, not harmful.
+      }
     }
   }
 }

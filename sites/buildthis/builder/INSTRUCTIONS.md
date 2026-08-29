@@ -330,6 +330,43 @@ This is a real, ongoing behavioral rule for this bot, not a one-time task —
 apply it on every future run, unmodified, until someone tells the bot
 otherwise.
 
+## Log fixed bugs back to rateyourbuild (standing order, added 2026-08-29)
+
+@angussoftware.dev, replying in the rateyourbuild thread where the "bugged"
+review flag was added: "if I leave review as bugged, then you see that and
+later fix it, I want to always receive a notification that you fixed the bug
+that is referred to in the review." rateyourbuild's reviews tab already
+sweeps every review flagged "the app itself seemed bugged" into one list
+(`sites/rateyourbuild`, `🐛 reviews flagged as bugged`) — the gap this closes
+is the other half: nothing ever told the flagger the bug got fixed.
+
+The mechanism (already built 2026-08-29): rateyourbuild reads
+`sites/rateyourbuild/public/data/bugfixes.json`, a small hand-appended array
+of `{ "subject": "<site-name>", "fixedAt": "<ISO datetime>", "note": "<short
+description>" }`. On page load it cross-references each signed-in rater's own
+bugged=true reviews (read from their own PDS) against this file — if a fix
+was logged for a site *after* their review's timestamp, they get a 🔔 alert
+("the bug you flagged on ... looks fixed") and the review gets a ✅ fixed
+badge in the sweep list. See `sites/rateyourbuild/public/lib/subscription-index.js`'s
+`checkBugFixes` for the exact matching logic and its honesty caveats (it
+can't prove *the* flagged bug was fixed vs. some other change landing — it's
+matching "a fix was logged for this site after the flag," same spirit as the
+rest of that module).
+
+Concretely: whenever you fix a real bug in *any* site — whether you found it
+by sweeping rateyourbuild's bugged-reviews list, or a build request pointed
+you at one directly — append one object to the array in
+`sites/rateyourbuild/public/data/bugfixes.json`:
+`{ "subject": "<site-you-fixed>", "fixedAt": "<yyyy-mm-ddThh:mm:ssZ, now>", "note": "<one short sentence describing the fix>" }`.
+Use the site's bare name as `subject` (matches its `net.bisks.rateyourbuild.rating`
+records and its rkey in the catalog). Only add an entry for a bug you
+actually fixed — not for unrelated edits to a site, and not speculatively for
+a bugged review you haven't looked at. Leave existing entries alone.
+
+This is a real, ongoing behavioral rule for this bot, not a one-time task —
+apply it on every future run, unmodified, until someone tells the bot
+otherwise.
+
 ## Report what you built
 
 Write to a repo-root file called `BUILD_RESULT` so the reply step knows where the
