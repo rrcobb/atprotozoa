@@ -340,22 +340,33 @@
       // weighted community score — only sites they've actually rated show up,
       // same as "your rating" in the browse sort: a personal ranking, not a
       // community one with a smaller sample.
-      function scoredList(list, mode = scoreMode) {
+      // includeUnrated appends every unrated site after the ranked ones
+      // (w: null, alphabetical) instead of dropping them — used by the
+      // genre/super/subgenre pages so "list all sites" means all of them,
+      // not just the ones somebody's gotten around to rating.
+      function scoredList(list, mode = scoreMode, { includeUnrated = false } = {}) {
         if (mode === "mine") {
-          if (!session) return [];
-          return list
-            .map((s) => ({ site: s, stats: statsFor(s.name), w: ownScore(s.name) }))
-            .filter((x) => x.w != null)
-            .sort((a, b) => b.w - a.w || a.site.name.localeCompare(b.site.name));
+          if (!session) {
+            if (!includeUnrated) return [];
+            return list
+              .map((s) => ({ site: s, stats: statsFor(s.name), w: null }))
+              .sort((a, b) => a.site.name.localeCompare(b.site.name));
+          }
+          const scored = list.map((s) => ({ site: s, stats: statsFor(s.name), w: ownScore(s.name) }));
+          const rated = scored.filter((x) => x.w != null).sort((a, b) => b.w - a.w || a.site.name.localeCompare(b.site.name));
+          if (!includeUnrated) return rated;
+          const unrated = scored.filter((x) => x.w == null).sort((a, b) => a.site.name.localeCompare(b.site.name));
+          return rated.concat(unrated);
         }
         const mean = globalMean();
-        return list
-          .map((s) => {
-            const stats = statsFor(s.name);
-            return { site: s, stats, w: stats ? weighted(stats.sum, stats.count, mean) : null };
-          })
-          .filter((x) => x.w != null)
-          .sort((a, b) => b.w - a.w || b.stats.count - a.stats.count);
+        const scored = list.map((s) => {
+          const stats = statsFor(s.name);
+          return { site: s, stats, w: stats ? weighted(stats.sum, stats.count, mean) : null };
+        });
+        const rated = scored.filter((x) => x.w != null).sort((a, b) => b.w - a.w || b.stats.count - a.stats.count);
+        if (!includeUnrated) return rated;
+        const unrated = scored.filter((x) => x.w == null).sort((a, b) => a.site.name.localeCompare(b.site.name));
+        return rated.concat(unrated);
       }
 
       // --- rating + review writes ------------------------------------------
@@ -839,10 +850,6 @@
       function syncModeToggles() {
         document.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === scoreMode));
       }
-      function boardEmptyMsg(mode, fallback) {
-        if (mode !== "mine") return fallback;
-        return session ? "you haven't rated anything here yet." : "sign in to sort by your ratings.";
-      }
 
       function renderGenrePage(key) {
         const container = $("#genre-page-body");
@@ -856,14 +863,14 @@
           }
           // A stray site.type outside the six documented genres (data drift,
           // not a taxonomy gap) — still render a bare board rather than 404.
-          const ranked = scoredList(inGenre, mode);
+          const ranked = scoredList(inGenre, mode, { includeUnrated: true });
           container.innerHTML = `
             <div class="detail-head">
               <h2 class="detail-title">${esc(key)}</h2>
               <p class="detail-blurb">${inGenre.length} site${inGenre.length === 1 ? "" : "s"} carry this genre tag — it's outside the usual six, so there's no description or super-genre for it yet.</p>
             </div>
             ${modeToggleHtml()}
-            <div class="board">${renderBoardRows(ranked, mode, boardEmptyMsg(mode, "nothing rated in this genre yet."))}</div>`;
+            <div class="board">${renderBoardRows(ranked, mode, "no sites in this genre yet.")}</div>`;
           return;
         }
 
@@ -871,7 +878,7 @@
         const subgenreCounts = new Map();
         for (const s of inGenre) if (s.subgenre) subgenreCounts.set(s.subgenre, (subgenreCounts.get(s.subgenre) || 0) + 1);
         const subgenreList = Array.from(subgenreCounts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-        const ranked = scoredList(inGenre, mode);
+        const ranked = scoredList(inGenre, mode, { includeUnrated: true });
 
         container.innerHTML = `
           <div class="detail-head">
@@ -884,17 +891,34 @@
             ${subgenreList.length ? `<div class="subgenre-row">subgenres: ${subgenreList.map(([sg, c]) => `<a class="pill" href="/genre/${esc(key)}/${esc(sg)}">${esc(sg)} <span class="board-sub">(${c})</span></a>`).join(" ")}</div>` : ""}
           </div>
           ${modeToggleHtml()}
-          <div class="board">${renderBoardRows(ranked, mode, boardEmptyMsg(mode, "nothing rated in this genre yet."))}</div>`;
+          <div class="board">${renderBoardRows(ranked, mode, "no sites in this genre yet.")}</div>`;
       }
 
+      // "list all games in sub/super/genre pages even if they haven't been
+      // rated — mark them NR" — ranked may include unrated entries (w: null,
+      // trailing the scored ones); those get a plain NR row instead of a
+      // rank number.
       function renderBoardRows(ranked, mode, emptyMsg) {
+        if (!ranked.length) return `<p class="empty" style="padding:0 0.9rem 0.6rem">${esc(emptyMsg || "no sites here yet.")}</p>`;
+        let rank = 0;
         return ranked
-          .map((x, i) => `<a class="board-row" href="/site/${esc(x.site.name)}">
-            <span class="board-rank">#${i + 1}</span>
-            <span class="board-name">${esc(x.site.title)}${x.site.subgenre ? ` <span class="board-sub">${esc(x.site.subgenre)}</span>` : ""}</span>
-            <span class="board-score">${boardScoreLabel(x, mode)}</span>
-          </a>`)
-          .join("") || `<p class="empty" style="padding:0 0.9rem 0.6rem">${esc(emptyMsg || "nothing rated here yet.")}</p>`;
+          .map((x) => {
+            const subgenreHtml = x.site.subgenre ? ` <span class="board-sub">${esc(x.site.subgenre)}</span>` : "";
+            if (x.w == null) {
+              return `<a class="board-row board-row-nr" href="/site/${esc(x.site.name)}">
+                <span class="board-rank">NR</span>
+                <span class="board-name">${esc(x.site.title)}${subgenreHtml}</span>
+                <span class="board-score"><span class="board-sub">not yet rated</span></span>
+              </a>`;
+            }
+            rank += 1;
+            return `<a class="board-row" href="/site/${esc(x.site.name)}">
+              <span class="board-rank">#${rank}</span>
+              <span class="board-name">${esc(x.site.title)}${subgenreHtml}</span>
+              <span class="board-score">${boardScoreLabel(x, mode)}</span>
+            </a>`;
+          })
+          .join("");
       }
 
       // "on each sub/super/genre page, list the site for that page by score"
@@ -919,7 +943,7 @@
             </a>`;
           })
           .join("");
-        const ranked = scoredList(inSuper, mode);
+        const ranked = scoredList(inSuper, mode, { includeUnrated: true });
         container.innerHTML = `
           <div class="detail-head">
             <h2 class="detail-title">${esc(meta.label)}</h2>
@@ -928,7 +952,7 @@
           </div>
           <div class="board">${genreRows}</div>
           ${modeToggleHtml()}
-          <div class="board">${renderBoardRows(ranked, mode, boardEmptyMsg(mode, "nothing rated here yet."))}</div>`;
+          <div class="board">${renderBoardRows(ranked, mode, "no sites in this super-genre yet.")}</div>`;
       }
 
       // A dedicated page per (genre, subgenre) pair — subgenre names aren't
@@ -943,7 +967,7 @@
         }
         const mode = scoreMode;
         const genreMeta = GENRES[genreKey];
-        const ranked = scoredList(inSubgenre, mode);
+        const ranked = scoredList(inSubgenre, mode, { includeUnrated: true });
         container.innerHTML = `
           <div class="detail-head">
             <h2 class="detail-title">${esc(subgenreKey)}</h2>
@@ -951,7 +975,7 @@
             <p class="detail-meta">${inSubgenre.length} site${inSubgenre.length === 1 ? "" : "s"}</p>
           </div>
           ${modeToggleHtml()}
-          <div class="board">${renderBoardRows(ranked, mode, boardEmptyMsg(mode, "nothing rated in this subgenre yet."))}</div>`;
+          <div class="board">${renderBoardRows(ranked, mode, "no sites in this subgenre yet.")}</div>`;
       }
 
       // --- reviewer page ---------------------------------------------------
