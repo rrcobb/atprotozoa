@@ -7,9 +7,12 @@
 // There's no backend here (frontend-first; no Workers AI / Durable Objects /
 // KV / cron per house rules), so delivery is honestly scoped to what a
 // static site + Jetstream can actually do:
-//   - a live rating at or below the low-score threshold fires an alert while
+//   - any live rating or review on a subscribed site fires an alert while
 //     this tab is open, via global-index.js's onLiveCommit hook (its own
-//     Jetstream subscription — this module doesn't open a second socket);
+//     Jetstream subscription — this module doesn't open a second socket).
+//     Originally scoped to "new 1s" only; broadened 2026-08-29 after
+//     @angussoftware.dev pointed out the bell's label promised "all new
+//     ratings and reviews" while the code only fired on low scores;
 //   - a new site release is detected by diffing the just-fetched
 //     catalog.json against the last-seen set of names in localStorage, once
 //     per page load.
@@ -18,7 +21,6 @@
 
 const COLLECTION = "net.bisks.rateyourbuild.subscription";
 const CATALOG_SEEN_KEY = "rateyourbuild:catalog-seen:v1";
-const LOW_SCORE_THRESHOLD = 1; // "new 1s" — treated as "1 or lower" so a 0 counts too
 const MAX_ALERTS = 200; // local UI history only — a real localStorage/memory cap, not a network one
 
 function rkeyFor(kind, target, genre) {
@@ -202,13 +204,17 @@ export class SubscriptionAlerts {
   // Hooked into global-index.js's onLiveCommit — a rating that arrives over
   // Jetstream after this tab is already open, not backfilled history (which
   // shouldn't retroactively alert anyone about ratings from before they
-  // subscribed). Skips your own ratings and anything above the threshold.
-  handleLiveRating({ did, subject, score }) {
+  // subscribed). Skips your own ratings; fires on every new rating/review on
+  // a subscribed site, not just low scores.
+  handleLiveRating({ did, subject, score, text }) {
     if (!this.loaded || !this.session || did === this.session.did) return;
-    if (typeof score !== "number" || score > LOW_SCORE_THRESHOLD) return;
+    if (typeof score !== "number") return;
     if (!this.isSubscribed("site", subject)) return;
+    const hasReview = typeof text === "string" && text.trim().length > 0;
     this.pushAlert({
-      message: `a new ${score}/10 rating just landed on "${subject}"`,
+      message: hasReview
+        ? `a new ${score}/10 review just landed on "${subject}"`
+        : `a new ${score}/10 rating just landed on "${subject}"`,
       href: `/site/${encodeURIComponent(subject)}`,
     });
   }
