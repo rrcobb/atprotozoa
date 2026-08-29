@@ -78,8 +78,13 @@ function normaliseRecord(did, rkey, record) {
 }
 
 export class GlobalIndex {
-  constructor({ onUpdate } = {}) {
+  constructor({ onUpdate, onLiveCommit } = {}) {
     this.onUpdate = typeof onUpdate === "function" ? onUpdate : () => {};
+    // Fired for a genuinely live (not backfilled) create/update commit, so a
+    // caller can react to "a rating just landed" without waiting on the next
+    // debounced snapshot rebuild — used by subscription-index.js to alert on
+    // a fresh low score without re-deriving it from the whole entries map.
+    this.onLiveCommit = typeof onLiveCommit === "function" ? onLiveCommit : () => {};
     this.entries = new Map();
     this.liveKeys = new Set();
     this.lastUpdated = 0;
@@ -291,6 +296,10 @@ export class GlobalIndex {
       changed = this.entries.delete(key);
     } else if (commit.operation === "create" || commit.operation === "update") {
       changed = this.applyRecord(event.did, commit.rkey, commit.record, true);
+      if (changed) {
+        const entry = this.entries.get(key);
+        if (entry) this.onLiveCommit({ did: event.did, subject: entry.subject, score: entry.score, ratedAt: entry.ratedAt });
+      }
     }
     if (changed) {
       this.lastUpdated = Date.now();

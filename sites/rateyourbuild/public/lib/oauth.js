@@ -28,7 +28,7 @@ const ORIGIN = location.origin; // https://rateyourbuild.bisks.net (or localhost
 export const MOUNT = "";
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto repo:net.bisks.rateyourbuild.rating repo:net.bisks.rateyourbuild.vote repo:net.bisks.rateyourbuild.reply";
+const SCOPE = "atproto repo:net.bisks.rateyourbuild.rating repo:net.bisks.rateyourbuild.vote repo:net.bisks.rateyourbuild.reply repo:net.bisks.rateyourbuild.subscription";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";

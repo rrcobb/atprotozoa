@@ -40,7 +40,8 @@
           <a href="https://rateyourbuild.bisks.net/site/rateyourbuild">rate rateyourbuild on rateyourbuild →</a>
         </p>
         <nav class="tabs">
-          <a class="tab-link active" data-tab="browse">browse &amp; rate</a>
+          <a class="tab-link active" data-tab="featured">featured</a>
+          <a class="tab-link" data-tab="browse">browse &amp; rate</a>
           <a class="tab-link" data-tab="genres">genres</a>
           <a class="tab-link" data-tab="prompters">prompters</a>
           <a class="tab-link" data-tab="reviews">reviews</a>
@@ -54,12 +55,21 @@
         </div>
         <div class="session-row" id="signed-in-row" style="display: none">
           <span>rating as <strong id="who"></strong> · <a id="my-reviews-link" href="#">your reviews →</a></span>
+          <button class="secondary" id="alerts-btn">🔔 alerts<span class="alerts-badge" id="alerts-badge" hidden>0</span></button>
           <button class="secondary" id="authSignout">sign out</button>
         </div>
         <p class="status" id="auth-status"></p>
       </section>
 
-      <section id="tab-browse" class="tab-panel">
+      <section id="tab-featured" class="tab-panel">
+        <p class="meta">
+          one featured review, one featured community score, and one featured genre/subgenre/super-genre —
+          picked fresh (and the same for everyone) each day.
+        </p>
+        <div id="featured-body"><p class="empty">loading…</p></div>
+      </section>
+
+      <section id="tab-browse" class="tab-panel" hidden>
         <div class="controls">
           <input id="search" type="text" placeholder="search name, blurb, or prompter…" autocomplete="off" />
           <select id="genre-filter"><option value="">all genres</option></select>
@@ -154,6 +164,13 @@
         </div>
       </div>
 
+      <div id="alerts-modal" class="modal-overlay" hidden>
+        <div class="modal-panel" role="dialog" aria-modal="true">
+          <button class="modal-close" id="alerts-modal-close" aria-label="close">×</button>
+          <div id="alerts-modal-body"></div>
+        </div>
+      </div>
+
       <footer>
         Ratings and reviews are <code>net.bisks.rateyourbuild.rating</code> records written straight
         to your own PDS, read back network-wide via
@@ -163,10 +180,13 @@
         <code>sites/*/site.json</code> manifest in the
         <a href="https://tangled.org/bisks.net/atprotozoa" target="_blank" rel="noopener">atprotozoa</a>
         repo, regenerated each time the bot builds something new. Upvotes/downvotes and replies on
-        a review are their own records too, same overwrite-in-place shape. Schemas:
+        a review are their own records too, same overwrite-in-place shape — so are the 🔔 "notify me"
+        subscriptions on a site or genre/subgenre/super-genre page, but those alerts only fire while
+        this tab is open; there's no backend here to push them otherwise. Schemas:
         <a href="/lexicons/net.bisks.rateyourbuild.rating.json">rating</a>,
         <a href="/lexicons/net.bisks.rateyourbuild.vote.json">vote</a>,
-        <a href="/lexicons/net.bisks.rateyourbuild.reply.json">reply</a>. Built by
+        <a href="/lexicons/net.bisks.rateyourbuild.reply.json">reply</a>,
+        <a href="/lexicons/net.bisks.rateyourbuild.subscription.json">subscription</a>. Built by
         <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
       </footer>
     </div>
@@ -175,6 +195,7 @@
       import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
       import { GlobalIndex } from "/lib/global-index.js";
       import { EngagementIndex } from "/lib/engagement-index.js";
+      import { SubscriptionAlerts } from "/lib/subscription-index.js";
       import { getProfiles, resolveActor } from "/lib/identity.js";
       import { GENRES, SUPERS } from "/lib/genres.js";
 
@@ -242,8 +263,9 @@
       let genres = [];
       let snapshot = { bySubject: new Map(), entries: [] };
       let engagementSnapshot = { votesByReview: new Map(), repliesByReview: new Map() };
+      let subsSnapshot = { loaded: false, subscriptions: [], alerts: [], unreadCount: 0, notifPermission: "default" };
       let visibleCount = PAGE_SIZE;
-      let activeTab = "browse";
+      let activeTab = "featured";
       let lastRatedNote = null; // { subject, score } — see submitRating
       let route = { view: "browse" };
       let composerScore = null;
@@ -265,11 +287,20 @@
           snapshot = snap;
           renderRoute();
         },
+        onLiveCommit: (info) => subscriptions.handleLiveRating(info),
       });
       const engagement = new EngagementIndex({
         onUpdate: (snap) => {
           engagementSnapshot = snap;
           renderRoute();
+        },
+      });
+      const subscriptions = new SubscriptionAlerts({
+        dpopFetch,
+        onUpdate: (snap) => {
+          subsSnapshot = snap;
+          renderAlertsBadge();
+          if (!$("#alerts-modal").hidden) renderAlertsModal();
         },
       });
 
@@ -310,6 +341,7 @@
         const href = a.getAttribute("href");
         if (href === "/" || /^\/(site|genre|super|reviewer|review)\//.test(href)) {
           e.preventDefault();
+          if (!$("#alerts-modal").hidden) closeAlertsModal();
           navigate(href);
         }
       });
@@ -321,6 +353,7 @@
       function applyRouteVisibility() {
         const browseApp = route.view === "browse";
         $(".tabs").style.display = browseApp ? "" : "none";
+        $("#tab-featured").hidden = !(browseApp && activeTab === "featured");
         $("#tab-browse").hidden = !(browseApp && activeTab === "browse");
         $("#tab-genres").hidden = !(browseApp && activeTab === "genres");
         $("#tab-prompters").hidden = !(browseApp && activeTab === "prompters");
@@ -343,6 +376,8 @@
         else if (route.view === "review") renderReviewPage(route.actor, route.subject);
         else renderAll();
         syncModeToggles();
+        renderAlertsBadge();
+        if (!$("#alerts-modal").hidden) renderAlertsModal();
       }
 
       // --- weighting -----------------------------------------------------
@@ -816,10 +851,119 @@
       }
 
       function renderAll() {
+        renderFeatured();
         renderBrowse();
         renderGenreBoards();
         renderPrompters();
         if (openPrompter) renderPrompterModal(openPrompter);
+      }
+
+      // --- featured tab ------------------------------------------------------
+      // "featured review", "featured community score", and "featured
+      // sub/super/genre" of the day, as the new 1st tab — picked
+      // deterministically from today's UTC calendar date, so every visitor
+      // sees the same pick all day (no server needed to coordinate that).
+
+      function dayHash(salt) {
+        const day = new Date().toISOString().slice(0, 10);
+        const s = `${day}:${salt}`;
+        let h = 2166136261;
+        for (let i = 0; i < s.length; i++) {
+          h ^= s.charCodeAt(i);
+          h = Math.imul(h, 16777619);
+        }
+        return h >>> 0;
+      }
+      function pickOfDay(list, salt) {
+        if (!list.length) return null;
+        return list[dayHash(salt) % list.length];
+      }
+
+      // Genres, subgenres (scoped to their genre), and supers actually
+      // present in the catalog, in a stable order — genres/catalog are
+      // already fixed by the build, so no extra sort is needed to keep the
+      // pick consistent across visitors.
+      function featuredGenreFamilies() {
+        const out = genres.map((g) => ({ kind: "genre", key: g }));
+        const seenSub = new Set();
+        for (const s of catalog) {
+          if (!s.subgenre) continue;
+          const k = `${s.genre}::${s.subgenre}`;
+          if (seenSub.has(k)) continue;
+          seenSub.add(k);
+          out.push({ kind: "subgenre", genre: s.genre, key: s.subgenre });
+        }
+        const seenSuper = new Set();
+        for (const g of genres) {
+          const meta = GENRES[g];
+          if (meta && !seenSuper.has(meta.super)) {
+            seenSuper.add(meta.super);
+            out.push({ kind: "super", key: meta.super });
+          }
+        }
+        return out;
+      }
+
+      function renderFeaturedGenreFamily(desc) {
+        if (desc.kind === "genre") return renderGenreBoard(desc.key, "community");
+        if (desc.kind === "subgenre") {
+          const inSub = catalog.filter((s) => s.genre === desc.genre && s.subgenre === desc.key);
+          const ranked = scoredList(inSub, "community");
+          return `<div class="board">
+            <div class="board-title">
+              <a class="board-title-name" href="/genre/${esc(desc.genre)}/${esc(desc.key)}">${esc(desc.key)} <span class="board-sub">(${inSub.length})</span></a>
+            </div>
+            ${renderBoardRows(ranked.slice(0, 8), "community")}
+          </div>`;
+        }
+        const meta = SUPERS[desc.key];
+        const members = Object.keys(GENRES).filter((g) => GENRES[g].super === desc.key);
+        const inSuper = catalog.filter((s) => members.includes(s.genre));
+        const ranked = scoredList(inSuper, "community");
+        return `<div class="board">
+          <div class="board-title">
+            <a class="board-title-name" href="/super/${esc(desc.key)}">${esc(meta ? meta.label : desc.key)} <span class="board-sub">(${inSuper.length})</span></a>
+          </div>
+          ${renderBoardRows(ranked.slice(0, 8), "community")}
+        </div>`;
+      }
+
+      function renderFeatured() {
+        const container = $("#featured-body");
+        if (!container) return;
+        if (!catalog.length) {
+          container.innerHTML = `<p class="empty">loading…</p>`;
+          return;
+        }
+        const today = new Date().toISOString().slice(0, 10);
+
+        const reviewsWithText = snapshot.entries
+          .filter((e) => e.text)
+          .slice()
+          .sort((a, b) => a.subject.localeCompare(b.subject) || a.did.localeCompare(b.did));
+        const featuredReview = pickOfDay(reviewsWithText, "review");
+        if (featuredReview) ensureProfiles([featuredReview.did]);
+
+        const ratedSites = catalog.filter((s) => statsFor(s.name)).slice().sort((a, b) => a.name.localeCompare(b.name));
+        const featuredSite = pickOfDay(ratedSites, "score");
+
+        const families = featuredGenreFamilies();
+        const featuredFamily = pickOfDay(families, "family");
+
+        container.innerHTML = `
+          <div class="featured-block">
+            <h3 class="featured-heading">featured review — ${esc(today)}</h3>
+            ${featuredReview ? renderReviewRow(featuredReview) : `<p class="empty">no written reviews yet — be the first.</p>`}
+          </div>
+          <div class="featured-block">
+            <h3 class="featured-heading">featured community score — ${esc(today)}</h3>
+            ${featuredSite ? renderCard(featuredSite) : `<p class="empty">nothing's been rated yet.</p>`}
+          </div>
+          <div class="featured-block">
+            <h3 class="featured-heading">featured today — ${esc(today)}</h3>
+            ${featuredFamily ? renderFeaturedGenreFamily(featuredFamily) : `<p class="empty">no genres in the catalog yet.</p>`}
+          </div>
+        `;
       }
 
       // --- site detail page -------------------------------------------------
@@ -991,6 +1135,7 @@
               · <a href="${esc(site.url)}" target="_blank" rel="noopener">visit ${esc(site.name)}.bisks.net ↗</a>
             </p>
             ${rankings.length ? `<ul class="rank-list">${rankings.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
+            <p class="detail-meta">${renderSubButton("site", site.name, null, "notify me about new 1s here", "unsubscribe from low-rating alerts")}</p>
           </div>
           <div class="detail-score">${scoreHtml}</div>
           <div class="review-composer">
@@ -1050,6 +1195,16 @@
       // joke/explainer/art), subgenre = a distinct site.tag value under that
       // genre, super-genre = the play/utility grouping in lib/genres.js.
 
+      // 🔔 "notify me" toggle, reused on the site page (kind: site, low
+      // ratings) and the genre/subgenre/super pages (new releases in scope).
+      // Signed-out visitors get a hint instead of a disabled button — there's
+      // nowhere to write the subscription record without a session.
+      function renderSubButton(kind, target, genre, onLabel, offLabel) {
+        if (!session) return `<span class="board-sub">sign in to get notified about ${esc(onLabel)}.</span>`;
+        const active = subscriptions.isSubscribed(kind, target, genre);
+        return `<button type="button" class="secondary sub-btn${active ? " active" : ""}" data-kind="${esc(kind)}" data-target="${esc(target)}" ${genre ? `data-genre="${esc(genre)}"` : ""}>🔔 ${esc(active ? offLabel : onLabel)}</button>`;
+      }
+
       function modeToggleHtml() {
         return `<div class="mode-toggle" role="group" aria-label="score sort mode">
           <button type="button" class="mode-btn" data-mode="community">community score</button>
@@ -1077,6 +1232,7 @@
             <div class="detail-head">
               <h2 class="detail-title">${esc(key)}</h2>
               <p class="detail-blurb">${inGenre.length} site${inGenre.length === 1 ? "" : "s"} carry this genre tag — it's outside the usual six, so there's no description or super-genre for it yet.</p>
+              <p class="detail-meta">${renderSubButton("genre", key, null, "new releases in this genre", "unsubscribe from new releases")}</p>
             </div>
             ${modeToggleHtml()}
             <div class="board">${renderBoardRows(ranked, mode, "no sites in this genre yet.")}</div>`;
@@ -1098,6 +1254,7 @@
               · ${inGenre.length} site${inGenre.length === 1 ? "" : "s"}
             </p>
             ${subgenreList.length ? `<div class="subgenre-row">subgenres: ${subgenreList.map(([sg, c]) => `<a class="pill" href="/genre/${esc(key)}/${esc(sg)}">${esc(sg)} <span class="board-sub">(${c})</span></a>`).join(" ")}</div>` : ""}
+            <p class="detail-meta">${renderSubButton("genre", key, null, "new releases in this genre", "unsubscribe from new releases")}</p>
           </div>
           ${modeToggleHtml()}
           <div class="board">${renderBoardRows(ranked, mode, "no sites in this genre yet.")}</div>`;
@@ -1158,6 +1315,7 @@
             <h2 class="detail-title">${esc(meta.label)}</h2>
             <p class="detail-blurb">${esc(meta.description)}</p>
             <p class="detail-meta">${inSuper.length} site${inSuper.length === 1 ? "" : "s"} across ${members.length} genre${members.length === 1 ? "" : "s"}</p>
+            <p class="detail-meta">${renderSubButton("super", key, null, "new releases in this super-genre", "unsubscribe from new releases")}</p>
           </div>
           <div class="board">${genreRows}</div>
           ${modeToggleHtml()}
@@ -1182,6 +1340,7 @@
             <h2 class="detail-title">${esc(subgenreKey)}</h2>
             <p class="detail-blurb">a subgenre of <a class="pill" href="/genre/${esc(genreKey)}">${esc(genreKey)}</a>${genreMeta ? ` · super-genre <a class="pill" href="/super/${esc(genreMeta.super)}">${esc(SUPERS[genreMeta.super].label)}</a>` : ""}</p>
             <p class="detail-meta">${inSubgenre.length} site${inSubgenre.length === 1 ? "" : "s"}</p>
+            <p class="detail-meta">${renderSubButton("subgenre", subgenreKey, genreKey, "new releases in this subgenre", "unsubscribe from new releases")}</p>
           </div>
           ${modeToggleHtml()}
           <div class="board">${renderBoardRows(ranked, mode, "no sites in this subgenre yet.")}</div>`;
@@ -1422,6 +1581,144 @@
         if (e.key === "Escape" && !$("#prompter-modal").hidden) closePrompterModal();
       });
 
+      // --- alerts modal --------------------------------------------------------
+      // "add a way to subscribe to ratings/reviews for a site so I can receive
+      // notifications when new 1s are posted, same with a sub/super/genre for
+      // new site releases" — one panel to manage every 🔔 subscription and see
+      // what's fired. Delivery is honestly scoped to "while this tab is open"
+      // (see subscription-index.js) — no backend here to push otherwise.
+
+      function fmtRelative(ms) {
+        const diff = Date.now() - ms;
+        if (diff < 60000) return "just now";
+        if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+        if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+        return `${Math.floor(diff / 86400000)}d ago`;
+      }
+
+      function subscriptionLabel(s) {
+        if (s.kind === "site") return `site: ${s.target}`;
+        if (s.kind === "subgenre") return `subgenre: ${s.target} (${s.genre})`;
+        if (s.kind === "super") return `super-genre: ${SUPERS[s.target]?.label || s.target}`;
+        return `genre: ${GENRES[s.target]?.label || s.target}`;
+      }
+      function subscriptionHref(s) {
+        if (s.kind === "site") return `/site/${encodeURIComponent(s.target)}`;
+        if (s.kind === "subgenre") return `/genre/${encodeURIComponent(s.genre)}/${encodeURIComponent(s.target)}`;
+        if (s.kind === "super") return `/super/${encodeURIComponent(s.target)}`;
+        return `/genre/${encodeURIComponent(s.target)}`;
+      }
+
+      function renderAlertsBadge() {
+        const badge = $("#alerts-badge");
+        if (!badge) return;
+        const n = subsSnapshot.unreadCount;
+        badge.hidden = !n;
+        badge.textContent = n > 99 ? "99+" : String(n);
+      }
+
+      function renderAlertsModal() {
+        const body = $("#alerts-modal-body");
+        if (!body) return;
+        const perm = subsSnapshot.notifPermission;
+        const permHtml = perm === "granted"
+          ? `<p class="status ok">browser notifications are on for this site.</p>`
+          : perm === "denied"
+            ? `<p class="status warn">browser notifications are blocked — the alert list below still fills up either way.</p>`
+            : perm === "unsupported"
+              ? ""
+              : `<button type="button" class="secondary" id="alerts-enable-notif">enable browser notifications</button>`;
+
+        const subsHtml = subsSnapshot.subscriptions.length
+          ? subsSnapshot.subscriptions
+              .map(
+                (s) => `<div class="sub-row">
+                  <a href="${esc(subscriptionHref(s))}">🔔 ${esc(subscriptionLabel(s))}</a>
+                  <button type="button" class="unsub-btn" data-kind="${esc(s.kind)}" data-target="${esc(s.target)}" ${s.genre ? `data-genre="${esc(s.genre)}"` : ""}>unsubscribe</button>
+                </div>`,
+              )
+              .join("")
+          : `<p class="empty">no subscriptions yet — look for the 🔔 button on a site or genre/subgenre/super-genre page.</p>`;
+
+        const alertsHtml = subsSnapshot.alerts.length
+          ? subsSnapshot.alerts
+              .slice(0, 40)
+              .map(
+                (a) => `<a class="alert-row${a.read ? "" : " unread"}" href="${esc(a.href || "#")}">
+                  <span class="alert-msg">${esc(a.message)}</span>
+                  <span class="alert-date">${esc(fmtRelative(a.at))}</span>
+                </a>`,
+              )
+              .join("")
+          : `<p class="empty">nothing yet — matches for your subscriptions above will show up here.</p>`;
+
+        body.innerHTML = `
+          <h2 class="modal-title">alerts</h2>
+          <p class="meta">
+            only fires while this tab is open — there's no backend here to push notifications otherwise.
+            low-rating alerts arrive live; new-release alerts are checked once per visit.
+          </p>
+          ${permHtml}
+          <h3 class="alerts-subhead">your subscriptions</h3>
+          ${subsHtml}
+          <h3 class="alerts-subhead">recent alerts</h3>
+          ${alertsHtml}
+        `;
+      }
+
+      function openAlertsModal() {
+        if (!session) return;
+        renderAlertsModal();
+        $("#alerts-modal").hidden = false;
+        subscriptions.markAllRead();
+      }
+      function closeAlertsModal() {
+        $("#alerts-modal").hidden = true;
+      }
+
+      $("#alerts-btn").addEventListener("click", openAlertsModal);
+      $("#alerts-modal-close").addEventListener("click", closeAlertsModal);
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && !$("#alerts-modal").hidden) closeAlertsModal();
+      });
+      document.addEventListener("click", async (e) => {
+        if (e.target.id === "alerts-modal") {
+          closeAlertsModal();
+          return;
+        }
+        if (e.target.id === "alerts-enable-notif") {
+          subscriptions.requestNotificationPermission();
+          return;
+        }
+        const unsub = e.target.closest(".unsub-btn");
+        if (unsub) {
+          unsub.disabled = true;
+          try {
+            await subscriptions.unsubscribe(unsub.dataset.kind, unsub.dataset.target, unsub.dataset.genre || null);
+            renderAlertsModal();
+            renderRoute();
+          } catch (err) {
+            console.error("rateyourbuild: couldn't unsubscribe", err);
+            unsub.disabled = false;
+          }
+          return;
+        }
+        // 🔔 toggle on a site/genre/subgenre/super page.
+        const subBtn = e.target.closest(".sub-btn");
+        if (subBtn && !subBtn.disabled && session) {
+          const kind = subBtn.dataset.kind, target = subBtn.dataset.target, genre = subBtn.dataset.genre || null;
+          subBtn.disabled = true;
+          try {
+            if (subscriptions.isSubscribed(kind, target, genre)) await subscriptions.unsubscribe(kind, target, genre);
+            else await subscriptions.subscribe(kind, target, genre);
+            renderRoute();
+          } catch (err) {
+            console.error("rateyourbuild: couldn't update subscription", err);
+            subBtn.disabled = false;
+          }
+        }
+      });
+
       // "anywhere there is a score sortable list, make a way to sort it by
       // the users ratings rather than community scores" — one global toggle
       // (genres tab, prompters tab, genre/super/subgenre pages all share it),
@@ -1516,6 +1813,7 @@
         session = null;
         renderAuthBar();
         renderRoute();
+        subscriptions.setSession(null);
       });
 
       // --- boot -----------------------------------------------------------------
@@ -1553,6 +1851,7 @@
           $("#auth-status").className = "status err";
         }
         renderAuthBar();
+        const subsReady = subscriptions.setSession(session);
         await loadCatalog();
         route = parseRoute();
         renderRoute();
@@ -1563,6 +1862,8 @@
         }
         index.start();
         engagement.start();
+        await subsReady;
+        subscriptions.checkNewReleases(catalog, GENRES, SUPERS);
       }
       boot();
     </script>
