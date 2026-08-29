@@ -73,6 +73,7 @@ function normaliseRecord(did, rkey, record) {
     subject,
     score,
     text,
+    bugged: record.bugged === true,
     ratedAt: typeof record.ratedAt === "string" ? Date.parse(record.ratedAt) || 0 : 0,
   };
 }
@@ -148,7 +149,7 @@ export class GlobalIndex {
   // Injects a just-written record straight into the index (before Jetstream
   // has necessarily echoed it back), so the rater sees their own vote land
   // instantly instead of waiting on the firehose round trip.
-  applyOwn(did, subject, score, ratedAtIso, text = "") {
+  applyOwn(did, subject, score, ratedAtIso, text = "", bugged = false) {
     const key = `${did}::${subject}`;
     this.liveKeys.add(key);
     this.entries.set(key, {
@@ -157,6 +158,7 @@ export class GlobalIndex {
       subject,
       score,
       text: text || "",
+      bugged: !!bugged,
       ratedAt: Date.parse(ratedAtIso) || Date.now(),
     });
     this.lastUpdated = Date.now();

@@ -125,6 +125,13 @@
           <button id="reviewer-go">see their reviews</button>
         </div>
         <p class="status"><a id="reviewer-mine-link" href="#" style="display: none">→ see your own reviews</a></p>
+        <h3 class="bug-reports-heading">🐛 reviews flagged as bugged</h3>
+        <p class="meta">
+          any reviewer can check "flag this review — the app itself seemed bugged" when they write a
+          review — this is every review with that box checked, newest first, for sweeping the whole
+          catalog for real bug reports instead of just opinions.
+        </p>
+        <div id="bug-reports"><p class="empty">loading…</p></div>
       </section>
 
       <section id="page-site" class="tab-panel" hidden>
@@ -437,34 +444,35 @@
 
       // --- rating + review writes ------------------------------------------
 
-      async function writeRating(subject, score, text) {
+      async function writeRating(subject, score, text, bugged = false) {
         if (!session) throw new Error("not signed in");
         const ratedAt = new Date().toISOString();
         const base = session.pdsUrl.replace(/\/$/, "");
         const record = { $type: COLLECTION, subject, score, ratedAt };
         const trimmed = (text || "").trim().slice(0, REVIEW_MAX);
         if (trimmed) record.text = trimmed;
+        if (bugged) record.bugged = true;
         const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ repo: session.did, collection: COLLECTION, rkey: subject, record }),
         });
         if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
-        index.applyOwn(session.did, subject, score, ratedAt, trimmed);
-        return { score, text: trimmed, ratedAt };
+        index.applyOwn(session.did, subject, score, ratedAt, trimmed, bugged);
+        return { score, text: trimmed, ratedAt, bugged: !!bugged };
       }
 
       // Quick-rate from a browse card: score only, but preserves any review
-      // text the rater already wrote (via the site page) rather than
-      // clobbering it with an empty string.
+      // text (and bugged flag) the rater already wrote (via the site page)
+      // rather than clobbering it with an empty string.
       async function submitRating(subject, score, row) {
         if (!session) return;
         const statusEl = row.nextElementSibling;
         row.querySelectorAll(".rate-btn").forEach((b) => (b.disabled = true));
         if (statusEl) statusEl.textContent = "saving…";
         try {
-          const existingText = ownRecord(subject)?.text || "";
-          await writeRating(subject, score, existingText);
+          const existing = ownRecord(subject);
+          await writeRating(subject, score, existing?.text || "", existing?.bugged || false);
           lastRatedNote = { subject, score };
           setTimeout(() => {
             if (lastRatedNote && lastRatedNote.subject === subject) {
@@ -850,11 +858,33 @@
         $("#prompter-board").innerHTML = rows ? `<div class="board">${rows}</div>` : `<p class="empty">${emptyMsg}</p>`;
       }
 
+      // --- reviews tab: bug-report sweep ---------------------------------
+      // "checkable tag 'bugged' on the review box for if the app seems
+      // bugged, so you can sweep through & look for reviews marked as bug" —
+      // every review with that box checked, across the whole catalog,
+      // newest first, in one list rather than having to open each site page.
+
+      function renderBugReports() {
+        const container = $("#bug-reports");
+        if (!container) return;
+        const bugged = snapshot.entries
+          .filter((e) => e.bugged)
+          .slice()
+          .sort((a, b) => b.ratedAt - a.ratedAt);
+        if (!bugged.length) {
+          container.innerHTML = `<p class="empty">no reviews flagged as bugged right now.</p>`;
+          return;
+        }
+        ensureProfiles(bugged.map((e) => e.did));
+        container.innerHTML = bugged.map((e) => renderReviewRow(e, { showSite: true })).join("");
+      }
+
       function renderAll() {
         renderFeatured();
         renderBrowse();
         renderGenreBoards();
         renderPrompters();
+        renderBugReports();
         if (openPrompter) renderPrompterModal(openPrompter);
       }
 
@@ -1135,6 +1165,7 @@
             ${siteHtml}
             <a class="review-handle" href="${esc(reviewerHref)}" title="see all of ${esc(handle)}'s reviews">${esc(handle)}</a>
             <span class="review-score">${entry.score}/10</span>
+            ${entry.bugged ? `<span class="bug-tag" title="flagged as a bug report">🐛 bug</span>` : ""}
             <span class="review-date">${esc(when)}</span>
           </div>
           ${entry.text ? `<p class="review-text">${esc(entry.text)}</p>` : ""}
@@ -1164,6 +1195,15 @@
           ? `<span class="score-big">${w.toFixed(1)}</span><span class="score-sub">${stats.count} rating${stats.count === 1 ? "" : "s"}</span>`
           : `<span class="score-big unrated">—</span><span class="score-sub">not yet rated</span>`;
 
+        // A leftover unsaved draft (see saveDraft/clearDraft below) beats
+        // whatever's already posted, since it represents an edit in
+        // progress that the rater hasn't submitted yet.
+        let savedDraft = null;
+        try { savedDraft = JSON.parse(localStorage.getItem(`ryb-draft:${site.name}`)); } catch (_) {}
+        const draftText = savedDraft ? savedDraft.text || "" : own?.text || "";
+        const draftBugged = savedDraft ? !!savedDraft.bugged : !!own?.bugged;
+        const draftScore = savedDraft && savedDraft.score != null ? savedDraft.score : null;
+
         container.innerHTML = `
           <div class="detail-head">
             <h2 class="detail-title">${esc(site.title)}</h2>
@@ -1184,7 +1224,8 @@
           <div class="review-composer">
             <h3>${own ? "edit your rating" : "rate this site"}</h3>
             <div class="score-picker" id="composer-score-row"></div>
-            <textarea id="review-text" maxlength="${REVIEW_MAX}" placeholder="write a review (optional)…">${own?.text ? esc(own.text) : ""}</textarea>
+            <textarea id="review-text" maxlength="${REVIEW_MAX}" placeholder="write a review (optional)…">${esc(draftText)}</textarea>
+            <label class="bug-flag"><input type="checkbox" id="review-bugged" ${draftBugged ? "checked" : ""} /> flag this review — the app itself seemed bugged</label>
             <button id="review-submit" ${session ? "" : "disabled"}>${own ? "update review" : "submit review"}</button>
             <p class="status" id="review-status"></p>
           </div>
@@ -1194,14 +1235,36 @@
           </div>
         `;
 
-        composerScore = own ? own.score : null;
+        // A draft (unsaved score/text/bug-flag) is kept in localStorage,
+        // keyed per site, so it survives closing the tab and coming back —
+        // "if I type a review w/o posting it, then leave the tab, that wipes
+        // my review on return." In-memory state alone doesn't survive a full
+        // page reload; localStorage does.
+        function draftKey() { return `ryb-draft:${site.name}`; }
+        function saveDraft() {
+          try {
+            localStorage.setItem(draftKey(), JSON.stringify({
+              score: composerScore,
+              text: $("#review-text").value,
+              bugged: $("#review-bugged").checked,
+            }));
+          } catch (_) { /* full/blocked localStorage is harmless — draft just won't persist */ }
+        }
+        function clearDraft() {
+          try { localStorage.removeItem(draftKey()); } catch (_) {}
+        }
+
+        composerScore = draftScore != null ? draftScore : own ? own.score : null;
         renderComposerScores();
         $("#composer-score-row").addEventListener("click", (e) => {
           const btn = e.target.closest(".rate-btn");
           if (!btn || btn.disabled) return;
           composerScore = Number(btn.dataset.score);
           renderComposerScores();
+          saveDraft();
         });
+        $("#review-text").addEventListener("input", saveDraft);
+        $("#review-bugged").addEventListener("change", saveDraft);
         $("#review-submit").addEventListener("click", async () => {
           if (!session || composerScore == null) {
             $("#review-status").textContent = session ? "pick a score first." : "sign in above to rate.";
@@ -1212,7 +1275,8 @@
           btn.disabled = true;
           statusEl.textContent = "saving…";
           try {
-            await writeRating(site.name, composerScore, $("#review-text").value);
+            await writeRating(site.name, composerScore, $("#review-text").value, $("#review-bugged").checked);
+            clearDraft();
             statusEl.textContent = "saved.";
             renderSitePage(site.name);
           } catch (err) {
@@ -1440,6 +1504,7 @@
                 <a class="review-handle" href="${href}">${title}</a>
                 ${genrePill}
                 <span class="review-score">${e.score}/10</span>
+                ${e.bugged ? `<span class="bug-tag" title="flagged as a bug report">🐛 bug</span>` : ""}
                 <span class="review-date">${esc(when)}</span>
               </div>
               ${e.text ? `<p class="review-text">${esc(e.text)}</p>` : ""}
@@ -1531,6 +1596,7 @@
             <p class="detail-meta">
               <a href="/reviewer/${encodeURIComponent(resolved.handle)}">@${esc(resolved.handle)}</a>
               rated it <strong>${entry.score}/10</strong> · ${esc(when)}
+              ${entry.bugged ? `<span class="bug-tag" title="flagged as a bug report">🐛 bug</span>` : ""}
             </p>
           </div>
           ${entry.text ? `<p class="review-text">${esc(entry.text)}</p>` : `<p class="empty">no written review, score only.</p>`}
