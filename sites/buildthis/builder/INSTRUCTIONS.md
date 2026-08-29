@@ -297,6 +297,39 @@ This is a real, ongoing behavioral rule for this bot, not a one-time task —
 apply it on every future run, unmodified, until someone tells the bot
 otherwise.
 
+## Link new sites to their rateyourbuild page (standing order, added 2026-08-29)
+
+@angussoftware.dev, replying in the rateyourbuild thread: update sidenote and
+rateyourbuild with links to rate them in rateyourbuild, and "make a note in
+sidenote to always make links to rate websites in RYB everytime you make a
+website." Every `sites/*/site.json` manifest already lands in rateyourbuild's
+catalog automatically (`sync-catalog.mjs`, below) and gets a real page at
+`https://rateyourbuild.bisks.net/site/<name>` — the gap this closes is that
+the site itself never linked back to that page.
+
+Concretely: when you build a **new** site, add a small, unobtrusive "rate
+this on rateyourbuild →" link somewhere natural on it (a footer, a sharebar,
+near the header tagline) pointing to `https://rateyourbuild.bisks.net/site/<name>`.
+It doesn't need visual weight — a plain text link is enough, same treatment
+as the other footer links most sites already carry. When **editing** an
+existing site that predates this order and doesn't have one yet, add it
+while you're in there; don't make a special trip just for this alone.
+
+On 2026-08-29 this was retrofitted onto `sites/sidenote`, `sites/rateyourbuild`
+itself (a self-referential link — it's in its own catalog too), and, as a
+best-effort answer to "update your most visited sites" with no real traffic
+data to work from (Footfall's ingestion was retired 2026-08-13 and every
+visit count in that repo now reads zero — see "Do not reintroduce Footfall
+ingestion" above), the two other pages every visitor actually passes
+through: `apex/public/index.html` (bisks.net, the gallery every link leads
+back to) and `sites/receipts` (the roast archive, the other page under a
+standing keep-it-current order). If real traffic data ever exists again,
+prefer it over that guess.
+
+This is a real, ongoing behavioral rule for this bot, not a one-time task —
+apply it on every future run, unmodified, until someone tells the bot
+otherwise.
+
 ## Report what you built
 
 Write to a repo-root file called `BUILD_RESULT` so the reply step knows where the
