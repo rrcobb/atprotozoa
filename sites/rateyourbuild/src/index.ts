@@ -147,6 +147,37 @@ async function renderSuperPage(env: Env, request: Request, key: string): Promise
   );
 }
 
+// /reviewer/<handle-or-did> — "a page where I can see mine, or all of
+// another user's, reviews." The actual review list is client-rendered from
+// the network-wide rating index (no server-side access to that data), but a
+// shared reviewer link still deserves its own og:title/description instead
+// of the generic front-page card, same reasoning as /site and /genre. Same
+// resolve-then-stamp pattern as sites/didscope's /s/<handle>.
+const APPVIEW = "https://public.api.bsky.app/xrpc/";
+async function appviewJson(method: string, params: Record<string, string>): Promise<any> {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(`${APPVIEW}${method}?${qs}`, { cf: { cacheTtl: 60 } as unknown as Record<string, unknown> });
+  if (!res.ok) throw new Error(`${method} ${res.status}`);
+  return res.json();
+}
+
+async function renderReviewerPage(env: Env, request: Request, rawActor: string): Promise<Response> {
+  const actor = rawActor.replace(/^@/, "").trim();
+  if (!actor) return shell(env, request);
+  try {
+    const profile = await appviewJson("app.bsky.actor.getProfile", { actor });
+    const handle = profile.handle || actor;
+    const title = `rateyourbuild: @${handle}'s reviews`;
+    const desc = `every rating and review @${handle} has written on rateyourbuild — RateYourMusic for @buildthis.bisks.net's back catalog.`;
+    return stampedShell(env, request, title, desc, `/reviewer/${encodeURIComponent(rawActor)}`);
+  } catch (_) {
+    // Unresolvable handle/DID server-side (typo, deleted account, rate
+    // limit) — still serve the live page; the client surfaces its own
+    // "couldn't find that account" state once it tries the same lookup.
+    return shell(env, request);
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -159,6 +190,9 @@ export default {
 
     const sup = url.pathname.match(/^\/super\/([^/]+)\/?$/);
     if (sup) return renderSuperPage(env, request, decodeURIComponent(sup[1]));
+
+    const reviewer = url.pathname.match(/^\/reviewer\/([^/]+)\/?$/);
+    if (reviewer) return renderReviewerPage(env, request, decodeURIComponent(reviewer[1]));
 
     return env.ASSETS.fetch(request);
   },

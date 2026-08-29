@@ -57,3 +57,28 @@ export async function getProfiles(dids) {
   }
   return out;
 }
+
+// Resolves one handle *or* DID to a full profile — getProfile accepts
+// either, so the reviewer page (see index.html) can turn whatever a person
+// typed or whatever's in a review row into a canonical {did, handle}
+// without a separate resolveHandle round trip. Cached under its own key
+// (not the by-did cache above) since the input string itself is the lookup.
+export async function resolveActor(actor) {
+  const key = "actor:" + actor.toLowerCase();
+  const cached = lsGet(key);
+  if (cached !== undefined) return cached;
+  try {
+    const r = await fetch(`${PUB}/app.bsky.actor.getProfile?actor=${encodeURIComponent(actor)}`);
+    if (!r.ok) {
+      lsSet(key, null);
+      return null;
+    }
+    const p = await r.json();
+    const entry = { did: p.did, handle: p.handle, displayName: p.displayName || p.handle };
+    lsSet(key, entry);
+    lsSet(entry.did, entry);
+    return entry;
+  } catch {
+    return null;
+  }
+}

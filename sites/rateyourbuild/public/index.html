@@ -41,6 +41,7 @@
           <a class="tab-link active" data-tab="browse">browse &amp; rate</a>
           <a class="tab-link" data-tab="genres">genres</a>
           <a class="tab-link" data-tab="prompters">prompters</a>
+          <a class="tab-link" data-tab="reviews">reviews</a>
         </nav>
       </header>
 
@@ -50,7 +51,7 @@
           <button id="authGo">sign in to rate</button>
         </div>
         <div class="session-row" id="signed-in-row" style="display: none">
-          <span>rating as <strong id="who"></strong></span>
+          <span>rating as <strong id="who"></strong> · <a id="my-reviews-link" href="#">your reviews →</a></span>
           <button class="secondary" id="authSignout">sign out</button>
         </div>
         <p class="status" id="auth-status"></p>
@@ -91,6 +92,18 @@
         <div id="prompter-board"><p class="empty">loading…</p></div>
       </section>
 
+      <section id="tab-reviews" class="tab-panel" hidden>
+        <p class="meta">
+          ratings are public <code>net.bisks.rateyourbuild.rating</code> records, so anyone's whole
+          review history is one lookup away — yours, or anyone else's who's ever rated a site here.
+        </p>
+        <div class="controls">
+          <input id="reviewer-lookup" type="text" placeholder="a bluesky handle or did…" autocomplete="off" />
+          <button id="reviewer-go">see their reviews</button>
+        </div>
+        <p class="status"><a id="reviewer-mine-link" href="#" style="display: none">→ see your own reviews</a></p>
+      </section>
+
       <section id="page-site" class="tab-panel" hidden>
         <a class="back-link" href="/">← back to rateyourbuild</a>
         <div id="site-page-body"><p class="empty">loading…</p></div>
@@ -104,6 +117,11 @@
       <section id="page-super" class="tab-panel" hidden>
         <a class="back-link" href="/">← back to rateyourbuild</a>
         <div id="super-page-body"><p class="empty">loading…</p></div>
+      </section>
+
+      <section id="page-reviewer" class="tab-panel" hidden>
+        <a class="back-link" href="/">← back to rateyourbuild</a>
+        <div id="reviewer-page-body"><p class="empty">loading…</p></div>
       </section>
 
       <div id="prompter-modal" class="modal-overlay" hidden>
@@ -130,7 +148,7 @@
     <script type="module">
       import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
       import { GlobalIndex } from "/lib/global-index.js";
-      import { getProfiles } from "/lib/identity.js";
+      import { getProfiles, resolveActor } from "/lib/identity.js";
       import { GENRES, SUPERS } from "/lib/genres.js";
 
       const $ = (s, root = document) => root.querySelector(s);
@@ -214,6 +232,8 @@
         if (m) return { view: "genre", key: decodeURIComponent(m[1]) };
         m = location.pathname.match(/^\/super\/([^/]+)\/?$/);
         if (m) return { view: "super", key: decodeURIComponent(m[1]) };
+        m = location.pathname.match(/^\/reviewer\/([^/]+)\/?$/);
+        if (m) return { view: "reviewer", actor: decodeURIComponent(m[1]) };
         return { view: "browse" };
       }
 
@@ -230,7 +250,7 @@
         const a = e.target.closest("a[href]");
         if (!a || a.target === "_blank") return;
         const href = a.getAttribute("href");
-        if (href === "/" || /^\/(site|genre|super)\//.test(href)) {
+        if (href === "/" || /^\/(site|genre|super|reviewer)\//.test(href)) {
           e.preventDefault();
           navigate(href);
         }
@@ -246,9 +266,11 @@
         $("#tab-browse").hidden = !(browseApp && activeTab === "browse");
         $("#tab-genres").hidden = !(browseApp && activeTab === "genres");
         $("#tab-prompters").hidden = !(browseApp && activeTab === "prompters");
+        $("#tab-reviews").hidden = !(browseApp && activeTab === "reviews");
         $("#page-site").hidden = route.view !== "site";
         $("#page-genre").hidden = route.view !== "genre";
         $("#page-super").hidden = route.view !== "super";
+        $("#page-reviewer").hidden = route.view !== "reviewer";
       }
 
       function renderRoute() {
@@ -256,6 +278,7 @@
         if (route.view === "site") renderSitePage(route.name);
         else if (route.view === "genre") renderGenrePage(route.key);
         else if (route.view === "super") renderSuperPage(route.key);
+        else if (route.view === "reviewer") renderReviewerPage(route.actor);
         else renderAll();
       }
 
@@ -589,10 +612,11 @@
       function renderReviewRow(entry) {
         const profile = profileCache.get(entry.did);
         const handle = profile?.handle ? "@" + profile.handle : shortDid(entry.did);
+        const reviewerHref = `/reviewer/${encodeURIComponent(profile?.handle || entry.did)}`;
         const when = entry.ratedAt ? new Date(entry.ratedAt).toLocaleDateString(undefined, { dateStyle: "medium" }) : "";
         return `<div class="review-row">
           <div class="review-row-head">
-            <a class="review-handle" href="https://bsky.app/profile/${encodeURIComponent(entry.did)}" target="_blank" rel="noopener">${esc(handle)}</a>
+            <a class="review-handle" href="${esc(reviewerHref)}" title="see all of ${esc(handle)}'s reviews">${esc(handle)}</a>
             <span class="review-score">${entry.score}/10</span>
             <span class="review-date">${esc(when)}</span>
           </div>
@@ -770,6 +794,86 @@
           <div class="board">${rows}</div>`;
       }
 
+      // --- reviewer page ---------------------------------------------------
+      // "a new tab or page ... where I can see mine, or all of another user's,
+      // reviews" — every net.bisks.rateyourbuild.rating record is public and
+      // already sitting in the global index keyed by (did, subject), so this
+      // is just that index filtered to one rater instead of one site.
+
+      const reviewerCache = new Map(); // lowercased actor input -> resolved profile | null
+      const reviewerPending = new Set();
+
+      function renderReviewerPage(actorRaw) {
+        const container = $("#reviewer-page-body");
+        const key = actorRaw.toLowerCase();
+
+        if (!reviewerCache.has(key)) {
+          if (!reviewerPending.has(key)) {
+            reviewerPending.add(key);
+            container.innerHTML = `<p class="empty">looking up ${esc(actorRaw)}…</p>`;
+            resolveActor(actorRaw.replace(/^@/, "")).then((resolved) => {
+              reviewerCache.set(key, resolved || null);
+              reviewerPending.delete(key);
+              if (route.view === "reviewer" && route.actor === actorRaw) renderReviewerPage(actorRaw);
+            });
+          }
+          return;
+        }
+
+        const resolved = reviewerCache.get(key);
+        if (!resolved) {
+          container.innerHTML = `<p class="empty">couldn't find a bluesky account for "${esc(actorRaw)}".</p>`;
+          return;
+        }
+
+        const entries = snapshot.entries
+          .filter((e) => e.did === resolved.did)
+          .slice()
+          .sort((a, b) => b.ratedAt - a.ratedAt);
+        const count = entries.length;
+        const avg = count ? entries.reduce((sum, e) => sum + e.score, 0) / count : null;
+
+        const rows = entries
+          .map((e) => {
+            const site = catalog.find((s) => s.name === e.subject);
+            const title = site ? esc(site.title) : esc(e.subject);
+            const href = site ? `/site/${esc(site.name)}` : "#";
+            const genrePill = site ? `<a class="pill" href="/genre/${esc(site.genre)}">${esc(site.genre)}</a>` : "";
+            const when = e.ratedAt ? new Date(e.ratedAt).toLocaleDateString(undefined, { dateStyle: "medium" }) : "";
+            return `<div class="review-row">
+              <div class="review-row-head">
+                <a class="review-handle" href="${href}">${title}</a>
+                ${genrePill}
+                <span class="review-score">${e.score}/10</span>
+                <span class="review-date">${esc(when)}</span>
+              </div>
+              ${e.text ? `<p class="review-text">${esc(e.text)}</p>` : ""}
+            </div>`;
+          })
+          .join("");
+
+        const handle = resolved.handle;
+        const shareUrl = `https://rateyourbuild.bisks.net/reviewer/${encodeURIComponent(handle)}`;
+        const shareText =
+          `@${handle} has rated ${count} site${count === 1 ? "" : "s"} on rateyourbuild` +
+          (avg != null ? `, averaging ${avg.toFixed(1)}/10` : "") +
+          ` — ${shareUrl}`;
+
+        container.innerHTML = `
+          <div class="detail-head">
+            <h2 class="detail-title">@${esc(handle)}'s reviews</h2>
+            <p class="detail-meta">
+              ${count} review${count === 1 ? "" : "s"}${avg != null ? ` · averaging ${avg.toFixed(1)}/10` : ""}
+              · <a href="https://bsky.app/profile/${encodeURIComponent(resolved.did)}" target="_blank" rel="noopener">view @${esc(handle)} on bluesky ↗</a>
+            </p>
+          </div>
+          <div class="review-list">
+            ${rows || `<p class="empty">no reviews yet.</p>`}
+          </div>
+          <p class="detail-meta"><a target="_blank" rel="noopener" href="${esc(shareIntentHref(shareText))}">share this reviewer →</a></p>
+        `;
+      }
+
       // --- prompter detail modal ---------------------------------------------
       // "click a user, see every site they made with each site's rating" —
       // the same weighting as the prompters board, just scoped to one prompter
@@ -891,12 +995,28 @@
       $("#sort").addEventListener("change", () => { visibleCount = PAGE_SIZE; renderBrowse(); });
       $("#show-more").addEventListener("click", () => { visibleCount += PAGE_SIZE; renderBrowse(); });
 
+      // --- reviews tab lookup -----------------------------------------------
+
+      $("#reviewer-go").addEventListener("click", () => {
+        const v = $("#reviewer-lookup").value.trim().replace(/^@/, "");
+        if (!v) return;
+        navigate(`/reviewer/${encodeURIComponent(v)}`);
+      });
+      $("#reviewer-lookup").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("#reviewer-go").click();
+      });
+
       // --- auth ---------------------------------------------------------------
 
       function renderAuthBar() {
         $("#signed-out-row").style.display = session ? "none" : "flex";
         $("#signed-in-row").style.display = session ? "flex" : "none";
         if (session) $("#who").textContent = "@" + session.handle;
+        const mineHref = session ? `/reviewer/${encodeURIComponent(session.handle)}` : "#";
+        $("#my-reviews-link").href = mineHref;
+        const tabMineLink = $("#reviewer-mine-link");
+        tabMineLink.style.display = session ? "" : "none";
+        tabMineLink.href = mineHref;
       }
       $("#authGo").addEventListener("click", async () => {
         const h = $("#authHandle").value.trim();
