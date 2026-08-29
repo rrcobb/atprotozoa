@@ -140,6 +140,11 @@
         <div id="reviewer-page-body"><p class="empty">loading…</p></div>
       </section>
 
+      <section id="page-review" class="tab-panel" hidden>
+        <a class="back-link" href="/">← back to rateyourbuild</a>
+        <div id="review-page-body"><p class="empty">loading…</p></div>
+      </section>
+
       <div id="prompter-modal" class="modal-overlay" hidden>
         <div class="modal-panel" role="dialog" aria-modal="true">
           <button class="modal-close" id="prompter-modal-close" aria-label="close">×</button>
@@ -155,8 +160,11 @@
         browser. The catalog itself is a snapshot of every
         <code>sites/*/site.json</code> manifest in the
         <a href="https://tangled.org/bisks.net/atprotozoa" target="_blank" rel="noopener">atprotozoa</a>
-        repo, regenerated each time the bot builds something new. Schema:
-        <a href="/lexicons/net.bisks.rateyourbuild.rating.json">lexicon</a>. Built by
+        repo, regenerated each time the bot builds something new. Upvotes/downvotes and replies on
+        a review are their own records too, same overwrite-in-place shape. Schemas:
+        <a href="/lexicons/net.bisks.rateyourbuild.rating.json">rating</a>,
+        <a href="/lexicons/net.bisks.rateyourbuild.vote.json">vote</a>,
+        <a href="/lexicons/net.bisks.rateyourbuild.reply.json">reply</a>. Built by
         <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
       </footer>
     </div>
@@ -164,11 +172,14 @@
     <script type="module">
       import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
       import { GlobalIndex } from "/lib/global-index.js";
+      import { EngagementIndex } from "/lib/engagement-index.js";
       import { getProfiles, resolveActor } from "/lib/identity.js";
       import { GENRES, SUPERS } from "/lib/genres.js";
 
       const $ = (s, root = document) => root.querySelector(s);
       const COLLECTION = "net.bisks.rateyourbuild.rating";
+      const VOTE_COLLECTION = "net.bisks.rateyourbuild.vote";
+      const REPLY_COLLECTION = "net.bisks.rateyourbuild.reply";
       const GENRE_ORDER = ["toy", "game", "tool", "joke", "explainer", "art"];
       // RYM-style Bayesian prior: a site needs roughly this many ratings
       // before its own average outweighs the site-wide mean. Kept small
@@ -177,7 +188,8 @@
       // already a meaningful signal here, not noise.
       const PRIOR_VOTES = 5;
       const PAGE_SIZE = 40;
-      const REVIEW_MAX = 600; // graphemes, matches the lexicon's text.maxGraphemes
+      const REVIEW_MAX = 600; // graphemes, matches the rating lexicon's text.maxGraphemes
+      const REPLY_MAX = 300; // graphemes, matches the reply lexicon's text.maxGraphemes
 
       function esc(s) {
         return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -227,6 +239,7 @@
       let catalog = [];
       let genres = [];
       let snapshot = { bySubject: new Map(), entries: [] };
+      let engagementSnapshot = { votesByReview: new Map(), repliesByReview: new Map() };
       let visibleCount = PAGE_SIZE;
       let activeTab = "browse";
       let lastRatedNote = null; // { subject, score } — see submitRating
@@ -238,10 +251,22 @@
       // browse tab gets its own "your rating" entry in #sort instead, since it
       // already has a dedicated control for this.
       let scoreMode = "community"; // "community" | "mine"
+      // review permalinks (subject::reviewerDid) whose reply composer is
+      // expanded — kept outside the index snapshots so a vote/reply arriving
+      // over Jetstream elsewhere on the page doesn't collapse an open box.
+      const openReplyBoxes = new Set();
+      let voteError = null; // { rk, message } — see submitVote
+      let replyError = null; // { rk, message } — see submitReply
 
       const index = new GlobalIndex({
         onUpdate: (snap) => {
           snapshot = snap;
+          renderRoute();
+        },
+      });
+      const engagement = new EngagementIndex({
+        onUpdate: (snap) => {
+          engagementSnapshot = snap;
           renderRoute();
         },
       });
@@ -263,6 +288,8 @@
         if (m) return { view: "super", key: decodeURIComponent(m[1]) };
         m = location.pathname.match(/^\/reviewer\/([^/]+)\/?$/);
         if (m) return { view: "reviewer", actor: decodeURIComponent(m[1]) };
+        m = location.pathname.match(/^\/review\/([^/]+)\/([^/]+)\/?$/);
+        if (m) return { view: "review", actor: decodeURIComponent(m[1]), subject: decodeURIComponent(m[2]) };
         return { view: "browse" };
       }
 
@@ -279,7 +306,7 @@
         const a = e.target.closest("a[href]");
         if (!a || a.target === "_blank") return;
         const href = a.getAttribute("href");
-        if (href === "/" || /^\/(site|genre|super|reviewer)\//.test(href)) {
+        if (href === "/" || /^\/(site|genre|super|reviewer|review)\//.test(href)) {
           e.preventDefault();
           navigate(href);
         }
@@ -301,6 +328,7 @@
         $("#page-super").hidden = route.view !== "super";
         $("#page-subgenre").hidden = route.view !== "subgenre";
         $("#page-reviewer").hidden = route.view !== "reviewer";
+        $("#page-review").hidden = route.view !== "review";
       }
 
       function renderRoute() {
@@ -310,6 +338,7 @@
         else if (route.view === "super") renderSuperPage(route.key);
         else if (route.view === "subgenre") renderSubgenrePage(route.genre, route.subgenre);
         else if (route.view === "reviewer") renderReviewerPage(route.actor);
+        else if (route.view === "review") renderReviewPage(route.actor, route.subject);
         else renderAll();
         syncModeToggles();
       }
@@ -420,6 +449,115 @@
         const subject = row.dataset.subject;
         const score = Number(btn.dataset.score);
         await submitRating(subject, score, row);
+      });
+
+      // --- upvote/downvote + reply writes -----------------------------------
+      // "add a way to upvote & downvote reviews / ratings, and reply to other
+      // ratings" — two more per-repo collections, same overwrite-in-place
+      // shape as the rating record itself: one vote per (voter, review), one
+      // reply per (replier, review), rkey = `${subject}.${reviewerDid}` so a
+      // second vote/reply on the same review updates rather than duplicates.
+
+      async function writeVote(subject, reviewer, value) {
+        if (!session) throw new Error("not signed in");
+        const votedAt = new Date().toISOString();
+        const base = session.pdsUrl.replace(/\/$/, "");
+        const rkey = `${subject}.${reviewer}`;
+        const record = { $type: VOTE_COLLECTION, subject, reviewer, value, votedAt };
+        const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection: VOTE_COLLECTION, rkey, record }),
+        });
+        if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+        engagement.applyOwnVote(session.did, subject, reviewer, value, votedAt);
+      }
+
+      async function clearVote(subject, reviewer) {
+        if (!session) throw new Error("not signed in");
+        const base = session.pdsUrl.replace(/\/$/, "");
+        const rkey = `${subject}.${reviewer}`;
+        const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.deleteRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection: VOTE_COLLECTION, rkey }),
+        });
+        if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+        engagement.removeOwnVote(session.did, subject, reviewer);
+      }
+
+      // Clicking the direction you already voted un-votes (deletes); clicking
+      // the other direction switches it.
+      async function submitVote(subject, reviewer, value) {
+        if (!session || session.did === reviewer) return;
+        const rk = `${subject}::${reviewer}`;
+        voteError = null;
+        const current = engagement.ownVote(session.did, subject, reviewer);
+        try {
+          if (current && current.value === value) await clearVote(subject, reviewer);
+          else await writeVote(subject, reviewer, value);
+        } catch (err) {
+          voteError = { rk, message: `couldn't save vote: ${err.message}` };
+          renderRoute();
+        }
+      }
+
+      async function writeReply(subject, reviewer, text) {
+        if (!session) throw new Error("not signed in");
+        const createdAt = new Date().toISOString();
+        const base = session.pdsUrl.replace(/\/$/, "");
+        const rkey = `${subject}.${reviewer}`;
+        const record = { $type: REPLY_COLLECTION, subject, reviewer, text, createdAt };
+        const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection: REPLY_COLLECTION, rkey, record }),
+        });
+        if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+        engagement.applyOwnReply(session.did, subject, reviewer, text, createdAt);
+      }
+
+      async function submitReply(subject, reviewer, rawText) {
+        if (!session || session.did === reviewer) return;
+        const rk = `${subject}::${reviewer}`;
+        const trimmed = rawText.trim().slice(0, REPLY_MAX);
+        if (!trimmed) return;
+        replyError = null;
+        try {
+          await writeReply(subject, reviewer, trimmed);
+          openReplyBoxes.delete(rk);
+        } catch (err) {
+          replyError = { rk, message: `couldn't post reply: ${err.message}` };
+        }
+        renderRoute();
+      }
+
+      document.addEventListener("click", async (e) => {
+        const voteBtn = e.target.closest(".vote-btn");
+        if (voteBtn && !voteBtn.disabled) {
+          const wrap = voteBtn.closest(".engagement");
+          if (wrap) await submitVote(wrap.dataset.subject, wrap.dataset.reviewer, Number(voteBtn.dataset.vote));
+          return;
+        }
+        const replyToggle = e.target.closest(".reply-toggle");
+        if (replyToggle) {
+          e.preventDefault();
+          const wrap = replyToggle.closest(".engagement");
+          if (!wrap) return;
+          const rk = `${wrap.dataset.subject}::${wrap.dataset.reviewer}`;
+          if (openReplyBoxes.has(rk)) openReplyBoxes.delete(rk);
+          else openReplyBoxes.add(rk);
+          renderRoute();
+          return;
+        }
+        const replySubmit = e.target.closest(".reply-submit");
+        if (replySubmit) {
+          const wrap = replySubmit.closest(".engagement");
+          if (!wrap) return;
+          const textEl = wrap.querySelector(".reply-text");
+          await submitReply(wrap.dataset.subject, wrap.dataset.reviewer, textEl ? textEl.value : "");
+          return;
+        }
       });
 
       // --- rendering: a rated-site card -----------------------------------
@@ -727,8 +865,76 @@
             profileCache.set(d, resolved.get(d) || null);
             profilePending.delete(d);
           }
-          if (route.view === "site") renderSitePage(route.name);
+          renderRoute();
         });
+      }
+
+      // --- vote/reply block, embedded under every review row -----------------
+      // "add a way to upvote & downvote reviews / ratings, and reply to other
+      // ratings" — one shared block, keyed by (subject, review author's DID),
+      // reused on the site page, the reviewer page, and a review's own
+      // permalink page.
+
+      function renderReplyRow(reply) {
+        const profile = profileCache.get(reply.did);
+        const handle = profile?.handle ? "@" + profile.handle : shortDid(reply.did);
+        const reviewerHref = `/reviewer/${encodeURIComponent(profile?.handle || reply.did)}`;
+        const when = reply.createdAt ? new Date(reply.createdAt).toLocaleDateString(undefined, { dateStyle: "medium" }) : "";
+        return `<div class="reply-row">
+          <a class="reply-handle" href="${esc(reviewerHref)}">${esc(handle)}</a>
+          <span class="reply-date">${esc(when)}</span>
+          <p class="reply-body">${esc(reply.text)}</p>
+        </div>`;
+      }
+
+      function renderEngagementBlock(subject, reviewerDid) {
+        const rk = `${subject}::${reviewerDid}`;
+        const tally = engagementSnapshot.votesByReview.get(rk);
+        const up = tally ? tally.up : 0;
+        const down = tally ? tally.down : 0;
+        const net = tally ? tally.net : 0;
+        const mine = session && tally ? tally.byVoter.get(session.did) ?? null : null;
+        const isOwnReview = session && session.did === reviewerDid;
+        const voteDisabled = !session || isOwnReview;
+        const replies = engagementSnapshot.repliesByReview.get(rk) || [];
+        ensureProfiles(replies.map((r) => r.did));
+        const replyOpen = openReplyBoxes.has(rk);
+        const ownReplyText = session && !isOwnReview ? engagement.ownReply(session.did, subject, reviewerDid)?.text || "" : "";
+        const err = voteError?.rk === rk ? voteError.message : replyError?.rk === rk ? replyError.message : "";
+
+        return `
+          <div class="engagement" data-subject="${esc(subject)}" data-reviewer="${esc(reviewerDid)}">
+            <div class="vote-row">
+              <button type="button" class="vote-btn${mine === 1 ? " active" : ""}" data-vote="1" ${voteDisabled ? "disabled" : ""} title="${isOwnReview ? "can't vote on your own review" : "upvote"}">▲</button>
+              <span class="vote-net${net > 0 ? " pos" : net < 0 ? " neg" : ""}">${net}</span>
+              <button type="button" class="vote-btn${mine === -1 ? " active" : ""}" data-vote="-1" ${voteDisabled ? "disabled" : ""} title="${isOwnReview ? "can't vote on your own review" : "downvote"}">▼</button>
+              <span class="vote-counts">${up}&uarr; ${down}&darr;</span>
+              ${
+                isOwnReview
+                  ? replies.length
+                    ? `<span class="reply-count">${replies.length} repl${replies.length === 1 ? "y" : "ies"}</span>`
+                    : ""
+                  : `<a href="#" class="reply-toggle">${replies.length ? `${replies.length} repl${replies.length === 1 ? "y" : "ies"}` : "reply"}</a>`
+              }
+              <a class="review-permalink" href="/review/${encodeURIComponent(reviewerDid)}/${encodeURIComponent(subject)}" title="link to this review">#</a>
+            </div>
+            ${err ? `<p class="engagement-err">${esc(err)}</p>` : ""}
+            ${
+              replies.length || replyOpen
+                ? `<div class="reply-list">
+                    ${replies.map(renderReplyRow).join("")}
+                    ${
+                      session && !isOwnReview && replyOpen
+                        ? `<div class="reply-composer">
+                            <textarea class="reply-text" maxlength="${REPLY_MAX}" placeholder="write a reply…">${esc(ownReplyText)}</textarea>
+                            <button type="button" class="reply-submit">post reply</button>
+                          </div>`
+                        : ""
+                    }
+                  </div>`
+                : ""
+            }
+          </div>`;
       }
 
       function renderReviewRow(entry) {
@@ -743,6 +949,7 @@
             <span class="review-date">${esc(when)}</span>
           </div>
           ${entry.text ? `<p class="review-text">${esc(entry.text)}</p>` : ""}
+          ${renderEngagementBlock(entry.subject, entry.did)}
         </div>`;
       }
 
@@ -1032,6 +1239,7 @@
                 <span class="review-date">${esc(when)}</span>
               </div>
               ${e.text ? `<p class="review-text">${esc(e.text)}</p>` : ""}
+              ${renderEngagementBlock(e.subject, e.did)}
             </div>`;
           })
           .join("");
@@ -1055,6 +1263,75 @@
             ${rows || `<p class="empty">no reviews yet.</p>`}
           </div>
           <p class="detail-meta"><a target="_blank" rel="noopener" href="${esc(shareIntentHref(shareText))}">share this reviewer →</a></p>
+        `;
+      }
+
+      // --- single review permalink ------------------------------------------
+      // "everything should be linkable" — a shared /review/<actor>/<subject>
+      // link (the Worker stamps its og:title/description — see src/index.ts)
+      // lands straight on one specific rating/review instead of the whole
+      // site or reviewer page. Reuses the same reviewer-resolution cache as
+      // /reviewer/<actor> since it's resolving the same kind of input.
+
+      function renderReviewPage(actorRaw, subject) {
+        const container = $("#review-page-body");
+        const key = actorRaw.toLowerCase();
+
+        if (!reviewerCache.has(key)) {
+          if (!reviewerPending.has(key)) {
+            reviewerPending.add(key);
+            container.innerHTML = `<p class="empty">looking up ${esc(actorRaw)}…</p>`;
+            resolveActor(actorRaw.replace(/^@/, "")).then((resolved) => {
+              reviewerCache.set(key, resolved || null);
+              reviewerPending.delete(key);
+              if (route.view === "review" && route.actor === actorRaw && route.subject === subject) renderReviewPage(actorRaw, subject);
+            });
+          }
+          return;
+        }
+
+        const resolved = reviewerCache.get(key);
+        if (!resolved) {
+          container.innerHTML = `<p class="empty">couldn't find a bluesky account for "${esc(actorRaw)}".</p>`;
+          return;
+        }
+
+        const site = catalog.find((s) => s.name === subject);
+        if (!site) {
+          container.innerHTML = `<p class="empty">no site named "${esc(subject)}" in the catalog.</p>`;
+          return;
+        }
+
+        const entry = snapshot.entries.find((e) => e.did === resolved.did && e.subject === subject);
+        if (!entry) {
+          container.innerHTML = `
+            <div class="detail-head">
+              <h2 class="detail-title">${esc(site.title)}</h2>
+              <p class="detail-meta">@${esc(resolved.handle)} hasn't rated this one yet.</p>
+            </div>
+            <p class="detail-meta"><a href="/site/${esc(site.name)}">← see all reviews of ${esc(site.title)}</a></p>`;
+          return;
+        }
+
+        const when = entry.ratedAt ? new Date(entry.ratedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "";
+        const shareUrl = `https://rateyourbuild.bisks.net/review/${encodeURIComponent(resolved.handle)}/${encodeURIComponent(site.name)}`;
+        const shareText = `@${resolved.handle} rated "${site.title}" ${entry.score}/10 on rateyourbuild — ${shareUrl}`;
+
+        container.innerHTML = `
+          <div class="detail-head">
+            <p class="detail-meta">
+              <a href="/site/${esc(site.name)}">${esc(site.title)}</a>
+              · <a class="pill" href="/genre/${esc(site.genre)}">${esc(site.genre)}</a>
+            </p>
+            <h2 class="detail-title">@${esc(resolved.handle)}'s review</h2>
+            <p class="detail-meta">
+              <a href="/reviewer/${encodeURIComponent(resolved.handle)}">@${esc(resolved.handle)}</a>
+              rated it <strong>${entry.score}/10</strong> · ${esc(when)}
+            </p>
+          </div>
+          ${entry.text ? `<p class="review-text">${esc(entry.text)}</p>` : `<p class="empty">no written review, score only.</p>`}
+          ${renderEngagementBlock(subject, resolved.did)}
+          <p class="detail-meta"><a target="_blank" rel="noopener" href="${esc(shareIntentHref(shareText))}">share this review →</a></p>
         `;
       }
 
@@ -1283,6 +1560,7 @@
           if (sharedPrompter) openPrompterModal(sharedPrompter);
         }
         index.start();
+        engagement.start();
       }
       boot();
     </script>

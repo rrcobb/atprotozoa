@@ -195,9 +195,39 @@ async function renderReviewerPage(env: Env, request: Request, rawActor: string):
   }
 }
 
+// /review/<actor>/<subject> — a permalink to one specific rating/review, so
+// "everything should be linkable" covers individual reviews too, not just
+// sites/genres/reviewers. Same resolve-then-stamp pattern as /reviewer; the
+// actual score/text isn't available server-side (it lives in the rater's
+// PDS, read back only by the client-side index), so the stamped description
+// stays generic — the client fills in the real score once it renders.
+async function renderReviewPage(env: Env, request: Request, rawActor: string, subject: string): Promise<Response> {
+  const actor = rawActor.replace(/^@/, "").trim();
+  const site = SITES.find((s) => s.name === subject);
+  if (!actor || !site) return shell(env, request);
+  try {
+    const profile = await appviewJson("app.bsky.actor.getProfile", { actor });
+    const handle = profile.handle || actor;
+    const title = `rateyourbuild: @${handle}'s review of ${site.title}`;
+    const desc = `@${handle}'s rating and review of "${site.title}" on rateyourbuild — RateYourMusic for @buildthis.bisks.net's back catalog.`;
+    return stampedShell(
+      env,
+      request,
+      title,
+      desc,
+      `/review/${encodeURIComponent(rawActor)}/${encodeURIComponent(site.name)}`,
+    );
+  } catch (_) {
+    return shell(env, request);
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+
+    const review = url.pathname.match(/^\/review\/([^/]+)\/([^/]+)\/?$/);
+    if (review) return renderReviewPage(env, request, decodeURIComponent(review[1]), decodeURIComponent(review[2]));
 
     const site = url.pathname.match(/^\/site\/([^/]+)\/?$/);
     if (site) return renderSitePage(env, request, decodeURIComponent(site[1]));
