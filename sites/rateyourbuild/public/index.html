@@ -54,7 +54,7 @@
           <button id="authGo">sign in to rate</button>
         </div>
         <div class="session-row" id="signed-in-row" style="display: none">
-          <span>rating as <strong id="who"></strong> · <a id="my-reviews-link" href="#">your reviews →</a></span>
+          <span>rating as <strong id="who" class="user-chip"></strong> · <a id="my-reviews-link" href="#">your reviews →</a></span>
           <button class="secondary" id="alerts-btn">🔔 alerts<span class="alerts-badge" id="alerts-badge" hidden>0</span></button>
           <button class="secondary" id="authSignout">sign out</button>
         </div>
@@ -73,6 +73,8 @@
         <div class="controls">
           <input id="search" type="text" placeholder="search name, blurb, or prompter…" autocomplete="off" />
           <select id="genre-filter"><option value="">all genres</option></select>
+          <select id="super-filter"><option value="">all super-genres</option></select>
+          <select id="subgenre-filter"><option value="">all subgenres</option></select>
           <select id="sort">
             <option value="weighted">top rated (weighted)</option>
             <option value="mine">your rating</option>
@@ -85,6 +87,7 @@
           </select>
         </div>
         <p class="meta" id="browse-meta">loading catalog…</p>
+        <p class="meta detail-blurb" id="browse-filter-desc" hidden></p>
         <div id="browse-list"></div>
         <button class="secondary" id="show-more" style="display: none">show more</button>
       </section>
@@ -204,8 +207,9 @@
       import { GlobalIndex } from "/lib/global-index.js";
       import { EngagementIndex } from "/lib/engagement-index.js";
       import { SubscriptionAlerts } from "/lib/subscription-index.js";
-      import { getProfiles, resolveActor } from "/lib/identity.js";
+      import { getProfiles, getProfilesForHandles, resolveActor } from "/lib/identity.js";
       import { GENRES, SUPERS } from "/lib/genres.js";
+      import { subgenreDescription } from "/lib/subgenres.js";
 
       const $ = (s, root = document) => root.querySelector(s);
       const COLLECTION = "net.bisks.rateyourbuild.rating";
@@ -377,6 +381,7 @@
 
       function renderRoute() {
         applyRouteVisibility();
+        renderAuthBar();
         if (route.view === "site") renderSitePage(route.name);
         else if (route.view === "genre") renderGenrePage(route.key);
         else if (route.view === "super") renderSuperPage(route.key);
@@ -610,6 +615,7 @@
       // --- rendering: a rated-site card -----------------------------------
 
       function renderCard(site) {
+        if (site.by) ensurePrompterProfiles([site.by]);
         const stats = statsFor(site.name);
         const mean = globalMean();
         const w = stats ? weighted(stats.sum, stats.count, mean) : null;
@@ -637,7 +643,7 @@
             <p class="card-blurb">${esc(site.blurb)}</p>
             <p class="card-links">
               <a class="visit-link" href="${esc(site.url)}" target="_blank" rel="noopener">visit ↗</a>
-              ${site.by ? ` · asked for by <a href="#" class="prompter-link" data-prompter="${esc(site.by)}" title="see everything @${esc(site.by)} has prompted">@${esc(site.by)} →</a>` : ""}
+              ${site.by ? ` · asked for by <a href="#" class="prompter-link user-chip" data-prompter="${esc(site.by)}" title="see everything @${esc(site.by)} has prompted">${userChipHtml(prompterProfile(site.by), "@" + site.by)} →</a>` : ""}
             </p>
             <div class="card-foot">
               <div class="score-block">${scoreHtml}</div>
@@ -652,11 +658,15 @@
       function filteredSorted() {
         const q = $("#search").value.trim().toLowerCase();
         const genre = $("#genre-filter").value;
+        const superKey = $("#super-filter").value;
+        const subgenrePair = $("#subgenre-filter").value; // "<genre>::<subgenre>" or ""
         const sort = $("#sort").value;
         const mean = globalMean();
 
         let list = catalog.filter((s) => {
           if (genre && s.genre !== genre) return false;
+          if (superKey && (GENRES[s.genre]?.super || null) !== superKey) return false;
+          if (subgenrePair && `${s.genre}::${s.subgenre}` !== subgenrePair) return false;
           if (!q) return true;
           return (
             s.name.toLowerCase().includes(q) ||
@@ -714,6 +724,27 @@
         return null;
       }
 
+      // The genre-filter/super-filter/subgenre-filter selects are independent
+      // (not narrowed against each other) — "on browse & rate, i can only
+      // select by genre, not by sub or super genre" just asked for the
+      // ability to filter by each, so a combination that can't match
+      // anything (a genre picked outside the chosen super) just renders
+      // "nothing matches" rather than needing cross-narrowed option lists.
+      function browseFilterDescription() {
+        const genre = $("#genre-filter").value;
+        const superKey = $("#super-filter").value;
+        const subgenrePair = $("#subgenre-filter").value;
+        const parts = [];
+        if (subgenrePair) {
+          const [g, sg] = subgenrePair.split("::");
+          parts.push(subgenreDescription(g, sg));
+        } else if (genre && GENRES[genre]) {
+          parts.push(GENRES[genre].description);
+        }
+        if (superKey && SUPERS[superKey]) parts.push(SUPERS[superKey].description);
+        return parts.join(" ");
+      }
+
       function renderBrowse() {
         const { list, sort } = filteredSorted();
         const total = list.length;
@@ -721,6 +752,9 @@
         $("#browse-meta").textContent =
           `showing ${slice.length} of ${total} sites` + (total !== catalog.length ? ` (of ${catalog.length} total)` : "") +
           (sort === "mine" && !session ? " — sign in above to sort by your own ratings" : "");
+        const descText = browseFilterDescription();
+        $("#browse-filter-desc").textContent = descText;
+        $("#browse-filter-desc").hidden = !descText;
 
         if (!slice.length) {
           $("#browse-list").innerHTML = `<p class="empty">nothing matches that search.</p>`;
@@ -778,7 +812,7 @@
           <div class="board-title">
             <a class="board-title-name" href="/genre/${esc(genre)}">${esc(genre)} <span class="board-sub">(${inGenre.length})</span></a>
             <a href="#" class="see-all" data-genre="${esc(genre)}">see all →</a></div>
-          ${subgenreList.length ? `<div class="board-subgenres">subgenres: ${subgenreList.map(([sg, c]) => `<a class="pill" href="/genre/${esc(genre)}/${esc(sg)}">${esc(sg)} <span class="board-sub">(${c})</span></a>`).join(" ")}</div>` : ""}
+          ${subgenreList.length ? `<div class="board-subgenres">subgenres: ${subgenreList.map(([sg, c]) => `<a class="pill" href="/genre/${esc(genre)}/${esc(sg)}" title="${esc(subgenreDescription(genre, sg))}">${esc(sg)} <span class="board-sub">(${c})</span></a>`).join(" ")}</div>` : ""}
           ${rows || `<p class="empty" style="padding:0 0.9rem 0.6rem">${emptyMsg}</p>`}
         </div>`;
       }
@@ -840,6 +874,7 @@
           return b.w - a.w || b.count - a.count;
         });
 
+        ensurePrompterProfiles(ranked.map((p) => p.by));
         const rows = ranked
           .map((p, i) => {
             const scoreHtml = p.w != null
@@ -847,9 +882,9 @@
                 ? `${p.w.toFixed(1)} <span class="board-sub">(${p.count} of yours)</span>`
                 : `${p.w.toFixed(1)} <span class="board-sub">(${p.count} rating${p.count === 1 ? "" : "s"})</span>`)
               : `<span class="board-sub">unrated</span>`;
-            return `<a class="board-row" href="#" data-prompter="${esc(p.by)}">
+            return `<a class="board-row user-chip" href="#" data-prompter="${esc(p.by)}">
               <span class="board-rank">#${i + 1}</span>
-              <span class="board-name">@${esc(p.by)} <span class="board-sub">(${p.siteCount} site${p.siteCount === 1 ? "" : "s"})</span></span>
+              <span class="board-name">${userChipHtml(prompterProfile(p.by), "@" + p.by)} <span class="board-sub">(${p.siteCount} site${p.siteCount === 1 ? "" : "s"})</span></span>
               <span class="board-score">${scoreHtml}</span>
             </a>`;
           })
@@ -946,7 +981,8 @@
           const inSub = catalog.filter((s) => s.genre === desc.genre && s.subgenre === desc.key);
           const ranked = scoredList(inSub, "community");
           const genreMeta = GENRES[desc.genre];
-          const descHtml = `<p class="detail-blurb">a subgenre of <a class="pill" href="/genre/${esc(desc.genre)}">${esc(desc.genre)}</a>${genreMeta ? ` · super-genre <a class="pill" href="/super/${esc(genreMeta.super)}">${esc(SUPERS[genreMeta.super].label)}</a>` : ""}</p>`;
+          const descHtml = `<p class="detail-blurb">${esc(subgenreDescription(desc.genre, desc.key))}</p>
+            <p class="detail-blurb">a subgenre of <a class="pill" href="/genre/${esc(desc.genre)}">${esc(desc.genre)}</a>${genreMeta ? ` · super-genre <a class="pill" href="/super/${esc(genreMeta.super)}">${esc(SUPERS[genreMeta.super].label)}</a>` : ""}</p>`;
           return `${descHtml}<div class="board">
             <div class="board-title">
               <a class="board-title-name" href="/genre/${esc(desc.genre)}/${esc(desc.key)}">${esc(desc.key)} <span class="board-sub">(${inSub.length})</span></a>
@@ -1064,7 +1100,7 @@
         return out;
       }
 
-      const profileCache = new Map(); // did -> {handle, displayName} | null
+      const profileCache = new Map(); // did -> {did, handle, displayName, avatar} | null
       const profilePending = new Set();
       function ensureProfiles(dids) {
         const need = [...new Set(dids)].filter((d) => !profileCache.has(d) && !profilePending.has(d));
@@ -1079,6 +1115,49 @@
         });
       }
 
+      // Same idea as profileCache above, but keyed by handle instead of DID —
+      // for a prompter (site.by is a handle string, not a DID) rather than a
+      // reviewer. "for every place in the app where you refer to a user,
+      // include their bsky display name & pfp" applies to prompters too.
+      const prompterProfileCache = new Map(); // lowercased handle -> {did, handle, displayName, avatar} | null
+      const prompterProfilePending = new Set();
+      function ensurePrompterProfiles(handles) {
+        const need = [...new Set(handles.filter(Boolean).map((h) => h.toLowerCase()))].filter(
+          (h) => !prompterProfileCache.has(h) && !prompterProfilePending.has(h),
+        );
+        if (!need.length) return;
+        need.forEach((h) => prompterProfilePending.add(h));
+        getProfilesForHandles(need).then((resolved) => {
+          for (const h of need) {
+            prompterProfileCache.set(h, resolved.get(h) || null);
+            prompterProfilePending.delete(h);
+          }
+          renderRoute();
+        });
+      }
+      function prompterProfile(handle) {
+        return handle ? prompterProfileCache.get(handle.toLowerCase()) || null : null;
+      }
+
+      // Renders an avatar + display name (falling back to plain text when a
+      // profile hasn't resolved yet, or the account has no display name)
+      // wherever the app points at a specific bluesky user — reviewer,
+      // replier, or prompter alike. `fallbackText` is the already-formatted
+      // text to show when there's no profile ("@handle" for a prompter we
+      // haven't resolved, a bare shortened DID for a reviewer we couldn't
+      // resolve at all).
+      function userChipHtml(profile, fallbackText) {
+        const avatarHtml = profile?.avatar
+          ? `<img class="avatar" src="${esc(profile.avatar)}" alt="" width="20" height="20" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'avatar avatar-placeholder'}))" />`
+          : `<span class="avatar avatar-placeholder" aria-hidden="true"></span>`;
+        const label = profile
+          ? profile.displayName && profile.displayName !== profile.handle
+            ? `${esc(profile.displayName)} <span class="chip-handle">@${esc(profile.handle)}</span>`
+            : `@${esc(profile.handle)}`
+          : esc(fallbackText);
+        return `${avatarHtml}<span class="chip-text">${label}</span>`;
+      }
+
       // --- vote/reply block, embedded under every review row -----------------
       // "add a way to upvote & downvote reviews / ratings, and reply to other
       // ratings" — one shared block, keyed by (subject, review author's DID),
@@ -1087,11 +1166,10 @@
 
       function renderReplyRow(reply) {
         const profile = profileCache.get(reply.did);
-        const handle = profile?.handle ? "@" + profile.handle : shortDid(reply.did);
         const reviewerHref = `/reviewer/${encodeURIComponent(profile?.handle || reply.did)}`;
         const when = reply.createdAt ? new Date(reply.createdAt).toLocaleDateString(undefined, { dateStyle: "medium" }) : "";
         return `<div class="reply-row">
-          <a class="reply-handle" href="${esc(reviewerHref)}">${esc(handle)}</a>
+          <a class="reply-handle user-chip" href="${esc(reviewerHref)}">${userChipHtml(profile, shortDid(reply.did))}</a>
           <span class="reply-date">${esc(when)}</span>
           <p class="reply-body">${esc(reply.text)}</p>
         </div>`;
@@ -1153,7 +1231,7 @@
       // otherwise there'd be no way to tell what's being reviewed.
       function renderReviewRow(entry, { showSite = false } = {}) {
         const profile = profileCache.get(entry.did);
-        const handle = profile?.handle ? "@" + profile.handle : shortDid(entry.did);
+        const handleForTitle = profile?.handle ? "@" + profile.handle : shortDid(entry.did);
         const reviewerHref = `/reviewer/${encodeURIComponent(profile?.handle || entry.did)}`;
         const when = entry.ratedAt ? new Date(entry.ratedAt).toLocaleDateString(undefined, { dateStyle: "medium" }) : "";
         const site = showSite ? catalog.find((s) => s.name === entry.subject) : null;
@@ -1166,7 +1244,7 @@
         return `<div class="review-row">
           <div class="review-row-head">
             ${siteHtml}
-            <a class="review-handle" href="${esc(reviewerHref)}" title="see all of ${esc(handle)}'s reviews">${esc(handle)}</a>
+            <a class="review-handle user-chip" href="${esc(reviewerHref)}" title="see all of ${esc(handleForTitle)}'s reviews">${userChipHtml(profile, shortDid(entry.did))}</a>
             <span class="review-score">${entry.score}/10</span>
             ${entry.bugged ? `<span class="bug-tag" title="flagged as a bug report">🐛 bug</span>` : ""}
             ${fix ? `<span class="fixed-tag" title="${esc(fix.note || "a fix was logged for this site after this review")}">✅ fixed${fix.fixedAt ? " " + esc(new Date(fix.fixedAt).toLocaleDateString(undefined, { dateStyle: "medium" })) : ""}</span>` : ""}
@@ -1194,6 +1272,7 @@
           .slice()
           .sort((a, b) => b.ratedAt - a.ratedAt);
         ensureProfiles(reviews.map((e) => e.did));
+        if (site.by) ensurePrompterProfiles([site.by]);
 
         const scoreHtml = w != null
           ? `<span class="score-big">${w.toFixed(1)}</span><span class="score-sub">${stats.count} rating${stats.count === 1 ? "" : "s"}</span>`
@@ -1215,7 +1294,7 @@
             <div class="detail-pills">
               <a class="pill" href="/genre/${esc(site.genre)}">${esc(site.genre)}</a>
               ${site.subgenre ? `<a class="pill pill-sub" href="/genre/${esc(site.genre)}/${esc(site.subgenre)}">${esc(site.subgenre)}</a>` : ""}
-              ${site.by ? `<a class="pill pill-by" href="#" data-prompter="${esc(site.by)}">asked by @${esc(site.by)}</a>` : ""}
+              ${site.by ? `<a class="pill pill-by user-chip" href="#" data-prompter="${esc(site.by)}">asked by ${userChipHtml(prompterProfile(site.by), "@" + site.by)}</a>` : ""}
             </div>
             <p class="detail-meta">
               built ${esc(fmtDateTime(site.builtAt ? Date.parse(site.builtAt) : 0))}
@@ -1364,7 +1443,7 @@
               super-genre: <a class="pill" href="/super/${esc(meta.super)}">${esc(superMeta.label)}</a>
               · ${inGenre.length} site${inGenre.length === 1 ? "" : "s"}
             </p>
-            ${subgenreList.length ? `<div class="subgenre-row">subgenres: ${subgenreList.map(([sg, c]) => `<a class="pill" href="/genre/${esc(key)}/${esc(sg)}">${esc(sg)} <span class="board-sub">(${c})</span></a>`).join(" ")}</div>` : ""}
+            ${subgenreList.length ? `<div class="subgenre-row">subgenres: ${subgenreList.map(([sg, c]) => `<a class="pill" href="/genre/${esc(key)}/${esc(sg)}" title="${esc(subgenreDescription(key, sg))}">${esc(sg)} <span class="board-sub">(${c})</span></a>`).join(" ")}</div>` : ""}
             <p class="detail-meta">${renderSubButton("genre", key, null, "new releases in this genre", "unsubscribe from new releases")}</p>
           </div>
           ${modeToggleHtml()}
@@ -1449,6 +1528,7 @@
         container.innerHTML = `
           <div class="detail-head">
             <h2 class="detail-title">${esc(subgenreKey)}</h2>
+            <p class="detail-blurb">${esc(subgenreDescription(genreKey, subgenreKey))}</p>
             <p class="detail-blurb">a subgenre of <a class="pill" href="/genre/${esc(genreKey)}">${esc(genreKey)}</a>${genreMeta ? ` · super-genre <a class="pill" href="/super/${esc(genreMeta.super)}">${esc(SUPERS[genreMeta.super].label)}</a>` : ""}</p>
             <p class="detail-meta">${inSubgenre.length} site${inSubgenre.length === 1 ? "" : "s"}</p>
             <p class="detail-meta">${renderSubButton("subgenre", subgenreKey, genreKey, "new releases in this subgenre", "unsubscribe from new releases")}</p>
@@ -1526,7 +1606,7 @@
 
         container.innerHTML = `
           <div class="detail-head">
-            <h2 class="detail-title">@${esc(handle)}'s reviews</h2>
+            <h2 class="detail-title user-chip user-chip-lg">${userChipHtml(resolved, "@" + handle)}<span class="chip-suffix">'s reviews</span></h2>
             <p class="detail-meta">
               ${count} review${count === 1 ? "" : "s"}${avg != null ? ` · averaging ${avg.toFixed(1)}/10` : ""}
               · <a href="https://bsky.app/profile/${encodeURIComponent(resolved.did)}" target="_blank" rel="noopener">view @${esc(handle)} on bluesky ↗</a>
@@ -1580,7 +1660,7 @@
           container.innerHTML = `
             <div class="detail-head">
               <h2 class="detail-title">${esc(site.title)}</h2>
-              <p class="detail-meta">@${esc(resolved.handle)} hasn't rated this one yet.</p>
+              <p class="detail-meta user-chip">${userChipHtml(resolved, "@" + resolved.handle)}<span>hasn't rated this one yet.</span></p>
             </div>
             <p class="detail-meta"><a href="/site/${esc(site.name)}">← see all reviews of ${esc(site.title)}</a></p>`;
           return;
@@ -1596,9 +1676,8 @@
               <a href="/site/${esc(site.name)}">${esc(site.title)}</a>
               · <a class="pill" href="/genre/${esc(site.genre)}">${esc(site.genre)}</a>
             </p>
-            <h2 class="detail-title">@${esc(resolved.handle)}'s review</h2>
+            <h2 class="detail-title user-chip user-chip-lg">${userChipHtml(resolved, "@" + resolved.handle)}<span class="chip-suffix">'s review</span></h2>
             <p class="detail-meta">
-              <a href="/reviewer/${encodeURIComponent(resolved.handle)}">@${esc(resolved.handle)}</a>
               rated it <strong>${entry.score}/10</strong> · ${esc(when)}
               ${entry.bugged ? `<span class="bug-tag" title="flagged as a bug report">🐛 bug</span>` : ""}
             </p>
@@ -1617,6 +1696,7 @@
       let openPrompter = null;
 
       function renderPrompterModal(by) {
+        ensurePrompterProfiles([by]);
         const mean = globalMean();
         const sites = catalog
           .filter((s) => s.by === by)
@@ -1651,7 +1731,7 @@
           (pooledW != null ? `, weighted ${pooledW.toFixed(1)}/10` : "") + ` — ${buildPrompterShareUrl(by)}`;
 
         $("#prompter-modal-body").innerHTML = `
-          <h2 class="modal-title">@${esc(by)}</h2>
+          <h2 class="modal-title user-chip user-chip-lg">${userChipHtml(prompterProfile(by), "@" + by)}</h2>
           <p class="meta">
             ${sites.length} site${sites.length === 1 ? "" : "s"} prompted
             ${pooledW != null ? `· weighted score <strong>${pooledW.toFixed(1)}</strong> (${pooledCount} rating${pooledCount === 1 ? "" : "s"})` : "· not yet rated"}
@@ -1869,6 +1949,8 @@
         if (!a) return;
         e.preventDefault();
         $("#genre-filter").value = a.dataset.genre;
+        $("#super-filter").value = "";
+        $("#subgenre-filter").value = "";
         $("#sort").value = "weighted";
         visibleCount = PAGE_SIZE;
         activeTab = "browse";
@@ -1895,6 +1977,8 @@
 
       $("#search").addEventListener("input", () => { visibleCount = PAGE_SIZE; renderBrowse(); });
       $("#genre-filter").addEventListener("change", () => { visibleCount = PAGE_SIZE; renderBrowse(); });
+      $("#super-filter").addEventListener("change", () => { visibleCount = PAGE_SIZE; renderBrowse(); });
+      $("#subgenre-filter").addEventListener("change", () => { visibleCount = PAGE_SIZE; renderBrowse(); });
       $("#sort").addEventListener("change", () => { visibleCount = PAGE_SIZE; renderBrowse(); });
       $("#show-more").addEventListener("click", () => { visibleCount += PAGE_SIZE; renderBrowse(); });
 
@@ -1914,7 +1998,10 @@
       function renderAuthBar() {
         $("#signed-out-row").style.display = session ? "none" : "flex";
         $("#signed-in-row").style.display = session ? "flex" : "none";
-        if (session) $("#who").textContent = "@" + session.handle;
+        if (session) {
+          ensureProfiles([session.did]);
+          $("#who").innerHTML = userChipHtml(profileCache.get(session.did), "@" + session.handle);
+        }
         const mineHref = session ? `/reviewer/${encodeURIComponent(session.handle)}` : "#";
         $("#my-reviews-link").href = mineHref;
         const tabMineLink = $("#reviewer-mine-link");
@@ -1959,6 +2046,32 @@
           opt.value = g;
           opt.textContent = g;
           genreSelect.appendChild(opt);
+        }
+
+        // "on browse & rate i can only select by genre, not by sub or super
+        // genre" — same filter row, two more independent selects.
+        const superSelect = $("#super-filter");
+        const presentSupers = new Set(genres.map((g) => GENRES[g]?.super).filter(Boolean));
+        for (const supKey of Object.keys(SUPERS).filter((k) => presentSupers.has(k))) {
+          const opt = document.createElement("option");
+          opt.value = supKey;
+          opt.textContent = SUPERS[supKey].label;
+          superSelect.appendChild(opt);
+        }
+
+        const subgenreSelect = $("#subgenre-filter");
+        const subgenrePairs = new Set();
+        for (const s of catalog) if (s.subgenre) subgenrePairs.add(`${s.genre}::${s.subgenre}`);
+        const sortedPairs = Array.from(subgenrePairs).sort((a, b) => {
+          const [ag, asg] = a.split("::"), [bg, bsg] = b.split("::");
+          return asg.localeCompare(bsg) || ag.localeCompare(bg);
+        });
+        for (const pair of sortedPairs) {
+          const [g, sg] = pair.split("::");
+          const opt = document.createElement("option");
+          opt.value = pair;
+          opt.textContent = `${sg} (${g})`;
+          subgenreSelect.appendChild(opt);
         }
       }
 

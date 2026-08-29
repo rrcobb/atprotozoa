@@ -28,8 +28,8 @@ function lsSet(key, v) {
 }
 
 // Batch-fetch profiles, 25 actors per request (AppView's cap). Returns a
-// Map of did -> {did, handle, displayName}; a DID that couldn't be resolved
-// (deleted account, rate limit) is simply absent from the map.
+// Map of did -> {did, handle, displayName, avatar}; a DID that couldn't be
+// resolved (deleted account, rate limit) is simply absent from the map.
 export async function getProfiles(dids) {
   const out = new Map();
   const uncached = [];
@@ -47,12 +47,50 @@ export async function getProfiles(dids) {
       if (!r.ok) continue;
       const d = await r.json();
       for (const p of d.profiles || []) {
-        const entry = { did: p.did, handle: p.handle, displayName: p.displayName || p.handle };
+        const entry = { did: p.did, handle: p.handle, displayName: p.displayName || p.handle, avatar: p.avatar || null };
         out.set(p.did, entry);
         lsSet(p.did, entry);
       }
     } catch {
       // partial data is fine — unresolved DIDs just render shortened
+    }
+  }
+  return out;
+}
+
+// Same batch endpoint, but keyed by handle instead of DID — for referring to
+// a person we only know by handle (e.g. a site's `by` prompter field), where
+// looking them up by DID first would be an extra round trip. getProfiles's
+// actors param accepts either shape, so this is the same call with a
+// lowercased-handle cache key and result map instead of a did one. Returns a
+// Map of lowercased-handle -> {did, handle, displayName, avatar}.
+export async function getProfilesForHandles(handles) {
+  const out = new Map();
+  const uncached = [];
+  for (const h of handles) {
+    const key = h.toLowerCase();
+    const cached = lsGet("h:" + key);
+    if (cached) out.set(key, cached);
+    else uncached.push(key);
+  }
+  const unique = [...new Set(uncached)];
+  for (let i = 0; i < unique.length; i += 25) {
+    const batch = unique.slice(i, i + 25);
+    const u = new URL(`${PUB}/app.bsky.actor.getProfiles`);
+    for (const h of batch) u.searchParams.append("actors", h);
+    try {
+      const r = await fetch(u.toString());
+      if (!r.ok) continue;
+      const d = await r.json();
+      for (const p of d.profiles || []) {
+        const entry = { did: p.did, handle: p.handle, displayName: p.displayName || p.handle, avatar: p.avatar || null };
+        const lower = p.handle.toLowerCase();
+        out.set(lower, entry);
+        lsSet("h:" + lower, entry);
+        lsSet(p.did, entry);
+      }
+    } catch {
+      // partial data is fine — unresolved handles just render as plain text
     }
   }
   return out;
@@ -74,7 +112,7 @@ export async function resolveActor(actor) {
       return null;
     }
     const p = await r.json();
-    const entry = { did: p.did, handle: p.handle, displayName: p.displayName || p.handle };
+    const entry = { did: p.did, handle: p.handle, displayName: p.displayName || p.handle, avatar: p.avatar || null };
     lsSet(key, entry);
     lsSet(entry.did, entry);
     return entry;
