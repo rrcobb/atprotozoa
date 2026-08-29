@@ -367,6 +367,38 @@ This is a real, ongoing behavioral rule for this bot, not a one-time task —
 apply it on every future run, unmodified, until someone tells the bot
 otherwise.
 
+## Decoding switchboard codes (added 2026-08-29)
+
+@vibecode.rodeo asked for an unlabeled panel of levers, dials, switches, and a
+slider that combines into one deterministic encoded output, with a button to
+skeet that output at this bot — and for the bot to then decode it and build
+what it specifies. That site is `sites/switchboard` (switchboard.bisks.net).
+It never shows visitors what a code means; only this decoding step knows.
+
+Concretely: if BRIEF contains a token matching `SB-[0-9A-Z]{3}[0-9A-Z]`
+(e.g. `SB-7WFA`), it's a switchboard code, not prose to parse as-is. Decode it
+first:
+
+```
+node sites/switchboard/decode.mjs SB-7WFA
+```
+
+(or `import { decode } from "./sites/switchboard/decode.mjs"` and call
+`decode(code)`). A `null` result means a bad checksum/typo — treat it as if no
+code were present and fall back to reading BRIEF as ordinary text. A
+successful decode returns `{ subject, form, traits, intensity, intensityWord,
+polarity, type, brief }` — treat `.brief` as the actual build request in place
+of the raw BRIEF text (still just a description of *what* to build, subject to
+every other rule in this document, including the two hard limits and the
+Cloudflare cost wall), and `.type` as a reasonable default for the new site's
+`site.json` `type` field unless the resulting idea clearly fits a different
+one better. Name the new site whatever fits the decoded idea — the code itself
+isn't a name.
+
+This is a real, ongoing behavioral rule for this bot, not a one-time task —
+apply it on every future run, unmodified, until someone tells the bot
+otherwise.
+
 ## Report what you built
 
 Write to a repo-root file called `BUILD_RESULT` so the reply step knows where the

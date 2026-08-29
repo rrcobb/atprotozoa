@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>switchboard</title>
+    <meta
+      name="description"
+      content="An unlabeled panel of levers, dials, switches, and a slider. Every position combines into one deterministic code — no legend, no explanation. Skeet the code at @buildthis.bisks.net and it gets decoded into an actual build order."
+    />
+    <meta property="og:title" content="switchboard" />
+    <meta property="og:description" content="Unlabeled levers, dials, switches, a slider. Every position encodes to one deterministic code. Transmit it to @buildthis.bisks.net and find out what it meant." />
+    <meta property="og:image" content="https://switchboard.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A dark industrial control panel with a lever, two rotary dials, three toggle switches, a slider, and a glowing LCD readout showing a code." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://switchboard.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="switchboard" />
+    <meta name="twitter:description" content="Unlabeled levers, dials, switches, a slider. Every position encodes to one deterministic code. Transmit it to @buildthis.bisks.net and find out what it meant." />
+    <meta name="twitter:image" content="https://switchboard.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #0c0d0f;
+        --panel: #1b1d21;
+        --panel2: #232529;
+        --rivet: #34373d;
+        --ink: #e9ecef;
+        --muted: #8b9099;
+        --lcd-bg: #0e1b12;
+        --lcd-ink: #6dffa0;
+        --accent: #ff5240;
+        --accent-ink: #2a0704;
+        --brass: #c9a24b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        min-height: 100vh;
+        background:
+          radial-gradient(1200px 700px at 50% -12%, #24262b, var(--bg));
+        color: var(--ink);
+        font-family: var(--sans);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 2.2rem 1rem 3rem;
+      }
+      header { text-align: center; margin-bottom: 1.4rem; max-width: 520px; }
+      h1 {
+        font-family: var(--mono);
+        font-size: 1.5rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin: 0 0 0.4rem;
+        color: var(--ink);
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 0.86rem;
+        line-height: 1.5;
+        margin: 0;
+      }
+      .panel {
+        width: min(560px, 100%);
+        background:
+          linear-gradient(180deg, var(--panel2), var(--panel));
+        border: 1px solid #000;
+        border-radius: 18px;
+        padding: 1.6rem 1.4rem 1.4rem;
+        box-shadow:
+          0 30px 60px -20px rgba(0, 0, 0, 0.7),
+          inset 0 1px 0 rgba(255, 255, 255, 0.04),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+        position: relative;
+      }
+      .rivet {
+        position: absolute;
+        width: 7px; height: 7px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 30%, #6a6d73, var(--rivet));
+        box-shadow: 0 1px 0 rgba(0,0,0,0.6);
+      }
+      .rivet.tl { top: 10px; left: 10px; }
+      .rivet.tr { top: 10px; right: 10px; }
+      .rivet.bl { bottom: 10px; left: 10px; }
+      .rivet.br { bottom: 10px; right: 10px; }
+
+      .readout {
+        background: var(--lcd-bg);
+        border-radius: 8px;
+        padding: 0.9rem 1rem;
+        margin-bottom: 1.4rem;
+        text-align: center;
+        box-shadow: inset 0 2px 8px rgba(0,0,0,0.6), inset 0 0 0 1px #000;
+      }
+      .readout .code {
+        font-family: var(--mono);
+        font-size: 1.9rem;
+        letter-spacing: 0.24em;
+        color: var(--lcd-ink);
+        text-shadow: 0 0 10px rgba(109, 255, 160, 0.55);
+      }
+      .readout .code .cursor { opacity: 0.55; animation: blink 1s step-end infinite; }
+      @keyframes blink { 50% { opacity: 0; } }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1.1rem 0.8rem;
+        justify-items: center;
+        margin-bottom: 1.5rem;
+      }
+      .ctrl { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; user-select: none; }
+      .ctrl .plate {
+        width: 100%;
+        text-align: center;
+        font-family: var(--mono);
+        font-size: 0.62rem;
+        letter-spacing: 0.18em;
+        color: #4a4e56;
+      }
+
+      /* --- lever --- */
+      .lever-track {
+        width: 34px; height: 88px;
+        border-radius: 10px;
+        background: linear-gradient(180deg, #101114, #0a0b0d);
+        box-shadow: inset 0 2px 6px rgba(0,0,0,0.8), inset 0 0 0 1px #000;
+        position: relative;
+        cursor: pointer;
+      }
+      .lever-handle {
+        position: absolute;
+        left: 50%;
+        top: 6px;
+        width: 26px; height: 26px;
+        border-radius: 50%;
+        transform: translate(-50%, 0);
+        background: radial-gradient(circle at 32% 28%, #e6564a, #9c211a);
+        box-shadow: 0 3px 6px rgba(0,0,0,0.6), inset 0 0 0 1px rgba(255,255,255,0.15);
+        transition: top 0.16s ease;
+      }
+      .lever-track::before {
+        content: "";
+        position: absolute;
+        left: 50%; top: 6px; bottom: 6px;
+        width: 3px;
+        background: #050506;
+        transform: translateX(-50%);
+        border-radius: 2px;
+      }
+      .lever-track[data-v="1"] .lever-handle { top: 56px; }
+
+      /* --- rotary dial --- */
+      .dial {
+        width: 62px; height: 62px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 34% 28%, #3a3d43, #17181b 70%);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.6), inset 0 0 0 1px #000, inset 0 1px 2px rgba(255,255,255,0.06);
+        position: relative;
+        cursor: pointer;
+      }
+      .dial .tick {
+        position: absolute;
+        left: 50%; top: 50%;
+        width: 3px; height: 8px;
+        background: #46494f;
+        border-radius: 2px;
+        transform-origin: 50% 27px;
+      }
+      .dial .pointer {
+        position: absolute;
+        left: 50%; top: 50%;
+        width: 3px; height: 22px;
+        background: var(--brass);
+        border-radius: 2px;
+        transform-origin: 50% 0%;
+        transform: translate(-50%, 0) rotate(0deg);
+        transition: transform 0.14s ease;
+        box-shadow: 0 0 4px rgba(201, 162, 75, 0.6);
+      }
+
+      /* --- toggle switch --- */
+      .switch {
+        width: 44px; height: 24px;
+        border-radius: 999px;
+        background: #0e0f11;
+        box-shadow: inset 0 2px 5px rgba(0,0,0,0.8), inset 0 0 0 1px #000;
+        position: relative;
+        cursor: pointer;
+      }
+      .switch .knob {
+        position: absolute;
+        top: 3px; left: 3px;
+        width: 18px; height: 18px;
+        border-radius: 50%;
+        background: linear-gradient(180deg, #cfd3d8, #9a9ea5);
+        box-shadow: 0 2px 3px rgba(0,0,0,0.5);
+        transition: left 0.14s ease, background 0.14s ease;
+      }
+      .switch[data-v="1"] .knob { left: 23px; background: linear-gradient(180deg, #8fffb0, #3fbf6c); }
+
+      /* --- slider --- */
+      .fader-wrap { grid-column: span 4; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+      input[type="range"] {
+        width: 100%;
+        appearance: none;
+        -webkit-appearance: none;
+        height: 6px;
+        border-radius: 999px;
+        background: #0e0f11;
+        box-shadow: inset 0 2px 5px rgba(0,0,0,0.8), inset 0 0 0 1px #000;
+        outline: none;
+      }
+      input[type="range"]::-webkit-slider-thumb {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 20px; height: 20px;
+        border-radius: 6px;
+        background: linear-gradient(180deg, #dfe3e8, #a7abb2);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.6);
+        cursor: pointer;
+        margin-top: -7px;
+      }
+      input[type="range"]::-moz-range-thumb {
+        width: 20px; height: 20px;
+        border: none;
+        border-radius: 6px;
+        background: linear-gradient(180deg, #dfe3e8, #a7abb2);
+        cursor: pointer;
+      }
+
+      .tx-row { display: flex; justify-content: center; margin-top: 0.4rem; }
+      .tx {
+        font-family: var(--mono);
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        font-size: 0.95rem;
+        color: var(--accent-ink);
+        background: linear-gradient(180deg, #ff7a68, var(--accent));
+        border: none;
+        border-radius: 999px;
+        padding: 0.85rem 2.4rem;
+        cursor: pointer;
+        box-shadow: 0 8px 20px -6px rgba(255, 82, 64, 0.55), inset 0 1px 0 rgba(255,255,255,0.3);
+        text-decoration: none;
+        display: inline-block;
+      }
+      .tx:active { transform: translateY(1px); }
+
+      .hint {
+        text-align: center;
+        color: var(--muted);
+        font-size: 0.74rem;
+        margin-top: 0.9rem;
+        line-height: 1.5;
+      }
+
+      footer {
+        margin-top: 2rem;
+        text-align: center;
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--muted);
+      }
+      footer a { color: var(--muted); }
+      footer a:hover { color: var(--ink); }
+      footer .sep { margin: 0 0.5rem; opacity: 0.5; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>switchboard</h1>
+      <p class="sub">no legend. nothing here is labeled. move things until it feels right, then transmit.</p>
+    </header>
+
+    <main class="panel">
+      <div class="rivet tl"></div>
+      <div class="rivet tr"></div>
+      <div class="rivet bl"></div>
+      <div class="rivet br"></div>
+
+      <div class="readout">
+        <div class="code" id="code">SB-000D<span class="cursor">▮</span></div>
+      </div>
+
+      <div class="grid">
+        <div class="ctrl">
+          <div class="lever-track" id="lever" data-v="0" role="button" aria-label="lever">
+            <div class="lever-handle"></div>
+          </div>
+          <div class="plate">·</div>
+        </div>
+
+        <div class="ctrl">
+          <div class="dial" id="dialA" data-v="0" role="button" aria-label="dial">
+            <div class="pointer"></div>
+          </div>
+          <div class="plate">·</div>
+        </div>
+
+        <div class="ctrl">
+          <div class="dial" id="dialB" data-v="0" role="button" aria-label="dial">
+            <div class="pointer"></div>
+          </div>
+          <div class="plate">·</div>
+        </div>
+
+        <div class="ctrl">
+          <div style="display:flex; flex-direction:column; gap:0.55rem; align-items:center;">
+            <div class="switch" id="sw1" data-v="0" role="button" aria-label="switch"><div class="knob"></div></div>
+            <div class="switch" id="sw2" data-v="0" role="button" aria-label="switch"><div class="knob"></div></div>
+            <div class="switch" id="sw3" data-v="0" role="button" aria-label="switch"><div class="knob"></div></div>
+          </div>
+          <div class="plate">·</div>
+        </div>
+
+        <div class="fader-wrap">
+          <input type="range" id="slider" min="0" max="9" step="1" value="0" aria-label="slider" />
+        </div>
+      </div>
+
+      <div class="tx-row">
+        <a class="tx" id="tx" href="#" target="_blank" rel="noopener">TX</a>
+      </div>
+
+      <p class="hint">transmits an intent-compose post addressed to @buildthis.bisks.net with your code. it decodes into a real build.</p>
+    </main>
+
+    <footer>
+      <a href="https://bisks.net/">bisks.net</a>
+      <span class="sep">·</span>
+      <a href="https://rateyourbuild.bisks.net/site/switchboard">rate this on rateyourbuild →</a>
+    </footer>
+
+    <script>
+      // Deterministic encoder only. The inverse (decode.mjs) lives outside the
+      // browser on purpose — this page never reveals what a code means.
+      // Order matters and must match decode.mjs's RADIX exactly.
+      const RADIX = [2, 8, 8, 2, 2, 2, 10]; // lever, dialA, dialB, sw1, sw2, sw3, slider
+
+      const state = { lever: 0, dialA: 0, dialB: 0, sw1: 0, sw2: 0, sw3: 0, slider: 0 };
+
+      function encode() {
+        const vals = [state.lever, state.dialA, state.dialB, state.sw1, state.sw2, state.sw3, state.slider];
+        let v = 0;
+        for (let i = 0; i < RADIX.length; i++) v = v * RADIX[i] + vals[i];
+        const digits = v.toString(36).toUpperCase().padStart(3, "0");
+        const checksum = ((v * 7 + 13) % 36).toString(36).toUpperCase();
+        return `SB-${digits}${checksum}`;
+      }
+
+      const codeEl = document.getElementById("code");
+      const txEl = document.getElementById("tx");
+
+      function render() {
+        const code = encode();
+        codeEl.innerHTML = code + '<span class="cursor">▮</span>';
+        const shareText = `@buildthis.bisks.net ${code} — panel state, decode it and build it. https://switchboard.bisks.net/`;
+        txEl.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      // --- lever ---
+      const lever = document.getElementById("lever");
+      lever.addEventListener("click", () => {
+        state.lever = state.lever ? 0 : 1;
+        lever.dataset.v = state.lever;
+        render();
+      });
+
+      // --- dials (click = advance one detent, wheel = fine control) ---
+      function wireDial(el, key, positions) {
+        const pointer = el.querySelector(".pointer");
+        const step = 360 / positions;
+        function paint() {
+          pointer.style.transform = `translate(-50%, 0) rotate(${state[key] * step}deg)`;
+        }
+        el.addEventListener("click", (e) => {
+          const dir = e.shiftKey ? -1 : 1;
+          state[key] = (state[key] + dir + positions) % positions;
+          paint();
+          render();
+        });
+        el.addEventListener(
+          "wheel",
+          (e) => {
+            e.preventDefault();
+            const dir = e.deltaY > 0 ? 1 : -1;
+            state[key] = (state[key] + dir + positions) % positions;
+            paint();
+            render();
+          },
+          { passive: false }
+        );
+        el.addEventListener("contextmenu", (e) => e.preventDefault());
+        paint();
+      }
+      wireDial(document.getElementById("dialA"), "dialA", 8);
+      wireDial(document.getElementById("dialB"), "dialB", 8);
+
+      // --- switches ---
+      ["sw1", "sw2", "sw3"].forEach((key) => {
+        const el = document.getElementById(key);
+        el.addEventListener("click", () => {
+          state[key] = state[key] ? 0 : 1;
+          el.dataset.v = state[key];
+          render();
+        });
+      });
+
+      // --- slider ---
+      const sliderEl = document.getElementById("slider");
+      sliderEl.addEventListener("input", () => {
+        state.slider = parseInt(sliderEl.value, 10);
+        render();
+      });
+
+      render();
+    </script>
+  </body>
+</html>
