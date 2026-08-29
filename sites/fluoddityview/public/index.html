@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>fluoddityview — bluesky rendered as fluoddities</title>
+<meta name="description" content="A Bluesky app view where every post's text and context are rendered as living fluoddity particle swarms instead of static type." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="fluoddityview — bluesky rendered as fluoddities" />
+<meta property="og:description" content="A real Bluesky feed, but every handle, post, and context line is a swarm of colored fluoddity particles, leashed to the letterforms and never sitting still." />
+<meta property="og:url" content="https://fluoddityview.bisks.net/" />
+<meta property="og:image" content="https://fluoddityview.bisks.net/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="fluoddityview — bluesky rendered as fluoddities" />
+<meta name="twitter:description" content="A real Bluesky feed, but every handle, post, and context line is a swarm of colored fluoddity particles, leashed to the letterforms and never sitting still." />
+<meta name="twitter:image" content="https://fluoddityview.bisks.net/og.png" />
+
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #05040a;
+    --ink: #f0ecff;
+    --dim: #a79fc4;
+    --card: #120e1e;
+    --card-2: #1a1430;
+    --border: #34294f;
+    --accent: #8c7bff;
+    --accent-bright: #b3a6ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+    background: var(--bg);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    color: var(--ink);
+  }
+  canvas#bgScene {
+    position: fixed;
+    inset: 0;
+    display: block;
+    z-index: 0;
+    opacity: 0.55;
+  }
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 3rem 1.2rem 5rem;
+  }
+  header { text-align: center; margin-bottom: 1.6rem; }
+  h1 {
+    font-size: 1.7rem;
+    margin: 0 0 0.4rem;
+    background: linear-gradient(120deg, var(--accent-bright), #4ecdc4);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  h1 span.mark { cursor: pointer; }
+  p.tagline {
+    color: var(--dim);
+    font-size: 0.85rem;
+    margin: 0 auto 1.4rem;
+    max-width: 46ch;
+    line-height: 1.5;
+  }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-bottom: 0.6rem;
+  }
+  .controls input {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 0.82rem;
+    padding: 0.5rem 0.7rem;
+    border-radius: 4px;
+    width: 220px;
+  }
+  .controls input::placeholder { color: #6c6389; }
+  button {
+    font-family: inherit;
+    font-size: 0.78rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    padding: 0.5rem 0.85rem;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent-bright); }
+  button.primary {
+    background: linear-gradient(120deg, var(--accent), #4ecdc4);
+    color: #0c0918;
+    border: none;
+    font-weight: 700;
+  }
+  button.active { color: var(--accent-bright); border-color: var(--accent); }
+  a.btn-link {
+    font-family: inherit;
+    font-size: 0.78rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    padding: 0.5rem 0.85rem;
+    border-radius: 4px;
+    text-decoration: none;
+  }
+  a.btn-link:hover { border-color: var(--accent); color: var(--accent-bright); }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-bottom: 2rem;
+  }
+  #status {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.8rem;
+    min-height: 1.4em;
+    margin-bottom: 1rem;
+  }
+  .feed { display: flex; flex-direction: column; gap: 1rem; }
+  .post {
+    position: relative;
+    background: linear-gradient(165deg, var(--card-2), var(--card) 65%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.1rem 0.9rem;
+  }
+  .swarm-box { position: relative; width: 100%; }
+  .swarm-box canvas {
+    display: block;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .ctx-box { height: 1.35rem; margin-bottom: 0.4rem; }
+  .text-box { height: 5rem; }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .post.readable-mode .swarm-box canvas { opacity: 0.22; }
+  .post.readable-mode .sr-only {
+    position: absolute;
+    inset: 0;
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+    display: flex;
+    align-items: center;
+    color: var(--accent-bright);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+    font-size: 0.85rem;
+    line-height: 1.3;
+    pointer-events: none;
+  }
+  .ctx-box.sr-only-wrap .sr-only { font-size: 0.72rem; color: var(--dim); }
+  .post a.permalink {
+    display: inline-block;
+    margin-top: 0.5rem;
+    font-size: 0.72rem;
+    color: var(--dim);
+    text-decoration: none;
+  }
+  .post a.permalink:hover { color: var(--accent-bright); }
+  .footer {
+    text-align: center;
+    font-size: 0.7rem;
+    color: var(--dim);
+    margin-top: 2.5rem;
+  }
+  .footer a { color: var(--dim); }
+  .footer a:hover { color: var(--accent-bright); }
+</style>
+</head>
+<body>
+
+<canvas id="bgScene" aria-hidden="true"></canvas>
+
+<div class="wrap">
+  <header>
+    <h1>fluoddi<span class="mark" id="secretMark">t</span>yview</h1>
+    <p class="tagline">
+      a bluesky app view where every handle, post, and context line is a
+      living swarm of leashed fluoddity particles — the same attraction-matrix
+      physics behind <a href="https://fluoddity.com" target="_blank" rel="noopener" style="color:var(--dim)">fluoddity.com</a> and
+      <a href="https://important-art.bisks.net" target="_blank" rel="noopener" style="color:var(--dim)">important-art</a>,
+      pointed at real posts instead of a fixed plaque.
+    </p>
+    <div class="controls">
+      <input id="handleInput" type="text" placeholder="you.bsky.social" autocomplete="off" spellcheck="false" />
+      <button class="primary" id="viewBtn" type="button">view their feed</button>
+      <button id="discoverBtn" type="button">back to what's hot</button>
+    </div>
+    <div class="toolbar">
+      <button id="mutateBtn" type="button">mutate it</button>
+      <button id="rerollBtn" type="button">reroll the world</button>
+      <button id="readableBtn" type="button">read the text</button>
+      <a class="btn-link" id="shareBtn" href="#" target="_blank" rel="noopener">share on bluesky</a>
+    </div>
+    <p id="status">loading what's hot…</p>
+  </header>
+
+  <div class="feed" id="feed"></div>
+
+  <p class="footer">
+    built by @buildthis.bisks.net for @words.bsky.social ·
+    <a href="https://rateyourbuild.bisks.net/site/fluoddityview">rate this on rateyourbuild →</a>
+  </p>
+</div>
+
+<script src="particle-font.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
