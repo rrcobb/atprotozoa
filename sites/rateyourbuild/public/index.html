@@ -133,7 +133,8 @@
           any reviewer can check "flag this review — the app itself seemed bugged" when they write a
           review — this is every review with that box checked, newest first, for sweeping the whole
           catalog for real bug reports instead of just opinions. once a fix lands for a flagged site,
-          it gets a ✅ fixed badge here and you'll get a 🔔 alert if it was your review.
+          it gets a ✅ fixed badge here, a 🤖 reply right in the review's own thread for anyone to see,
+          and you'll get a 🔔 alert if it was your review.
         </p>
         <div id="bug-reports"><p class="empty">loading…</p></div>
         <h3 class="bug-reports-heading">📌 reviews flagged to ping @buildthis</h3>
@@ -1303,6 +1304,23 @@
           </div>`;
       }
 
+      // @angussoftware.dev asked that a fix always gets replied back on
+      // rateyourbuild, not just surfaced as a private 🔔 alert to whoever
+      // flagged it (see the standing order in
+      // sites/buildthis/builder/INSTRUCTIONS.md, "Log fixed bugs back to
+      // rateyourbuild"). This renders that fix as an actual reply bubble
+      // right in the review's own thread, for anyone viewing it — sourced
+      // from the same public/data/bugfixes.json a fix already gets logged
+      // to, no separate write path needed.
+      function renderBotFixReply(fix) {
+        const when = fix.fixedAt ? new Date(fix.fixedAt).toLocaleDateString(undefined, { dateStyle: "medium" }) : "";
+        return `<div class="reply-row bot-reply">
+          <span class="reply-handle user-chip bot-chip">🤖 @buildthis.bisks.net</span>
+          <span class="reply-date">${esc(when)}</span>
+          <p class="reply-body">fixed: ${esc(fix.note || "a fix for this landed.")}</p>
+        </div>`;
+      }
+
       // One node in the thread tree. `byParent` is the whole thread's tree
       // (shared across the recursive calls, built once per top-level render)
       // so a node only has to look up its own children.
@@ -1347,7 +1365,7 @@
         </div>`;
       }
 
-      function renderEngagementBlock(subject, reviewerDid) {
+      function renderEngagementBlock(subject, reviewerDid, entry = null) {
         const rk = `${subject}::${reviewerDid}`;
         const tally = engagementSnapshot.votesByReview.get(rk);
         const up = tally ? tally.up : 0;
@@ -1362,6 +1380,7 @@
         const boxKey = replyBoxKeyFor(subject, reviewerDid, "");
         const replyOpen = openReplyBoxes.has(boxKey);
         const err = voteError?.rk === rk ? voteError.message : replyError?.rk === boxKey ? replyError.message : "";
+        const fix = entry?.bugged ? bugFixFor(subject, entry.ratedAt) : null;
 
         return `
           <div class="engagement" data-subject="${esc(subject)}" data-reviewer="${esc(reviewerDid)}" data-parent="" data-target="${esc(reviewerDid)}">
@@ -1371,18 +1390,22 @@
               <button type="button" class="vote-btn${mine === -1 ? " active" : ""}" data-vote="-1" ${voteDisabled ? "disabled" : ""} title="${isOwnReview ? "can't vote on your own review" : "downvote"}">▼</button>
               <span class="vote-counts">${up}&uarr; ${down}&darr;</span>
               ${
-                isOwnReview
-                  ? topReplies.length
-                    ? `<span class="reply-count">${topReplies.length} repl${topReplies.length === 1 ? "y" : "ies"}</span>`
-                    : ""
-                  : `<a href="#" class="reply-toggle">${topReplies.length ? `${topReplies.length} repl${topReplies.length === 1 ? "y" : "ies"}` : "reply"}</a>`
+                (() => {
+                  const shownCount = topReplies.length + (fix ? 1 : 0);
+                  return isOwnReview
+                    ? shownCount
+                      ? `<span class="reply-count">${shownCount} repl${shownCount === 1 ? "y" : "ies"}</span>`
+                      : ""
+                    : `<a href="#" class="reply-toggle">${shownCount ? `${shownCount} repl${shownCount === 1 ? "y" : "ies"}` : "reply"}</a>`;
+                })()
               }
               <a class="review-permalink" href="/review/${encodeURIComponent(reviewerDid)}/${encodeURIComponent(subject)}" title="link to this review">permalink</a>
             </div>
             ${err ? `<p class="engagement-err">${esc(err)}</p>` : ""}
             ${
-              topReplies.length || replyOpen
+              topReplies.length || replyOpen || fix
                 ? `<div class="reply-list">
+                    ${fix ? renderBotFixReply(fix) : ""}
                     ${topReplies.map((r) => renderReplyNode(r, subject, reviewerDid, byParent, 1)).join("")}
                     ${session && !isOwnReview && replyOpen ? renderReplyComposer(boxKey) : ""}
                   </div>`
@@ -1418,7 +1441,7 @@
             <span class="review-date">${esc(when)}</span>
           </div>
           ${entry.text ? `<p class="review-text">${esc(entry.text)}</p>` : ""}
-          ${renderEngagementBlock(entry.subject, entry.did)}
+          ${renderEngagementBlock(entry.subject, entry.did, entry)}
         </div>`;
       }
 
@@ -1764,7 +1787,7 @@
                 <span class="review-date">${esc(when)}</span>
               </div>
               ${e.text ? `<p class="review-text">${esc(e.text)}</p>` : ""}
-              ${renderEngagementBlock(e.subject, e.did)}
+              ${renderEngagementBlock(e.subject, e.did, e)}
             </div>`;
           })
           .join("");
@@ -1856,7 +1879,7 @@
             </p>
           </div>
           ${entry.text ? `<p class="review-text">${esc(entry.text)}</p>` : `<p class="empty">no written review, score only.</p>`}
-          ${renderEngagementBlock(subject, resolved.did)}
+          ${renderEngagementBlock(subject, resolved.did, entry)}
           <p class="detail-meta"><a target="_blank" rel="noopener" href="${esc(shareIntentHref(shareText))}">share this review →</a></p>
         `;
       }
