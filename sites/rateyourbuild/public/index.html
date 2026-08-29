@@ -132,9 +132,10 @@
         <p class="meta">
           any reviewer can check "flag this review — the app itself seemed bugged" when they write a
           review — this is every review with that box checked, newest first, for sweeping the whole
-          catalog for real bug reports instead of just opinions. once a fix lands for a flagged site,
-          it gets a ✅ fixed badge here, a 🤖 reply right in the review's own thread for anyone to see,
-          and you'll get a 🔔 alert if it was your review.
+          catalog for real bug reports instead of just opinions. once a fix lands for a site, every
+          review of it made before the fix (flagged or not) gets a ✅ fixed badge and a 🤖 reply right
+          in its own thread for anyone to see — and if it was your review that flagged the bug, you
+          also get a 🔔 alert.
         </p>
         <div id="bug-reports"><p class="empty">loading…</p></div>
         <h3 class="bug-reports-heading">📌 reviews flagged to ping @buildthis</h3>
@@ -1380,7 +1381,7 @@
         const boxKey = replyBoxKeyFor(subject, reviewerDid, "");
         const replyOpen = openReplyBoxes.has(boxKey);
         const err = voteError?.rk === rk ? voteError.message : replyError?.rk === boxKey ? replyError.message : "";
-        const fix = entry?.bugged ? bugFixFor(subject, entry.ratedAt) : null;
+        const fixes = entry ? bugFixesFor(subject, entry.ratedAt) : [];
 
         return `
           <div class="engagement" data-subject="${esc(subject)}" data-reviewer="${esc(reviewerDid)}" data-parent="" data-target="${esc(reviewerDid)}">
@@ -1391,7 +1392,7 @@
               <span class="vote-counts">${up}&uarr; ${down}&darr;</span>
               ${
                 (() => {
-                  const shownCount = topReplies.length + (fix ? 1 : 0);
+                  const shownCount = topReplies.length + fixes.length;
                   return isOwnReview
                     ? shownCount
                       ? `<span class="reply-count">${shownCount} repl${shownCount === 1 ? "y" : "ies"}</span>`
@@ -1403,9 +1404,9 @@
             </div>
             ${err ? `<p class="engagement-err">${esc(err)}</p>` : ""}
             ${
-              topReplies.length || replyOpen || fix
+              topReplies.length || replyOpen || fixes.length
                 ? `<div class="reply-list">
-                    ${fix ? renderBotFixReply(fix) : ""}
+                    ${fixes.map(renderBotFixReply).join("")}
                     ${topReplies.map((r) => renderReplyNode(r, subject, reviewerDid, byParent, 1)).join("")}
                     ${session && !isOwnReview && replyOpen ? renderReplyComposer(boxKey) : ""}
                   </div>`
@@ -1429,7 +1430,7 @@
           : site
             ? `<a class="review-site" href="/site/${esc(site.name)}">${esc(site.title)}</a><a class="pill" href="/genre/${esc(site.genre)}">${esc(site.genre)}</a>`
             : `<span class="review-site">${esc(entry.subject)}</span>`;
-        const fix = entry.bugged ? bugFixFor(entry.subject, entry.ratedAt) : null;
+        const fixes = bugFixesFor(entry.subject, entry.ratedAt);
         return `<div class="review-row">
           <div class="review-row-head">
             ${siteHtml}
@@ -1437,7 +1438,7 @@
             <span class="review-score">${entry.score}/10</span>
             ${entry.bugged ? `<span class="bug-tag" title="flagged as a bug report">🐛 bug</span>` : ""}
             ${entry.pinged ? `<span class="ping-tag" title="flagged to ping @buildthis — feature idea or something to build/fix">📌 ping</span>` : ""}
-            ${fix ? `<span class="fixed-tag" title="${esc(fix.note || "a fix was logged for this site after this review")}">✅ fixed${fix.fixedAt ? " " + esc(new Date(fix.fixedAt).toLocaleDateString(undefined, { dateStyle: "medium" })) : ""}</span>` : ""}
+            ${fixes.map((fix) => `<span class="fixed-tag" title="${esc(fix.note || "a fix was logged for this site after this review")}">✅ fixed${fix.fixedAt ? " " + esc(new Date(fix.fixedAt).toLocaleDateString(undefined, { dateStyle: "medium" })) : ""}</span>`).join("")}
             <span class="review-date">${esc(when)}</span>
           </div>
           ${entry.text ? `<p class="review-text">${esc(entry.text)}</p>` : ""}
@@ -2311,19 +2312,24 @@
         }
       }
 
-      // Most recent logged fix for `subject` that landed after `ratedAt`
-      // (the bugged review's own timestamp), or null. Used both for the
-      // "✅ fixed" badge on a bugged review row and (via checkBugFixes) the
-      // alert fired to whoever flagged it.
-      function bugFixFor(subject, ratedAt) {
-        let best = null;
-        for (const fix of bugfixes) {
-          if (fix.subject !== subject) continue;
-          const fixedAt = Date.parse(fix.fixedAt);
-          if (!Number.isFinite(fixedAt) || fixedAt <= ratedAt) continue;
-          if (!best || fixedAt > Date.parse(best.fixedAt)) best = fix;
-        }
-        return best;
+      // Every logged fix for `subject` that landed after `ratedAt` (the
+      // review's own timestamp), oldest first. Used for the "✅ fixed"
+      // badge(s) and the 🤖 in-thread reply bubble(s) on ANY review of that
+      // subject — not just ones flagged "bugged". @angussoftware.dev asked
+      // (2026-08-29, "backfill the replies for that 5 fixes") for the 5
+      // fixes already logged by that point to show up as real replies on
+      // rateyourbuild itself; none of the site's own reviews happen to have
+      // the bugged box checked, so gating this on `entry.bugged` (the
+      // original shape) would have backfilled nothing. This returns every
+      // match, not just the latest, so a review that predates several fixes
+      // shows all of them instead of silently dropping all but the newest.
+      // (The private 🔔 alert stays bugged-only — see
+      // subscription-index.js's checkBugFixes — since that ask was
+      // explicitly "if I leave review as bugged".)
+      function bugFixesFor(subject, ratedAt) {
+        return bugfixes
+          .filter((fix) => fix.subject === subject && Number.isFinite(Date.parse(fix.fixedAt)) && Date.parse(fix.fixedAt) > ratedAt)
+          .sort((a, b) => Date.parse(a.fixedAt) - Date.parse(b.fixedAt));
       }
 
       // A shared card link (?site=<name>, older links from before /site/<name>
