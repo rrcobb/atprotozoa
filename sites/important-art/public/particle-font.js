@@ -1,21 +1,17 @@
 // particle-font.js — a "moving font": glyphs sampled from real text, each
 // sample point turned into a colored fluoddity particle. Particles obey the
 // same colored attraction-matrix physics as the background simulation
-// (app.js), but every particle is leashed to its glyph point with a spring
-// and a hard-clamped radius, so the letterforms always hold their shape --
-// no still pixels (every particle drifts/orbits continuously) and always
-// readable (the leash caps how far any particle can stray).
+// (app.js), leashed to their glyph point with a spring so the swarm still
+// traces the letterforms -- but per @words.bsky.social's 2026-08-29 ask
+// ("make the entire plaque look like that. don't worry about the
+// readability.") the leash is deliberately loose now: every text block on
+// the plaque runs through this, not just the title, and the physics prizes
+// motion over legibility. Two entry points: createParticleText({lines: [...]})
+// for short fixed strings (title, quotes), and createParticleText({text,
+// wrap: true}) for paragraphs, which auto-wraps and autofits a font size to
+// the canvas box before sampling.
 (function () {
   const COLORS = ["#ff5c8a", "#ffd166", "#4ecdc4", "#8c7bff", "#38bdf8", "#9dffb0"];
-  const RMAX = 16;
-  const BETA = 0.3;
-  const LEASH_K = 0.09;
-  const LEASH_MAX = 7;
-  const FRICTION = 0.86;
-  const FORCE_SCALE = 0.35;
-  const JITTER = 0.05;
-  const STEP = 4; // glyph sample spacing, in offscreen raster px
-  const MAX_PARTICLES = 2400; // browser-memory/frame-time guard, not a legibility limit
 
   function randomRules() {
     const c = COLORS.length;
@@ -28,7 +24,39 @@
     return m;
   }
 
-  function sampleGlyphs(lines, font, lineHeight) {
+  function wrapLine(ctx, text, maxWidth) {
+    const words = text.split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = "";
+    for (const w of words) {
+      const test = cur ? cur + " " + w : w;
+      if (cur && ctx.measureText(test).width > maxWidth) {
+        lines.push(cur);
+        cur = w;
+      } else {
+        cur = test;
+      }
+    }
+    if (cur) lines.push(cur);
+    return lines.length ? lines : [""];
+  }
+
+  // Shrinks font size until the wrapped paragraph fits the box, so long
+  // copy (the lede, the explainer note) still lands inside its canvas.
+  function fitAndWrap(ctx, text, fontFamily, weight, boxW, boxH, maxFontPx, minFontPx) {
+    let fontPx = maxFontPx;
+    let lines, lineHeight;
+    while (fontPx >= minFontPx) {
+      ctx.font = `${weight} ${fontPx}px ${fontFamily}`;
+      lines = wrapLine(ctx, text, boxW);
+      lineHeight = fontPx * 1.28;
+      if (lines.length * lineHeight <= boxH) break;
+      fontPx -= 1;
+    }
+    return { fontPx, lines, lineHeight };
+  }
+
+  function sampleGlyphs(lines, font, lineHeight, step, maxParticles) {
     const off = document.createElement("canvas");
     const octx = off.getContext("2d");
     octx.font = font;
@@ -45,13 +73,13 @@
     });
     const img = octx.getImageData(0, 0, width, off.height);
     let points = [];
-    for (let y = 0; y < off.height; y += STEP) {
-      for (let x = 0; x < width; x += STEP) {
+    for (let y = 0; y < off.height; y += step) {
+      for (let x = 0; x < width; x += step) {
         if (img.data[(y * width + x) * 4 + 3] > 128) points.push({ x, y });
       }
     }
-    if (points.length > MAX_PARTICLES) {
-      const stride = Math.ceil(points.length / MAX_PARTICLES);
+    if (points.length > maxParticles) {
+      const stride = Math.ceil(points.length / maxParticles);
       points = points.filter((_, i) => i % stride === 0);
     }
     return { points, width, height: off.height };
@@ -59,11 +87,23 @@
 
   function createParticleText(canvas, opts) {
     const ctx = canvas.getContext("2d");
-    const lines = opts.lines;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     let particles = [];
     let rules = randomRules();
     let W, H;
+
+    // Loose by default: the swarm still leans toward the letterform but
+    // wanders a lot further from it and settles a lot less. Pass tighter
+    // numbers per-instance if a block really needs to stay legible.
+    const RMAX = opts.rmax || 18;
+    const BETA = opts.beta || 0.3;
+    const LEASH_K = opts.leashK != null ? opts.leashK : 0.045;
+    const LEASH_MAX = opts.leashMax != null ? opts.leashMax : 24;
+    const FRICTION = opts.friction || 0.88;
+    const FORCE_SCALE = opts.forceScale != null ? opts.forceScale : 0.42;
+    const JITTER = opts.jitter != null ? opts.jitter : 0.14;
+    const STEP = opts.step || 4;
+    const MAX_PARTICLES = opts.maxParticles || 1400; // browser-memory/frame-time guard, not a legibility limit
 
     function layout() {
       const cssWidth = canvas.clientWidth;
@@ -71,10 +111,34 @@
       W = canvas.width = Math.max(1, Math.round(cssWidth * dpr));
       H = canvas.height = Math.max(1, Math.round(cssHeight * dpr));
 
-      const lineHeight = H / lines.length;
-      const fontPx = Math.max(10, Math.floor(lineHeight * 0.72));
-      const font = `700 ${fontPx}px ${opts.fontFamily || "Georgia, serif"}`;
-      const { points, width, height } = sampleGlyphs(lines, font, lineHeight);
+      const fontFamily = opts.fontFamily || "Georgia, serif";
+      const weight = opts.fontWeight || 700;
+      let lines, lineHeight;
+
+      if (opts.wrap) {
+        const measure = document.createElement("canvas").getContext("2d");
+        const pad = 0.96;
+        const fit = fitAndWrap(
+          measure,
+          opts.text,
+          fontFamily,
+          weight,
+          W * pad,
+          H * pad,
+          opts.maxFontPx || Math.floor(H / 2),
+          opts.minFontPx || 8
+        );
+        lines = fit.lines;
+        lineHeight = fit.lineHeight;
+      } else {
+        lines = opts.lines;
+        lineHeight = H / lines.length;
+      }
+      const fontPx = opts.wrap
+        ? Math.max(8, Math.floor(lineHeight / 1.28))
+        : Math.max(10, Math.floor(lineHeight * 0.72));
+      const font = `${weight} ${fontPx}px ${fontFamily}`;
+      const { points, width, height } = sampleGlyphs(lines, font, lineHeight, STEP, MAX_PARTICLES);
 
       const scale = Math.min(W / width, H / height);
       const offsetX = (W - width * scale) / 2;
@@ -174,7 +238,7 @@
 
     function draw() {
       ctx.clearRect(0, 0, W, H);
-      const size = Math.max(1.3, 2.0 * dpr);
+      const size = Math.max(1.2, 1.9 * dpr);
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
         ctx.fillStyle = COLORS[p.c];
