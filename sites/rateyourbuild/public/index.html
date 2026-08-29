@@ -6,13 +6,13 @@
     <title>rateyourbuild — rate every site the bot has built</title>
     <meta
       name="description"
-      content="RateYourMusic for the atprotozoa constellation: rate every site @buildthis.bisks.net has built, 0 to 10. Genre charts, a prompters leaderboard, sortable by build date — all weighted by vote count so one rating can't send a site to #1."
+      content="RateYourMusic for the atprotozoa constellation: rate every site @buildthis.bisks.net has built, 0 to 10, with an optional written review. Genre and subgenre pages, per-site rankings, a prompters leaderboard — all weighted by vote count so one rating can't send a site to #1."
     />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="rateyourbuild — rate every site the bot has built" />
     <meta
       property="og:description"
-      content="RateYourMusic for the atprotozoa constellation: rate every bot-built site 0-10, weighted by vote count. Genre charts, a prompters leaderboard, sort by build date."
+      content="RateYourMusic for the atprotozoa constellation: rate every bot-built site 0-10 with an optional review. Genre/subgenre pages, per-site rankings, a prompters leaderboard."
     />
     <meta property="og:url" content="https://rateyourbuild.bisks.net/" />
     <meta property="og:image" content="https://rateyourbuild.bisks.net/og.png" />
@@ -20,7 +20,7 @@
     <meta name="twitter:title" content="rateyourbuild — rate every site the bot has built" />
     <meta
       name="twitter:description"
-      content="RateYourMusic for the atprotozoa constellation: rate every bot-built site 0-10, weighted by vote count."
+      content="RateYourMusic for the atprotozoa constellation: rate every bot-built site 0-10 with an optional review."
     />
     <meta name="twitter:image" content="https://rateyourbuild.bisks.net/og.png" />
     <link rel="stylesheet" href="/style.css" />
@@ -32,10 +32,10 @@
         <h1>rate<span onclick='var e=document.getElementById("authHandle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">y</span>ourbuild</h1>
         <p class="tag">
           every site <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>
-          has ever built, rated 0-10 — RateYourMusic for a bot's back catalog. Ratings write to
-          your own PDS as <code>net.bisks.rateyourbuild.rating</code> and every chart is weighted
-          by vote count, same idea as RYM: a single 10/10 can't out-rank a site with fifty honest
-          scores averaging 8. asked for by @angussoftware.dev.
+          has ever built, rated 0-10 with an optional written review — RateYourMusic for a bot's back
+          catalog. Ratings write to your own PDS as <code>net.bisks.rateyourbuild.rating</code> and
+          every chart is weighted by vote count, same idea as RYM: a single 10/10 can't out-rank a
+          site with fifty honest scores averaging 8. asked for by @angussoftware.dev.
         </p>
         <nav class="tabs">
           <a class="tab-link active" data-tab="browse">browse &amp; rate</a>
@@ -75,8 +75,8 @@
 
       <section id="tab-genres" class="tab-panel" hidden>
         <p class="meta">
-          top-rated sites in each genre, same weighting as the main chart. click a genre's "see all" to
-          jump to the full filtered list.
+          top-rated sites in each genre, same weighting as the main chart. click a genre name for its
+          own page (description, subgenres, super-genre) or "see all" to jump to the full filtered list.
         </p>
         <div id="genre-boards"><p class="empty">loading…</p></div>
       </section>
@@ -91,6 +91,21 @@
         <div id="prompter-board"><p class="empty">loading…</p></div>
       </section>
 
+      <section id="page-site" class="tab-panel" hidden>
+        <a class="back-link" href="/">← back to rateyourbuild</a>
+        <div id="site-page-body"><p class="empty">loading…</p></div>
+      </section>
+
+      <section id="page-genre" class="tab-panel" hidden>
+        <a class="back-link" href="/">← back to rateyourbuild</a>
+        <div id="genre-page-body"><p class="empty">loading…</p></div>
+      </section>
+
+      <section id="page-super" class="tab-panel" hidden>
+        <a class="back-link" href="/">← back to rateyourbuild</a>
+        <div id="super-page-body"><p class="empty">loading…</p></div>
+      </section>
+
       <div id="prompter-modal" class="modal-overlay" hidden>
         <div class="modal-panel" role="dialog" aria-modal="true">
           <button class="modal-close" id="prompter-modal-close" aria-label="close">×</button>
@@ -99,8 +114,8 @@
       </div>
 
       <footer>
-        Ratings are <code>net.bisks.rateyourbuild.rating</code> records written straight to your own
-        PDS, read back network-wide via
+        Ratings and reviews are <code>net.bisks.rateyourbuild.rating</code> records written straight
+        to your own PDS, read back network-wide via
         <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
         plus a full history backfill — there's no backend, every chart here is recomputed in your
         browser. The catalog itself is a snapshot of every
@@ -115,6 +130,8 @@
     <script type="module">
       import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
       import { GlobalIndex } from "/lib/global-index.js";
+      import { getProfiles } from "/lib/identity.js";
+      import { GENRES, SUPERS } from "/lib/genres.js";
 
       const $ = (s, root = document) => root.querySelector(s);
       const COLLECTION = "net.bisks.rateyourbuild.rating";
@@ -126,6 +143,7 @@
       // already a meaningful signal here, not noise.
       const PRIOR_VOTES = 5;
       const PAGE_SIZE = 40;
+      const REVIEW_MAX = 600; // graphemes, matches the lexicon's text.maxGraphemes
 
       function esc(s) {
         return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -134,13 +152,27 @@
         if (!ms) return "";
         return new Date(ms).toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" });
       }
+      function fmtMonthYear(ms) {
+        if (!ms) return "";
+        return new Date(ms).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
+      }
+      function fmtDateTime(ms) {
+        if (!ms) return "unknown";
+        return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }) + " UTC";
+      }
+      function pluralGenre(g) {
+        return /[a-z]$/.test(g) ? g + (g.endsWith("s") ? "" : "s") : g;
+      }
+      function shortDid(did) {
+        const bare = did.replace(/^did:[a-z]+:/, "");
+        return bare.length > 10 ? bare.slice(0, 10) + "…" : bare;
+      }
 
       // Per notes/45-sharing-and-virality.md tier 2 ("always"): the composed
       // text carries the actual URL, not just an og:title on the page it
-      // points to — a `?site=` deep link (handled in boot()) lands a reader
-      // straight on the rated card instead of the bare front page.
+      // points to.
       function buildShareUrl(name) {
-        return `https://rateyourbuild.bisks.net/?site=${encodeURIComponent(name)}`;
+        return `https://rateyourbuild.bisks.net/site/${encodeURIComponent(name)}`;
       }
       function buildShareText(site, score) {
         return `rated "${site.title}" ${score}/10 on rateyourbuild — rate @buildthis.bisks.net's whole back catalog: ${buildShareUrl(site.name)}`;
@@ -159,13 +191,73 @@
       let visibleCount = PAGE_SIZE;
       let activeTab = "browse";
       let lastRatedNote = null; // { subject, score } — see submitRating
+      let route = { view: "browse" };
+      let composerScore = null;
 
       const index = new GlobalIndex({
         onUpdate: (snap) => {
           snapshot = snap;
-          renderAll();
+          renderRoute();
         },
       });
+
+      // --- routing --------------------------------------------------------
+      // /site/<name>, /genre/<key>, /super/<key> are real URLs (the Worker
+      // stamps their og:title/description per-page — see src/index.ts) that
+      // this client also renders directly from location.pathname, so a
+      // shared link lands straight on the right view without extra clicks.
+
+      function parseRoute() {
+        let m = location.pathname.match(/^\/site\/([^/]+)\/?$/);
+        if (m) return { view: "site", name: decodeURIComponent(m[1]) };
+        m = location.pathname.match(/^\/genre\/([^/]+)\/?$/);
+        if (m) return { view: "genre", key: decodeURIComponent(m[1]) };
+        m = location.pathname.match(/^\/super\/([^/]+)\/?$/);
+        if (m) return { view: "super", key: decodeURIComponent(m[1]) };
+        return { view: "browse" };
+      }
+
+      function navigate(path, { replace = false } = {}) {
+        if (replace) history.replaceState(null, "", path);
+        else history.pushState(null, "", path);
+        route = parseRoute();
+        visibleCount = PAGE_SIZE;
+        renderRoute();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+
+      document.addEventListener("click", (e) => {
+        const a = e.target.closest("a[href]");
+        if (!a || a.target === "_blank") return;
+        const href = a.getAttribute("href");
+        if (href === "/" || /^\/(site|genre|super)\//.test(href)) {
+          e.preventDefault();
+          navigate(href);
+        }
+      });
+      window.addEventListener("popstate", () => {
+        route = parseRoute();
+        renderRoute();
+      });
+
+      function applyRouteVisibility() {
+        const browseApp = route.view === "browse";
+        $(".tabs").style.display = browseApp ? "" : "none";
+        $("#tab-browse").hidden = !(browseApp && activeTab === "browse");
+        $("#tab-genres").hidden = !(browseApp && activeTab === "genres");
+        $("#tab-prompters").hidden = !(browseApp && activeTab === "prompters");
+        $("#page-site").hidden = route.view !== "site";
+        $("#page-genre").hidden = route.view !== "genre";
+        $("#page-super").hidden = route.view !== "super";
+      }
+
+      function renderRoute() {
+        applyRouteVisibility();
+        if (route.view === "site") renderSitePage(route.name);
+        else if (route.view === "genre") renderGenrePage(route.key);
+        else if (route.view === "super") renderSuperPage(route.key);
+        else renderAll();
+      }
 
       // --- weighting -----------------------------------------------------
 
@@ -182,11 +274,76 @@
       function statsFor(name) {
         return snapshot.bySubject.get(name) || null;
       }
-      function ownScore(name) {
+      function ownRecord(name) {
         if (!session) return null;
-        const e = snapshot.entries.find((e) => e.did === session.did && e.subject === name);
-        return e ? e.score : null;
+        return snapshot.entries.find((e) => e.did === session.did && e.subject === name) || null;
       }
+      function ownScore(name) {
+        return ownRecord(name)?.score ?? null;
+      }
+      function scoredList(list) {
+        const mean = globalMean();
+        return list
+          .map((s) => {
+            const stats = statsFor(s.name);
+            return { site: s, stats, w: stats ? weighted(stats.sum, stats.count, mean) : null };
+          })
+          .filter((x) => x.w != null)
+          .sort((a, b) => b.w - a.w || b.stats.count - a.stats.count);
+      }
+
+      // --- rating + review writes ------------------------------------------
+
+      async function writeRating(subject, score, text) {
+        if (!session) throw new Error("not signed in");
+        const ratedAt = new Date().toISOString();
+        const base = session.pdsUrl.replace(/\/$/, "");
+        const record = { $type: COLLECTION, subject, score, ratedAt };
+        const trimmed = (text || "").trim().slice(0, REVIEW_MAX);
+        if (trimmed) record.text = trimmed;
+        const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ repo: session.did, collection: COLLECTION, rkey: subject, record }),
+        });
+        if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+        index.applyOwn(session.did, subject, score, ratedAt, trimmed);
+        return { score, text: trimmed, ratedAt };
+      }
+
+      // Quick-rate from a browse card: score only, but preserves any review
+      // text the rater already wrote (via the site page) rather than
+      // clobbering it with an empty string.
+      async function submitRating(subject, score, row) {
+        if (!session) return;
+        const statusEl = row.nextElementSibling;
+        row.querySelectorAll(".rate-btn").forEach((b) => (b.disabled = true));
+        if (statusEl) statusEl.textContent = "saving…";
+        try {
+          const existingText = ownRecord(subject)?.text || "";
+          await writeRating(subject, score, existingText);
+          lastRatedNote = { subject, score };
+          setTimeout(() => {
+            if (lastRatedNote && lastRatedNote.subject === subject) {
+              lastRatedNote = null;
+              renderRoute();
+            }
+          }, 4000);
+        } catch (err) {
+          if (statusEl) { statusEl.textContent = `couldn't save that: ${err.message}`; statusEl.className = "rate-row-status"; }
+          row.querySelectorAll(".rate-btn").forEach((b) => (b.disabled = false));
+        }
+      }
+
+      document.addEventListener("click", async (e) => {
+        const btn = e.target.closest(".rate-btn");
+        if (!btn || btn.disabled) return;
+        const row = btn.closest(".rate-row");
+        if (!row) return;
+        const subject = row.dataset.subject;
+        const score = Number(btn.dataset.score);
+        await submitRating(subject, score, row);
+      });
 
       // --- rendering: a rated-site card -----------------------------------
 
@@ -206,16 +363,20 @@
         const justRated = lastRatedNote && lastRatedNote.subject === site.name;
         const statusHtml = justRated
           ? `rated ${lastRatedNote.score}/10. <a class="share-link" target="_blank" rel="noopener" href="${esc(shareIntentHref(buildShareText(site, lastRatedNote.score)))}">share on bluesky</a>`
-          : "";
+          : `<a href="/site/${esc(site.name)}">write a review →</a>`;
         return `
           <div class="card" data-name="${esc(site.name)}">
             <div class="card-main">
-              <a class="card-title" href="${esc(site.url)}" target="_blank" rel="noopener">${esc(site.title)}</a>
-              <span class="pill">${esc(site.genre)}</span>
+              <a class="card-title" href="/site/${esc(site.name)}">${esc(site.title)}</a>
+              <a class="pill" href="/genre/${esc(site.genre)}">${esc(site.genre)}</a>
+              ${site.subgenre ? `<a class="pill pill-sub" href="/genre/${esc(site.genre)}">${esc(site.subgenre)}</a>` : ""}
               ${site.builtAt ? `<span class="built-badge">${fmtMonth(Date.parse(site.builtAt))}</span>` : ""}
             </div>
             <p class="card-blurb">${esc(site.blurb)}</p>
-            ${site.by ? `<p class="by">asked for by <a href="#" class="prompter-link" data-prompter="${esc(site.by)}" title="see everything @${esc(site.by)} has prompted">@${esc(site.by)} →</a></p>` : ""}
+            <p class="card-links">
+              <a class="visit-link" href="${esc(site.url)}" target="_blank" rel="noopener">visit ↗</a>
+              ${site.by ? ` · asked for by <a href="#" class="prompter-link" data-prompter="${esc(site.by)}" title="see everything @${esc(site.by)} has prompted">@${esc(site.by)} →</a>` : ""}
+            </p>
             <div class="card-foot">
               <div class="score-block">${scoreHtml}</div>
               <div class="rate-row" data-subject="${esc(site.name)}">${btns}</div>
@@ -305,37 +466,23 @@
       // --- genres tab --------------------------------------------------------
 
       function renderGenreBoards() {
-        const mean = globalMean();
-        const ranked = (genre) => {
-          const list = catalog.filter((s) => s.genre === genre).map((s) => {
-            const stats = statsFor(s.name);
-            return { site: s, stats, w: stats ? weighted(stats.sum, stats.count, mean) : null };
-          });
-          list.sort((a, b) => {
-            if (a.w == null && b.w == null) return a.site.name.localeCompare(b.site.name);
-            if (a.w == null) return 1;
-            if (b.w == null) return -1;
-            return b.w - a.w || b.stats.count - a.stats.count;
-          });
-          return list;
-        };
-
         const html = genres
           .map((genre) => {
-            const list = ranked(genre);
+            const list = scoredList(catalog.filter((s) => s.genre === genre));
+            const unrated = catalog.filter((s) => s.genre === genre && !statsFor(s.name)).length;
             const top = list.slice(0, 8);
             const rows = top
               .map((x, i) => {
-                const scoreHtml = x.w != null ? `${x.w.toFixed(1)} <span class="board-sub">(${x.stats.count})</span>` : `<span class="board-sub">unrated</span>`;
-                return `<a class="board-row" href="${esc(x.site.url)}" target="_blank" rel="noopener">
+                return `<a class="board-row" href="/site/${esc(x.site.name)}">
                   <span class="board-rank">#${i + 1}</span>
                   <span class="board-name">${esc(x.site.title)}</span>
-                  <span class="board-score">${scoreHtml}</span>
+                  <span class="board-score">${x.w.toFixed(1)} <span class="board-sub">(${x.stats.count})</span></span>
                 </a>`;
               })
               .join("");
             return `<div class="board">
-              <div class="board-title"><span>${esc(genre)} <span class="board-sub">(${list.length})</span></span>
+              <div class="board-title">
+                <a class="board-title-name" href="/genre/${esc(genre)}">${esc(genre)} <span class="board-sub">(${list.length + unrated})</span></a>
                 <a href="#" class="see-all" data-genre="${esc(genre)}">see all →</a></div>
               ${rows || `<p class="empty" style="padding:0 0.9rem 0.6rem">nothing here yet.</p>`}
             </div>`;
@@ -390,6 +537,239 @@
         if (openPrompter) renderPrompterModal(openPrompter);
       }
 
+      // --- site detail page -------------------------------------------------
+      // "each site should have its own page with the rating, the main genre,
+      // any subgenres, & the date time created, as well as any top 10
+      // rankings" — plus the review composer/edit UI and the public review
+      // list ("see what others have rated since they are public").
+
+      function computeRankings(site, w) {
+        if (w == null) return [];
+        const out = [];
+        const genreRank = scoredList(catalog.filter((s) => s.genre === site.genre)).findIndex((x) => x.site.name === site.name) + 1;
+        if (genreRank >= 1 && genreRank <= 10) out.push(`ranked #${genreRank} in ${pluralGenre(site.genre)}`);
+
+        if (site.subgenre) {
+          const subRank = scoredList(catalog.filter((s) => s.genre === site.genre && s.subgenre === site.subgenre)).findIndex((x) => x.site.name === site.name) + 1;
+          if (subRank >= 1 && subRank <= 10) out.push(`ranked #${subRank} in ${site.subgenre}`);
+        }
+
+        if (site.builtAt) {
+          const d = new Date(site.builtAt);
+          const cohort = catalog.filter((s) => {
+            if (!s.builtAt) return false;
+            const sd = new Date(s.builtAt);
+            return sd.getUTCFullYear() === d.getUTCFullYear() && sd.getUTCMonth() === d.getUTCMonth();
+          });
+          const cohortRank = scoredList(cohort).findIndex((x) => x.site.name === site.name) + 1;
+          if (cohortRank >= 1 && cohortRank <= 10) out.push(`ranked #${cohortRank} for ${fmtMonthYear(d.getTime())}`);
+        }
+
+        const overallRank = scoredList(catalog).findIndex((x) => x.site.name === site.name) + 1;
+        if (overallRank >= 1 && overallRank <= 10) out.push(`ranked #${overallRank} overall`);
+
+        return out;
+      }
+
+      const profileCache = new Map(); // did -> {handle, displayName} | null
+      const profilePending = new Set();
+      function ensureProfiles(dids) {
+        const need = [...new Set(dids)].filter((d) => !profileCache.has(d) && !profilePending.has(d));
+        if (!need.length) return;
+        need.forEach((d) => profilePending.add(d));
+        getProfiles(need).then((resolved) => {
+          for (const d of need) {
+            profileCache.set(d, resolved.get(d) || null);
+            profilePending.delete(d);
+          }
+          if (route.view === "site") renderSitePage(route.name);
+        });
+      }
+
+      function renderReviewRow(entry) {
+        const profile = profileCache.get(entry.did);
+        const handle = profile?.handle ? "@" + profile.handle : shortDid(entry.did);
+        const when = entry.ratedAt ? new Date(entry.ratedAt).toLocaleDateString(undefined, { dateStyle: "medium" }) : "";
+        return `<div class="review-row">
+          <div class="review-row-head">
+            <a class="review-handle" href="https://bsky.app/profile/${encodeURIComponent(entry.did)}" target="_blank" rel="noopener">${esc(handle)}</a>
+            <span class="review-score">${entry.score}/10</span>
+            <span class="review-date">${esc(when)}</span>
+          </div>
+          ${entry.text ? `<p class="review-text">${esc(entry.text)}</p>` : ""}
+        </div>`;
+      }
+
+      function renderSitePage(name) {
+        const container = $("#site-page-body");
+        const site = catalog.find((s) => s.name === name);
+        if (!site) {
+          container.innerHTML = `<p class="empty">no site named "${esc(name)}" in the catalog.</p>`;
+          return;
+        }
+        const stats = statsFor(site.name);
+        const mean = globalMean();
+        const w = stats ? weighted(stats.sum, stats.count, mean) : null;
+        const own = ownRecord(site.name);
+        const rankings = computeRankings(site, w);
+        const reviews = snapshot.entries
+          .filter((e) => e.subject === site.name)
+          .slice()
+          .sort((a, b) => b.ratedAt - a.ratedAt);
+        ensureProfiles(reviews.map((e) => e.did));
+
+        const scoreHtml = w != null
+          ? `<span class="score-big">${w.toFixed(1)}</span><span class="score-sub">${stats.count} rating${stats.count === 1 ? "" : "s"}</span>`
+          : `<span class="score-big unrated">—</span><span class="score-sub">not yet rated</span>`;
+
+        container.innerHTML = `
+          <div class="detail-head">
+            <h2 class="detail-title">${esc(site.title)}</h2>
+            <p class="detail-blurb">${esc(site.blurb)}</p>
+            <div class="detail-pills">
+              <a class="pill" href="/genre/${esc(site.genre)}">${esc(site.genre)}</a>
+              ${site.subgenre ? `<a class="pill pill-sub" href="/genre/${esc(site.genre)}">${esc(site.subgenre)}</a>` : ""}
+              ${site.by ? `<a class="pill pill-by" href="#" data-prompter="${esc(site.by)}">asked by @${esc(site.by)}</a>` : ""}
+            </div>
+            <p class="detail-meta">
+              built ${esc(fmtDateTime(site.builtAt ? Date.parse(site.builtAt) : 0))}
+              · <a href="${esc(site.url)}" target="_blank" rel="noopener">visit ${esc(site.name)}.bisks.net ↗</a>
+            </p>
+            ${rankings.length ? `<ul class="rank-list">${rankings.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
+          </div>
+          <div class="detail-score">${scoreHtml}</div>
+          <div class="review-composer">
+            <h3>${own ? "edit your rating" : "rate this site"}</h3>
+            <div class="score-picker" id="composer-score-row"></div>
+            <textarea id="review-text" maxlength="${REVIEW_MAX}" placeholder="write a review (optional)…">${own?.text ? esc(own.text) : ""}</textarea>
+            <button id="review-submit" ${session ? "" : "disabled"}>${own ? "update review" : "submit review"}</button>
+            <p class="status" id="review-status"></p>
+          </div>
+          <div class="review-list">
+            <h3>reviews (${reviews.length})</h3>
+            ${reviews.length ? reviews.map(renderReviewRow).join("") : `<p class="empty">no ratings yet — be the first.</p>`}
+          </div>
+        `;
+
+        composerScore = own ? own.score : null;
+        renderComposerScores();
+        $("#composer-score-row").addEventListener("click", (e) => {
+          const btn = e.target.closest(".rate-btn");
+          if (!btn || btn.disabled) return;
+          composerScore = Number(btn.dataset.score);
+          renderComposerScores();
+        });
+        $("#review-submit").addEventListener("click", async () => {
+          if (!session || composerScore == null) {
+            $("#review-status").textContent = session ? "pick a score first." : "sign in above to rate.";
+            return;
+          }
+          const statusEl = $("#review-status");
+          const btn = $("#review-submit");
+          btn.disabled = true;
+          statusEl.textContent = "saving…";
+          try {
+            await writeRating(site.name, composerScore, $("#review-text").value);
+            statusEl.textContent = "saved.";
+            renderSitePage(site.name);
+          } catch (err) {
+            statusEl.textContent = `couldn't save: ${err.message}`;
+            btn.disabled = false;
+          }
+        });
+      }
+
+      function renderComposerScores() {
+        const row = $("#composer-score-row");
+        if (!row) return;
+        row.innerHTML = Array.from({ length: 11 }, (_, n) => {
+          const active = composerScore === n ? " active" : "";
+          const disabled = session ? "" : "disabled";
+          return `<button type="button" class="rate-btn${active}" data-score="${n}" ${disabled}>${n}</button>`;
+        }).join("");
+      }
+
+      // --- genre + super-genre pages ------------------------------------------
+      // "add pages for each genre, so you can add descriptions and list
+      // sub/super genres for all genres" — genre = site.type (toy/game/tool/
+      // joke/explainer/art), subgenre = a distinct site.tag value under that
+      // genre, super-genre = the play/utility grouping in lib/genres.js.
+
+      function renderGenrePage(key) {
+        const container = $("#genre-page-body");
+        const meta = GENRES[key];
+        const inGenre = catalog.filter((s) => s.genre === key);
+        if (!meta) {
+          if (!inGenre.length) {
+            container.innerHTML = `<p class="empty">no genre named "${esc(key)}".</p>`;
+            return;
+          }
+          // A stray site.type outside the six documented genres (data drift,
+          // not a taxonomy gap) — still render a bare board rather than 404.
+          const ranked = scoredList(inGenre);
+          container.innerHTML = `
+            <div class="detail-head">
+              <h2 class="detail-title">${esc(key)}</h2>
+              <p class="detail-blurb">${inGenre.length} site${inGenre.length === 1 ? "" : "s"} carry this genre tag — it's outside the usual six, so there's no description or super-genre for it yet.</p>
+            </div>
+            <div class="board">${renderBoardRows(ranked)}</div>`;
+          return;
+        }
+
+        const superMeta = SUPERS[meta.super];
+        const subgenreCounts = new Map();
+        for (const s of inGenre) if (s.subgenre) subgenreCounts.set(s.subgenre, (subgenreCounts.get(s.subgenre) || 0) + 1);
+        const subgenreList = Array.from(subgenreCounts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+        const ranked = scoredList(inGenre);
+
+        container.innerHTML = `
+          <div class="detail-head">
+            <h2 class="detail-title">${esc(meta.label)}</h2>
+            <p class="detail-blurb">${esc(meta.description)}</p>
+            <p class="detail-meta">
+              super-genre: <a class="pill" href="/super/${esc(meta.super)}">${esc(superMeta.label)}</a>
+              · ${inGenre.length} site${inGenre.length === 1 ? "" : "s"}
+            </p>
+            ${subgenreList.length ? `<div class="subgenre-row">subgenres: ${subgenreList.map(([sg, c]) => `<span class="pill">${esc(sg)} <span class="board-sub">(${c})</span></span>`).join(" ")}</div>` : ""}
+          </div>
+          <div class="board">${renderBoardRows(ranked)}</div>`;
+      }
+
+      function renderBoardRows(ranked) {
+        return ranked
+          .map((x, i) => `<a class="board-row" href="/site/${esc(x.site.name)}">
+            <span class="board-rank">#${i + 1}</span>
+            <span class="board-name">${esc(x.site.title)}${x.site.subgenre ? ` <span class="board-sub">${esc(x.site.subgenre)}</span>` : ""}</span>
+            <span class="board-score">${x.w.toFixed(1)} <span class="board-sub">(${x.stats.count})</span></span>
+          </a>`)
+          .join("") || `<p class="empty" style="padding:0 0.9rem 0.6rem">nothing rated in this genre yet.</p>`;
+      }
+
+      function renderSuperPage(key) {
+        const container = $("#super-page-body");
+        const meta = SUPERS[key];
+        if (!meta) {
+          container.innerHTML = `<p class="empty">no super-genre named "${esc(key)}".</p>`;
+          return;
+        }
+        const members = Object.keys(GENRES).filter((g) => GENRES[g].super === key);
+        const rows = members
+          .map((g) => {
+            const count = catalog.filter((s) => s.genre === g).length;
+            return `<a class="board-row" href="/genre/${esc(g)}">
+              <span class="board-name">${esc(g)}</span>
+              <span class="board-score"><span class="board-sub">${count} site${count === 1 ? "" : "s"}</span></span>
+            </a>`;
+          })
+          .join("");
+        container.innerHTML = `
+          <div class="detail-head">
+            <h2 class="detail-title">${esc(meta.label)}</h2>
+            <p class="detail-blurb">${esc(meta.description)}</p>
+          </div>
+          <div class="board">${rows}</div>`;
+      }
+
       // --- prompter detail modal ---------------------------------------------
       // "click a user, see every site they made with each site's rating" —
       // the same weighting as the prompters board, just scoped to one prompter
@@ -421,7 +801,7 @@
             const scoreHtml = w != null
               ? `${w.toFixed(1)} <span class="board-sub">(${stats.count} rating${stats.count === 1 ? "" : "s"})</span>`
               : `<span class="board-sub">unrated</span>`;
-            return `<a class="board-row" href="${esc(site.url)}" target="_blank" rel="noopener">
+            return `<a class="board-row" href="/site/${esc(site.name)}">
               <span class="board-name">${esc(site.title)} <span class="board-sub">${esc(site.genre)}</span></span>
               <span class="board-score">${scoreHtml}</span>
             </a>`;
@@ -482,7 +862,12 @@
           e.preventDefault();
           activeTab = a.dataset.tab;
           document.querySelectorAll(".tab-link").forEach((x) => x.classList.toggle("active", x === a));
-          document.querySelectorAll(".tab-panel").forEach((p) => (p.hidden = p.id !== `tab-${activeTab}`));
+          if (route.view !== "browse") {
+            navigate("/");
+          } else {
+            applyRouteVisibility();
+            renderAll();
+          }
         });
       });
       $("#genre-boards").addEventListener("click", (e) => {
@@ -492,7 +877,9 @@
         $("#genre-filter").value = a.dataset.genre;
         $("#sort").value = "weighted";
         visibleCount = PAGE_SIZE;
-        $(".tab-link[data-tab='browse']").click();
+        activeTab = "browse";
+        document.querySelectorAll(".tab-link").forEach((x) => x.classList.toggle("active", x.dataset.tab === "browse"));
+        applyRouteVisibility();
         renderBrowse();
         window.scrollTo({ top: 0, behavior: "smooth" });
       });
@@ -503,54 +890,6 @@
       $("#genre-filter").addEventListener("change", () => { visibleCount = PAGE_SIZE; renderBrowse(); });
       $("#sort").addEventListener("change", () => { visibleCount = PAGE_SIZE; renderBrowse(); });
       $("#show-more").addEventListener("click", () => { visibleCount += PAGE_SIZE; renderBrowse(); });
-
-      // --- rating -----------------------------------------------------------
-
-      document.addEventListener("click", async (e) => {
-        const btn = e.target.closest(".rate-btn");
-        if (!btn || btn.disabled) return;
-        const row = btn.closest(".rate-row");
-        const subject = row.dataset.subject;
-        const score = Number(btn.dataset.score);
-        await submitRating(subject, score, row);
-      });
-
-      async function submitRating(subject, score, row) {
-        if (!session) return;
-        const statusEl = row.nextElementSibling;
-        row.querySelectorAll(".rate-btn").forEach((b) => (b.disabled = true));
-        if (statusEl) statusEl.textContent = "saving…";
-        try {
-          const ratedAt = new Date().toISOString();
-          const base = session.pdsUrl.replace(/\/$/, "");
-          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              repo: session.did,
-              collection: COLLECTION,
-              rkey: subject,
-              record: { $type: COLLECTION, subject, score, ratedAt },
-            }),
-          });
-          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
-          // applyOwn triggers an immediate re-render (new snapshot -> renderAll),
-          // which replaces this whole card's DOM — including statusEl — before
-          // we'd get a chance to write into it. lastRatedNote lets the fresh
-          // render show the confirmation instead of a detached, invisible node.
-          lastRatedNote = { subject, score };
-          index.applyOwn(session.did, subject, score, ratedAt);
-          setTimeout(() => {
-            if (lastRatedNote && lastRatedNote.subject === subject) {
-              lastRatedNote = null;
-              renderAll();
-            }
-          }, 4000);
-        } catch (err) {
-          if (statusEl) { statusEl.textContent = `couldn't save that: ${err.message}`; statusEl.className = "rate-row-status"; }
-          row.querySelectorAll(".rate-btn").forEach((b) => (b.disabled = false));
-        }
-      }
 
       // --- auth ---------------------------------------------------------------
 
@@ -579,7 +918,7 @@
         await clearSession();
         session = null;
         renderAuthBar();
-        renderAll();
+        renderRoute();
       });
 
       // --- boot -----------------------------------------------------------------
@@ -599,20 +938,14 @@
         }
       }
 
-      // A shared card link (?site=<name>, see buildShareUrl) lands here on
-      // the right card instead of the bare front page — filter to it and
-      // scroll it into view once the catalog and first render are ready.
+      // A shared card link (?site=<name>, older links from before /site/<name>
+      // existed) lands here on the right card instead of the bare front page.
       function jumpToSharedSite() {
         const name = new URLSearchParams(location.search).get("site");
         if (!name) return;
         const site = catalog.find((s) => s.name === name);
         if (!site) return;
-        $("#search").value = site.title;
-        $("#sort").value = "weighted";
-        visibleCount = PAGE_SIZE;
-        renderBrowse();
-        const card = document.querySelector(`.card[data-name="${CSS.escape(name)}"]`);
-        if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
+        navigate(`/site/${encodeURIComponent(name)}`, { replace: true });
       }
 
       async function boot() {
@@ -624,10 +957,13 @@
         }
         renderAuthBar();
         await loadCatalog();
-        renderAll();
-        jumpToSharedSite();
-        const sharedPrompter = new URLSearchParams(location.search).get("prompter");
-        if (sharedPrompter) openPrompterModal(sharedPrompter);
+        route = parseRoute();
+        renderRoute();
+        if (route.view === "browse") {
+          jumpToSharedSite();
+          const sharedPrompter = new URLSearchParams(location.search).get("prompter");
+          if (sharedPrompter) openPrompterModal(sharedPrompter);
+        }
         index.start();
       }
       boot();

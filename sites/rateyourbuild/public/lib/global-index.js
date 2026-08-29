@@ -66,11 +66,13 @@ function normaliseRecord(did, rkey, record) {
   if (!subject) return null;
   const score = Number(record.score);
   if (!Number.isInteger(score) || score < 0 || score > 10) return null;
+  const text = typeof record.text === "string" ? record.text.trim().slice(0, 3000) : "";
   return {
     did,
     rkey,
     subject,
     score,
+    text,
     ratedAt: typeof record.ratedAt === "string" ? Date.parse(record.ratedAt) || 0 : 0,
   };
 }
@@ -141,10 +143,17 @@ export class GlobalIndex {
   // Injects a just-written record straight into the index (before Jetstream
   // has necessarily echoed it back), so the rater sees their own vote land
   // instantly instead of waiting on the firehose round trip.
-  applyOwn(did, subject, score, ratedAtIso) {
+  applyOwn(did, subject, score, ratedAtIso, text = "") {
     const key = `${did}::${subject}`;
     this.liveKeys.add(key);
-    this.entries.set(key, { did, rkey: subject, subject, score, ratedAt: Date.parse(ratedAtIso) || Date.now() });
+    this.entries.set(key, {
+      did,
+      rkey: subject,
+      subject,
+      score,
+      text: text || "",
+      ratedAt: Date.parse(ratedAtIso) || Date.now(),
+    });
     this.lastUpdated = Date.now();
     this.schedulePersist();
     this.emit();

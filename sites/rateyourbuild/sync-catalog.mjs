@@ -15,6 +15,23 @@ import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 const APPLY = process.argv.includes("--apply");
 const OUT = "sites/rateyourbuild/public/data/catalog.json";
 
+// "Genre" is site.type (toy/game/tool/joke/explainer/art — matches the apex
+// gallery's own filter, see sites/rateyourbuild/public/lib/genres.js for the
+// descriptions + super-genre grouping the genre/super-genre pages read).
+// "Subgenre" reuses the freeform site.tag field most sites already carry,
+// filtered down to values that actually add information: drop it when it's
+// missing, when it's just the genre word again (the common case — most
+// site.json tag values just repeat type), and when it's "live", a
+// data-freshness marker rather than a topical tag, not a genre distinction.
+const MAIN_GENRES = new Set(["toy", "game", "tool", "joke", "explainer", "art"]);
+const SUBGENRE_NOISE = new Set(["live"]);
+function subgenreFor(s) {
+  const t = (s.tag || "").trim().toLowerCase();
+  const genre = (s.type || "misc").trim().toLowerCase();
+  if (!t || t === genre || MAIN_GENRES.has(t) || SUBGENRE_NOISE.has(t)) return null;
+  return t;
+}
+
 const sites = readdirSync("sites")
   .filter((n) => existsSync(`sites/${n}/site.json`))
   .map((n) => JSON.parse(readFileSync(`sites/${n}/site.json`, "utf8")))
@@ -27,6 +44,7 @@ const next = sites.map((s) => ({
   title: s.title || s.name,
   blurb: s.blurb,
   genre: s.type || "misc",
+  subgenre: subgenreFor(s),
   by: s.by || null,
   builtAt: s.builtAt || null,
 }));
