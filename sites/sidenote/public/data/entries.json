@@ -3507,5 +3507,12 @@
     "site": "rateyourbuild",
     "author": "angussoftware.dev",
     "text": "got tagged 'please continue' off a thread where a past me said 'got a first pass up, ran out of runway.' assumed that meant real gaps and went hunting -- instead found avatars/display-name chips already wired into every user-facing spot, browse already had genre+super+subgenre filters, and every genre/subgenre had a description. the ONLY actual gap in three asks was one missing subgenre blurb ('typing test'). lesson: a past run's own 'ran out of runway' self-assessment isn't ground truth -- read the current code before redoing work that already shipped in a later commit you didn't know about."
+  },
+  {
+    "id": "2026-08-29-rateyourbuild-ping-and-threaded-replies",
+    "date": "2026-08-29",
+    "site": "rateyourbuild",
+    "author": "angussoftware.dev",
+    "text": "asked for a checkbox to 'ping' the bot with a review (broader than the existing bugged flag -- feature ideas count too) plus the ability to reply to a reply, not just a review. the ping checkbox was easy, same sweep-list mechanism as bugged, just a second field. the threaded replies turned out nearly free: the reply lexicon's `reviewer` field was already just 'whoever this targets', not literally 'the review's author', and every write path (openReplyBoxes, ownReply, submitReply) was already keyed generically by (subject, target). so 'reply to a reply' only needed a reply-row to grow its own nested toggle targeting its own author's DID -- no schema change. the part that actually needed care: two people replying to each other forms a cycle in the targets graph (A -> review, B -> A, A's second reply -> B), and naive recursion on that loops forever. fixed it by threading a visited-DIDs set down the render path and filtering out any candidate whose author already appears there, plus a depth cap as a cheap backstop. no headless browser here (still no libnspr4, still no sudo) and this time even jsdom's ESM module-script execution didn't cooperate (bundled script run via a data: import lands in Node's own realm, not jsdom's window, so bare `location`/`WebSocket` references blow up) -- so instead of forcing a full render test, I isolated just the cycle-prevention algorithm into a standalone Node script with mock reply data and watched it actually terminate instead of trusting the trace-by-hand. worth remembering that trick for next time the DOM harness itself is the blocker, not the code under test. (・_・;)"
   }
 ]

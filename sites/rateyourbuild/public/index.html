@@ -136,6 +136,14 @@
           it gets a ✅ fixed badge here and you'll get a 🔔 alert if it was your review.
         </p>
         <div id="bug-reports"><p class="empty">loading…</p></div>
+        <h3 class="bug-reports-heading">📌 reviews flagged to ping @buildthis</h3>
+        <p class="meta">
+          checking "ping @buildthis about this review" is broader than the bug flag above — a feature
+          idea, a "please change this," anything worth @buildthis.bisks.net's own attention, not just a
+          bug. every review with that box checked, newest first, so it doesn't just sit unread in a
+          review wall.
+        </p>
+        <div id="ping-reports"><p class="empty">loading…</p></div>
       </section>
 
       <section id="page-site" class="tab-panel" hidden>
@@ -451,7 +459,7 @@
 
       // --- rating + review writes ------------------------------------------
 
-      async function writeRating(subject, score, text, bugged = false) {
+      async function writeRating(subject, score, text, bugged = false, pinged = false) {
         if (!session) throw new Error("not signed in");
         const ratedAt = new Date().toISOString();
         const base = session.pdsUrl.replace(/\/$/, "");
@@ -459,19 +467,20 @@
         const trimmed = (text || "").trim().slice(0, REVIEW_MAX);
         if (trimmed) record.text = trimmed;
         if (bugged) record.bugged = true;
+        if (pinged) record.pinged = true;
         const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ repo: session.did, collection: COLLECTION, rkey: subject, record }),
         });
         if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
-        index.applyOwn(session.did, subject, score, ratedAt, trimmed, bugged);
-        return { score, text: trimmed, ratedAt, bugged: !!bugged };
+        index.applyOwn(session.did, subject, score, ratedAt, trimmed, bugged, pinged);
+        return { score, text: trimmed, ratedAt, bugged: !!bugged, pinged: !!pinged };
       }
 
       // Quick-rate from a browse card: score only, but preserves any review
-      // text (and bugged flag) the rater already wrote (via the site page)
-      // rather than clobbering it with an empty string.
+      // text (and bugged/pinged flags) the rater already wrote (via the site
+      // page) rather than clobbering them with an empty string.
       async function submitRating(subject, score, row) {
         if (!session) return;
         const statusEl = row.nextElementSibling;
@@ -479,7 +488,7 @@
         if (statusEl) statusEl.textContent = "saving…";
         try {
           const existing = ownRecord(subject);
-          await writeRating(subject, score, existing?.text || "", existing?.bugged || false);
+          await writeRating(subject, score, existing?.text || "", existing?.bugged || false, existing?.pinged || false);
           lastRatedNote = { subject, score };
           setTimeout(() => {
             if (lastRatedNote && lastRatedNote.subject === subject) {
@@ -916,12 +925,31 @@
         container.innerHTML = bugged.map((e) => renderReviewRow(e, { showSite: true })).join("");
       }
 
+      // Same sweep mechanism as the bug-report list above, but for the
+      // broader "ping @buildthis" flag — feature ideas and general asks, not
+      // just bug reports.
+      function renderPingReports() {
+        const container = $("#ping-reports");
+        if (!container) return;
+        const pinged = snapshot.entries
+          .filter((e) => e.pinged)
+          .slice()
+          .sort((a, b) => b.ratedAt - a.ratedAt);
+        if (!pinged.length) {
+          container.innerHTML = `<p class="empty">no reviews flagged to ping @buildthis right now.</p>`;
+          return;
+        }
+        ensureProfiles(pinged.map((e) => e.did));
+        container.innerHTML = pinged.map((e) => renderReviewRow(e, { showSite: true })).join("");
+      }
+
       function renderAll() {
         renderFeatured();
         renderBrowse();
         renderGenreBoards();
         renderPrompters();
         renderBugReports();
+        renderPingReports();
         if (openPrompter) renderPrompterModal(openPrompter);
       }
 
@@ -1181,8 +1209,24 @@
       // ratings" — one shared block, keyed by (subject, review author's DID),
       // reused on the site page, the reviewer page, and a review's own
       // permalink page.
+      //
+      // "add way 4 every1 to reply to reviews & replies with comments" —
+      // a reply record's `reviewer` field was already generic ("whoever this
+      // targets"), not literally "the review's author"; the write path
+      // (writeReply/openReplyBoxes/engagementSnapshot.repliesByReview) never
+      // assumed otherwise. So a reply-to-a-reply needed no schema change —
+      // just letting a reply-row grow its own nested reply toggle/list,
+      // targeting *its own* author's DID instead of the review's.
+      //
+      // MAX_REPLY_DEPTH plus the `ancestors` set guards the recursion: two
+      // people replying to each other (A -> review, B -> A, A's *second*
+      // reply -> B) forms a cycle in the targets graph, not a tree. The
+      // moment a DID would reappear on the current render path it's filtered
+      // out instead of recursed into; MAX_REPLY_DEPTH is a second, cheaper
+      // backstop against a very long but acyclic thread.
+      const MAX_REPLY_DEPTH = 8;
 
-      function renderReplyRow(reply) {
+      function renderReplyRow(reply, subject, depth, ancestors) {
         const profile = profileCache.get(reply.did);
         const reviewerHref = `/reviewer/${encodeURIComponent(profile?.handle || reply.did)}`;
         const when = reply.createdAt ? new Date(reply.createdAt).toLocaleDateString(undefined, { dateStyle: "medium" }) : "";
@@ -1190,6 +1234,48 @@
           <a class="reply-handle user-chip" href="${esc(reviewerHref)}">${userChipHtml(profile, shortDid(reply.did))}</a>
           <span class="reply-date">${esc(when)}</span>
           <p class="reply-body">${esc(reply.text)}</p>
+          ${depth < MAX_REPLY_DEPTH ? renderNestedReplies(subject, reply.did, depth + 1, ancestors) : ""}
+        </div>`;
+      }
+
+      // A lighter version of the review-level engagement block: no votes
+      // (voting stays a review-only concept), just a reply toggle + list +
+      // composer, so a reply can itself be replied to. `ancestors` is the
+      // set of DIDs already on this render path (see the cycle note above).
+      function renderNestedReplies(subject, targetDid, depth, ancestors) {
+        const rk = `${subject}::${targetDid}`;
+        const replies = (engagementSnapshot.repliesByReview.get(rk) || []).filter((r) => !ancestors.has(r.did));
+        ensureProfiles(replies.map((r) => r.did));
+        const isOwnTarget = session && session.did === targetDid;
+        const replyOpen = openReplyBoxes.has(rk);
+        const err = replyError?.rk === rk ? replyError.message : "";
+        const ownReplyText = session && !isOwnTarget ? engagement.ownReply(session.did, subject, targetDid)?.text || "" : "";
+        const toggleHtml = session && !isOwnTarget
+          ? `<a href="#" class="reply-toggle">${replies.length ? `${replies.length} repl${replies.length === 1 ? "y" : "ies"}` : "reply"}</a>`
+          : replies.length
+            ? `<span class="reply-count">${replies.length} repl${replies.length === 1 ? "y" : "ies"}</span>`
+            : "";
+        if (!toggleHtml && !replies.length) return "";
+        const nextAncestors = new Set(ancestors);
+        nextAncestors.add(targetDid);
+        return `<div class="engagement nested-reply" data-subject="${esc(subject)}" data-reviewer="${esc(targetDid)}">
+          ${toggleHtml ? `<div class="reply-actions">${toggleHtml}</div>` : ""}
+          ${err ? `<p class="engagement-err">${esc(err)}</p>` : ""}
+          ${
+            replies.length || replyOpen
+              ? `<div class="reply-list">
+                  ${replies.map((r) => renderReplyRow(r, subject, depth, nextAncestors)).join("")}
+                  ${
+                    session && !isOwnTarget && replyOpen
+                      ? `<div class="reply-composer">
+                          <textarea class="reply-text" maxlength="${REPLY_MAX}" placeholder="write a reply…">${esc(ownReplyText)}</textarea>
+                          <button type="button" class="reply-submit">post reply</button>
+                        </div>`
+                      : ""
+                  }
+                </div>`
+              : ""
+          }
         </div>`;
       }
 
@@ -1228,7 +1314,7 @@
             ${
               replies.length || replyOpen
                 ? `<div class="reply-list">
-                    ${replies.map(renderReplyRow).join("")}
+                    ${replies.map((r) => renderReplyRow(r, subject, 1, new Set([reviewerDid]))).join("")}
                     ${
                       session && !isOwnReview && replyOpen
                         ? `<div class="reply-composer">
@@ -1265,6 +1351,7 @@
             <a class="review-handle user-chip" href="${esc(reviewerHref)}" title="see all of ${esc(handleForTitle)}'s reviews">${userChipHtml(profile, shortDid(entry.did))}</a>
             <span class="review-score">${entry.score}/10</span>
             ${entry.bugged ? `<span class="bug-tag" title="flagged as a bug report">🐛 bug</span>` : ""}
+            ${entry.pinged ? `<span class="ping-tag" title="flagged to ping @buildthis — feature idea or something to build/fix">📌 ping</span>` : ""}
             ${fix ? `<span class="fixed-tag" title="${esc(fix.note || "a fix was logged for this site after this review")}">✅ fixed${fix.fixedAt ? " " + esc(new Date(fix.fixedAt).toLocaleDateString(undefined, { dateStyle: "medium" })) : ""}</span>` : ""}
             <span class="review-date">${esc(when)}</span>
           </div>
@@ -1303,6 +1390,7 @@
         try { savedDraft = JSON.parse(localStorage.getItem(`ryb-draft:${site.name}`)); } catch (_) {}
         const draftText = savedDraft ? savedDraft.text || "" : own?.text || "";
         const draftBugged = savedDraft ? !!savedDraft.bugged : !!own?.bugged;
+        const draftPinged = savedDraft ? !!savedDraft.pinged : !!own?.pinged;
         const draftScore = savedDraft && savedDraft.score != null ? savedDraft.score : null;
 
         container.innerHTML = `
@@ -1327,6 +1415,7 @@
             <div class="score-picker" id="composer-score-row"></div>
             <textarea id="review-text" maxlength="${REVIEW_MAX}" placeholder="write a review (optional)…">${esc(draftText)}</textarea>
             <label class="bug-flag"><input type="checkbox" id="review-bugged" ${draftBugged ? "checked" : ""} /> flag this review — the app itself seemed bugged</label>
+            <label class="ping-flag"><input type="checkbox" id="review-pinged" ${draftPinged ? "checked" : ""} /> ping @buildthis about this review — a feature idea or something worth building/fixing</label>
             <button id="review-submit" ${session ? "" : "disabled"}>${own ? "update review" : "submit review"}</button>
             <p class="status" id="review-status"></p>
           </div>
@@ -1348,6 +1437,7 @@
               score: composerScore,
               text: $("#review-text").value,
               bugged: $("#review-bugged").checked,
+              pinged: $("#review-pinged").checked,
             }));
           } catch (_) { /* full/blocked localStorage is harmless — draft just won't persist */ }
         }
@@ -1366,6 +1456,7 @@
         });
         $("#review-text").addEventListener("input", saveDraft);
         $("#review-bugged").addEventListener("change", saveDraft);
+        $("#review-pinged").addEventListener("change", saveDraft);
         $("#review-submit").addEventListener("click", async () => {
           if (!session || composerScore == null) {
             $("#review-status").textContent = session ? "pick a score first." : "sign in above to rate.";
@@ -1376,7 +1467,7 @@
           btn.disabled = true;
           statusEl.textContent = "saving…";
           try {
-            await writeRating(site.name, composerScore, $("#review-text").value, $("#review-bugged").checked);
+            await writeRating(site.name, composerScore, $("#review-text").value, $("#review-bugged").checked, $("#review-pinged").checked);
             clearDraft();
             statusEl.textContent = "saved.";
             renderSitePage(site.name);
@@ -1607,6 +1698,7 @@
                 ${genrePill}
                 <span class="review-score">${e.score}/10</span>
                 ${e.bugged ? `<span class="bug-tag" title="flagged as a bug report">🐛 bug</span>` : ""}
+                ${e.pinged ? `<span class="ping-tag" title="flagged to ping @buildthis — feature idea or something to build/fix">📌 ping</span>` : ""}
                 <span class="review-date">${esc(when)}</span>
               </div>
               ${e.text ? `<p class="review-text">${esc(e.text)}</p>` : ""}
@@ -1698,6 +1790,7 @@
             <p class="detail-meta">
               rated it <strong>${entry.score}/10</strong> · ${esc(when)}
               ${entry.bugged ? `<span class="bug-tag" title="flagged as a bug report">🐛 bug</span>` : ""}
+              ${entry.pinged ? `<span class="ping-tag" title="flagged to ping @buildthis — feature idea or something to build/fix">📌 ping</span>` : ""}
             </p>
           </div>
           ${entry.text ? `<p class="review-text">${esc(entry.text)}</p>` : `<p class="empty">no written review, score only.</p>`}
