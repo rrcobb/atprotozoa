@@ -276,7 +276,13 @@ export class SubscriptionAlerts {
         const v = rec?.value;
         if (!rkey || !v || v.bugged !== true) continue;
         const subject = typeof v.subject === "string" && v.subject ? v.subject : rkey;
-        this.buggedRatings.set(subject, Date.parse(v.ratedAt) || 0);
+        // createdAt (the ORIGINAL rating time) if present, not ratedAt (bumped
+        // on every edit) — otherwise editing a bugged review after a fix
+        // lands (e.g. to add more detail) would push its timestamp past the
+        // fix's fixedAt and make checkBugFixes below think the fix predates
+        // the report. Records written before 2026-08-30 lack createdAt.
+        const flaggedAt = Date.parse(v.createdAt) || Date.parse(v.ratedAt) || 0;
+        this.buggedRatings.set(subject, flaggedAt);
       }
       cursor = typeof data.cursor === "string" ? data.cursor : undefined;
       if (!cursor || !records.length) break;

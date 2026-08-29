@@ -473,8 +473,19 @@
       async function writeRating(subject, score, text, bugged = false, pinged = false) {
         if (!session) throw new Error("not signed in");
         const ratedAt = new Date().toISOString();
+        // Preserve the ORIGINAL rating time across edits: putRecord below
+        // overwrites this rater's one record for `subject` in place, and
+        // ratedAt always becomes "now" — so re-saving a review (to fix a
+        // typo, add text, whatever) must not also erase the original date
+        // their bug report or review was made, or a fix logged for it
+        // earlier gets filtered out by bugFixesFor next render (@angussoftware.dev,
+        // "I still see none from you" — this was the actual gap: any edit to
+        // an already-bugged review silently hid every 🤖 fix reply it had
+        // already earned).
+        const existingOwn = index.ownRating(session.did, subject);
+        const createdAt = existingOwn?.createdAt ? new Date(existingOwn.createdAt).toISOString() : ratedAt;
         const base = session.pdsUrl.replace(/\/$/, "");
-        const record = { $type: COLLECTION, subject, score, ratedAt };
+        const record = { $type: COLLECTION, subject, score, ratedAt, createdAt };
         const trimmed = (text || "").trim().slice(0, REVIEW_MAX);
         if (trimmed) record.text = trimmed;
         if (bugged) record.bugged = true;
@@ -485,8 +496,8 @@
           body: JSON.stringify({ repo: session.did, collection: COLLECTION, rkey: subject, record }),
         });
         if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
-        index.applyOwn(session.did, subject, score, ratedAt, trimmed, bugged, pinged);
-        return { score, text: trimmed, ratedAt, bugged: !!bugged, pinged: !!pinged };
+        index.applyOwn(session.did, subject, score, ratedAt, trimmed, bugged, pinged, createdAt);
+        return { score, text: trimmed, ratedAt, createdAt, bugged: !!bugged, pinged: !!pinged };
       }
 
       // Quick-rate from a browse card: score only, but preserves any review
@@ -1381,7 +1392,7 @@
         const boxKey = replyBoxKeyFor(subject, reviewerDid, "");
         const replyOpen = openReplyBoxes.has(boxKey);
         const err = voteError?.rk === rk ? voteError.message : replyError?.rk === boxKey ? replyError.message : "";
-        const fixes = entry ? bugFixesFor(subject, entry.ratedAt) : [];
+        const fixes = entry ? bugFixesFor(subject, entry.createdAt ?? entry.ratedAt) : [];
 
         return `
           <div class="engagement" data-subject="${esc(subject)}" data-reviewer="${esc(reviewerDid)}" data-parent="" data-target="${esc(reviewerDid)}">
@@ -1430,7 +1441,7 @@
           : site
             ? `<a class="review-site" href="/site/${esc(site.name)}">${esc(site.title)}</a><a class="pill" href="/genre/${esc(site.genre)}">${esc(site.genre)}</a>`
             : `<span class="review-site">${esc(entry.subject)}</span>`;
-        const fixes = bugFixesFor(entry.subject, entry.ratedAt);
+        const fixes = bugFixesFor(entry.subject, entry.createdAt ?? entry.ratedAt);
         return `<div class="review-row">
           <div class="review-row-head">
             ${siteHtml}
@@ -2312,8 +2323,12 @@
         }
       }
 
-      // Every logged fix for `subject` that landed after `ratedAt` (the
-      // review's own timestamp), oldest first. Used for the "✅ fixed"
+      // Every logged fix for `subject` that landed after `since` (the
+      // review's ORIGINAL timestamp — pass entry.createdAt, falling back to
+      // entry.ratedAt for pre-2026-08-30 records that predate that field;
+      // never entry.ratedAt alone once createdAt exists, since that's bumped
+      // on every edit and would make an edited review look younger than
+      // fixes it actually predates), oldest first. Used for the "✅ fixed"
       // badge(s) and the 🤖 in-thread reply bubble(s) on ANY review of that
       // subject — not just ones flagged "bugged". @angussoftware.dev asked
       // (2026-08-29, "backfill the replies for that 5 fixes") for the 5
@@ -2326,9 +2341,9 @@
       // (The private 🔔 alert stays bugged-only — see
       // subscription-index.js's checkBugFixes — since that ask was
       // explicitly "if I leave review as bugged".)
-      function bugFixesFor(subject, ratedAt) {
+      function bugFixesFor(subject, since) {
         return bugfixes
-          .filter((fix) => fix.subject === subject && Number.isFinite(Date.parse(fix.fixedAt)) && Date.parse(fix.fixedAt) > ratedAt)
+          .filter((fix) => fix.subject === subject && Number.isFinite(Date.parse(fix.fixedAt)) && Date.parse(fix.fixedAt) > since)
           .sort((a, b) => Date.parse(a.fixedAt) - Date.parse(b.fixedAt));
       }
 

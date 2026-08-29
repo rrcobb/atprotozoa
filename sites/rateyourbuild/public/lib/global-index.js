@@ -75,6 +75,13 @@ function normaliseRecord(did, rkey, record) {
   const score = Number(record.score);
   if (!Number.isInteger(score) || score < 0 || score > 10) return null;
   const text = typeof record.text === "string" ? record.text.trim().slice(0, 3000) : "";
+  const ratedAt = typeof record.ratedAt === "string" ? Date.parse(record.ratedAt) || 0 : 0;
+  // createdAt is the ORIGINAL rating time, preserved across edits — ratedAt
+  // gets bumped every time the rater re-saves (see writeRating in
+  // index.html), so using it here would make a fix logged before an edit
+  // but after the original review look like it never happened. Records
+  // written before 2026-08-30 don't have createdAt yet; fall back to ratedAt.
+  const createdAt = typeof record.createdAt === "string" ? Date.parse(record.createdAt) || ratedAt : ratedAt;
   return {
     did,
     rkey,
@@ -83,7 +90,8 @@ function normaliseRecord(did, rkey, record) {
     text,
     bugged: record.bugged === true,
     pinged: record.pinged === true,
-    ratedAt: typeof record.ratedAt === "string" ? Date.parse(record.ratedAt) || 0 : 0,
+    ratedAt,
+    createdAt,
   };
 }
 
@@ -158,9 +166,10 @@ export class GlobalIndex {
   // Injects a just-written record straight into the index (before Jetstream
   // has necessarily echoed it back), so the rater sees their own vote land
   // instantly instead of waiting on the firehose round trip.
-  applyOwn(did, subject, score, ratedAtIso, text = "", bugged = false, pinged = false) {
+  applyOwn(did, subject, score, ratedAtIso, text = "", bugged = false, pinged = false, createdAtIso = ratedAtIso) {
     const key = `${did}::${subject}`;
     this.liveKeys.add(key);
+    const ratedAt = Date.parse(ratedAtIso) || Date.now();
     this.entries.set(key, {
       did,
       rkey: subject,
@@ -169,7 +178,8 @@ export class GlobalIndex {
       text: text || "",
       bugged: !!bugged,
       pinged: !!pinged,
-      ratedAt: Date.parse(ratedAtIso) || Date.now(),
+      ratedAt,
+      createdAt: Date.parse(createdAtIso) || ratedAt,
     });
     this.lastUpdated = Date.now();
     this.schedulePersist();
