@@ -882,7 +882,7 @@
                 ? `${p.w.toFixed(1)} <span class="board-sub">(${p.count} of yours)</span>`
                 : `${p.w.toFixed(1)} <span class="board-sub">(${p.count} rating${p.count === 1 ? "" : "s"})</span>`)
               : `<span class="board-sub">unrated</span>`;
-            return `<a class="board-row user-chip" href="#" data-prompter="${esc(p.by)}">
+            return `<a class="board-row" href="#" data-prompter="${esc(p.by)}">
               <span class="board-rank">#${i + 1}</span>
               <span class="board-name">${userChipHtml(prompterProfile(p.by), "@" + p.by)} <span class="board-sub">(${p.siteCount} site${p.siteCount === 1 ? "" : "s"})</span></span>
               <span class="board-score">${scoreHtml}</span>
@@ -931,9 +931,7 @@
       // deterministically from today's UTC calendar date, so every visitor
       // sees the same pick all day (no server needed to coordinate that).
 
-      function dayHash(salt) {
-        const day = new Date().toISOString().slice(0, 10);
-        const s = `${day}:${salt}`;
+      function fnv1a(s) {
         let h = 2166136261;
         for (let i = 0; i < s.length; i++) {
           h ^= s.charCodeAt(i);
@@ -941,9 +939,29 @@
         }
         return h >>> 0;
       }
-      function pickOfDay(list, salt) {
+      // Picks the same candidate all day by hashing each item's own stable id
+      // against today's date and taking the max, rather than hashing the day
+      // once and indexing `% list.length` into the candidate list. The old
+      // approach re-picked on every render, and the live subscription
+      // re-renders on every new rating/review anywhere on the site — so as
+      // soon as one more candidate joined the list, the same fixed hash
+      // landed on a different index and the "featured" pick changed, often
+      // several times an hour instead of once a day. Hashing per-item means
+      // a new candidate can only unseat the current pick by actually
+      // out-hashing it, not just by changing the list's length.
+      function pickOfDay(list, salt, idFn) {
         if (!list.length) return null;
-        return list[dayHash(salt) % list.length];
+        const day = new Date().toISOString().slice(0, 10);
+        let best = null;
+        let bestHash = -1;
+        for (const item of list) {
+          const h = fnv1a(`${day}:${salt}:${idFn(item)}`);
+          if (h > bestHash) {
+            bestHash = h;
+            best = item;
+          }
+        }
+        return best;
       }
 
       // Genres, subgenres (scoped to their genre), and supers actually
@@ -1016,12 +1034,12 @@
           .filter((e) => e.text)
           .slice()
           .sort((a, b) => a.subject.localeCompare(b.subject) || a.did.localeCompare(b.did));
-        const featuredReview = pickOfDay(reviewsWithText, "review");
+        const featuredReview = pickOfDay(reviewsWithText, "review", (e) => `${e.did}::${e.subject}`);
         if (featuredReview) ensureProfiles([featuredReview.did]);
         const featuredReviewSite = featuredReview ? catalog.find((s) => s.name === featuredReview.subject) : null;
 
         const ratedSites = catalog.filter((s) => statsFor(s.name)).slice().sort((a, b) => a.name.localeCompare(b.name));
-        const featuredSite = pickOfDay(ratedSites, "score");
+        const featuredSite = pickOfDay(ratedSites, "score", (s) => s.name);
         let featuredRankHtml = "";
         if (featuredSite) {
           const stats = statsFor(featuredSite.name);
@@ -1031,7 +1049,7 @@
         }
 
         const families = featuredGenreFamilies();
-        const featuredFamily = pickOfDay(families, "family");
+        const featuredFamily = pickOfDay(families, "family", (f) => `${f.kind}:${f.genre || ""}:${f.key}`);
 
         container.innerHTML = `
           <div class="featured-block">
