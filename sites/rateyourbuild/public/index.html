@@ -2364,6 +2364,19 @@
         await subsReady;
         subscriptions.checkNewReleases(catalog, GENRES, SUPERS);
         subscriptions.checkBugFixes(bugfixes);
+        // checkMissedRatings/checkMissedReplies otherwise only run reactively,
+        // off index/engagement's onUpdate — which fire the moment start() is
+        // called above, before subsReady resolves, so that first pass always
+        // sees subscriptions.loaded === false and no-ops. In the ordinary
+        // case a later backfill or live-commit update re-triggers them once
+        // loaded flips true, but that's not guaranteed (e.g. the tab started
+        // hidden, or backfill finishes with nothing left to fetch right
+        // between the two). Run both explicitly here too, same as
+        // checkNewReleases/checkBugFixes above, so "did I miss a reply while
+        // this tab was closed" doesn't depend on some other update coincidentally
+        // firing afterward.
+        subscriptions.checkMissedRatings(index.snapshot().entries);
+        subscriptions.checkMissedReplies(engagement.snapshot().repliesByReview);
       }
       boot();
     </script>

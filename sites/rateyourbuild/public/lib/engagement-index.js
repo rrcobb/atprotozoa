@@ -11,8 +11,13 @@
 // backfill runs until every listReposByCollection page and every repo's
 // listRecords page are genuinely exhausted for both collections —
 // BACKFILL_*_PER_STEP only throttles work per tick, it never stops the walk
-// early. MAX_ENTRIES is a real memory cap (this all lives in the tab's
-// heap), not a network cap.
+// early. (backfillDid used to give up after 3 listRecords pages — 300 votes
+// or replies — per repo; a voter/replier active across a growing 190+-site
+// catalog could plausibly cross that, silently dropping their oldest
+// engagement and, worse, a nested reply thread past that point. Found
+// 2026-08-29 auditing why a reply notification or a fixed-bug reply might
+// not show up. Fixed to walk every page.) MAX_ENTRIES is a real memory cap
+// (this all lives in the tab's heap), not a network cap.
 
 const VOTE_COLLECTION = "net.bisks.rateyourbuild.vote";
 const REPLY_COLLECTION = "net.bisks.rateyourbuild.reply";
@@ -24,7 +29,6 @@ const CACHE_KEY = "rateyourbuild:engagement-index:v1";
 const MAX_ENTRIES = 60000;
 const BACKFILL_DIDS_PER_STEP = 15;
 const BACKFILL_REPO_PAGES_PER_STEP = 2;
-const BACKFILL_RECORD_PAGES_PER_DID = 3;
 
 // Two distinct key shapes, don't conflate them:
 //   - reviewKey (subject::reviewer) — a grouping bucket. For votes, one vote
@@ -461,7 +465,7 @@ export class EngagementIndex {
     const base = pds.replace(/\/$/, "");
     let cursor;
     let changed = false;
-    for (let page = 0; page < BACKFILL_RECORD_PAGES_PER_DID; page++) {
+    for (;;) {
       const params = new URLSearchParams({ repo: did, collection, limit: "100" });
       if (cursor) params.set("cursor", cursor);
       const data = await xrpcJson(`${base}/xrpc/com.atproto.repo.listRecords?${params}`);

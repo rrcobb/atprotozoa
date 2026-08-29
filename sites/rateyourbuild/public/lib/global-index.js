@@ -15,6 +15,15 @@
 // the backfill loop below runs until listReposByCollection and every
 // repo's listRecords page are genuinely exhausted — BACKFILL_*_PER_STEP only
 // throttles how much work happens per tick, it never stops the walk early.
+// (backfillDid used to give up after 3 listRecords pages — 300 ratings — per
+// rater; harmless when the catalog was small, but this collection is one
+// record per (rater, site) and the catalog is well past 190 sites now, so a
+// rater who's rated most of it would silently lose their oldest ratings past
+// #300. Found 2026-08-29 auditing why a fixed-bug reply might not show on an
+// old review — a truncated backfill is exactly the kind of silent gap that'd
+// cause that. Fixed to walk every page, same as loadSubscriptions/
+// loadBuggedRatings in subscription-index.js already do for the rater's own
+// small per-account lists.)
 // MAX_ENTRIES is a real memory cap (this all lives in the tab's heap), not a
 // network cap.
 
@@ -27,7 +36,6 @@ const CACHE_KEY = "rateyourbuild:global-index:v1";
 const MAX_ENTRIES = 60000;
 const BACKFILL_DIDS_PER_STEP = 15;
 const BACKFILL_REPO_PAGES_PER_STEP = 2;
-const BACKFILL_RECORD_PAGES_PER_DID = 3;
 
 async function xrpcJson(url) {
   const res = await fetch(url, { headers: { Accept: "application/json" } });
@@ -380,7 +388,7 @@ export class GlobalIndex {
     const base = pds.replace(/\/$/, "");
     let cursor;
     let changed = false;
-    for (let page = 0; page < BACKFILL_RECORD_PAGES_PER_DID; page++) {
+    for (;;) {
       const params = new URLSearchParams({ repo: did, collection: COLLECTION, limit: "100" });
       if (cursor) params.set("cursor", cursor);
       const data = await xrpcJson(`${base}/xrpc/com.atproto.repo.listRecords?${params}`);
