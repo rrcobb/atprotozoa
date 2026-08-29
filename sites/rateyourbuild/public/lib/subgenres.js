@@ -37,6 +37,7 @@ export const SUBGENRE_DESCRIPTIONS = {
   "toy::bot": "A toy that role-plays as its own small bot or character rather than a plain interactive object.",
   "toy::leaderboard": "A toy with a leaderboard bolted on for flavor, not because ranking is really the point.",
   "tool::history": "A tool built to surface someone's or something's history — a timeline of past state rather than the current one.",
+  "toy::typing test": "A toy built around typing speed itself — WPM, accuracy, or word feel — rather than any other kind of score.",
 };
 
 export function subgenreDescription(genre, subgenre) {
