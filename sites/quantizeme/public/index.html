@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>quantizeme — what size of LLM thinks like you?</title>
+<meta name="description" content="Enter a Bluesky handle. quantizeme downloads their entire post history and greps for the failure modes language models have — contradictions, hedge fog, unearned certainty, whataboutism, doomcasting, broken-record repeats — then tells you the size and quantization of LLM that would embarrass itself the same way. No model in the loop, just a heuristic with opinions." />
+<meta property="og:title" content="quantizeme — what size of LLM thinks like you?" />
+<meta property="og:description" content="Enter a Bluesky handle. quantizeme downloads their entire post history and greps for the failure modes language models have — contradictions, hedge fog, unearned certainty, whataboutism, doomcasting, broken-record repeats — then tells you the size and quantization of LLM that would embarrass itself the same way." />
+<meta property="og:url" content="https://quantizeme.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://quantizeme.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="quantizeme: a card reading 'estimated model size' with a GB figure, a param/quant spec, and a list of detected failure modes." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="quantizeme — what size of LLM thinks like you?" />
+<meta name="twitter:description" content="Enter a Bluesky handle. quantizeme downloads their entire post history and greps for the failure modes language models have, then tells you what size of LLM would embarrass itself the same way." />
+<meta name="twitter:image" content="https://quantizeme.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0d12;
+    --bg2: #10151d;
+    --fg: #eef2f6;
+    --dim: #8a94a3;
+    --accent: #8f7bff;
+    --accent2: #ff6bd6;
+    --good: #6ee7a8;
+    --card: #12161d;
+    --border: #232b36;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #241a3a 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #3a1430 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 4rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 640px; }
+  h1 {
+    font-size: 1.9rem; line-height: 1.25; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 0.6rem; line-height: 1.55; }
+  .tag b { color: var(--fg); }
+  .credit { color: var(--dim); font-size: 0.76rem; margin: 0 0 2rem; line-height: 1.5; }
+  .credit a { color: var(--accent); text-decoration: none; }
+
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.75rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #5f4bd6);
+    color: #100a1f; border: none; border-radius: 8px; padding: 0.75rem 1.1rem;
+    font: inherit; font-weight: 700; font-size: 0.9rem; cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--accent2); }
+
+  .card { display: none; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.75rem; box-shadow: 0 0 60px -25px var(--accent); }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.4rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); }
+  .who .handle { font-weight: 700; }
+  .who .handle a { color: var(--fg); text-decoration: none; }
+  .who .scanned { color: var(--dim); font-size: 0.72rem; }
+
+  .verdict-box { text-align: center; border: 1px dashed var(--border); border-radius: 12px; padding: 1.2rem 1rem; margin-bottom: 1.6rem; }
+  .score-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--dim); margin-bottom: 0.3rem; }
+  .score { font-size: 2.6rem; font-weight: 800; color: var(--accent); line-height: 1; }
+  .spec { color: var(--accent2); font-size: 0.85rem; margin-top: 0.4rem; font-weight: 700; }
+  .verdict-text { margin-top: 0.7rem; font-size: 0.95rem; font-style: italic; }
+  .verdict-text.clean { color: var(--good); }
+  .rawscore { color: var(--dim); font-size: 0.7rem; margin-top: 0.7rem; }
+
+  .sin { border-left: 3px solid var(--accent2); padding-left: 0.9rem; margin-bottom: 1.5rem; }
+  .sin .sin-head { font-weight: 700; font-size: 1rem; margin-bottom: 0.15rem; }
+  .sin .sin-summary { color: var(--dim); font-size: 0.85rem; margin-bottom: 0.25rem; }
+  .sin .sin-note { color: var(--accent); font-size: 0.78rem; font-style: italic; margin-bottom: 0.7rem; }
+  .sin-topic { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin: 0.6rem 0 0.35rem; }
+  .quote-pair { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.5rem; }
+  .quote { font-size: 0.88rem; line-height: 1.5; background: var(--bg2); border-radius: 6px; padding: 0.55rem 0.7rem; }
+  .quote a { color: var(--dim); text-decoration: none; font-size: 0.72rem; display: block; margin-top: 0.3rem; }
+  .quote a:hover { color: var(--accent); }
+  .then-later { color: var(--dim); font-size: 0.7rem; text-align: center; margin: -0.15rem 0; }
+
+  .clean-msg { text-align: center; color: var(--dim); font-size: 0.9rem; padding: 1.5rem 0; }
+
+  .docket-wrap { border-top: 1px dashed var(--border); margin-top: 0.4rem; padding-top: 1.2rem; }
+  .docket-toggle {
+    width: 100%; text-align: left; background: transparent; border: 1px solid var(--border);
+    color: var(--dim); border-radius: 8px; padding: 0.6rem 0.85rem; font: inherit; font-size: 0.82rem;
+    cursor: pointer;
+  }
+  .docket-toggle:hover { border-color: var(--accent); color: var(--fg); }
+  .docket { display: none; margin-top: 0.9rem; }
+  .docket.show { display: block; }
+  .docket-topic { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 0.6rem; overflow: hidden; }
+  .docket-topic summary {
+    list-style: none; cursor: pointer; padding: 0.6rem 0.85rem; font-size: 0.85rem;
+    display: flex; justify-content: space-between; gap: 0.6rem; background: var(--bg2);
+  }
+  .docket-topic summary::-webkit-details-marker { display: none; }
+  .docket-topic summary .dt-name { color: var(--accent); font-weight: 700; }
+  .docket-topic summary .dt-count { color: var(--dim); font-size: 0.75rem; white-space: nowrap; }
+  .docket-claims { padding: 0.7rem 0.85rem 0.85rem; display: flex; flex-direction: column; gap: 0.55rem; }
+  .docket-claim { font-size: 0.83rem; line-height: 1.45; border-left: 3px solid var(--border); padding-left: 0.65rem; }
+  .docket-claim.pos { border-left-color: var(--good); }
+  .docket-claim.neg { border-left-color: var(--accent2); }
+  .docket-claim .dc-meta { color: var(--dim); font-size: 0.7rem; display: flex; gap: 0.5rem; margin-top: 0.2rem; }
+  .docket-claim .dc-meta a { color: var(--dim); text-decoration: none; }
+  .docket-claim .dc-meta a:hover { color: var(--accent); }
+
+  .share { border-top: 1px dashed var(--border); margin-top: 1.4rem; padding-top: 1.2rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #100a1f; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>quant<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">i</span>zeme</h1>
+    <p class="tag">
+      Enter a Bluesky handle. quantizeme downloads their <b>entire post history</b>
+      (one repo download, not a paginated crawl) and greps for the failure modes
+      language models have — contradictions, hedge fog, unearned certainty,
+      whataboutism, doomcasting, broken-record repeats — then tells you the
+      size and quantization of LLM that would embarrass itself the same way.
+    </p>
+    <p class="credit">
+      asked for by <a href="https://bsky.app/profile/7778777.online" target="_blank" rel="noopener">@7778777.online</a>:
+      "a tool that scans someone's posts and finds failure modes in their
+      thinking and assigns the size of the LLM in GB that has similar failure
+      modes." <em>No model in the loop — a heuristic with opinions, not a judge.</em>
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">quantize</button>
+    </form>
+    <p class="hint">works on anyone. yours, a friend's, whoever's posting like a 4-bit model tonight.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut"></div>
+          <div class="scanned" id="scanned"></div>
+        </div>
+      </div>
+
+      <div class="verdict-box">
+        <div class="score-label">estimated model size</div>
+        <div class="score" id="gb">0 GB</div>
+        <div class="spec" id="spec"></div>
+        <div class="verdict-text" id="verdictText"></div>
+        <div class="rawscore" id="rawscore"></div>
+      </div>
+
+      <div id="sins"></div>
+      <div id="cleanMsg" class="clean-msg" style="display:none;"></div>
+
+      <div id="docketWrap" class="docket-wrap" style="display:none;">
+        <button id="docketToggle" class="docket-toggle" type="button"></button>
+        <div id="docket" class="docket"></div>
+      </div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share the verdict</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+      <a href="https://rateyourbuild.bisks.net/site/quantizeme">rate this on rateyourbuild →</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script src="lib/failuremodes.js"></script>
+<script type="module">
+import { fetchRepoRecordsWithKeys } from "./lib/car.js";
+
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+const PLC_DIRECTORY = "https://plc.directory";
+const MAX_POSTS = 800; // cap for the paginated-feed fallback only — the CAR path reads every post record, no cap
+const MAX_PAGES = 8;
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function cleanHandle(raw) {
+  let h = (raw || "").trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  scanned: document.getElementById("scanned"),
+  gb: document.getElementById("gb"),
+  spec: document.getElementById("spec"),
+  verdictText: document.getElementById("verdictText"),
+  rawscore: document.getElementById("rawscore"),
+  sins: document.getElementById("sins"),
+  cleanMsg: document.getElementById("cleanMsg"),
+  docketWrap: document.getElementById("docketWrap"),
+  docketToggle: document.getElementById("docketToggle"),
+  docket: document.getElementById("docket"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+// Resolves a DID's PDS service endpoint straight from its DID doc — trimmed
+// from sites/padmoot's lib/atproto.js, same as sites/llmstance.
+async function didDoc(did) {
+  if (did.startsWith("did:plc:")) {
+    const r = await fetch(PLC_DIRECTORY + "/" + did);
+    return r.ok ? r.json() : null;
+  }
+  if (did.startsWith("did:web:")) {
+    const domain = did.replace("did:web:", "").replace(/:/g, "/");
+    const r = await fetch("https://" + domain + "/.well-known/did.json");
+    return r.ok ? r.json() : null;
+  }
+  return null;
+}
+
+async function resolvePds(did) {
+  const doc = await didDoc(did);
+  const svc = ((doc && doc.service) || []).find(
+    (s) => s.id === "#atproto_pds" || s.type === "AtprotoPersonalDataServer"
+  );
+  return (svc && svc.serviceEndpoint) || null;
+}
+
+// Downloads the account's entire repo as one CAR (com.atproto.sync.getRepo)
+// instead of paginating — every post the account has ever made, not just the
+// first N a paginated read happens to return. See notes/40-new-site-playbook.md
+// / the house "prefer bulk reads" order; same trick as sites/llmstance,
+// sites/backscroll, sites/activitygrid.
+async function scanAccountViaCar(did, handle, onProgress) {
+  const pds = await resolvePds(did);
+  if (!pds) throw new Error("couldn't find a PDS for this account");
+  const { records } = await fetchRepoRecordsWithKeys(pds, did, "app.bsky.feed.post", onProgress);
+  const posts = [];
+  for (const { uri, value } of records) {
+    const text = value && value.text;
+    if (typeof text !== "string" || !text.trim()) continue;
+    const rkey = uri.split("/").pop();
+    posts.push({ text, uri, createdAt: value.createdAt, postUrl: "https://bsky.app/profile/" + handle + "/post/" + rkey });
+  }
+  return posts;
+}
+
+// Fallback for when the CAR path fails (PDS blocks sync.getRepo, repo too
+// big to parse in-tab, network hiccup): pages through getAuthorFeed. Only an
+// approximation of "the whole account," kept so a scan still produces
+// something instead of a hard failure.
+async function scanAccountViaFeed(did, handle, onProgress) {
+  let cursor;
+  const posts = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const params = { actor: did, limit: "100", filter: "posts_with_replies" };
+    if (cursor) params.cursor = cursor;
+    const feed = await xrpc("app.bsky.feed.getAuthorFeed", params);
+    const items = (feed.feed || []).filter((f) => !f.reason);
+    for (const f of items) {
+      const text = f.post && f.post.record && f.post.record.text;
+      if (typeof text !== "string" || !text.trim()) continue;
+      const rkey = (f.post.uri || "").split("/").pop();
+      posts.push({ text, uri: f.post.uri, createdAt: f.post.record.createdAt, postUrl: "https://bsky.app/profile/" + handle + "/post/" + rkey });
+    }
+    onProgress("scanning via feed API (no full-repo access)... (" + posts.length + " so far, page " + (page + 1) + ")");
+    cursor = feed.cursor;
+    if (!cursor || items.length === 0 || posts.length >= MAX_POSTS) break;
+  }
+  return posts.slice(0, MAX_POSTS);
+}
+
+async function scanAccount(did, handle, onProgress) {
+  try {
+    const posts = await scanAccountViaCar(did, handle, onProgress);
+    return { posts, method: "car" };
+  } catch (err) {
+    onProgress("full repo scan failed (" + err.message + ") — falling back to the feed API...");
+    const posts = await scanAccountViaFeed(did, handle, onProgress);
+    return { posts, method: "feed" };
+  }
+}
+
+function topCategoryLabel(sins) {
+  return sins.length ? sins[0].category : null;
+}
+
+function shareUrlFor(handle) {
+  return "https://quantizeme.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function buildShareText(profile, result) {
+  const url = shareUrlFor(profile.handle);
+  const top = topCategoryLabel(result.sins);
+  const headline = result.score === 0
+    ? `@${profile.handle}'s thinking runs clean. 0 GB — no model needed.`
+    : `@${profile.handle}'s thinking has the failure modes of a ${result.tier.gb} model (${result.tier.spec}). top offense: ${top}.`;
+  let text = `${headline} ${result.tier.blurb}\n\nquantize anyone → ${url}`;
+  if (text.length > 300) text = `${headline}\n\nquantize anyone → ${url}`;
+  if (text.length > 300) text = text.slice(0, 296) + "…";
+  return text;
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  let lines = 0;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+      lines++;
+      if (maxLines && lines >= maxLines) { ctx.fillText("…", x, cy); return cy; }
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+async function buildShareCard(profile, result) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile.avatar);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0a0d12";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#241a3a");
+  glow.addColorStop(1, "rgba(10,13,18,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#8f7bff";
+  ctx.font = `800 48px ${mono}`;
+  ctx.fillText("quantizeme", 60, 96);
+
+  const who = "@" + profile.handle;
+  ctx.fillStyle = "#eef2f6";
+  ctx.font = `700 28px ${mono}`;
+  let textX = 60;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 148, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 60, 120, 56, 56);
+    ctx.restore();
+    textX = 132;
+  }
+  ctx.fillText(who, textX, 158);
+
+  ctx.strokeStyle = "#232b36";
+  ctx.lineWidth = 1.5;
+  const cardX = 60, cardY = 220, cardW = W - 120, cardH = H - 280;
+  ctx.fillStyle = "#12161d";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#8a94a3";
+  ctx.font = `700 15px ${mono}`;
+  ctx.fillText("ESTIMATED MODEL SIZE", W / 2, cardY + 46);
+
+  ctx.fillStyle = result.score === 0 ? "#6ee7a8" : "#ff6bd6";
+  ctx.font = `800 76px ${mono}`;
+  ctx.fillText(result.tier.gb, W / 2, cardY + 130);
+
+  ctx.fillStyle = "#8f7bff";
+  ctx.font = `700 18px ${mono}`;
+  ctx.fillText(result.tier.spec, W / 2, cardY + 162);
+
+  const top = topCategoryLabel(result.sins);
+  if (top) {
+    ctx.fillStyle = "#8a94a3";
+    ctx.font = `700 16px ${mono}`;
+    ctx.fillText("top failure mode: " + top, W / 2, cardY + 192);
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff6bd6";
+  ctx.fillRect(cardX + 48, cardY + 216, 4, 60);
+  ctx.fillStyle = "#eef2f6";
+  ctx.font = `italic 19px ${mono}`;
+  wrapCanvasText(ctx, result.tier.blurb, cardX + 68, cardY + 238, cardW - 136, 27, 3);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff6bd6";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("quantizeme.bisks.net", 60, H - 40);
+}
+
+function formatDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+function polarityMark(c) {
+  if (c.absolute === "always") return "∀";
+  if (c.absolute === "never") return "∄";
+  if (c.polarity === "pos") return "+";
+  if (c.polarity === "neg") return "−";
+  return "·";
+}
+
+function renderDocketClaim(c) {
+  const cls = c.polarity === "pos" ? " pos" : c.polarity === "neg" ? " neg" : "";
+  const tags = [];
+  if (c.hedge) tags.push("hedge");
+  if (c.certainty) tags.push("certainty");
+  if (c.whatabout) tags.push("whataboutism");
+  if (c.strawman) tags.push("strawman");
+  if (c.doom) tags.push("doom");
+  return `
+    <div class="docket-claim${cls}">
+      ${polarityMark(c)} ${esc(c.text)}
+      <div class="dc-meta">
+        <span>${formatDate(c.createdAt)}</span>
+        ${tags.length ? `<span>${tags.join(", ")}</span>` : ""}
+        <a href="${c.postUrl}" target="_blank" rel="noopener">view →</a>
+      </div>
+    </div>`;
+}
+
+function renderDocketTopic(entry) {
+  return `
+    <details class="docket-topic">
+      <summary>
+        <span class="dt-name">${esc(entry.topic)}</span>
+        <span class="dt-count">${entry.claims.length} claims</span>
+      </summary>
+      <div class="docket-claims">
+        ${entry.claims.map(renderDocketClaim).join("")}
+      </div>
+    </details>`;
+}
+
+function renderDocket(docket) {
+  if (!docket.length) {
+    els.docketWrap.style.display = "none";
+    return;
+  }
+  els.docketWrap.style.display = "block";
+  els.docket.classList.remove("show");
+  const claimCount = docket.reduce((sum, t) => sum + t.claims.length, 0);
+  els.docketToggle.textContent = `📋 browse the full docket — ${docket.length} topics revisited, ${claimCount} claims on record ▾`;
+  els.docketToggle.dataset.open = "0";
+  els.docket.innerHTML = docket.map(renderDocketTopic).join("");
+}
+
+function renderQuote(q) {
+  return `<div class="quote">${esc(q.text)}<a href="${q.postUrl}" target="_blank" rel="noopener">view post →</a></div>`;
+}
+
+function renderSin(sin) {
+  let body = "";
+  if (sin.category === "Reversal" || sin.category === "Certainty Whiplash") {
+    body = sin.items
+      .map(
+        (it) => `
+        <div class="sin-topic">re: "${esc(it.topic)}"</div>
+        <div class="quote-pair">
+          ${renderQuote(it.quotes[0])}
+          <div class="then-later">↓ elsewhere ↓</div>
+          ${renderQuote(it.quotes[1])}
+        </div>`
+      )
+      .join("");
+  } else {
+    body = sin.items.map((it) => `<div class="quote-pair">${it.quotes.map(renderQuote).join("")}</div>`).join("");
+  }
+  return `
+    <div class="sin">
+      <div class="sin-head">${sin.icon} ${esc(sin.category)}</div>
+      <div class="sin-summary">${esc(sin.summary)}</div>
+      <div class="sin-note">→ ${esc(sin.modelNote)}</div>
+      ${body}
+    </div>`;
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+
+  try {
+    let did;
+    if (handle.startsWith("did:")) did = handle;
+    else did = (await xrpc("com.atproto.identity.resolveHandle", { handle })).did;
+
+    const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    const resolvedHandle = profile.handle || handle;
+    setStatus("downloading " + resolvedHandle + "'s repo...");
+    const { posts, method } = await scanAccount(did, resolvedHandle, (msg) => setStatus(msg));
+
+    const result = window.FailureModes.analyze(posts);
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.innerHTML = `<a href="https://bsky.app/profile/${resolvedHandle}" target="_blank" rel="noopener">@${esc(resolvedHandle)}</a>`;
+    els.scanned.textContent = (method === "car"
+      ? `${posts.length} posts scanned (full repo CAR, no page cap)`
+      : `${posts.length} posts scanned (feed API fallback)`) + ` · ${result.claims.length} stance-bearing claims found`;
+
+    els.gb.textContent = result.tier.gb;
+    els.gb.style.color = result.score === 0 ? "var(--good)" : "var(--accent)";
+    els.spec.textContent = result.tier.spec;
+    els.verdictText.textContent = result.tier.blurb;
+    els.verdictText.className = "verdict-text" + (result.score === 0 ? " clean" : "");
+    els.rawscore.textContent = "failure score: " + result.score;
+
+    if (result.sins.length) {
+      els.sins.innerHTML = result.sins.map(renderSin).join("");
+      els.cleanMsg.style.display = "none";
+    } else {
+      els.sins.innerHTML = "";
+      els.cleanMsg.textContent = posts.length
+        ? "no contradictions, hedge-floods, repeats, or unearned certainty detected. either a very careful poster, or a very quiet one."
+        : "nothing public to read — empty feed, or everything's a repost.";
+      els.cleanMsg.style.display = "block";
+    }
+
+    renderDocket(result.docket);
+
+    setStatus("");
+    els.card.classList.add("show");
+
+    lastShareText = buildShareText(profile, result);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+    await buildShareCard(profile, result);
+  } catch (err) {
+    setStatus("couldn't scan that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.docketToggle.addEventListener("click", () => {
+  const open = els.docketToggle.dataset.open === "1";
+  els.docket.classList.toggle("show", !open);
+  els.docketToggle.dataset.open = open ? "0" : "1";
+  els.docketToggle.textContent = els.docketToggle.textContent.replace(open ? "▴" : "▾", open ? "▾" : "▴");
+});
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "quantizeme-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "card").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "quantizeme-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "quantizeme" });
+      } catch (_) {}
+    }, "image/png");
+  });
+}
+
+// /s/<handle> (share links) or ?h=<handle> both auto-scan on load.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+
+<!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+<style>
+  #cm-toggle {
+    position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.7rem; line-height: 1;
+    background: rgba(20, 20, 20, 0.72); color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 999px; padding: 0.45rem 0.6rem; cursor: pointer;
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+  #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+  #cm-coop { position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden; pointer-events: none; z-index: 2147483000; display: none; }
+  #cm-coop.on { display: block; }
+  .cm-chicken { position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1); animation-name: cm-strut; animation-timing-function: linear; animation-iteration-count: infinite; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5)); }
+  @keyframes cm-strut {
+    0% { transform: translateX(-3rem) scaleX(-1); }
+    48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+    50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+    98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+    100% { transform: translateX(-3rem) scaleX(-1); }
+  }
+</style>
+<button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+<div id="cm-coop"></div>
+<script>
+  (function () {
+    var coop = document.getElementById("cm-coop");
+    var toggle = document.getElementById("cm-toggle");
+    if (!coop || !toggle) return;
+    var KEY = "chicken-mode";
+    var spawner = null;
+    function spawn() {
+      var c = document.createElement("div");
+      c.className = "cm-chicken";
+      c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+      var duration = 14 + Math.random() * 10;
+      c.style.animationDuration = duration + "s";
+      c.style.animationDelay = -Math.random() * duration + "s";
+      c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+      coop.appendChild(c);
+    }
+    function start() {
+      if (spawner) return;
+      coop.innerHTML = "";
+      for (var i = 0; i < 5; i++) spawn();
+      spawner = setInterval(function () {
+        if (coop.children.length < 8) spawn();
+      }, 4000);
+    }
+    function stop() {
+      if (spawner) clearInterval(spawner);
+      spawner = null;
+      coop.innerHTML = "";
+    }
+    function setMode(on) {
+      coop.classList.toggle("on", on);
+      toggle.classList.toggle("on", on);
+      if (on) start(); else stop();
+      try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+    }
+    toggle.addEventListener("click", function () {
+      setMode(!coop.classList.contains("on"));
+    });
+    var startedOn = false;
+    try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+    if (startedOn) setMode(true);
+  })();
+</script>
+<!-- /chicken mode -->
+</body>
+</html>
