@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>homemixer — a live port of X's home-mixer to the Bluesky Feed API</title>
+<meta name="description" content="A real, subscribable Bluesky feed generator: an honest heuristic port of the pipeline shape behind github.com/twitter/the-algorithm's home-mixer — candidate sourcing, light rank, heavy rank, in/out-of-network mixing — evaluated live over your follow graph, nothing stored." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="homemixer" />
+<meta property="og:description" content="a live port of X's home-mixer pipeline shape to the Bluesky Feed API — candidate sourcing, light rank, heavy rank, in/out-of-network mixing, evaluated fresh over your follow graph. no ML, nothing stored." />
+<meta property="og:image" content="https://homemixer.bisks.net/og.png" />
+<meta property="og:url" content="https://homemixer.bisks.net/" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="homemixer" />
+<meta name="twitter:description" content="a live port of X's home-mixer pipeline shape to the Bluesky Feed API." />
+<meta name="twitter:image" content="https://homemixer.bisks.net/og.png" />
+
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0b0d;
+    --panel: #141418;
+    --border: rgba(255,255,255,0.12);
+    --text: #f2f2f2;
+    --dim: #9a9aa2;
+    --accent: #7dd3fc;
+    --in-net: #86efac;
+    --out-net: #fca5a5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 3rem 1.25rem 5rem;
+  }
+  h1 {
+    font-size: 2rem;
+    margin: 0 0 0.35rem;
+    letter-spacing: -0.02em;
+  }
+  .tagline {
+    color: var(--dim);
+    margin: 0 0 2rem;
+  }
+  a { color: var(--accent); }
+  section {
+    margin-bottom: 2.25rem;
+  }
+  h2 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    margin: 0 0 0.75rem;
+  }
+  p { margin: 0 0 0.9rem; }
+  code {
+    background: rgba(255,255,255,0.08);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    font-size: 0.92em;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.1rem 1.2rem;
+  }
+  .pipeline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0.75rem 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  .pipeline li {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.85rem;
+  }
+  .pipeline li::after {
+    content: "→";
+    margin-left: 0.6rem;
+    color: var(--dim);
+  }
+  .pipeline li:last-child::after { content: ""; margin: 0; }
+
+  .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+  input[type="text"] {
+    flex: 1;
+    min-width: 180px;
+    background: #0f0f12;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    font: inherit;
+  }
+  button {
+    background: var(--accent);
+    color: #051018;
+    border: none;
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  button.secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-weight: 600;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .status { color: var(--dim); font-size: 0.9rem; margin-top: 0.6rem; min-height: 1.2em; }
+  .status.err { color: var(--out-net); }
+  .status.ok { color: var(--in-net); }
+
+  #preview-list { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 1rem; }
+  .post {
+    display: flex;
+    gap: 0.7rem;
+    padding: 0.7rem 0.8rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .post img.avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: rgba(255,255,255,0.1); flex: none; object-fit: cover;
+  }
+  .post .body { min-width: 0; flex: 1; }
+  .post .who { display: flex; gap: 0.4rem; align-items: baseline; flex-wrap: wrap; }
+  .post .name { font-weight: 700; }
+  .post .handle { color: var(--dim); font-size: 0.85em; }
+  .post .badge {
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 0.1em 0.5em; border-radius: 999px; border: 1px solid var(--border);
+  }
+  .post .badge.in { color: var(--in-net); border-color: var(--in-net); }
+  .post .badge.out { color: var(--out-net); border-color: var(--out-net); }
+  .post .text { margin: 0.25rem 0 0.35rem; white-space: pre-wrap; word-break: break-word; }
+  .post .stats { color: var(--dim); font-size: 0.82rem; }
+  .post a.permalink { color: inherit; text-decoration: none; }
+  .post a.permalink:hover .text { text-decoration: underline; }
+
+  footer {
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    color: var(--dim);
+    font-size: 0.85rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+  }
+  footer a { color: var(--dim); }
+  footer a:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>homemixer<span id="secret-cee" style="cursor:pointer">.</span></h1>
+  <p class="tagline">a live, no-storage port of the pipeline <em>shape</em> behind
+    <a href="https://github.com/twitter/the-algorithm" target="_blank" rel="noopener">github.com/twitter/the-algorithm</a>'s
+    home-mixer — running over the Bluesky Feed API instead.</p>
+
+  <section class="card">
+    <h2>what this actually is</h2>
+    <p>@skeet.best asked for a port of the "X Recommendation Algorithm" to the Bluesky
+      Feed API. That repo's real ranker is a trained multi-task neural net over ~6,000
+      features, fed by Twitter-internal services (Earlybird, UTEG/GraphJet, a live
+      engagement stream) with no atproto equivalent — and this bot's house rules ban
+      Workers AI outright, so there's no model to run here even if the weights were
+      public, which they never were.</p>
+    <p>What's genuinely portable, and what this ships: the <strong>pipeline shape</strong>
+      home-mixer's own docs describe, and the <strong>relative weighting</strong> Twitter
+      published when it open-sourced the ranker's tunable params
+      (<code>home_mixer_model_weight_fav</code> / <code>_retweet</code> / <code>_reply</code>,
+      among others) — replies weigh far more than reposts, reposts more than likes. This
+      site substitutes realized public engagement counts for the trained per-user
+      propensity scores those params actually held, and a hand-set weight table for the
+      learned one.</p>
+    <ol class="pipeline">
+      <li>candidate sourcing</li>
+      <li>light rank</li>
+      <li>heavy rank</li>
+      <li>author diversity</li>
+      <li>in/out-of-network mixing</li>
+    </ol>
+    <p style="margin-top:0.9rem">In-network candidates come from a live sample of
+      accounts you follow; out-of-network candidates come from a 2-hop walk of the
+      follow graph (follows of your follows), the same shape as UTEG's graph traversal,
+      just over the public follow graph instead of a private engagement one. Every
+      request re-fetches and re-ranks from scratch against the public AppView — nothing
+      is indexed, stored, or pre-computed.</p>
+  </section>
+
+  <section class="card">
+    <h2>preview the feed</h2>
+    <p class="status" id="signin-status">not signed in — showing the anonymous, out-of-network-only preview.</p>
+    <div class="row">
+      <input type="text" id="signin-handle" placeholder="your.bsky.social — preview it personalized" autocomplete="off" />
+      <button id="signin-btn">sign in</button>
+    </div>
+    <div id="signed-in-row" class="row" style="display:none; margin-top:0.6rem;">
+      <span class="status ok" id="signed-in-as"></span>
+      <button class="secondary" id="publish-btn">publish this feed to your account</button>
+      <button class="secondary" id="signout-btn">sign out</button>
+    </div>
+    <p class="status" id="publish-status"></p>
+    <div id="preview-list"></div>
+    <div class="row" style="margin-top:0.9rem">
+      <button class="secondary" id="load-more-btn">load more</button>
+      <span class="status" id="preview-status">loading…</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>the honest gaps</h2>
+    <p>No cryptographic verification of who's asking (see the comment on
+      <code>decodeRequesterDid</code> in the source) — the requester's DID is read
+      straight off the unverified JWT the Bluesky app sends, which is fine here because
+      every input and output is already public data and nothing gets written on your
+      behalf without you signing in separately. Candidate fan-out is capped for real
+      Cloudflare Worker latency/subrequest reasons, not habitual caution — a big account
+      still gets a real feed, just sampled rather than exhaustive. And because nothing's
+      stored, paging re-runs the whole pipeline; a seeded RNG keeps your sampled author
+      pool stable for a few hours so pages don't reshuffle out from under you.</p>
+  </section>
+
+  <footer>
+    <a href="https://bsky.app/intent/compose?text=homemixer%3A%20a%20live%20port%20of%20X%27s%20home-mixer%20to%20the%20Bluesky%20Feed%20API%20%E2%80%94%20https%3A%2F%2Fhomemixer.bisks.net%2F" target="_blank" rel="noopener">share on bluesky</a>
+    <a href="https://github.com/twitter/the-algorithm" target="_blank" rel="noopener">the-algorithm (source of the port)</a>
+    <a href="https://rateyourbuild.bisks.net/site/homemixer">rate this on rateyourbuild →</a>
+    <a href="https://bisks.net">bisks.net</a>
+  </footer>
+</main>
+
+<script src="/lib/handle-typeahead.js"></script>
+<script type="module">
+  import { login, completeLoginIfCallback, getSession, clearSession, resolveHandle } from "/lib/oauth.js";
+  import { publishFeedGenerator } from "/lib/publish.js";
+
+  const els = {
+    signinHandle: document.getElementById("signin-handle"),
+    signinBtn: document.getElementById("signin-btn"),
+    signinStatus: document.getElementById("signin-status"),
+    signedInRow: document.getElementById("signed-in-row"),
+    signedInAs: document.getElementById("signed-in-as"),
+    publishBtn: document.getElementById("publish-btn"),
+    publishStatus: document.getElementById("publish-status"),
+    signoutBtn: document.getElementById("signout-btn"),
+    previewList: document.getElementById("preview-list"),
+    previewStatus: document.getElementById("preview-status"),
+    loadMoreBtn: document.getElementById("load-more-btn"),
+  };
+
+  attachHandleTypeahead(els.signinHandle);
+
+  // Secret handle-prefill (standing order, 2026-08-28): one character in the
+  // H1, no visual tell, fills the self-identifying handle input.
+  document.getElementById("secret-cee").addEventListener("click", () => {
+    els.signinHandle.value = "@cee.wtf";
+    els.signinHandle.dispatchEvent(new Event("input", { bubbles: true }));
+    els.signinHandle.dispatchEvent(new Event("change", { bubbles: true }));
+    els.signinHandle.focus();
+  });
+
+  let session = null;
+  let cursor = undefined;
+
+  async function refreshSigninUI() {
+    session = await getSession();
+    if (session) {
+      els.signinStatus.style.display = "none";
+      els.signinBtn.style.display = "none";
+      els.signinHandle.style.display = "none";
+      els.signedInRow.style.display = "flex";
+      els.signedInAs.textContent = `signed in as @${session.handle}`;
+    } else {
+      els.signinStatus.style.display = "";
+      els.signinStatus.textContent = "not signed in — showing the anonymous, out-of-network-only preview.";
+      els.signedInRow.style.display = "none";
+    }
+  }
+
+  els.signinBtn.addEventListener("click", async () => {
+    const handle = els.signinHandle.value.trim().replace(/^@/, "");
+    if (!handle) return;
+    els.signinBtn.disabled = true;
+    els.signinStatus.className = "status";
+    els.signinStatus.textContent = "redirecting to your PDS…";
+    try {
+      await login(handle);
+    } catch (err) {
+      els.signinBtn.disabled = false;
+      els.signinStatus.className = "status err";
+      els.signinStatus.textContent = err.message || String(err);
+    }
+  });
+
+  els.signoutBtn.addEventListener("click", async () => {
+    await clearSession();
+    await refreshSigninUI();
+    cursor = undefined;
+    followedCache = null;
+    loadPreview(true);
+  });
+
+  els.publishBtn.addEventListener("click", async () => {
+    if (!session) return;
+    els.publishBtn.disabled = true;
+    els.publishStatus.className = "status";
+    els.publishStatus.textContent = "publishing…";
+    try {
+      const result = await publishFeedGenerator(session);
+      els.publishStatus.className = "status ok";
+      const addUrl = `https://bsky.app/profile/${session.did}/feed/homemixer`;
+      els.publishStatus.innerHTML = result.alreadyPublished
+        ? `already published — <a href="${addUrl}" target="_blank" rel="noopener">open it in Bluesky</a>`
+        : `published! <a href="${addUrl}" target="_blank" rel="noopener">open it in Bluesky</a> to add it to your feeds.`;
+    } catch (err) {
+      els.publishStatus.className = "status err";
+      els.publishStatus.textContent = err.message || String(err);
+    } finally {
+      els.publishBtn.disabled = false;
+    }
+  });
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  async function hydratePosts(uris) {
+    if (!uris.length) return [];
+    const out = [];
+    // getPosts takes at most 25 uris per call.
+    for (let i = 0; i < uris.length; i += 25) {
+      const batch = uris.slice(i, i + 25);
+      const qs = batch.map((u) => `uris=${encodeURIComponent(u)}`).join("&");
+      const res = await fetch(`https://public.api.bsky.app/xrpc/app.bsky.feed.getPosts?${qs}`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      out.push(...(data.posts || []));
+    }
+    const byUri = new Map(out.map((p) => [p.uri, p]));
+    return uris.map((u) => byUri.get(u)).filter(Boolean);
+  }
+
+  function renderPost(post) {
+    const a = post.author || {};
+    const text = post.record?.text || "";
+    const url = `https://bsky.app/profile/${a.did}/post/${post.uri.split("/").pop()}`;
+    const div = document.createElement("div");
+    div.className = "post";
+    div.innerHTML = `
+      <img class="avatar" ${a.avatar ? `src="${escapeHtml(a.avatar)}"` : ""} alt="" onerror="this.style.visibility='hidden'" />
+      <div class="body">
+        <a class="permalink" href="${url}" target="_blank" rel="noopener">
+          <div class="who">
+            <span class="name">${escapeHtml(a.displayName || a.handle || "")}</span>
+            <span class="handle">@${escapeHtml(a.handle || "")}</span>
+          </div>
+          <div class="text">${escapeHtml(text)}</div>
+        </a>
+        <div class="stats">♥ ${post.likeCount || 0} · ⇄ ${post.repostCount || 0} · ↩ ${post.replyCount || 0}</div>
+      </div>`;
+    return div;
+  }
+
+  async function loadPreview(reset) {
+    if (reset) {
+      els.previewList.innerHTML = "";
+      cursor = undefined;
+    }
+    els.previewStatus.textContent = "loading…";
+    els.loadMoreBtn.disabled = true;
+    try {
+      const params = new URLSearchParams({ feed: "homemixer", limit: "15" });
+      if (cursor) params.set("cursor", cursor);
+      if (session) params.set("did", session.did);
+      const res = await fetch(`/xrpc/app.bsky.feed.getFeedSkeleton?${params.toString()}`);
+      if (!res.ok) throw new Error(`skeleton fetch failed (${res.status})`);
+      const skeleton = await res.json();
+      cursor = skeleton.cursor;
+      const uris = (skeleton.feed || []).map((f) => f.post);
+      const posts = await hydratePosts(uris);
+      const inNetworkDids = session ? await followedDidsCache() : new Set();
+      for (const post of posts) {
+        const node = renderPost(post);
+        const badge = document.createElement("span");
+        const isIn = inNetworkDids.has(post.author?.did);
+        badge.className = `badge ${isIn ? "in" : "out"}`;
+        badge.textContent = isIn ? "in-network" : "out-of-network";
+        node.querySelector(".who").appendChild(badge);
+        els.previewList.appendChild(node);
+      }
+      els.previewStatus.textContent = posts.length
+        ? `${els.previewList.children.length} posts loaded`
+        : "no candidates found — try signing in for a personalized feed.";
+      els.loadMoreBtn.style.display = cursor ? "" : "none";
+    } catch (err) {
+      els.previewStatus.textContent = err.message || String(err);
+    } finally {
+      els.loadMoreBtn.disabled = false;
+    }
+  }
+
+  let followedCache = null;
+  async function followedDidsCache() {
+    if (followedCache) return followedCache;
+    followedCache = new Set();
+    if (!session) return followedCache;
+    try {
+      let c;
+      for (let i = 0; i < 3; i++) {
+        const qs = new URLSearchParams({ actor: session.did, limit: "100" });
+        if (c) qs.set("cursor", c);
+        const res = await fetch(`https://public.api.bsky.app/xrpc/app.bsky.graph.getFollows?${qs.toString()}`);
+        if (!res.ok) break;
+        const data = await res.json();
+        for (const f of data.follows || []) followedCache.add(f.did);
+        if (!data.cursor) break;
+        c = data.cursor;
+      }
+    } catch {}
+    return followedCache;
+  }
+
+  els.loadMoreBtn.addEventListener("click", () => loadPreview(false));
+
+  (async () => {
+    try {
+      const s = await completeLoginIfCallback();
+      if (s) session = s;
+    } catch (err) {
+      els.signinStatus.className = "status err";
+      els.signinStatus.textContent = err.message || String(err);
+    }
+    await refreshSigninUI();
+    loadPreview(true);
+  })();
+</script>
+</body>
+</html>
