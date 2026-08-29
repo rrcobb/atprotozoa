@@ -184,6 +184,7 @@
           <button type="submit" class="ghost">go</button>
         </form>
         <button type="button" class="ghost" id="randomBtn" title="jump to a random article">🎲 stochastic article</button>
+        <a class="btn ghost" href="/how-it-works">how it works</a>
         <div class="session" id="sessionBox">…</div>
       </nav>
       <main id="app"><p class="loading">loading…</p></main>
@@ -195,7 +196,8 @@
         adjacent of @bisks.net's mutuals only, same "moots" definition as
         <a href="https://simcluster.bisks.net">simcluster</a>. sibling of
         <a href="https://wiki.bisks.net">bisksipedia</a> (auto-rendered
-        AppView entries, no login, unrelated project).
+        AppView entries, no login, unrelated project). confused by any of
+        that? see <a href="/how-it-works">how it works</a>.
       </footer>
     </div>
 
@@ -395,6 +397,7 @@
 
       const ROUTES = [
         [/^\/$/, viewHome],
+        [/^\/how-it-works$/, viewHowItWorks],
         [/^\/wiki\/([^/]+)$/, (m) => viewArticle(decodeURIComponent(m[1]))],
         [/^\/wiki\/([^/]+)\/edit$/, (m) => viewEdit(decodeURIComponent(m[1]))],
         [/^\/wiki\/([^/]+)\/history$/, (m) => viewHistory(decodeURIComponent(m[1]))],
@@ -455,6 +458,44 @@
         } catch (e) {
           $("recent").innerHTML = `<div class="empty">couldn't load recent changes — ${esc(e.message)}</div>`;
         }
+      }
+
+      // --- how it works ---------------------------------------------------
+      // A plain-language explainer, added after a reader replied unsure
+      // whether the gate meant "closed wiki" or something looser. Static
+      // content, run through the same wikitext renderer as an article so
+      // [[wikilinks]] into the self-referential clusterpedia/simcluster
+      // articles work, but it's not itself an editable article — there's no
+      // PDS record behind this page.
+
+      async function viewHowItWorks() {
+        const md = [
+          "clusterpedia is a Wikipedia-style encyclopedia where every article revision and every talk-page post is a real, signed atproto record — written to the **author's own** PDS, not into a database this site controls. This page exists to answer the two questions people keep asking in replies: *what is this*, and *why can't I edit*.",
+          "",
+          "## Reading, talking, and editing are three different gates",
+          "",
+          "- **read** — open to everyone, no login required. Every article, its full revision history, and every talk thread are public.",
+          "- **talk** — open to anyone with a verified atproto login. Sign in and post on an article's talk page, same as any wiki's discussion tab.",
+          "- **edit the article itself** — the only gated action, screened by Shimmer Math Labs' Simcluster Checker.",
+          "",
+          "## What the Simcluster Checker actually checks",
+          "",
+          "It isn't an invite list or a password — it's a live computation over the public Bluesky follow graph, relative to `@bisks.net` (this whole project's home account). You clear it if you're one of two things:",
+          "",
+          "- a **member** — a direct mutual (\"moot\") of `@bisks.net`: you follow them, and they follow you back.",
+          "- **1-hop adjacent** — not a direct mutual yourself, but you share at least one mutual *with* `@bisks.net` (one of your own moots is also one of bisks.net's).",
+          "",
+          "Everyone outside those two groups can still read every article and join every talk page — they just can't change the article text. Your own status shows up as a badge on your profile page once you're signed in. See [[simcluster]] for the same \"moots\" idea reused across this project's other toys, and [[clusterpedia]] for the article about the site itself, including who asked for it.",
+          "",
+          "## Why write to your own PDS instead of a database here?",
+          "",
+          "Because it means clusterpedia never has to hold your password or a session token to accept an edit — it only ever reads a record back out of *your own* repo to confirm you really wrote it, which is proof enough, since nobody else can forge a record inside your own atproto repo. The pages you're reading are a best-effort cache of those records, rebuilt from the PDS copies on every edit — the PDS records remain the real, durable copy.",
+        ].join("\n");
+        app.innerHTML = `
+          <h1>how clusterpedia works</h1>
+          <p class="meta">what this site is, and why you might not be able to edit yet.</p>
+          <div class="article-body">${renderWikiText(md)}</div>
+        `;
       }
 
       $("searchForm").addEventListener("submit", (e) => {

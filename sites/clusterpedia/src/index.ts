@@ -118,9 +118,9 @@ export default {
     }
 
     // SPA fallback: any other GET without a file extension is a client route
-    // (/, /wiki/<slug>/edit, /wiki/<slug>/history, /wiki/<slug>/talk,
-    // /user/<handle>) — serve the same shell and let public/index.html's
-    // router read location.pathname.
+    // (/, /how-it-works, /wiki/<slug>/edit, /wiki/<slug>/history,
+    // /wiki/<slug>/talk, /user/<handle>) — serve the same shell and let
+    // public/index.html's router read location.pathname.
     if (request.method === "GET" && !/\.[a-zA-Z0-9]+$/.test(url.pathname)) {
       return env.ASSETS.fetch(new Request(new URL("/", request.url), request));
     }
