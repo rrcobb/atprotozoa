@@ -274,14 +274,17 @@ export class SubscriptionAlerts {
 
   // Hooked into engagement-index.js's onLiveReply — fires on any reply
   // (top-level on a review, or nested reply-to-a-reply, same record shape
-  // either way per the reply lexicon) that targets this rater directly,
-  // i.e. `reviewer` on the incoming reply record is their own did. Gated on
-  // the "replies" subscription (kind: "replies", target: "self" — there's
-  // only one thing to watch) rather than firing unconditionally, same
-  // opt-in shape as every other subscription kind here.
-  handleLiveReply({ did, subject, reviewer, text }) {
+  // either way per the reply lexicon) that targets this rater directly, i.e.
+  // engagement-index.js's derived `targetDid` (the parentKey's author, or
+  // the review's own author for a top-level reply — NOT the reply record's
+  // `reviewer` field, which is always the thread's root author, not who a
+  // given message is addressed to) is their own did. Gated on the "replies"
+  // subscription (kind: "replies", target: "self" — there's only one thing
+  // to watch) rather than firing unconditionally, same opt-in shape as every
+  // other subscription kind here.
+  handleLiveReply({ did, subject, targetDid, text }) {
     if (!this.loaded || !this.session || did === this.session.did) return;
-    if (reviewer !== this.session.did) return;
+    if (targetDid !== this.session.did) return;
     if (!this.isSubscribed("replies", "self")) return;
     const preview = typeof text === "string" && text.length > 100 ? `${text.slice(0, 100)}…` : text;
     this.pushAlert({

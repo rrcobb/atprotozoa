@@ -27,16 +27,24 @@ const BACKFILL_REPO_PAGES_PER_STEP = 2;
 const BACKFILL_RECORD_PAGES_PER_DID = 3;
 
 // Two distinct key shapes, don't conflate them:
-//   - reviewKey (subject::reviewer) — a grouping bucket for tallying votes
-//     or listing replies from every different voter/replier targeting the
-//     same review; never touches the wire.
-//   - recordKey (subject.reviewer) — the actual atproto record key each
-//     voter/replier writes their own record under (constructed the same way
-//     in public/index.html's writeVote/writeReply). applyOwn*/own*/removeOwn*
-//     below must use this shape — it's what a live Jetstream commit or a
-//     backfilled listRecords entry will carry as commit.rkey, and a mismatch
-//     here means the optimistic local write and the real echoed record land
-//     under two different map keys instead of one, double-counting the vote.
+//   - reviewKey (subject::reviewer) — a grouping bucket. For votes, one vote
+//     per voter per review lands here keyed by the review itself. For
+//     replies, `reviewer` is always the review's root author (constant for
+//     every reply anywhere in that review's thread, top-level or nested), so
+//     this bucket holds the WHOLE thread as a flat list — public/index.html
+//     turns that into a tree client-side via each reply's parentKey. Never
+//     touches the wire.
+//   - recordKey (subject.reviewer) — the actual atproto record key a voter
+//     writes their own vote under (one vote per voter per review, still
+//     overwrite-in-place — constructed the same way in public/index.html's
+//     writeVote). ownVote/applyOwnVote/removeOwnVote below must use this
+//     shape — it's what a live Jetstream commit or a backfilled listRecords
+//     entry will carry as commit.rkey, and a mismatch here means the
+//     optimistic local write and the real echoed record land under two
+//     different map keys instead of one, double-counting the vote. Replies
+//     do NOT use this shape any more — each reply gets its own unique rkey
+//     (see writeReply in public/index.html) precisely so a second reply to
+//     the same person is a new comment, not an overwrite of the first.
 function reviewKey(subject, reviewer) {
   return `${subject}::${reviewer}`;
 }
@@ -96,12 +104,22 @@ function normaliseReply(did, rkey, record) {
   const subject = typeof record.subject === "string" ? record.subject.trim() : "";
   const reviewer = typeof record.reviewer === "string" ? record.reviewer.trim() : "";
   const text = typeof record.text === "string" ? record.text.trim().slice(0, 1500) : "";
+  // Missing/empty parentKey means "direct reply to the review" (top-level).
+  // A pre-2026-08-29 record has no parentKey either — it reads as top-level
+  // here, which is exactly right for what WAS a top-level reply back then;
+  // an old reply-to-a-reply record instead had `reviewer` set to its direct
+  // target rather than the thread's root author, so it won't bucket under
+  // the right review any more. That's an accepted one-time migration cost —
+  // the feature had no way to hold more than one message per pair before
+  // this fix, so there's little history worth preserving.
+  const parentKey = typeof record.parentKey === "string" ? record.parentKey.trim() : "";
   if (!subject || !reviewer || !text) return null;
   return {
     did,
     rkey,
     subject,
     reviewer,
+    parentKey,
     text,
     createdAt: typeof record.createdAt === "string" ? Date.parse(record.createdAt) || 0 : 0,
   };
@@ -165,13 +183,10 @@ export class EngagementIndex {
   ownVote(myDid, subject, reviewer) {
     return this.votes.get(`${myDid}::${recordKey(subject, reviewer)}`) || null;
   }
-  ownReply(myDid, subject, reviewer) {
-    return this.replies.get(`${myDid}::${recordKey(subject, reviewer)}`) || null;
-  }
 
-  // Injects a just-written vote/reply straight into the index (before
-  // Jetstream has necessarily echoed it back), same pattern as
-  // global-index.js's applyOwn.
+  // Injects a just-written vote straight into the index (before Jetstream
+  // has necessarily echoed it back), same pattern as global-index.js's
+  // applyOwn.
   applyOwnVote(did, subject, reviewer, value, votedAtIso) {
     const rkey = recordKey(subject, reviewer);
     const key = `${did}::${rkey}`;
@@ -181,11 +196,21 @@ export class EngagementIndex {
     this.schedulePersist();
     this.emit();
   }
-  applyOwnReply(did, subject, reviewer, text, createdAtIso) {
-    const rkey = recordKey(subject, reviewer);
+  // Same, for a just-written reply — rkey is caller-supplied (see writeReply
+  // in public/index.html) since a reply's rkey is a fresh unique value per
+  // message now, not derived from (subject, reviewer).
+  applyOwnReply(did, rkey, subject, reviewer, parentKey, text, createdAtIso) {
     const key = `${did}::${rkey}`;
     this.liveKeys.add(`reply:${key}`);
-    this.replies.set(key, { did, rkey, subject, reviewer, text, createdAt: Date.parse(createdAtIso) || Date.now() });
+    this.replies.set(key, {
+      did,
+      rkey,
+      subject,
+      reviewer,
+      parentKey: parentKey || "",
+      text,
+      createdAt: Date.parse(createdAtIso) || Date.now(),
+    });
     this.lastUpdated = Date.now();
     this.schedulePersist();
     this.emit();
@@ -346,7 +371,14 @@ export class EngagementIndex {
       changed = this.applyRecord(commit.collection, event.did, commit.rkey, commit.record, true);
       if (changed && commit.collection === REPLY_COLLECTION) {
         const reply = this.replies.get(key);
-        if (reply) this.onLiveReply({ did: event.did, subject: reply.subject, reviewer: reply.reviewer, text: reply.text });
+        // Who this specific reply is addressed to isn't `reviewer` any more
+        // (that's the thread's root author, constant for the whole thread) —
+        // it's the author segment of parentKey, or `reviewer` itself when
+        // this is a top-level reply straight to the review (no parentKey).
+        if (reply) {
+          const targetDid = reply.parentKey ? reply.parentKey.split("::")[0] : reply.reviewer;
+          this.onLiveReply({ did: event.did, subject: reply.subject, targetDid, text: reply.text });
+        }
       }
     }
     if (changed) {

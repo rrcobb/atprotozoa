@@ -564,35 +564,58 @@
         }
       }
 
-      async function writeReply(subject, reviewer, text) {
+      // A reply's rkey used to be `${subject}.${reviewer}` — one slot per
+      // (replier, target), overwritten on every re-reply. That made a real
+      // back-and-forth impossible: the second message to the same person
+      // just replaced the first, so a "thread" could never hold more than
+      // one live message per pair. Fixed 2026-08-29 (@angussoftware.dev,
+      // third time asking): every reply now gets its own unique rkey, so
+      // replying again adds a new comment instead of clobbering the last
+      // one — see notes on the reply lexicon and engagement-index.js.
+      async function writeReply(subject, reviewer, parentKey, text) {
         if (!session) throw new Error("not signed in");
         const createdAt = new Date().toISOString();
         const base = session.pdsUrl.replace(/\/$/, "");
-        const rkey = `${subject}.${reviewer}`;
+        const rkey = `${subject}.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}`;
         const record = { $type: REPLY_COLLECTION, subject, reviewer, text, createdAt };
+        if (parentKey) record.parentKey = parentKey;
         const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ repo: session.did, collection: REPLY_COLLECTION, rkey, record }),
         });
         if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
-        engagement.applyOwnReply(session.did, subject, reviewer, text, createdAt);
+        engagement.applyOwnReply(session.did, rkey, subject, reviewer, parentKey, text, createdAt);
       }
 
-      async function submitReply(subject, reviewer, rawText) {
-        if (!session || session.did === reviewer) return;
-        const rk = `${subject}::${reviewer}`;
+      // targetAuthorDid is who this specific reply is addressed to (the
+      // review's author for a top-level reply, or the specific comment's
+      // author for a nested one) — distinct from `reviewer`, which is always
+      // the thread's root author. boxKey identifies which open composer this
+      // submit came from (see the click handler below).
+      async function submitReply(subject, reviewer, parentKey, targetAuthorDid, boxKey, rawText) {
+        if (!session || session.did === targetAuthorDid) return;
         const trimmed = rawText.trim().slice(0, REPLY_MAX);
         if (!trimmed) return;
         replyError = null;
         try {
-          await writeReply(subject, reviewer, trimmed);
-          openReplyBoxes.delete(rk);
+          await writeReply(subject, reviewer, parentKey, trimmed);
+          openReplyBoxes.delete(boxKey);
         } catch (err) {
-          replyError = { rk, message: `couldn't post reply: ${err.message}` };
+          replyError = { rk: boxKey, message: `couldn't post reply: ${err.message}` };
         }
         renderRoute();
       }
+
+      // Every reply composer/toggle lives inside an `.engagement` wrap
+      // carrying data-subject/data-reviewer(root)/data-parent(parentKey, ""
+      // for top-level)/data-target(who it's addressed to) — boxKey is
+      // derived by the single replyBoxKeyFor() below (defined further down,
+      // next to the render functions — hoisted, so the order here is fine)
+      // at both render and click time so openReplyBoxes and replyError line
+      // up with what's on screen. Two copies of this key format is exactly
+      // the kind of drift that caused the overwrite-in-place bug in the
+      // first place — don't reintroduce a second one.
 
       document.addEventListener("click", async (e) => {
         const voteBtn = e.target.closest(".vote-btn");
@@ -606,9 +629,9 @@
           e.preventDefault();
           const wrap = replyToggle.closest(".engagement");
           if (!wrap) return;
-          const rk = `${wrap.dataset.subject}::${wrap.dataset.reviewer}`;
-          if (openReplyBoxes.has(rk)) openReplyBoxes.delete(rk);
-          else openReplyBoxes.add(rk);
+          const boxKey = replyBoxKeyFor(wrap.dataset.subject, wrap.dataset.reviewer, wrap.dataset.parent);
+          if (openReplyBoxes.has(boxKey)) openReplyBoxes.delete(boxKey);
+          else openReplyBoxes.add(boxKey);
           renderRoute();
           return;
         }
@@ -617,7 +640,8 @@
           const wrap = replySubmit.closest(".engagement");
           if (!wrap) return;
           const textEl = wrap.querySelector(".reply-text");
-          await submitReply(wrap.dataset.subject, wrap.dataset.reviewer, textEl ? textEl.value : "");
+          const boxKey = replyBoxKeyFor(wrap.dataset.subject, wrap.dataset.reviewer, wrap.dataset.parent);
+          await submitReply(wrap.dataset.subject, wrap.dataset.reviewer, wrap.dataset.parent, wrap.dataset.target, boxKey, textEl ? textEl.value : "");
           return;
         }
       });
@@ -1211,66 +1235,101 @@
       // reused on the site page, the reviewer page, and a review's own
       // permalink page.
       //
-      // "add way 4 every1 to reply to reviews & replies with comments" —
-      // a reply record's `reviewer` field was already generic ("whoever this
-      // targets"), not literally "the review's author"; the write path
-      // (writeReply/openReplyBoxes/engagementSnapshot.repliesByReview) never
-      // assumed otherwise. So a reply-to-a-reply needed no schema change —
-      // just letting a reply-row grow its own nested reply toggle/list,
-      // targeting *its own* author's DID instead of the review's.
+      // "add way 4 every1 to reply to reviews & replies with comments, so
+      // it can chain" — @angussoftware.dev asked for this three times before
+      // it actually worked (2026-08-29). The first two passes DID render a
+      // recursive reply-to-reply tree, but every reply's rkey was
+      // `${subject}.${target}` — one overwrite-in-place slot per (replier,
+      // target). That meant the same two people could never exchange more
+      // than one live message each: a second reply to the same person just
+      // replaced the first, so nothing ever "grew" into more comments no
+      // matter how many times you replied. Fixed by giving every reply its
+      // own unique rkey (see writeReply) and an explicit parentKey pointing
+      // at the specific reply it answers (or none, for a direct reply to the
+      // review) instead of bucketing by target DID. `reviewer` on every
+      // reply record is now always the thread's ROOT author (the review's
+      // author), so one map lookup — buildReplyTree — pulls the whole
+      // thread, which is then turned into an actual tree client-side by each
+      // reply's parentKey.
       //
-      // MAX_REPLY_DEPTH plus the `ancestors` set guards the recursion: two
-      // people replying to each other (A -> review, B -> A, A's *second*
-      // reply -> B) forms a cycle in the targets graph, not a tree. The
-      // moment a DID would reappear on the current render path it's filtered
-      // out instead of recursed into; MAX_REPLY_DEPTH is a second, cheaper
-      // backstop against a very long but acyclic thread.
-      const MAX_REPLY_DEPTH = 8;
+      // A single-parent tree built by following children pointers forward
+      // from the root can't contain a cycle reachable from that root (a node
+      // would need two parents to be both a descendant and an ancestor of
+      // itself), so no ancestor-tracking is needed the way the old
+      // target-DID scheme required. MAX_REPLY_DEPTH is now only a stack/UI
+      // depth guard against a pathologically long single-file chain, not
+      // cycle protection.
+      const MAX_REPLY_DEPTH = 50;
 
-      function renderReplyRow(reply, subject, depth, ancestors) {
+      function replyNodeKey(reply) {
+        return `${reply.did}::${reply.rkey}`;
+      }
+      function replyBoxKeyFor(subject, reviewerDid, parentKey) {
+        return parentKey ? `reply:${parentKey}` : `top:${subject}::${reviewerDid}`;
+      }
+
+      // Groups a whole thread's flat reply list (as stored — see
+      // engagement-index.js's buildReplyLists) by parentKey ("" = top-level,
+      // a direct reply to the review) so recursive rendering is just map
+      // lookups, not a filtered rescan at every depth.
+      function buildReplyTree(subject, reviewerDid) {
+        const rk = `${subject}::${reviewerDid}`;
+        const all = engagementSnapshot.repliesByReview.get(rk) || [];
+        const byParent = new Map();
+        for (const r of all) {
+          const pk = r.parentKey || "";
+          if (!byParent.has(pk)) byParent.set(pk, []);
+          byParent.get(pk).push(r);
+        }
+        for (const list of byParent.values()) list.sort((a, b) => a.createdAt - b.createdAt);
+        return byParent;
+      }
+
+      function renderReplyComposer(boxKey) {
+        const err = replyError?.rk === boxKey ? replyError.message : "";
+        return `
+          ${err ? `<p class="engagement-err">${esc(err)}</p>` : ""}
+          <div class="reply-composer">
+            <textarea class="reply-text" maxlength="${REPLY_MAX}" placeholder="write a reply…"></textarea>
+            <button type="button" class="reply-submit">post reply</button>
+          </div>`;
+      }
+
+      // One node in the thread tree. `byParent` is the whole thread's tree
+      // (shared across the recursive calls, built once per top-level render)
+      // so a node only has to look up its own children.
+      function renderReplyNode(reply, subject, reviewerDid, byParent, depth) {
         const profile = profileCache.get(reply.did);
         const reviewerHref = `/reviewer/${encodeURIComponent(profile?.handle || reply.did)}`;
         const when = reply.createdAt ? new Date(reply.createdAt).toLocaleDateString(undefined, { dateStyle: "medium" }) : "";
+        const nodeKey = replyNodeKey(reply);
+        const children = byParent.get(nodeKey) || [];
+        ensureProfiles(children.map((r) => r.did));
+        const isOwnNode = session && session.did === reply.did;
+        const boxKey = replyBoxKeyFor(subject, reviewerDid, nodeKey);
+        const replyOpen = openReplyBoxes.has(boxKey);
+        const toggleHtml = session && !isOwnNode
+          ? `<a href="#" class="reply-toggle">${children.length ? `${children.length} repl${children.length === 1 ? "y" : "ies"}` : "reply"}</a>`
+          : children.length
+            ? `<span class="reply-count">${children.length} repl${children.length === 1 ? "y" : "ies"}</span>`
+            : "";
         return `<div class="reply-row">
           <a class="reply-handle user-chip" href="${esc(reviewerHref)}">${userChipHtml(profile, shortDid(reply.did))}</a>
           <span class="reply-date">${esc(when)}</span>
           <p class="reply-body">${esc(reply.text)}</p>
-          ${depth < MAX_REPLY_DEPTH ? renderNestedReplies(subject, reply.did, depth + 1, ancestors) : ""}
-        </div>`;
-      }
-
-      // A lighter version of the review-level engagement block: no votes
-      // (voting stays a review-only concept), just a reply toggle + list +
-      // composer, so a reply can itself be replied to. `ancestors` is the
-      // set of DIDs already on this render path (see the cycle note above).
-      function renderNestedReplies(subject, targetDid, depth, ancestors) {
-        const rk = `${subject}::${targetDid}`;
-        const replies = (engagementSnapshot.repliesByReview.get(rk) || []).filter((r) => !ancestors.has(r.did));
-        ensureProfiles(replies.map((r) => r.did));
-        const isOwnTarget = session && session.did === targetDid;
-        const replyOpen = openReplyBoxes.has(rk);
-        const err = replyError?.rk === rk ? replyError.message : "";
-        const ownReplyText = session && !isOwnTarget ? engagement.ownReply(session.did, subject, targetDid)?.text || "" : "";
-        const toggleHtml = session && !isOwnTarget
-          ? `<a href="#" class="reply-toggle">${replies.length ? `${replies.length} repl${replies.length === 1 ? "y" : "ies"}` : "reply"}</a>`
-          : replies.length
-            ? `<span class="reply-count">${replies.length} repl${replies.length === 1 ? "y" : "ies"}</span>`
-            : "";
-        if (!toggleHtml && !replies.length) return "";
-        const nextAncestors = new Set(ancestors);
-        nextAncestors.add(targetDid);
-        return `<div class="engagement nested-reply" data-subject="${esc(subject)}" data-reviewer="${esc(targetDid)}">
-          ${toggleHtml ? `<div class="reply-actions">${toggleHtml}</div>` : ""}
-          ${err ? `<p class="engagement-err">${esc(err)}</p>` : ""}
           ${
-            replies.length || replyOpen
-              ? `<div class="reply-list">
-                  ${replies.map((r) => renderReplyRow(r, subject, depth, nextAncestors)).join("")}
+            toggleHtml || children.length
+              ? `<div class="engagement nested-reply" data-subject="${esc(subject)}" data-reviewer="${esc(reviewerDid)}" data-parent="${esc(nodeKey)}" data-target="${esc(reply.did)}">
+                  ${toggleHtml ? `<div class="reply-actions">${toggleHtml}</div>` : ""}
                   ${
-                    session && !isOwnTarget && replyOpen
-                      ? `<div class="reply-composer">
-                          <textarea class="reply-text" maxlength="${REPLY_MAX}" placeholder="write a reply…">${esc(ownReplyText)}</textarea>
-                          <button type="button" class="reply-submit">post reply</button>
+                    children.length || replyOpen
+                      ? `<div class="reply-list">
+                          ${
+                            depth < MAX_REPLY_DEPTH
+                              ? children.map((r) => renderReplyNode(r, subject, reviewerDid, byParent, depth + 1)).join("")
+                              : `<p class="empty">this thread's too deep to keep rendering here — <a href="/review/${encodeURIComponent(reviewerDid)}/${encodeURIComponent(subject)}">see the full review</a>.</p>`
+                          }
+                          ${session && !isOwnNode && replyOpen ? renderReplyComposer(boxKey) : ""}
                         </div>`
                       : ""
                   }
@@ -1289,14 +1348,15 @@
         const mine = session && tally ? tally.byVoter.get(session.did) ?? null : null;
         const isOwnReview = session && session.did === reviewerDid;
         const voteDisabled = !session || isOwnReview;
-        const replies = engagementSnapshot.repliesByReview.get(rk) || [];
-        ensureProfiles(replies.map((r) => r.did));
-        const replyOpen = openReplyBoxes.has(rk);
-        const ownReplyText = session && !isOwnReview ? engagement.ownReply(session.did, subject, reviewerDid)?.text || "" : "";
-        const err = voteError?.rk === rk ? voteError.message : replyError?.rk === rk ? replyError.message : "";
+        const byParent = buildReplyTree(subject, reviewerDid);
+        const topReplies = byParent.get("") || [];
+        ensureProfiles(topReplies.map((r) => r.did));
+        const boxKey = replyBoxKeyFor(subject, reviewerDid, "");
+        const replyOpen = openReplyBoxes.has(boxKey);
+        const err = voteError?.rk === rk ? voteError.message : replyError?.rk === boxKey ? replyError.message : "";
 
         return `
-          <div class="engagement" data-subject="${esc(subject)}" data-reviewer="${esc(reviewerDid)}">
+          <div class="engagement" data-subject="${esc(subject)}" data-reviewer="${esc(reviewerDid)}" data-parent="" data-target="${esc(reviewerDid)}">
             <div class="vote-row">
               <button type="button" class="vote-btn${mine === 1 ? " active" : ""}" data-vote="1" ${voteDisabled ? "disabled" : ""} title="${isOwnReview ? "can't vote on your own review" : "upvote"}">▲</button>
               <span class="vote-net${net > 0 ? " pos" : net < 0 ? " neg" : ""}">${net}</span>
@@ -1304,26 +1364,19 @@
               <span class="vote-counts">${up}&uarr; ${down}&darr;</span>
               ${
                 isOwnReview
-                  ? replies.length
-                    ? `<span class="reply-count">${replies.length} repl${replies.length === 1 ? "y" : "ies"}</span>`
+                  ? topReplies.length
+                    ? `<span class="reply-count">${topReplies.length} repl${topReplies.length === 1 ? "y" : "ies"}</span>`
                     : ""
-                  : `<a href="#" class="reply-toggle">${replies.length ? `${replies.length} repl${replies.length === 1 ? "y" : "ies"}` : "reply"}</a>`
+                  : `<a href="#" class="reply-toggle">${topReplies.length ? `${topReplies.length} repl${topReplies.length === 1 ? "y" : "ies"}` : "reply"}</a>`
               }
               <a class="review-permalink" href="/review/${encodeURIComponent(reviewerDid)}/${encodeURIComponent(subject)}" title="link to this review">permalink</a>
             </div>
             ${err ? `<p class="engagement-err">${esc(err)}</p>` : ""}
             ${
-              replies.length || replyOpen
+              topReplies.length || replyOpen
                 ? `<div class="reply-list">
-                    ${replies.map((r) => renderReplyRow(r, subject, 1, new Set([reviewerDid]))).join("")}
-                    ${
-                      session && !isOwnReview && replyOpen
-                        ? `<div class="reply-composer">
-                            <textarea class="reply-text" maxlength="${REPLY_MAX}" placeholder="write a reply…">${esc(ownReplyText)}</textarea>
-                            <button type="button" class="reply-submit">post reply</button>
-                          </div>`
-                        : ""
-                    }
+                    ${topReplies.map((r) => renderReplyNode(r, subject, reviewerDid, byParent, 1)).join("")}
+                    ${session && !isOwnReview && replyOpen ? renderReplyComposer(boxKey) : ""}
                   </div>`
                 : ""
             }
