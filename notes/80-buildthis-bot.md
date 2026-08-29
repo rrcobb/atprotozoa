@@ -20,6 +20,15 @@ landing page, the health surface, and the watcher cron.
 Its **app-password** authenticates it to read mentions and post replies. That
 lives in the box environment and 1Password, never in the repo.
 
+The same Worker also serves a real Bluesky feed generator, **"buildthis
+shipped"** (`did:web:buildthis.bisks.net`, `/xrpc/app.bsky.feed.*`) — one feed
+item per tagging post that turned into a live site, sourced straight from the
+event log below rather than a new data source. The bot self-publishes its own
+`app.bsky.feed.generator` record (idempotent, piggybacked on the watcher tick)
+since it already has write credentials; see `notes/ideas/feeds-and-labels.md`
+for the fuller writeup and how this differs from `sites/homemixer`'s feed.
+Subscribe at `https://bsky.app/profile/buildthis.bisks.net/feed/shipped`.
+
 ### 2. The watcher (cron Worker, every 2 min)
 
 Each tick:

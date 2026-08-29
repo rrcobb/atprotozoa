@@ -108,10 +108,13 @@ common can never become unique again. `"unique"`/`"none"` verdicts cache for
 unchanged (a user's own repo can grow between runs, so that has to stay live).
 
 **5. One feed generator, hand-built.** (`feeds-and-labels.md`, `protocol-object-bot.md`)
-`did:web:` on bisks.net (a served document — `apex/` already does this for the
-handle), one declaration record, one `getFeedSkeleton` endpoint evaluating a live
-AppView query. No signing key, no storage. Candidates: buildthis's own output,
-the microsite scene, gift links.
+**Done, twice, 2026-08-29.** `sites/homemixer` (tagged, @skeet.best) ships a live
+AppView-ranked feed; `sites/buildthis` (daily slot) ships "buildthis shipped" —
+every tagging post that turned into a real site, read from the bot's own event
+log, self-published from the bot's own account since it already had write
+credentials homemixer didn't. See `feeds-and-labels.md` for both writeups.
+Remaining candidates from the original list, still unbuilt: the microsite
+scene, gift links.
 
 ---
 
@@ -287,8 +290,9 @@ per the "prefer bulk reads" standing order (2026-08-25) and socialcredit's
 should now be a full-repo `com.atproto.sync.getRepo` CAR download per
 candidate repo (`car.js`) rather than a paged `listRecords` scan.
 
-Most fun for the effort: **one hand-built feed generator (5)**. Small, and it
-puts the project inside the Bluesky app instead of behind a link.
+Most fun for the effort: **one hand-built feed generator (5)**. **Done** — see
+above. Small, and it puts the project inside the Bluesky app instead of behind
+a link.
 
 Best foundation for the bot ideas: **the verifier (6)**, because it proves the
 second-bot pattern on something boring before anything fun depends on it.

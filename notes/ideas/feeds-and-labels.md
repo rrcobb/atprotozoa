@@ -112,11 +112,31 @@ Feeds worth publishing, roughly in order of "distinctive and already half-built"
   style toy. `simcluster-atlas` already collected 4,426 links; this is that,
   live, as a feed. Solves the discovery problem norvid kept poking at ("Top
   Chicken Oscars for the weekly profusion of these microsites").
-- **buildthis output** — a feed of every site the bot has shipped. Trivial, and
-  gives the whole project a subscribable surface inside the app rather than
-  requiring people to visit a gallery.
+- **buildthis output** — **done, 2026-08-29 (daily slot).** `sites/buildthis`
+  now serves `did:web:buildthis.bisks.net` + `describeFeedGenerator` +
+  `getFeedSkeleton` itself (see `getFeedSkeleton`/`ensureFeedGeneratorPublished`
+  near the bottom of `src/index.ts`), and self-publishes its own
+  `app.bsky.feed.generator` record from the bot's own account — unlike
+  homemixer below, buildthis already had an authenticated write session (the
+  one the watcher uses to reply/like), so there was no "someone has to publish
+  this by hand" gap to leave open. The feed's items are the original tagging
+  posts that shipped, read straight out of the existing KV event log
+  (`loadAllEvents`) rather than a new data source — every historical ship is
+  in the feed from day one, not just ones that happen going forward. Live at
+  `https://bsky.app/profile/buildthis.bisks.net/feed/shipped`.
 - **gift links** — `giftlinks` already detects these; as a feed it's actually
   useful to strangers, which none of the toys are.
+
+**Also done, 2026-08-29 (tagged build, @skeet.best):** `sites/homemixer` shipped
+first as a real feed generator — a live port of the shape of X's "home mixer"
+ranking pipeline, evaluated fresh against the public AppView on every request,
+did:web:homemixer.bisks.net. It proved the pattern works end to end
+(did doc + describeFeedGenerator + getFeedSkeleton, no storage) but, having no
+account of its own, had to push the declaration-record publish step out to a
+"sign in and publish from your own account" button in its `index.html` rather
+than doing it itself — see its own file header for the gap and why. buildthis's
+version above is the same pattern with that gap closed, because the bot already
+owns credentials the way homemixer never could.
 
 Labels worth emitting, if the labeler happens:
 
@@ -134,11 +154,11 @@ about. Good first labeler for the same reason a link checker is a good first bot
 
 ## Order this suggests
 
-1. **Ship one feed generator**, evaluated live against the AppView. The microsite
-   scene or buildthis's own output — both are plain queries. Cheap, reversible,
-   no key, no storage.
-2. **See if anyone subscribes.** That's the cheap signal on whether the
-   classifier is any good.
+1. **Ship one feed generator**, evaluated live against the AppView. **Done
+   twice now** — homemixer (live AppView ranking) and buildthis's own output
+   (read from the existing event log) — see both writeups above.
+2. **See if anyone subscribes.** That's the cheap signal on whether either
+   classifier is any good. Still open — too soon to tell for either.
 3. **Then** consider a labeler, starting with something descriptive like
    `built-by-bot` rather than semantic moderation.
 

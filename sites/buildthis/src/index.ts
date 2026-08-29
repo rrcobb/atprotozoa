@@ -112,6 +112,24 @@ export default {
       });
     }
 
+    // A real Bluesky feed generator, "buildthis shipped" — every mutual's tag
+    // that turned into a real, live site, one feed item per ship. See the
+    // "Feed generator: /shipped" section near getFeedSkeleton for why the bot
+    // is well-placed to serve this itself (it already owns the event log AND
+    // an authenticated write session, unlike sites/homemixer which had to push
+    // publishing out to a visitor's own OAuth session).
+    if (url.pathname === "/.well-known/did.json") {
+      return feedGeneratorDidDocument();
+    }
+    if (url.pathname === "/xrpc/app.bsky.feed.describeFeedGenerator") {
+      return describeFeedGenerator(env);
+    }
+    if (url.pathname === "/xrpc/app.bsky.feed.getFeedSkeleton") {
+      return getFeedSkeleton(env, url).catch((err) =>
+        jsonResponse({ error: "InternalError", message: String((err as Error)?.message || err) }, 500),
+      );
+    }
+
     // Read endpoint for the logs site (logs.bisks.net). Returns the tag/outcome
     // event log as JSON, newest first. Read-only, CORS-open (public data — it's
     // the same tags/outcomes already visible on Bluesky), so logs.bisks.net can
@@ -213,6 +231,138 @@ export default {
   },
 };
 
+// --- Feed generator: /shipped -----------------------------------------------
+//
+// notes/ideas/feeds-and-labels.md called "buildthis's own output" the
+// cheapest feed worth publishing here: "a feed of every site the bot has
+// shipped... gives the whole project a subscribable surface inside the app
+// rather than requiring people to visit a gallery." sites/homemixer proved
+// the shape (did:web doc, describeFeedGenerator, getFeedSkeleton) works and
+// is genuinely a couple hundred lines, but it had no account of its own to
+// publish the declaration record from, so it had to push that step out to a
+// visitor's OAuth session. buildthis doesn't have that problem: it already
+// IS an authenticated Bluesky account with write access (the watcher already
+// posts replies and likes with it), so it can publish and serve its own feed
+// with no new moving parts.
+//
+// The feed's content, per item, is the ORIGINAL TAGGING POST that led to a
+// shipped site — not the bot's own "built it 🎉" reply. Two reasons: (1) the
+// event log (loadAllEvents, below) already stores every mention's own uri as
+// `mentionUri` for every event ever recorded, so this is immediately populated
+// with the whole shipped history rather than starting empty and only growing
+// from here forward; (2) it's "store what's ours, re-derive the rest"
+// (notes/ideas/store-ours-rederive-theirs.md) applied literally — this data
+// already lives in KV, no CAR download or extra write needed to back-fill it.
+// A bot reply's own AT-URI was never captured by the outcome-reporting path
+// (builder/reply.mjs's createReply() discards createRecord's response), so
+// using replies instead would mean adding that plumbing AND leaving every
+// pre-existing shipped site absent from the feed until re-tagged.
+const SERVICE_DID = "did:web:buildthis.bisks.net";
+const FEED_RKEY = "shipped";
+
+function jsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "content-type": "application/json",
+      "access-control-allow-origin": "*",
+      "cache-control": "no-store",
+    },
+  });
+}
+
+function feedGeneratorDidDocument(): Response {
+  return jsonResponse({
+    "@context": ["https://www.w3.org/ns/did/v1"],
+    id: SERVICE_DID,
+    service: [
+      { id: "#bsky_fg", type: "BskyFeedGenerator", serviceEndpoint: "https://buildthis.bisks.net" },
+    ],
+  });
+}
+
+function describeFeedGenerator(env: Env): Response {
+  return jsonResponse({
+    did: SERVICE_DID,
+    feeds: [{ uri: `at://${env.BOT_DID}/app.bsky.feed.generator/${FEED_RKEY}` }],
+  });
+}
+
+const FEED_PAGE_SIZE_DEFAULT = 30;
+const FEED_PAGE_SIZE_MAX = 100;
+
+async function getFeedSkeleton(env: Env, url: URL): Promise<Response> {
+  const feedUri = url.searchParams.get("feed") || "";
+  const rkey = feedUri.split("/").pop() || "";
+  if (feedUri && rkey !== FEED_RKEY) {
+    return jsonResponse({ error: "UnknownFeed", message: `this service doesn't serve ${feedUri}` }, 400);
+  }
+
+  const limit = Math.max(
+    1,
+    Math.min(FEED_PAGE_SIZE_MAX, parseInt(url.searchParams.get("limit") || "", 10) || FEED_PAGE_SIZE_DEFAULT),
+  );
+  const offset = Math.max(0, parseInt(url.searchParams.get("cursor") || "0", 10) || 0);
+
+  const events = await loadAllEvents(env);
+  // A "partial" is still a real, live first pass (status stays "success" —
+  // see the LogEvent.outcome comment), so it counts as shipped too. Newest
+  // ship first, same ordering as /live and /directory.
+  const shipped = events
+    .filter((e) => e.outcome?.status === "success" && e.outcome.builtName && e.mentionUri)
+    .sort((a, b) => (b.outcome?.at || "").localeCompare(a.outcome?.at || ""));
+
+  const page = shipped.slice(offset, offset + limit);
+  const nextCursor = offset + limit < shipped.length ? String(offset + limit) : undefined;
+
+  return jsonResponse({
+    feed: page.map((e) => ({ post: e.mentionUri })),
+    cursor: nextCursor,
+  });
+}
+
+const FEED_GENERATOR_PUBLISHED_KEY = "feed-generator:published";
+
+// One-time, idempotent self-publish of the app.bsky.feed.generator record
+// declaring the "shipped" feed, from the bot's own account — the same
+// session/createRecord shape replyToPost/likePost/createPost already use.
+// Piggybacks on the watcher tick rather than adding a trigger; putRecord is
+// itself an upsert, and the KV flag means every tick after the first is a
+// single cheap KV read with no network call at all.
+async function ensureFeedGeneratorPublished(env: Env, session: Session): Promise<void> {
+  if (await env.STATE.get(FEED_GENERATOR_PUBLISHED_KEY)) return;
+  try {
+    const record = {
+      $type: "app.bsky.feed.generator",
+      did: SERVICE_DID,
+      displayName: "buildthis shipped",
+      description:
+        "Every idea a mutual has tagged @buildthis.bisks.net with that turned into a real, live site on bisks.net — one feed item per ship, oldest asks included.",
+      createdAt: new Date().toISOString(),
+    };
+    const res = await fetch(`${PDS}/xrpc/com.atproto.repo.putRecord`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${session.accessJwt}`,
+      },
+      body: JSON.stringify({
+        repo: session.did,
+        collection: "app.bsky.feed.generator",
+        rkey: FEED_RKEY,
+        record,
+      }),
+    });
+    if (!res.ok) {
+      console.error(`feed generator publish failed: ${res.status} ${await res.text()}`);
+      return;
+    }
+    await env.STATE.put(FEED_GENERATOR_PUBLISHED_KEY, "1");
+  } catch (err) {
+    console.error(`feed generator publish failed: ${err}`);
+  }
+}
+
 // Once per day, put one broad creative-maintenance brief through the same queue
 // as a real tag. Sonnet can choose to build, edit, prank, improve, or do nothing;
 // the point is the cadence, not an artificially narrow task. The announcement
@@ -254,6 +404,11 @@ This is not a user request and does not need to be interpreted narrowly. You hav
 
 async function runWatcher(env: Env): Promise<void> {
   const session = await login(env);
+
+  // Unconditional (before the early-return below) so it runs every tick, not
+  // just ticks with new mentions — see ensureFeedGeneratorPublished's own
+  // comment for why this is a cheap no-op after the first success.
+  await ensureFeedGeneratorPublished(env, session);
 
   // Pull recent mentions. We page a little in case a burst arrived, but the
   // seen-cursor + per-id dedup below is what actually prevents double-handling.
