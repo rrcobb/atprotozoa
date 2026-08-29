@@ -377,7 +377,7 @@ export class EngagementIndex {
         // this is a top-level reply straight to the review (no parentKey).
         if (reply) {
           const targetDid = reply.parentKey ? reply.parentKey.split("::")[0] : reply.reviewer;
-          this.onLiveReply({ did: event.did, subject: reply.subject, targetDid, text: reply.text });
+          this.onLiveReply({ did: event.did, subject: reply.subject, targetDid, text: reply.text, rkey: reply.rkey });
         }
       }
     }

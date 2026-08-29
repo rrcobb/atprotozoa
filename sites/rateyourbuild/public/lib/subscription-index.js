@@ -6,23 +6,32 @@
 //
 // There's no backend here (frontend-first; no Workers AI / Durable Objects /
 // KV / cron per house rules), so delivery is honestly scoped to what a
-// static site + Jetstream can actually do:
-//   - any live rating or review on a subscribed site fires an alert while
-//     this tab is open, via global-index.js's onLiveCommit hook (its own
-//     Jetstream subscription — this module doesn't open a second socket).
-//     Originally scoped to "new 1s" only; broadened 2026-08-29 after
-//     @angussoftware.dev pointed out the bell's label promised "all new
-//     ratings and reviews" while the code only fired on low scores;
+// static site + Jetstream (plus the full-history backfill global-index.js
+// and engagement-index.js already do) can actually do:
+//   - any rating or review on a subscribed site alerts you: live, while this
+//     tab is open, via global-index.js's onLiveCommit hook (its own
+//     Jetstream subscription — this module doesn't open a second socket);
+//     AND caught up from history the next time you open the tab, via
+//     checkMissedRatings() below scanning the same index's backfilled
+//     entries against each site subscription's own createdAt. Before
+//     2026-08-29 only the live half existed, so a review posted while you
+//     weren't watching the tab silently never alerted you — @angussoftware.dev
+//     hit exactly that (a review from @rob.bisks.net on a site they were
+//     subscribed to never surfaced). Originally scoped to "new 1s" only;
+//     broadened 2026-08-29 (same day) after @angussoftware.dev pointed out
+//     the bell's label promised "all new ratings and reviews" while the code
+//     only fired on low scores;
 //   - a new site release is detected by diffing the just-fetched
 //     catalog.json against the last-seen set of names in localStorage, once
 //     per page load.
 //   - a "replies" subscription (kind: "replies", target: "self", added
 //     2026-08-29 per @angussoftware.dev) is a standing checkbox rather than
 //     a per-thing toggle: while it's on, any reply that lands on one of
-//     this rater's own reviews or nested comments fires an alert live, via
+//     this rater's own reviews or nested comments alerts you, live via
 //     engagement-index.js's onLiveReply hook (its own Jetstream
 //     subscription on net.bisks.rateyourbuild.reply — this module doesn't
-//     open a second socket for it either).
+//     open a second socket for it either) AND caught up from history via
+//     checkMissedReplies() below, same shape and same-day fix as ratings.
 //   - a "your bugged review got fixed" alert (added 2026-08-29, per
 //     @angussoftware.dev) is detected by cross-referencing the rater's own
 //     bugged=true ratings (read straight from their PDS, not the network-wide
@@ -34,13 +43,18 @@
 //     other change landing — this is an honest best-effort match on "a fix
 //     was logged for this site after you flagged it," same spirit as the
 //     rest of this module's caveats.
-// Nothing pushes while the tab or browser is closed — that would need a
-// server, which is exactly what this constellation avoids paying for.
+// Nothing pushes while the tab or browser is fully closed — that would need
+// a server, which is exactly what this constellation avoids paying for. But
+// as of 2026-08-29 you no longer have to have been staring at the tab at the
+// exact moment something happened — opening it later catches you up on
+// anything since you subscribed, same as the site's history backfill already
+// does for everything else.
 
 const COLLECTION = "net.bisks.rateyourbuild.subscription";
 const RATING_COLLECTION = "net.bisks.rateyourbuild.rating";
 const CATALOG_SEEN_KEY = "rateyourbuild:catalog-seen:v1";
 const MAX_ALERTS = 200; // local UI history only — a real localStorage/memory cap, not a network one
+const MAX_SEEN_KEYS = 2000; // local dedupe bookkeeping only — a real localStorage cap, not a network one
 
 function rkeyFor(kind, target, genre) {
   if (kind === "subgenre") return `subgenre:${genre}:${target}`;
@@ -55,6 +69,14 @@ function bugfixesSeenKey(did) {
   return `rateyourbuild:bugfixes-seen:v1:${did}`;
 }
 
+function ratingAlertsSeenKey(did) {
+  return `rateyourbuild:rating-alerts-seen:v1:${did}`;
+}
+
+function replyAlertsSeenKey(did) {
+  return `rateyourbuild:reply-alerts-seen:v1:${did}`;
+}
+
 async function xrpcJson(url) {
   const res = await fetch(url, { headers: { Accept: "application/json" } });
   if (!res.ok) throw new Error(`${url} -> ${res.status}`);
@@ -66,9 +88,14 @@ export class SubscriptionAlerts {
     this.dpopFetch = dpopFetch;
     this.onUpdate = typeof onUpdate === "function" ? onUpdate : () => {};
     this.session = null;
-    this.subs = new Map(); // rkey -> { kind, target, genre }
+    this.subs = new Map(); // rkey -> { kind, target, genre, createdAt (ms) }
     this.buggedRatings = new Map(); // subject -> ratedAt (ms) for this rater's own bugged=true reviews
     this.alerts = [];
+    // Dedupes "missed" (backfilled) alerts against ones already fired live,
+    // so reopening the tab doesn't re-alert on something the live handler
+    // already surfaced a moment earlier — see checkMissedRatings/Replies.
+    this.ratingAlertsSeen = new Set(); // `${did}::${subject}::${ratedAt}`
+    this.replyAlertsSeen = new Set(); // `${did}::${rkey}`
     this.loaded = false;
   }
 
@@ -102,12 +129,15 @@ export class SubscriptionAlerts {
     this.subs.clear();
     this.buggedRatings.clear();
     this.alerts = [];
+    this.ratingAlertsSeen = new Set();
+    this.replyAlertsSeen = new Set();
     this.loaded = false;
     if (!session) {
       this.emit();
       return;
     }
     this.restoreAlerts();
+    this.restoreSeenSets();
     this.emit();
     try {
       await this.loadSubscriptions();
@@ -142,6 +172,67 @@ export class SubscriptionAlerts {
     }
   }
 
+  restoreSeenSets() {
+    try {
+      const raw = localStorage.getItem(ratingAlertsSeenKey(this.session.did));
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(parsed)) this.ratingAlertsSeen = new Set(parsed);
+    } catch (_) {
+      // A cache miss or a full/blocked localStorage is harmless.
+    }
+    try {
+      const raw = localStorage.getItem(replyAlertsSeenKey(this.session.did));
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(parsed)) this.replyAlertsSeen = new Set(parsed);
+    } catch (_) {
+      // A cache miss or a full/blocked localStorage is harmless.
+    }
+  }
+
+  persistRatingAlertsSeen() {
+    if (!this.session) return;
+    try {
+      const list = Array.from(this.ratingAlertsSeen);
+      localStorage.setItem(ratingAlertsSeenKey(this.session.did), JSON.stringify(list.slice(-MAX_SEEN_KEYS)));
+    } catch (_) {
+      // Losing this cache just risks a re-alert on an already-seen rating —
+      // noisy, not harmful.
+    }
+  }
+
+  persistReplyAlertsSeen() {
+    if (!this.session) return;
+    try {
+      const list = Array.from(this.replyAlertsSeen);
+      localStorage.setItem(replyAlertsSeenKey(this.session.did), JSON.stringify(list.slice(-MAX_SEEN_KEYS)));
+    } catch (_) {
+      // Losing this cache just risks a re-alert on an already-seen reply —
+      // noisy, not harmful.
+    }
+  }
+
+  // Marks a (did, subject, ratedAt) rating as already alerted-on. Returns
+  // false if it was already marked, so callers can skip re-alerting —
+  // shared by the live handler and the missed-history scan so the same
+  // rating never fires twice regardless of which path saw it first.
+  markRatingAlertSeen(did, subject, ratedAt) {
+    const key = `${did}::${subject}::${ratedAt}`;
+    if (this.ratingAlertsSeen.has(key)) return false;
+    this.ratingAlertsSeen.add(key);
+    this.persistRatingAlertsSeen();
+    return true;
+  }
+
+  // Same idea for a specific reply record (rkeys are unique per reply, so
+  // did+rkey alone is enough — no need for a timestamp in the key).
+  markReplyAlertSeen(did, rkey) {
+    const key = `${did}::${rkey}`;
+    if (this.replyAlertsSeen.has(key)) return false;
+    this.replyAlertsSeen.add(key);
+    this.persistReplyAlertsSeen();
+    return true;
+  }
+
   // No page cap: a rater's own subscription list is small and this walks
   // one account's own repo, not the network-wide "someone's whole history"
   // case the bulk-reads house rule is about.
@@ -157,7 +248,12 @@ export class SubscriptionAlerts {
         const rkey = typeof rec?.uri === "string" ? rec.uri.split("/").pop() : "";
         const v = rec?.value;
         if (!rkey || !v || typeof v.kind !== "string" || typeof v.target !== "string") continue;
-        this.subs.set(rkey, { kind: v.kind, target: v.target, genre: typeof v.genre === "string" ? v.genre : null });
+        this.subs.set(rkey, {
+          kind: v.kind,
+          target: v.target,
+          genre: typeof v.genre === "string" ? v.genre : null,
+          createdAt: Date.parse(v.createdAt) || 0,
+        });
       }
       cursor = typeof data.cursor === "string" ? data.cursor : undefined;
       if (!cursor || !records.length) break;
@@ -191,7 +287,8 @@ export class SubscriptionAlerts {
     if (!this.session) throw new Error("not signed in");
     const rkey = rkeyFor(kind, target, genre);
     const base = this.session.pdsUrl.replace(/\/$/, "");
-    const record = { $type: COLLECTION, kind, target, createdAt: new Date().toISOString() };
+    const createdAtIso = new Date().toISOString();
+    const record = { $type: COLLECTION, kind, target, createdAt: createdAtIso };
     if (kind === "subgenre" && genre) record.genre = genre;
     const res = await this.dpopFetch(this.session, `${base}/xrpc/com.atproto.repo.putRecord`, {
       method: "POST",
@@ -199,7 +296,7 @@ export class SubscriptionAlerts {
       body: JSON.stringify({ repo: this.session.did, collection: COLLECTION, rkey, record }),
     });
     if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
-    this.subs.set(rkey, { kind, target, genre: genre || null });
+    this.subs.set(rkey, { kind, target, genre: genre || null, createdAt: Date.parse(createdAtIso) || Date.now() });
     this.requestNotificationPermission();
     this.emit();
   }
@@ -259,10 +356,11 @@ export class SubscriptionAlerts {
   // shouldn't retroactively alert anyone about ratings from before they
   // subscribed). Skips your own ratings; fires on every new rating/review on
   // a subscribed site, not just low scores.
-  handleLiveRating({ did, subject, score, text }) {
+  handleLiveRating({ did, subject, score, text, ratedAt }) {
     if (!this.loaded || !this.session || did === this.session.did) return;
     if (typeof score !== "number") return;
     if (!this.isSubscribed("site", subject)) return;
+    if (typeof ratedAt === "number" && ratedAt && !this.markRatingAlertSeen(did, subject, ratedAt)) return;
     const hasReview = typeof text === "string" && text.trim().length > 0;
     this.pushAlert({
       message: hasReview
@@ -270,6 +368,37 @@ export class SubscriptionAlerts {
         : `a new ${score}/10 rating just landed on "${subject}"`,
       href: `/site/${encodeURIComponent(subject)}`,
     });
+  }
+
+  // Catches up on ratings the live handler above missed because the tab
+  // wasn't open when they landed — same data global-index.js's history
+  // backfill already pulled in, just not previously cross-referenced against
+  // subscriptions. Safe to call repeatedly (e.g. on every index snapshot
+  // rebuild while backfill is still running): markRatingAlertSeen skips
+  // anything already alerted, whether that happened just now via the live
+  // handler or on a previous call here. Only alerts on ratings that landed
+  // after the subscription's own createdAt, so subscribing to a site doesn't
+  // dump its entire rating history on you as "new."
+  checkMissedRatings(entries) {
+    if (!this.loaded || !this.session || !Array.isArray(entries) || !entries.length) return;
+    const siteSubs = new Map(); // target -> createdAt (ms)
+    for (const sub of this.subs.values()) {
+      if (sub.kind === "site" && sub.createdAt) siteSubs.set(sub.target, sub.createdAt);
+    }
+    if (!siteSubs.size) return;
+    for (const entry of entries) {
+      if (!entry || entry.did === this.session.did) continue;
+      const subscribedAt = siteSubs.get(entry.subject);
+      if (!subscribedAt || !entry.ratedAt || entry.ratedAt <= subscribedAt) continue;
+      if (!this.markRatingAlertSeen(entry.did, entry.subject, entry.ratedAt)) continue;
+      const hasReview = typeof entry.text === "string" && entry.text.trim().length > 0;
+      this.pushAlert({
+        message: hasReview
+          ? `a new ${entry.score}/10 review just landed on "${entry.subject}"`
+          : `a new ${entry.score}/10 rating just landed on "${entry.subject}"`,
+        href: `/site/${encodeURIComponent(entry.subject)}`,
+      });
+    }
   }
 
   // Hooked into engagement-index.js's onLiveReply — fires on any reply
@@ -282,15 +411,43 @@ export class SubscriptionAlerts {
   // subscription (kind: "replies", target: "self" — there's only one thing
   // to watch) rather than firing unconditionally, same opt-in shape as every
   // other subscription kind here.
-  handleLiveReply({ did, subject, targetDid, text }) {
+  handleLiveReply({ did, subject, targetDid, text, rkey }) {
     if (!this.loaded || !this.session || did === this.session.did) return;
     if (targetDid !== this.session.did) return;
     if (!this.isSubscribed("replies", "self")) return;
+    if (typeof rkey === "string" && rkey && !this.markReplyAlertSeen(did, rkey)) return;
     const preview = typeof text === "string" && text.length > 100 ? `${text.slice(0, 100)}…` : text;
     this.pushAlert({
       message: `someone replied to you on "${subject}": ${preview}`,
       href: `/site/${encodeURIComponent(subject)}`,
     });
+  }
+
+  // Same catch-up idea as checkMissedRatings, for replies: engagement-index.js's
+  // backfill already pulls in every reply record, this just cross-references
+  // it against the standing "replies" subscription. repliesByReview is that
+  // index's own grouping (reviewKey -> [reply, ...]); only alerts on replies
+  // addressed to this rater (own review or own nested comment) that landed
+  // after the subscription's createdAt.
+  checkMissedReplies(repliesByReview) {
+    if (!this.loaded || !this.session || !(repliesByReview instanceof Map)) return;
+    if (!this.isSubscribed("replies", "self")) return;
+    const sub = this.subs.get(rkeyFor("replies", "self"));
+    if (!sub || !sub.createdAt) return;
+    for (const list of repliesByReview.values()) {
+      for (const reply of list) {
+        if (!reply || reply.did === this.session.did) continue;
+        const targetDid = reply.parentKey ? reply.parentKey.split("::")[0] : reply.reviewer;
+        if (targetDid !== this.session.did) continue;
+        if (!reply.createdAt || reply.createdAt <= sub.createdAt) continue;
+        if (!this.markReplyAlertSeen(reply.did, reply.rkey)) continue;
+        const preview = typeof reply.text === "string" && reply.text.length > 100 ? `${reply.text.slice(0, 100)}…` : reply.text;
+        this.pushAlert({
+          message: `someone replied to you on "${reply.subject}": ${preview}`,
+          href: `/site/${encodeURIComponent(reply.subject)}`,
+        });
+      }
+    }
   }
 
   // Diffs the freshly-fetched catalog against the last-seen set of site

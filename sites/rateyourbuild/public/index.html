@@ -200,8 +200,9 @@
         <a href="https://tangled.org/bisks.net/atprotozoa" target="_blank" rel="noopener">atprotozoa</a>
         repo, regenerated each time the bot builds something new. Upvotes/downvotes and replies on
         a review are their own records too, same overwrite-in-place shape — so are the 🔔 "notify me"
-        subscriptions on a site or genre/subgenre/super-genre page, but those alerts only fire while
-        this tab is open; there's no backend here to push them otherwise. Schemas:
+        subscriptions on a site or genre/subgenre/super-genre page. Those alerts fire live while this
+        tab is open, and catch up on anything you missed since you subscribed the next time you open
+        it — there's still no backend here to push them while the tab's fully closed. Schemas:
         <a href="/lexicons/net.bisks.rateyourbuild.rating.json">rating</a>,
         <a href="/lexicons/net.bisks.rateyourbuild.vote.json">vote</a>,
         <a href="/lexicons/net.bisks.rateyourbuild.reply.json">reply</a>,
@@ -307,6 +308,11 @@
         onUpdate: (snap) => {
           snapshot = snap;
           renderRoute();
+          // Catches up on subscribed-site ratings the live handler below
+          // missed because the tab wasn't open when they landed — no-ops
+          // until subscriptions have loaded, so safe to call on every
+          // rebuild while backfill is still filling in history.
+          subscriptions.checkMissedRatings(snap.entries);
         },
         onLiveCommit: (info) => subscriptions.handleLiveRating(info),
       });
@@ -314,6 +320,8 @@
         onUpdate: (snap) => {
           engagementSnapshot = snap;
           renderRoute();
+          // Same catch-up idea as above, for replies addressed to you.
+          subscriptions.checkMissedReplies(snap.repliesByReview);
         },
         onLiveReply: (info) => subscriptions.handleLiveReply(info),
       });
