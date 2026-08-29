@@ -905,11 +905,17 @@
       }
 
       function renderFeaturedGenreFamily(desc) {
-        if (desc.kind === "genre") return renderGenreBoard(desc.key, "community");
+        if (desc.kind === "genre") {
+          const meta = GENRES[desc.key];
+          const descHtml = meta ? `<p class="detail-blurb">${esc(meta.description)}</p>` : "";
+          return `${descHtml}${renderGenreBoard(desc.key, "community")}`;
+        }
         if (desc.kind === "subgenre") {
           const inSub = catalog.filter((s) => s.genre === desc.genre && s.subgenre === desc.key);
           const ranked = scoredList(inSub, "community");
-          return `<div class="board">
+          const genreMeta = GENRES[desc.genre];
+          const descHtml = `<p class="detail-blurb">a subgenre of <a class="pill" href="/genre/${esc(desc.genre)}">${esc(desc.genre)}</a>${genreMeta ? ` · super-genre <a class="pill" href="/super/${esc(genreMeta.super)}">${esc(SUPERS[genreMeta.super].label)}</a>` : ""}</p>`;
+          return `${descHtml}<div class="board">
             <div class="board-title">
               <a class="board-title-name" href="/genre/${esc(desc.genre)}/${esc(desc.key)}">${esc(desc.key)} <span class="board-sub">(${inSub.length})</span></a>
             </div>
@@ -920,7 +926,8 @@
         const members = Object.keys(GENRES).filter((g) => GENRES[g].super === desc.key);
         const inSuper = catalog.filter((s) => members.includes(s.genre));
         const ranked = scoredList(inSuper, "community");
-        return `<div class="board">
+        const descHtml = meta ? `<p class="detail-blurb">${esc(meta.description)}</p>` : "";
+        return `${descHtml}<div class="board">
           <div class="board-title">
             <a class="board-title-name" href="/super/${esc(desc.key)}">${esc(meta ? meta.label : desc.key)} <span class="board-sub">(${inSuper.length})</span></a>
           </div>
@@ -943,9 +950,17 @@
           .sort((a, b) => a.subject.localeCompare(b.subject) || a.did.localeCompare(b.did));
         const featuredReview = pickOfDay(reviewsWithText, "review");
         if (featuredReview) ensureProfiles([featuredReview.did]);
+        const featuredReviewSite = featuredReview ? catalog.find((s) => s.name === featuredReview.subject) : null;
 
         const ratedSites = catalog.filter((s) => statsFor(s.name)).slice().sort((a, b) => a.name.localeCompare(b.name));
         const featuredSite = pickOfDay(ratedSites, "score");
+        let featuredRankHtml = "";
+        if (featuredSite) {
+          const stats = statsFor(featuredSite.name);
+          const w = stats ? weighted(stats.sum, stats.count, globalMean()) : null;
+          const rankings = computeRankings(featuredSite, w);
+          if (rankings.length) featuredRankHtml = `<p class="detail-meta">${rankings.map(esc).join(" · ")}</p>`;
+        }
 
         const families = featuredGenreFamilies();
         const featuredFamily = pickOfDay(families, "family");
@@ -953,15 +968,32 @@
         container.innerHTML = `
           <div class="featured-block">
             <h3 class="featured-heading">featured review — ${esc(today)}</h3>
-            ${featuredReview ? renderReviewRow(featuredReview) : `<p class="empty">no written reviews yet — be the first.</p>`}
+            ${
+              featuredReview
+                ? renderReviewRow(featuredReview, { showSite: true }) +
+                  (featuredReviewSite
+                    ? `<p class="featured-cta"><a href="/site/${esc(featuredReviewSite.name)}">→ every review of ${esc(featuredReviewSite.title)}</a></p>`
+                    : "")
+                : `<p class="empty">no written reviews yet — be the first.</p>`
+            }
           </div>
           <div class="featured-block">
             <h3 class="featured-heading">featured community score — ${esc(today)}</h3>
-            ${featuredSite ? renderCard(featuredSite) : `<p class="empty">nothing's been rated yet.</p>`}
+            ${
+              featuredSite
+                ? renderCard(featuredSite) + featuredRankHtml +
+                  `<p class="featured-cta"><a href="#" class="tab-jump" data-tab="browse">→ browse &amp; rate every site</a></p>`
+                : `<p class="empty">nothing's been rated yet.</p>`
+            }
           </div>
           <div class="featured-block">
             <h3 class="featured-heading">featured today — ${esc(today)}</h3>
-            ${featuredFamily ? renderFeaturedGenreFamily(featuredFamily) : `<p class="empty">no genres in the catalog yet.</p>`}
+            ${
+              featuredFamily
+                ? renderFeaturedGenreFamily(featuredFamily) +
+                  `<p class="featured-cta"><a href="#" class="tab-jump" data-tab="genres">→ see every genre board</a></p>`
+                : `<p class="empty">no genres in the catalog yet.</p>`
+            }
           </div>
         `;
       }
@@ -1062,7 +1094,7 @@
                     : ""
                   : `<a href="#" class="reply-toggle">${replies.length ? `${replies.length} repl${replies.length === 1 ? "y" : "ies"}` : "reply"}</a>`
               }
-              <a class="review-permalink" href="/review/${encodeURIComponent(reviewerDid)}/${encodeURIComponent(subject)}" title="link to this review">#</a>
+              <a class="review-permalink" href="/review/${encodeURIComponent(reviewerDid)}/${encodeURIComponent(subject)}" title="link to this review">permalink</a>
             </div>
             ${err ? `<p class="engagement-err">${esc(err)}</p>` : ""}
             ${
@@ -1083,13 +1115,24 @@
           </div>`;
       }
 
-      function renderReviewRow(entry) {
+      // showSite: true prints which site the review is about before the
+      // reviewer handle — needed anywhere a review is shown out of the
+      // context of that site's own page (e.g. the featured tab), where
+      // otherwise there'd be no way to tell what's being reviewed.
+      function renderReviewRow(entry, { showSite = false } = {}) {
         const profile = profileCache.get(entry.did);
         const handle = profile?.handle ? "@" + profile.handle : shortDid(entry.did);
         const reviewerHref = `/reviewer/${encodeURIComponent(profile?.handle || entry.did)}`;
         const when = entry.ratedAt ? new Date(entry.ratedAt).toLocaleDateString(undefined, { dateStyle: "medium" }) : "";
+        const site = showSite ? catalog.find((s) => s.name === entry.subject) : null;
+        const siteHtml = !showSite
+          ? ""
+          : site
+            ? `<a class="review-site" href="/site/${esc(site.name)}">${esc(site.title)}</a><a class="pill" href="/genre/${esc(site.genre)}">${esc(site.genre)}</a>`
+            : `<span class="review-site">${esc(entry.subject)}</span>`;
         return `<div class="review-row">
           <div class="review-row-head">
+            ${siteHtml}
             <a class="review-handle" href="${esc(reviewerHref)}" title="see all of ${esc(handle)}'s reviews">${esc(handle)}</a>
             <span class="review-score">${entry.score}/10</span>
             <span class="review-date">${esc(when)}</span>
@@ -1759,6 +1802,19 @@
         document.querySelectorAll(".tab-link").forEach((x) => x.classList.toggle("active", x.dataset.tab === "browse"));
         applyRouteVisibility();
         renderBrowse();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      // Featured-tab CTAs ("browse & rate every site", "see every genre
+      // board") jump straight to another tab, same mechanism as the
+      // top-nav .tab-link clicks.
+      $("#featured-body").addEventListener("click", (e) => {
+        const a = e.target.closest(".tab-jump");
+        if (!a) return;
+        e.preventDefault();
+        activeTab = a.dataset.tab;
+        document.querySelectorAll(".tab-link").forEach((x) => x.classList.toggle("active", x.dataset.tab === activeTab));
+        applyRouteVisibility();
+        renderAll();
         window.scrollTo({ top: 0, behavior: "smooth" });
       });
 
