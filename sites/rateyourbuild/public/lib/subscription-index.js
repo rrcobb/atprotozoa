@@ -16,6 +16,13 @@
 //   - a new site release is detected by diffing the just-fetched
 //     catalog.json against the last-seen set of names in localStorage, once
 //     per page load.
+//   - a "replies" subscription (kind: "replies", target: "self", added
+//     2026-08-29 per @angussoftware.dev) is a standing checkbox rather than
+//     a per-thing toggle: while it's on, any reply that lands on one of
+//     this rater's own reviews or nested comments fires an alert live, via
+//     engagement-index.js's onLiveReply hook (its own Jetstream
+//     subscription on net.bisks.rateyourbuild.reply — this module doesn't
+//     open a second socket for it either).
 //   - a "your bugged review got fixed" alert (added 2026-08-29, per
 //     @angussoftware.dev) is detected by cross-referencing the rater's own
 //     bugged=true ratings (read straight from their PDS, not the network-wide
@@ -261,6 +268,24 @@ export class SubscriptionAlerts {
       message: hasReview
         ? `a new ${score}/10 review just landed on "${subject}"`
         : `a new ${score}/10 rating just landed on "${subject}"`,
+      href: `/site/${encodeURIComponent(subject)}`,
+    });
+  }
+
+  // Hooked into engagement-index.js's onLiveReply — fires on any reply
+  // (top-level on a review, or nested reply-to-a-reply, same record shape
+  // either way per the reply lexicon) that targets this rater directly,
+  // i.e. `reviewer` on the incoming reply record is their own did. Gated on
+  // the "replies" subscription (kind: "replies", target: "self" — there's
+  // only one thing to watch) rather than firing unconditionally, same
+  // opt-in shape as every other subscription kind here.
+  handleLiveReply({ did, subject, reviewer, text }) {
+    if (!this.loaded || !this.session || did === this.session.did) return;
+    if (reviewer !== this.session.did) return;
+    if (!this.isSubscribed("replies", "self")) return;
+    const preview = typeof text === "string" && text.length > 100 ? `${text.slice(0, 100)}…` : text;
+    this.pushAlert({
+      message: `someone replied to you on "${subject}": ${preview}`,
       href: `/site/${encodeURIComponent(subject)}`,
     });
   }

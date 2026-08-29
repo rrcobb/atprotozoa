@@ -108,8 +108,9 @@ function normaliseReply(did, rkey, record) {
 }
 
 export class EngagementIndex {
-  constructor({ onUpdate } = {}) {
+  constructor({ onUpdate, onLiveReply } = {}) {
     this.onUpdate = typeof onUpdate === "function" ? onUpdate : () => {};
+    this.onLiveReply = typeof onLiveReply === "function" ? onLiveReply : () => {};
     this.votes = new Map(); // did::rkey -> vote
     this.replies = new Map(); // did::rkey -> reply
     this.liveKeys = new Set();
@@ -343,6 +344,10 @@ export class EngagementIndex {
       changed = map.delete(key);
     } else if (commit.operation === "create" || commit.operation === "update") {
       changed = this.applyRecord(commit.collection, event.did, commit.rkey, commit.record, true);
+      if (changed && commit.collection === REPLY_COLLECTION) {
+        const reply = this.replies.get(key);
+        if (reply) this.onLiveReply({ did: event.did, subject: reply.subject, reviewer: reply.reviewer, text: reply.text });
+      }
     }
     if (changed) {
       this.lastUpdated = Date.now();

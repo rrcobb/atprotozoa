@@ -315,6 +315,7 @@
           engagementSnapshot = snap;
           renderRoute();
         },
+        onLiveReply: (info) => subscriptions.handleLiveReply(info),
       });
       const subscriptions = new SubscriptionAlerts({
         dpopFetch,
@@ -1907,13 +1908,15 @@
         if (s.kind === "site") return `site: ${s.target}`;
         if (s.kind === "subgenre") return `subgenre: ${s.target} (${s.genre})`;
         if (s.kind === "super") return `super-genre: ${SUPERS[s.target]?.label || s.target}`;
-        return `genre: ${GENRES[s.target]?.label || s.target}`;
+        if (s.kind === "genre") return `genre: ${GENRES[s.target]?.label || s.target}`;
+        return "replies to you";
       }
       function subscriptionHref(s) {
         if (s.kind === "site") return `/site/${encodeURIComponent(s.target)}`;
         if (s.kind === "subgenre") return `/genre/${encodeURIComponent(s.genre)}/${encodeURIComponent(s.target)}`;
         if (s.kind === "super") return `/super/${encodeURIComponent(s.target)}`;
-        return `/genre/${encodeURIComponent(s.target)}`;
+        if (s.kind === "genre") return `/genre/${encodeURIComponent(s.target)}`;
+        return "#";
       }
 
       function renderAlertsBadge() {
@@ -1936,8 +1939,15 @@
               ? ""
               : `<button type="button" class="secondary" id="alerts-enable-notif">enable browser notifications</button>`;
 
-        const subsHtml = subsSnapshot.subscriptions.length
-          ? subsSnapshot.subscriptions
+        const repliesOn = subscriptions.isSubscribed("replies", "self");
+        const prefsHtml = `<label class="notif-pref">
+          <input type="checkbox" id="notif-replies" ${repliesOn ? "checked" : ""} />
+          notify me when someone replies to one of my reviews or comments
+        </label>`;
+
+        const siteSubs = subsSnapshot.subscriptions.filter((s) => s.kind !== "replies");
+        const subsHtml = siteSubs.length
+          ? siteSubs
               .map(
                 (s) => `<div class="sub-row">
                   <a href="${esc(subscriptionHref(s))}">🔔 ${esc(subscriptionLabel(s))}</a>
@@ -1966,6 +1976,8 @@
             rating/review alerts arrive live; new-release alerts are checked once per visit.
           </p>
           ${permHtml}
+          <h3 class="alerts-subhead">preferences</h3>
+          ${prefsHtml}
           <h3 class="alerts-subhead">your subscriptions</h3>
           ${subsHtml}
           <h3 class="alerts-subhead">recent alerts</h3>
@@ -2023,6 +2035,21 @@
             console.error("rateyourbuild: couldn't update subscription", err);
             subBtn.disabled = false;
           }
+        }
+      });
+
+      document.addEventListener("change", async (e) => {
+        if (e.target.id !== "notif-replies" || !session) return;
+        const checkbox = e.target;
+        checkbox.disabled = true;
+        try {
+          if (checkbox.checked) await subscriptions.subscribe("replies", "self");
+          else await subscriptions.unsubscribe("replies", "self");
+        } catch (err) {
+          console.error("rateyourbuild: couldn't update reply-notification preference", err);
+          checkbox.checked = !checkbox.checked;
+        } finally {
+          checkbox.disabled = false;
         }
       });
 
