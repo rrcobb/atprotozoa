@@ -281,4 +281,195 @@
   }
 
   window.createParticleText = createParticleText;
+
+  // createParticleFrame — same attraction-matrix + leash physics as
+  // createParticleText, but the "letterform" is a rectangle outline instead
+  // of glyph pixels, and the palette is amber/gold rather than the full
+  // rainbow. Added 2026-08-29 per @words.bsky.social: the plaque's own
+  // frame, and every "bix" (box) on it, should be made of the same material
+  // it's honoring -- fluoddity particles -- not a static CSS border.
+  const AMBER = ["#e8c88a", "#ffe9b8", "#c99a4a", "#f0d18a"];
+
+  function frameRectPoints(W, H, inset, step) {
+    const x0 = inset, y0 = inset, x1 = W - inset, y1 = H - inset;
+    const points = [];
+    if (x1 - x0 <= 0 || y1 - y0 <= 0) return points;
+    for (let x = x0; x < x1; x += step) points.push({ x, y: y0 });
+    for (let y = y0; y < y1; y += step) points.push({ x: x1, y });
+    for (let x = x1; x > x0; x -= step) points.push({ x, y: y1 });
+    for (let y = y1; y > y0; y -= step) points.push({ x: x0, y });
+    return points;
+  }
+
+  function createParticleFrame(canvas, opts) {
+    opts = opts || {};
+    const ctx = canvas.getContext("2d");
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const palette = opts.colors || AMBER;
+    let particles = [];
+    let rules;
+    let W, H;
+
+    const RMAX = opts.rmax || 14;
+    const BETA = opts.beta || 0.32;
+    const LEASH_K = opts.leashK != null ? opts.leashK : 0.09;
+    const LEASH_MAX = opts.leashMax != null ? opts.leashMax : 7;
+    const FRICTION = opts.friction || 0.86;
+    const FORCE_SCALE = opts.forceScale != null ? opts.forceScale : 0.4;
+    const JITTER = opts.jitter != null ? opts.jitter : 0.1;
+    const STEP = opts.step || 6; // px between border sample points
+    const INSET = opts.inset != null ? opts.inset : 3;
+
+    function paletteRules() {
+      const c = palette.length;
+      const m = [];
+      for (let i = 0; i < c; i++) {
+        const row = [];
+        for (let j = 0; j < c; j++) row.push(Math.random() * 2 - 1);
+        m.push(row);
+      }
+      return m;
+    }
+    rules = paletteRules();
+
+    function layout() {
+      const cssWidth = canvas.clientWidth;
+      const cssHeight = canvas.clientHeight;
+      W = canvas.width = Math.max(1, Math.round(cssWidth * dpr));
+      H = canvas.height = Math.max(1, Math.round(cssHeight * dpr));
+
+      const targets = frameRectPoints(W, H, INSET * dpr, STEP * dpr);
+
+      while (particles.length < targets.length) {
+        particles.push({
+          x: 0,
+          y: 0,
+          vx: 0,
+          vy: 0,
+          c: Math.floor(Math.random() * palette.length),
+          phase: Math.random() * Math.PI * 2,
+          seeded: false,
+        });
+      }
+      particles.length = targets.length;
+      particles.forEach((p, i) => {
+        p.tx = targets[i].x;
+        p.ty = targets[i].y;
+        if (!p.seeded) {
+          p.x = p.tx + (Math.random() - 0.5) * 20;
+          p.y = p.ty + (Math.random() - 0.5) * 20;
+          p.seeded = true;
+        }
+      });
+    }
+
+    let t = 0;
+    function step() {
+      t += 1;
+      const n = particles.length;
+      const cell = RMAX;
+      const rows = Math.max(1, Math.ceil(H / cell));
+      const buckets = new Map();
+      for (let i = 0; i < n; i++) {
+        const p = particles[i];
+        const key = ((p.x / cell) | 0) * rows + ((p.y / cell) | 0);
+        let arr = buckets.get(key);
+        if (!arr) buckets.set(key, (arr = []));
+        arr.push(i);
+      }
+      for (let i = 0; i < n; i++) {
+        const p = particles[i];
+        const cx = (p.x / cell) | 0;
+        const cy = (p.y / cell) | 0;
+        let fx = 0,
+          fy = 0;
+        for (let ox = -1; ox <= 1; ox++) {
+          for (let oy = -1; oy <= 1; oy++) {
+            const arr = buckets.get((cx + ox) * rows + (cy + oy));
+            if (!arr) continue;
+            for (let k = 0; k < arr.length; k++) {
+              const j = arr[k];
+              if (j === i) continue;
+              const q = particles[j];
+              const dx = q.x - p.x,
+                dy = q.y - p.y;
+              const r = Math.sqrt(dx * dx + dy * dy);
+              if (r <= 0 || r > RMAX) continue;
+              const rn = r / RMAX;
+              let f;
+              if (rn < BETA) f = rn / BETA - 1;
+              else f = rules[p.c][q.c] * (1 - Math.abs(2 * rn - 1 - BETA) / (1 - BETA));
+              fx += (dx / r) * f;
+              fy += (dy / r) * f;
+            }
+          }
+        }
+        fx += (p.tx - p.x) * LEASH_K;
+        fy += (p.ty - p.y) * LEASH_K;
+        fx += Math.sin(t * 0.05 + p.phase) * JITTER;
+        fy += Math.cos(t * 0.04 + p.phase * 1.3) * JITTER;
+
+        p.vx = (p.vx + fx * FORCE_SCALE) * FRICTION;
+        p.vy = (p.vy + fy * FORCE_SCALE) * FRICTION;
+      }
+      for (let i = 0; i < n; i++) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        const dx = p.x - p.tx,
+          dy = p.y - p.ty;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d > LEASH_MAX) {
+          const k = LEASH_MAX / d;
+          p.x = p.tx + dx * k;
+          p.y = p.ty + dy * k;
+        }
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, W, H);
+      const size = Math.max(1, 1.6 * dpr);
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        ctx.fillStyle = palette[p.c];
+        ctx.fillRect(p.x - size / 2, p.y - size / 2, size, size);
+      }
+    }
+
+    let running = true;
+    function loop() {
+      if (running) {
+        step();
+        draw();
+      }
+      requestAnimationFrame(loop);
+    }
+
+    layout();
+    loop();
+
+    let resizeTimer;
+    window.addEventListener("resize", () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(layout, 150);
+    });
+    document.addEventListener("visibilitychange", () => {
+      running = !document.hidden;
+    });
+
+    return {
+      mutate() {
+        const c = palette.length;
+        for (let i = 0; i < c; i++)
+          for (let j = 0; j < c; j++)
+            rules[i][j] = Math.max(-1, Math.min(1, rules[i][j] + (Math.random() * 2 - 1) * 0.35));
+      },
+      reroll() {
+        rules = paletteRules();
+      },
+    };
+  }
+
+  window.createParticleFrame = createParticleFrame;
 })();

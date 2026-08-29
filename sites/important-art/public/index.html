@@ -54,15 +54,28 @@
     padding: 6vh 5vw;
   }
   .plaque {
+    position: relative;
     max-width: 640px;
     width: 100%;
     background: linear-gradient(160deg, var(--bronze-2), var(--bronze-1) 60%);
-    border: 1px solid var(--border);
+    border: 1px solid rgba(74,58,38,0.55);
     border-radius: 4px;
     box-shadow: 0 0 0 6px rgba(0,0,0,0.35), 0 30px 80px rgba(0,0,0,0.6), inset 0 0 60px rgba(232,200,138,0.05);
     padding: 2.6rem 2.4rem;
     backdrop-filter: blur(2px);
     transition: opacity 0.4s ease, transform 0.4s ease;
+  }
+  /* the plaque's own frame is amber fluoddity particles, not a static
+     border -- @words.bsky.social, 2026-08-29: "the plaque resemble the
+     material its honoring." Negative z-index paints it above the plaque's
+     own background but below its in-flow children, so it reads as a border
+     traced in the gaps around them. */
+  #plaqueFrameCanvas {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 4px;
+    pointer-events: none;
   }
   .plaque.hidden {
     opacity: 0;
@@ -79,16 +92,20 @@
     position: relative;
     width: 100%;
   }
-  .swarm-wrap canvas {
+  .swarm-wrap canvas,
+  .title-wrap canvas {
     display: block;
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
   }
-  #titleCanvas {
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
+  /* each "bix" gets its own amber fluoddity frame, layered behind its text
+     swarm -- @words.bsky.social, 2026-08-29: "make the frames and bixes
+     fluoddities as well." */
+  .bix-frame { z-index: 0; }
+  .swarm-wrap canvas:not(.bix-frame),
+  .title-wrap canvas:not(.bix-frame) { z-index: 1; }
   .eyebrow-wrap { height: 1.7rem; margin: 0 0 1rem; }
   .lede-wrap { height: 7.4rem; margin: 0 auto 1.4rem; max-width: 46ch; }
   .quote-wrap {
@@ -226,15 +243,19 @@
 
 <main class="wrap">
   <div class="plaque" id="plaque">
+    <canvas id="plaqueFrameCanvas" aria-hidden="true"></canvas>
     <div class="swarm-wrap eyebrow-wrap">
+      <canvas class="bix-frame" id="eyebrowFrameCanvas" aria-hidden="true"></canvas>
       <canvas id="eyebrowCanvas" aria-hidden="true"></canvas>
       <p class="sr-only">a commemorative plaque &middot; erected 29 August 2026</p>
     </div>
     <div class="title-wrap">
+      <canvas class="bix-frame" id="titleFrameCanvas" aria-hidden="true"></canvas>
       <canvas id="titleCanvas" aria-hidden="true"></canvas>
       <h1 class="sr-only">In celebration of the launch of fluoddity.com</h1>
     </div>
     <div class="swarm-wrap lede-wrap">
+      <canvas class="bix-frame" id="ledeFrameCanvas" aria-hidden="true"></canvas>
       <canvas id="ledeCanvas" aria-hidden="true"></canvas>
       <p class="sr-only">
         Hundreds of thousands of particles, self-organizing into a stunning
@@ -243,18 +264,22 @@
       </p>
     </div>
     <div class="swarm-wrap quote-wrap">
+      <canvas class="bix-frame" id="quote1FrameCanvas" aria-hidden="true"></canvas>
       <canvas id="quote1Canvas" aria-hidden="true"></canvas>
       <p class="sr-only">&ldquo;this is important art&rdquo; — @words.bsky.social</p>
     </div>
     <div class="swarm-wrap quote-wrap reply">
+      <canvas class="bix-frame" id="quote2FrameCanvas" aria-hidden="true"></canvas>
       <canvas id="quote2Canvas" aria-hidden="true"></canvas>
       <p class="sr-only">&ldquo;🙏Thank you! That's very kind&rdquo; — @all-paperclips.bsky.social</p>
     </div>
     <div class="swarm-wrap quote-wrap reply">
+      <canvas class="bix-frame" id="quote3FrameCanvas" aria-hidden="true"></canvas>
       <canvas id="quote3Canvas" aria-hidden="true"></canvas>
       <p class="sr-only">&ldquo;make the entire plaque look like that. don't worry about the readability.&rdquo; — @words.bsky.social</p>
     </div>
     <div class="swarm-wrap note-wrap">
+      <canvas class="bix-frame" id="noteFrameCanvas" aria-hidden="true"></canvas>
       <canvas id="noteCanvas" aria-hidden="true"></canvas>
       <p class="sr-only">
         The scene behind this plaque isn't a screenshot — it's a small
@@ -300,6 +325,19 @@
 
   var serif = "Georgia, 'Times New Roman', serif";
   var mono = "'JetBrains Mono', ui-monospace, monospace";
+
+  // the plaque's own frame and every bix's border are amber fluoddity
+  // particles, not static CSS -- @words.bsky.social, 2026-08-29.
+  var frameSwarms = [
+    window.createParticleFrame(document.getElementById("plaqueFrameCanvas"), { inset: 5, step: 7 }),
+    window.createParticleFrame(document.getElementById("titleFrameCanvas"), {}),
+    window.createParticleFrame(document.getElementById("eyebrowFrameCanvas"), {}),
+    window.createParticleFrame(document.getElementById("ledeFrameCanvas"), {}),
+    window.createParticleFrame(document.getElementById("quote1FrameCanvas"), {}),
+    window.createParticleFrame(document.getElementById("quote2FrameCanvas"), {}),
+    window.createParticleFrame(document.getElementById("quote3FrameCanvas"), {}),
+    window.createParticleFrame(document.getElementById("noteFrameCanvas"), {}),
+  ];
 
   var swarms = [
     window.createParticleText(document.getElementById("titleCanvas"), {
@@ -363,10 +401,12 @@
   document.getElementById("mutateBtn").addEventListener("click", function () {
     window.importantArt && window.importantArt.mutate();
     swarms.forEach(function (s) { s.mutate(); });
+    frameSwarms.forEach(function (s) { s.mutate(); });
   });
   document.getElementById("rerollBtn").addEventListener("click", function () {
     window.importantArt && window.importantArt.reroll();
     swarms.forEach(function (s) { s.reroll(); });
+    frameSwarms.forEach(function (s) { s.reroll(); });
   });
   var readableBtn = document.getElementById("readableBtn");
   readableBtn.addEventListener("click", function () {
