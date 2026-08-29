@@ -235,6 +235,38 @@
     color: var(--gold-bright);
     border-color: var(--gold);
   }
+
+  /* a vandal-defense reflex: rapid mashing of the mutate/reroll buttons
+     reads as an attack on the piece, so the swarm visibly flinches (see
+     shieldPulse in app.js) and the plaque frame flashes a defensive ring --
+     asked for by @bitfuktangel.bsky.social via @shimmermathlabs.com,
+     2026-08-29. */
+  .plaque.defending {
+    animation: shieldRing 1.6s ease-out;
+  }
+  @keyframes shieldRing {
+    0% { box-shadow: 0 0 0 6px rgba(0,0,0,0.35), 0 30px 80px rgba(0,0,0,0.6), 0 0 0 0 rgba(255,92,138,0.85); }
+    35% { box-shadow: 0 0 0 6px rgba(0,0,0,0.35), 0 30px 80px rgba(0,0,0,0.6), 0 0 0 14px rgba(255,92,138,0); }
+    100% { box-shadow: 0 0 0 6px rgba(0,0,0,0.35), 0 30px 80px rgba(0,0,0,0.6), 0 0 0 0 rgba(255,92,138,0); }
+  }
+  #defenseNotice {
+    position: fixed;
+    left: 50%;
+    bottom: 4.6rem;
+    transform: translateX(-50%);
+    z-index: 3;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.74rem;
+    color: var(--gold-bright);
+    background: rgba(20,15,10,0.82);
+    border: 1px solid rgba(255,92,138,0.55);
+    padding: 0.45rem 0.9rem;
+    border-radius: 999px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+  }
+  #defenseNotice.show { opacity: 1; }
 </style>
 </head>
 <body>
@@ -308,6 +340,7 @@
 </main>
 
 <button id="showBtn" type="button" hidden>show plaque</button>
+<div id="defenseNotice" aria-live="polite">the swarm closes ranks</div>
 
 <script src="app.js"></script>
 <script src="particle-font.js"></script>
@@ -398,15 +431,40 @@
     }),
   ];
 
+  // vandal-defense reflex: a burst of clicks on the mutate/reroll buttons
+  // looks like someone trying to trash the piece rather than admire it, so
+  // the swarm flinches (app.js shieldPulse) and the frame flashes a ring --
+  // no button is disabled, nothing is blocked, it's just a reaction. Asked
+  // for by @bitfuktangel.bsky.social via @shimmermathlabs.com, 2026-08-29.
+  var defenseNotice = document.getElementById("defenseNotice");
+  var recentClicks = [];
+  var defenseCooldownUntil = 0;
+  function noteInteraction() {
+    var now = performance.now();
+    recentClicks.push(now);
+    recentClicks = recentClicks.filter(function (t) { return now - t < 2500; });
+    if (recentClicks.length >= 5 && now > defenseCooldownUntil) {
+      defenseCooldownUntil = now + 3000;
+      window.importantArt && window.importantArt.shieldPulse();
+      plaque.classList.remove("defending");
+      void plaque.offsetWidth; // restart the CSS animation
+      plaque.classList.add("defending");
+      defenseNotice.classList.add("show");
+      setTimeout(function () { defenseNotice.classList.remove("show"); }, 1800);
+    }
+  }
+
   document.getElementById("mutateBtn").addEventListener("click", function () {
     window.importantArt && window.importantArt.mutate();
     swarms.forEach(function (s) { s.mutate(); });
     frameSwarms.forEach(function (s) { s.mutate(); });
+    noteInteraction();
   });
   document.getElementById("rerollBtn").addEventListener("click", function () {
     window.importantArt && window.importantArt.reroll();
     swarms.forEach(function (s) { s.reroll(); });
     frameSwarms.forEach(function (s) { s.reroll(); });
+    noteInteraction();
   });
   var readableBtn = document.getElementById("readableBtn");
   readableBtn.addEventListener("click", function () {

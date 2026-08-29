@@ -133,11 +133,35 @@
     running = !document.hidden;
   });
 
+  // shieldPulse: a defensive reflex, not a security feature -- there's no
+  // real vandalism vector on a static plaque (only the bot can edit this
+  // source), but @bitfuktangel.bsky.social asked the plaque be "capable of
+  // defending itself" and the honest version of that, on a particle-life
+  // piece, is the swarm itself reacting. A burst of outward impulse from
+  // the plaque's center, falling off with distance, so the field visibly
+  // flinches away from the center and then the normal rules pull it back
+  // into shape on their own -- no new persistent state, just one impulse.
+  function shieldPulse() {
+    const cx = W / 2;
+    const cy = H / 2;
+    const maxR = Math.max(W, H) * 0.55;
+    for (let i = 0; i < N; i++) {
+      const dx = px[i] - cx;
+      const dy = py[i] - cy;
+      const r = Math.sqrt(dx * dx + dy * dy) || 1;
+      const falloff = Math.max(0, 1 - r / maxR);
+      const kick = falloff * 9;
+      pvx[i] += (dx / r) * kick;
+      pvy[i] += (dy / r) * kick;
+    }
+  }
+
   window.importantArt = {
     mutate: mutateRules,
     reroll() {
       rules = randomRules();
       scatter();
     },
+    shieldPulse,
   };
 })();
