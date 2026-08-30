@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>timelane — local-first planning boards</title>
+<meta name="description" content="Boards of swimlanes of bars, events, segments and markers. Tasks with overdue alerts, a markdown inbox, an outline view, per-lane share links. No accounts, nothing leaves your browser.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="timelane">
+<meta property="og:description" content="A hierarchical, local-first planning app: boards of swimlanes of bars/events with segments and markers. Tasks, a markdown inbox, an outline view, per-lane share links — no accounts, nothing leaves your browser.">
+<meta property="og:image" content="https://timelane.bisks.net/og.png">
+<meta property="og:url" content="https://timelane.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#12181f">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="top">
+  <h1>timelane</h1>
+
+  <select id="boardSelect" title="switch board"></select>
+  <button id="newBoardBtn" class="ghost" title="new board">+ board</button>
+  <button id="renameBoardBtn" class="ghost" title="rename board">rename</button>
+  <button id="deleteBoardBtn" class="ghost danger" title="delete board">delete</button>
+
+  <nav class="views">
+    <button data-view="board" class="active">board</button>
+    <button data-view="outline">outline</button>
+    <button data-view="inbox">inbox</button>
+    <button data-view="tasks">tasks<span id="overdueBadge" class="overdue-badge hidden">0</span></button>
+  </nav>
+
+  <div class="spacer"></div>
+
+  <button id="exportBoardBtn" class="ghost" title="download this board as JSON">export board</button>
+  <button id="exportAllBtn" class="ghost" title="download everything as JSON">export all</button>
+  <button id="importBtn" class="ghost" title="import a board or export file">import</button>
+  <input type="file" id="importFile" accept="application/json" class="hidden">
+</header>
+
+<div id="overdueAlert" class="hidden" style="background:var(--danger);color:#fff;padding:8px 16px;font-size:13px;display:flex;gap:10px;align-items:center;">
+  <span id="overdueAlertText"></span>
+  <button id="overdueAlertView" class="ghost" type="button" style="color:#fff;border-color:rgba(255,255,255,.5);">view tasks</button>
+  <button id="overdueAlertDismiss" class="ghost" type="button" style="color:#fff;border-color:rgba(255,255,255,.5);margin-left:auto;">dismiss</button>
+</div>
+
+<main>
+
+  <div id="view-board" class="view active">
+    <div class="board-toolbar">
+      <div class="zoom-controls">
+        <button id="zoomOutBtn" class="ghost" title="zoom out">−</button>
+        <button id="zoomFitBtn" class="ghost" title="fit to items">fit</button>
+        <button id="zoomInBtn" class="ghost" title="zoom in">+</button>
+      </div>
+      <button id="addLaneBtn" class="primary">+ swimlane</button>
+    </div>
+    <div class="inbox-strip" id="inboxStrip"></div>
+    <div class="timeline-scroll" id="timelineScroll">
+      <div class="timeline-inner" id="timelineInner"></div>
+    </div>
+  </div>
+
+  <div id="view-outline" class="view">
+    <div class="outline-view" id="outlineView"></div>
+  </div>
+
+  <div id="view-inbox" class="view">
+    <div class="inbox-view">
+      <div class="capture-col">
+        <label for="inboxTextarea">quick capture (markdown)</label>
+        <textarea id="inboxTextarea" placeholder="- [ ] renew passport @2026-09-20 #admin
+- [x] booked flights
+call the dentist"></textarea>
+        <div>
+          <button id="captureBtn" class="primary">add to inbox</button>
+        </div>
+        <p style="color:var(--dim); font-size:12px;">
+          one line = one card. <code>- [ ]</code> / <code>- [x]</code> marks a task,
+          <code>@YYYY-MM-DD</code> sets a due date, <code>#tag</code> adds a tag.
+          plain lines just become quick notes. lines starting with <code>#</code> alone are treated as headings and skipped.
+        </p>
+      </div>
+      <div class="list-col">
+        <h3 style="margin-top:0;">inbox (<span id="inboxCount">0</span>)</h3>
+        <div id="inboxList"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="view-tasks" class="view">
+    <div class="tasks-view" id="tasksList"></div>
+  </div>
+
+</main>
+
+<footer class="site">
+  <span class="gdpr">
+    <strong>local-first, on purpose:</strong> every board, task, and note here lives only in
+    this browser's <code>localStorage</code>. nothing is sent to, or stored on, any server —
+    there's no account, no analytics, no cookies, and nothing for us to hand over, sell, or
+    lose in a breach. a "share" link works by putting the lane's data straight in the URL
+    fragment (the part after <code>#</code>), which browsers never transmit to a server —
+    the link itself is the whole transport. clearing your browser storage deletes everything;
+    export first if you want a copy.
+  </span>
+  <span>built by <a href="https://buildthis.bisks.net" target="_blank" rel="noopener noreferrer">@buildthis.bisks.net</a>, an <a href="https://bisks.net" target="_blank" rel="noopener noreferrer">atprotozoa</a> bot run by <a href="https://bsky.app/profile/bisks.net" target="_blank" rel="noopener noreferrer">bisks.net</a> — asked for by <a href="https://bsky.app/profile/jessehattabaugh.com" target="_blank" rel="noopener noreferrer">@jessehattabaugh.com</a>, off <a href="https://bsky.app/profile/hmans.dev" target="_blank" rel="noopener noreferrer">@hmans.dev</a>'s ask for something local-first with a clear GDPR posture.</span>
+  <a href="https://rateyourbuild.bisks.net/site/timelane" target="_blank" rel="noopener noreferrer">rate this on rateyourbuild →</a>
+  <a href="#" id="shareAppLink">share timelane on bluesky</a>
+</footer>
+
+<div id="modalRoot"></div>
+
+<script type="module" src="/app.js"></script>
+<script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
