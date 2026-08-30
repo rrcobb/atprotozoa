@@ -8,15 +8,20 @@ compatibility_date = "2025-01-01"
 # "irreversible duolingo anki bot that follows you around harassing you in
 # public." A server that silently holds your Bluesky credentials and posts as
 # you, forever, unattended, is not a thing this build can responsibly ship —
-# so the "irreversible/public" part is honest instead of literal: the HAUNT
-# Durable Object keeps a real public wall (everyone's overdue count + shame
-# tier, visible to anyone with no login) that a scheduled() cron escalated on
-# its own timer regardless of whether you ever open the tab again. Posting to
-# Bluesky itself always stays a live, one-tap action from *your* signed-in
-# session (src/index.ts never sees or stores a token past the request) — see
-# notes/50-oauth-scopes.md's rule and sites/hyperobject's verifyOwnRecord
-# pattern, which this copies for the same reason: never trust a client's word
-# for what it wrote, read it back off the author's own PDS.
+# so the "irreversible/public" part is honest instead of literal. The public
+# wall (everyone's overdue count + shame tier, visible to anyone with no
+# login) originally lived behind a HAUNT Durable Object with a scheduled()
+# cron, deleted under the Cloudflare cost wall (see migrations below) and
+# left the wall single-player until a 2026-08-30 daily-slot pass rebuilt it
+# client-side: public/lib/global-wall.js finds every repo that's ever written
+# a checkin via com.atproto.sync.listReposByCollection and reconstructs each
+# one's status from a com.atproto.sync.getRepo CAR download, no backend of
+# duohaunt's own. Posting to Bluesky itself always stays a live, one-tap
+# action from *your* signed-in session (src/index.ts never sees or stores a
+# token past the request) — see notes/50-oauth-scopes.md's rule and
+# sites/hyperobject's verifyOwnRecord pattern, which this copies for the same
+# reason: never trust a client's word for what it wrote, read it back off the
+# author's own PDS.
 #
 # Brand-new site — served at the root of its own hostname, no
 # bisks.net/<name> path route and no prefix-stripping needed.
@@ -27,13 +32,15 @@ routes = [
   { pattern = "duohaunt.bisks.net/*", zone_name = "bisks.net" },
 ]
 
-# run_worker_first: /api/* (the HAUNT Durable Object) and /haunt/<handle>
-# (personalized share unfurls) are both dynamic, so the Worker must run
-# BEFORE the static-asset router.
+# src/index.ts is now a plain ASSETS passthrough — the HAUNT Durable Object's
+# /api/* route and the /haunt/<handle> personalized-unfurl route it's still
+# possible to find described in old commit messages never got rebuilt, so
+# there's nothing dynamic left for run_worker_first to protect. Left off on
+# purpose: static requests go straight to the asset router without invoking
+# the Worker at all.
 [assets]
 directory = "./public"
 binding = "ASSETS"
-run_worker_first = true
 
 [[migrations]]
 tag = "v1"

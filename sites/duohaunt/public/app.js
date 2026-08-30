@@ -11,6 +11,7 @@
 // full reasoning.
 
 import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch } from "./lib/oauth.js";
+import { GlobalWall } from "./lib/global-wall.js";
 
 const CHECKIN_COLLECTION = "net.bisks.duohaunt.checkin";
 const DECK_KEY = "duohaunt:deck";
@@ -62,6 +63,7 @@ const els = {
   hauntStatusMsg: document.getElementById("hauntStatusMsg"),
   wallCount: document.getElementById("wallCount"),
   wallList: document.getElementById("wallList"),
+  wallStatus: document.getElementById("wallStatus"),
   shareBluesky: document.getElementById("shareBluesky"),
   shareCopy: document.getElementById("shareCopy"),
   nagback: document.getElementById("nagback"),
@@ -333,7 +335,7 @@ async function maybeCheckin(force) {
     localStorage.setItem(LAST_CHECKIN_KEY, String(now));
     setHauntStatus("checked in.", "ok");
     renderHaunt();
-    loadWall();
+    renderWall();
   } catch (err) {
     setHauntStatus("check-in failed: " + err.message, "err");
   }
@@ -342,7 +344,11 @@ async function maybeCheckin(force) {
 async function confessPublicly() {
   if (!session || !myEntry) return;
   const t = TIERS[myEntry.tier] || TIERS[0];
-  const url = `https://duohaunt.bisks.net/haunt/${encodeURIComponent(session.handle)}`;
+  // Used to link to /haunt/<handle>, a personalized unfurl route that never
+  // shipped in src/index.ts (a static-asset-only Worker) — every confession
+  // was linking to a 404. Point at the wall instead, where the same status
+  // this posts about is now actually visible.
+  const url = "https://duohaunt.bisks.net/";
   const text = `duohaunt confession: I have ${myEntry.overdue} flashcard${myEntry.overdue === 1 ? "" : "s"} overdue and my public tier is ${t.emoji} ${t.label}. it climbs on its own — I did not open this app today.\n\n${url}`;
   setHauntStatus("posting your confession...");
   try {
@@ -371,6 +377,7 @@ async function loadMyEntry() {
   if (!session) return;
   try { myEntry = JSON.parse(localStorage.getItem("duohaunt:status") || "null"); } catch { myEntry = null; }
   renderHaunt();
+  renderWall();
   if (myEntry) maybeCheckin(false); // opted in elsewhere — keep it current
 }
 
@@ -387,6 +394,13 @@ async function initSession() {
 initSession();
 
 // --- the wall -----------------------------------------------------------------
+//
+// Real, network-wide: lib/global-wall.js finds every repo that has ever
+// written a net.bisks.duohaunt.checkin record (com.atproto.sync.listReposByCollection)
+// and pulls each one's full history with one CAR download per repo, no
+// backend of duohaunt's own. Your own entry renders immediately from local
+// state (maybeCheckin already wrote it) and gets replaced once the wall
+// discovers your repo too, so opting in never waits on network backfill.
 
 function renderWallEntry(entry) {
   const t = TIERS[entry.tier] || TIERS[0];
@@ -404,29 +418,54 @@ function renderWallEntry(entry) {
   return div;
 }
 
-async function loadWall() {
-  els.wallCount.textContent = myEntry ? "1" : "0";
-  els.wallList.innerHTML = myEntry ? "" : '<div class="empty">your status stays in this browser until you choose to confess it.</div>';
-  if (myEntry) els.wallList.appendChild(renderWallEntry(myEntry));
-  return;
-  /* Historical shared-wall implementation intentionally retired. */
-  try {
-    const res = await fetch("data:,retired");
-    if (!res.ok) throw new Error("wall fetch failed");
-    const data = await res.json();
-    const entries = data.entries || [];
-    els.wallCount.textContent = String(data.total || entries.length);
-    if (!entries.length) {
-      els.wallList.innerHTML = '<div class="empty">nobody\'s opted in yet. be first.</div>';
-      return;
-    }
+let lastWallSnapshot = { entries: [], backfillDone: false, backfillActive: false, reposScanned: 0, reposSeen: 0, connected: false, error: "" };
+
+function mergedWallEntries() {
+  const entries = lastWallSnapshot.entries.slice();
+  if (myEntry) {
+    const mine = {
+      did: myEntry.did,
+      handle: myEntry.handle,
+      displayName: myEntry.handle,
+      avatar: "",
+      overdue: myEntry.overdue,
+      tier: myEntry.tier,
+      lastCheckinAt: myEntry.lastCheckinAt || 0,
+    };
+    const idx = entries.findIndex((e) => e.did === myEntry.did);
+    if (idx === -1) entries.push(mine);
+    else if ((entries[idx].lastCheckinAt || 0) < mine.lastCheckinAt) entries[idx] = { ...entries[idx], ...mine };
+  }
+  entries.sort((a, b) => b.tier - a.tier || b.overdue - a.overdue || (b.lastCheckinAt || 0) - (a.lastCheckinAt || 0));
+  return entries;
+}
+
+function renderWall() {
+  const entries = mergedWallEntries();
+  els.wallCount.textContent = String(entries.length);
+  if (!entries.length) {
+    els.wallList.innerHTML = lastWallSnapshot.backfillDone
+      ? '<div class="empty">nobody\'s opted in yet. be first.</div>'
+      : '<div class="empty">reading the network for other haunted decks...</div>';
+  } else {
     els.wallList.innerHTML = "";
     for (const entry of entries) els.wallList.appendChild(renderWallEntry(entry));
-  } catch {
-    els.wallList.innerHTML = '<div class="empty">couldn\'t reach the wall. try again in a moment.</div>';
+  }
+  if (els.wallStatus) {
+    els.wallStatus.textContent = lastWallSnapshot.backfillDone
+      ? ""
+      : `syncing the wall... ${lastWallSnapshot.reposScanned}/${Math.max(lastWallSnapshot.reposSeen, lastWallSnapshot.reposScanned)} repos checked`;
   }
 }
-loadWall();
+
+const wall = new GlobalWall({
+  onUpdate: (snapshot) => {
+    lastWallSnapshot = snapshot;
+    renderWall();
+  },
+});
+wall.start();
+renderWall();
 
 // --- share ----------------------------------------------------------------
 
