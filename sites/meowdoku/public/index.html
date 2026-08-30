@@ -1,0 +1,860 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>meowdoku — killer sudoku with a smug tabby sidekick</title>
+<meta name="description" content="A daily killer sudoku: cage sums instead of starting digits, solved under the watchful judgment of a smug orange tabby. New puzzle every day, or shuffle up a practice one any time." />
+
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://meowdoku.bisks.net/" />
+<meta property="og:title" content="meowdoku — killer sudoku with a smug tabby sidekick" />
+<meta property="og:description" content="A daily killer sudoku: no starting digits, just cage sums. Solved under the watchful judgment of a smug orange tabby. New puzzle every day." />
+<meta property="og:image" content="https://meowdoku.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A killer sudoku board with colored dashed cages and a smug orange tabby cat mascot." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="meowdoku — killer sudoku with a smug tabby sidekick" />
+<meta name="twitter:description" content="A daily killer sudoku: no starting digits, just cage sums. Solved under the watchful judgment of a smug orange tabby." />
+<meta name="twitter:image" content="https://meowdoku.bisks.net/og.png" />
+
+<style>
+  :root{
+    --bg:#0c0e14; --panel:#12141c; --panel2:#171a24; --ink:#e8ecf6; --dim:#8b93a7;
+    --line:#242a3c; --cream:#f0eee6;
+    --orange:#e8926f; --orange-deep:#c96442; --orange-dim:#7a4a37;
+    --green:#3ddc84; --red:#ff6b6b; --purple:#b18cff; --pink:#f4b6c2;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:radial-gradient(1200px 600px at 50% -10%, #1b1712 0%, var(--bg) 55%);
+    color:var(--ink);
+    font:16px/1.5 var(--mono);
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  .wrap{max-width:620px;margin:0 auto;padding:22px 14px 60px}
+
+  header{text-align:center;margin-bottom:6px}
+  .titlebar{display:flex;align-items:center;justify-content:center;gap:10px}
+  .mascot{display:block}
+  h1{font-size:30px;letter-spacing:.5px;margin:0;color:var(--orange);text-shadow:0 2px 0 #4a281c}
+  .sub{color:var(--dim);margin:8px auto 0;max-width:48ch;font-size:13.5px}
+  .sub b{color:var(--cream);font-weight:600}
+
+  .hud{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;
+    margin:18px 0 10px;font-size:12.5px;color:var(--dim);
+  }
+  .hud .puzzleid{color:var(--cream)}
+  .hud .puzzleid b{color:var(--orange)}
+  .hud .stats{display:flex;gap:14px;flex-wrap:wrap}
+  .hud .stats b{color:var(--ink)}
+  .hud .conflicts.on{color:var(--red)}
+  .hud .conflicts.on b{color:var(--red)}
+
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-bottom:14px}
+  .btn{
+    font:inherit;font-size:12.5px;cursor:pointer;color:var(--ink);
+    background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 12px;
+  }
+  .btn:hover{border-color:#3a4258}
+  .btn.primary{background:var(--orange);border-color:var(--orange);color:#2a160f;font-weight:700}
+  .btn.primary:hover{filter:brightness(1.08)}
+  .btn.toggled{background:var(--orange-dim);border-color:var(--orange);color:var(--cream)}
+  .btn[disabled]{opacity:.4;cursor:default}
+
+  .board{
+    position:relative;width:min(94vw,480px);aspect-ratio:1/1;margin:0 auto;
+    background:var(--panel);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.4);
+    overflow:hidden;
+  }
+  .board svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .grid-line{stroke:rgba(255,255,255,.10);stroke-width:2}
+  .box-line{stroke:rgba(232,146,111,.55);stroke-width:6}
+  .cage-sum{font-family:ui-monospace,monospace;font-size:19px;font-weight:700}
+
+  .cells{position:absolute;inset:0;display:grid;grid-template-columns:repeat(9,1fr);grid-template-rows:repeat(9,1fr)}
+  .cell{
+    position:relative;display:flex;align-items:center;justify-content:center;
+    background:transparent;border:0;padding:0;cursor:pointer;
+    color:var(--orange);font:inherit;font-size:clamp(15px,4.6vw,23px);font-weight:600;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .cell[data-box="1"]{background:rgba(255,255,255,.02)}
+  .cell.peer{background:rgba(232,146,111,.07)}
+  .cell.selected{background:rgba(232,146,111,.22)}
+  .cell.same-value{background:rgba(232,146,111,.16)}
+  .cell.cage-complete{background:rgba(61,220,132,.10)}
+  .cell.fixed{color:var(--cream)}
+  .cell.conflict{color:var(--red)}
+  .cell.conflict.fixed{color:var(--red)}
+  .cell:focus{outline:none}
+  .cell.selected:focus{box-shadow:inset 0 0 0 2px rgba(232,146,111,.6)}
+
+  .notes{width:100%;height:100%;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);padding:4px}
+  .notes span{display:flex;align-items:center;justify-content:center;font-size:clamp(7px,2vw,10px);color:var(--dim);font-weight:400}
+
+  .numpad{display:grid;grid-template-columns:repeat(9,1fr);gap:6px;max-width:480px;margin:16px auto 0}
+  .numpad button{
+    font:inherit;font-size:16px;font-weight:700;color:var(--ink);background:var(--panel2);
+    border:1px solid var(--line);border-radius:8px;padding:10px 0;cursor:pointer;position:relative
+  }
+  .numpad button:hover{border-color:var(--orange)}
+  .numpad button.done{opacity:.3}
+  .numpad-row2{display:flex;gap:8px;max-width:480px;margin:10px auto 0;justify-content:center;flex-wrap:wrap}
+
+  .overlay{
+    position:fixed;inset:0;display:none;place-items:center;background:rgba(8,10,16,.86);
+    padding:20px;z-index:20;
+  }
+  .overlay.show{display:grid}
+  .overlay-card{
+    background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px 24px;
+    text-align:center;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.5);position:relative;overflow:visible;
+  }
+  .overlay-card h2{margin:6px 0 4px;color:var(--green);font-size:22px}
+  .overlay-card .time{color:var(--cream);font-size:15px;margin:0 0 4px}
+  .overlay-card .time b{color:var(--orange)}
+  .overlay-card p.blurb{color:var(--dim);font-size:12.5px;margin:0 0 16px}
+  .overlay-actions{display:flex;flex-direction:column;gap:8px}
+  #shareCanvas{width:100%;height:auto;border-radius:8px;border:1px solid var(--line);margin:10px 0}
+
+  .confetti{position:absolute;inset:0;pointer-events:none;overflow:visible}
+  .confetti span{
+    position:absolute;top:44%;left:50%;width:8px;height:8px;border-radius:2px;
+    background:var(--orange);opacity:0;transform:translate(-50%,-50%);
+    animation:pop .9s ease-out forwards;
+  }
+  @keyframes pop{
+    0%{opacity:1;transform:translate(-50%,-50%) scale(.4) rotate(0)}
+    100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(1) rotate(200deg)}
+  }
+
+  details.src{margin-top:26px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:0 16px}
+  details.src summary{cursor:pointer;padding:14px 0;color:var(--orange);font-size:13.5px;list-style:none}
+  details.src summary::-webkit-details-marker{display:none}
+  details.src summary::before{content:"▸ ";color:var(--dim)}
+  details.src[open] summary::before{content:"▾ "}
+  .src p{color:var(--dim);font-size:12.5px;margin:0 0 6px}
+
+  footer{text-align:center;color:var(--dim);font-size:12px;margin-top:28px}
+  footer a{color:var(--purple)}
+
+  .m-sparkle{transform-origin:center;animation:twinkle 2.6s ease-in-out infinite}
+  .m-sparkle-sm{animation-delay:.7s}
+  @keyframes twinkle{0%,100%{opacity:.55;transform:scale(.85) rotate(0)}50%{opacity:1;transform:scale(1.05) rotate(12deg)}}
+  .m-eye{animation:blink 4.5s ease-in-out infinite}
+  @keyframes blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.15)}}
+  .m-tail{transform-origin:82px 78px;animation:swish 2.2s ease-in-out infinite}
+  @keyframes swish{0%,100%{transform:rotate(0)}50%{transform:rotate(-9deg)}}
+  .mascot-win{animation:bob 1.6s ease-in-out infinite}
+  @keyframes bob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-6px) rotate(2deg)}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <linearGradient id="mgrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#eda483"/>
+      <stop offset="1" stop-color="#c96442"/>
+    </linearGradient>
+
+    <!-- reusable paw-print "sparkle": one pad + four toe beans -->
+    <g id="pawprint">
+      <ellipse cx="0" cy="4" rx="5.4" ry="4.4" fill="#f2c9a0"/>
+      <circle cx="-6" cy="-3.5" r="2.1" fill="#f2c9a0"/>
+      <circle cx="-2.2" cy="-6" r="2.1" fill="#f2c9a0"/>
+      <circle cx="2.2" cy="-6" r="2.1" fill="#f2c9a0"/>
+      <circle cx="6" cy="-3.5" r="2.1" fill="#f2c9a0"/>
+    </g>
+
+    <symbol id="mascot-idle" viewBox="0 0 100 100">
+      <use class="m-sparkle" href="#pawprint" transform="translate(80,16) scale(1.15)"/>
+      <use class="m-sparkle m-sparkle-sm" href="#pawprint" transform="translate(18,12) scale(.85)"/>
+      <!-- ears -->
+      <path d="M22 34 L14 12 L38 26 Z" fill="url(#mgrad)"/>
+      <path d="M78 34 L86 12 L62 26 Z" fill="url(#mgrad)"/>
+      <path d="M24 30 L19 16 L34 25 Z" fill="#ffcfae"/>
+      <path d="M76 30 L81 16 L66 25 Z" fill="#ffcfae"/>
+      <!-- head -->
+      <rect x="18" y="30" width="64" height="56" rx="28" fill="url(#mgrad)"/>
+      <!-- stripes -->
+      <path d="M28 34 L24 24" stroke="#a5502f" stroke-width="3" stroke-linecap="round" opacity=".6"/>
+      <path d="M72 34 L76 24" stroke="#a5502f" stroke-width="3" stroke-linecap="round" opacity=".6"/>
+      <ellipse cx="30" cy="66" rx="7" ry="4.5" fill="#ffdca8" opacity=".5"/>
+      <ellipse cx="70" cy="66" rx="7" ry="4.5" fill="#ffdca8" opacity=".5"/>
+      <ellipse class="m-eye" cx="38" cy="57" rx="4.2" ry="5.2" fill="#2a160f"/>
+      <ellipse class="m-eye" cx="62" cy="57" rx="4.2" ry="5.2" fill="#2a160f"/>
+      <path d="M50 62 L46 66 L54 66 Z" fill="#e08fa0"/>
+      <path d="M50 66 Q50 71 44 71" stroke="#2a160f" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <path d="M50 66 Q50 71 56 71" stroke="#2a160f" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+      <!-- whiskers -->
+      <path d="M14 58 L30 60 M13 66 L30 65 M86 58 L70 60 M87 66 L70 65" stroke="#ffdca8" stroke-width="1.6" fill="none" stroke-linecap="round" opacity=".8"/>
+    </symbol>
+
+    <symbol id="mascot-yay" viewBox="0 0 100 100">
+      <use class="m-sparkle" href="#pawprint" transform="translate(84,10) scale(1.25)"/>
+      <use class="m-sparkle m-sparkle-sm" href="#pawprint" transform="translate(12,26) scale(.9)"/>
+      <use class="m-sparkle" href="#pawprint" transform="translate(20,80) scale(1.05)"/>
+      <!-- tail, swishing -->
+      <path class="m-tail" d="M82 78 Q100 68 92 46" stroke="url(#mgrad)" stroke-width="9" fill="none" stroke-linecap="round"/>
+      <!-- raised paws -->
+      <ellipse cx="10" cy="50" rx="6" ry="10" fill="url(#mgrad)" transform="rotate(-30 10 50)"/>
+      <ellipse cx="90" cy="50" rx="6" ry="10" fill="url(#mgrad)" transform="rotate(30 90 50)"/>
+      <!-- ears -->
+      <path d="M22 34 L14 10 L38 26 Z" fill="url(#mgrad)"/>
+      <path d="M78 34 L86 10 L62 26 Z" fill="url(#mgrad)"/>
+      <path d="M24 30 L19 15 L34 25 Z" fill="#ffcfae"/>
+      <path d="M76 30 L81 15 L66 25 Z" fill="#ffcfae"/>
+      <!-- head -->
+      <rect x="18" y="30" width="64" height="56" rx="28" fill="url(#mgrad)"/>
+      <path d="M28 34 L24 24" stroke="#a5502f" stroke-width="3" stroke-linecap="round" opacity=".6"/>
+      <path d="M72 34 L76 24" stroke="#a5502f" stroke-width="3" stroke-linecap="round" opacity=".6"/>
+      <ellipse cx="30" cy="68" rx="7.5" ry="5" fill="#ffdca8" opacity=".6"/>
+      <ellipse cx="70" cy="68" rx="7.5" ry="5" fill="#ffdca8" opacity=".6"/>
+      <path d="M32 55 Q38 47 44 55" stroke="#2a160f" stroke-width="3.4" fill="none" stroke-linecap="round"/>
+      <path d="M56 55 Q62 47 68 55" stroke="#2a160f" stroke-width="3.4" fill="none" stroke-linecap="round"/>
+      <path d="M50 60 L46 64 L54 64 Z" fill="#e08fa0"/>
+      <path d="M38 68 Q50 82 62 68" stroke="#2a160f" stroke-width="3.6" fill="none" stroke-linecap="round"/>
+      <path d="M14 58 L30 60 M13 66 L30 65 M86 58 L70 60 M87 66 L70 65" stroke="#ffdca8" stroke-width="1.6" fill="none" stroke-linecap="round" opacity=".85"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header>
+    <div class="titlebar">
+      <svg class="mascot" width="46" height="46" viewBox="0 0 100 100"><use href="#mascot-idle"/></svg>
+      <h1>meowdoku</h1>
+    </div>
+    <p class="sub">
+      killer sudoku: no starting digits, just <b>cage sums</b>. every dashed
+      region's digits are unique and add up to the number in its corner —
+      combine that with normal sudoku rules and the board cracks open, one
+      smug tabby cheering (or judging) every move.
+    </p>
+  </header>
+
+  <div class="hud">
+    <div class="puzzleid" id="puzzleid">loading…</div>
+    <div class="stats">
+      <span>time <b id="stat-time">0:00</b></span>
+      <span class="conflicts" id="stat-conflicts-wrap">conflicts <b id="stat-conflicts">0</b></span>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" id="btn-notes" title="toggle pencil-mark mode (N)">✏️ notes</button>
+    <button class="btn" id="btn-undo" title="undo (Z)">↶ undo</button>
+    <button class="btn" id="btn-erase" title="erase (Backspace)">🐾 erase</button>
+    <button class="btn" id="btn-new">🧶 new puzzle</button>
+  </div>
+
+  <div class="board" id="board">
+    <svg id="board-svg" viewBox="0 0 900 900" preserveAspectRatio="none"></svg>
+    <div class="cells" id="cells"></div>
+  </div>
+
+  <div class="numpad" id="numpad"></div>
+  <div class="numpad-row2">
+    <span style="color:var(--dim);font-size:11.5px">
+      keys: <b style="color:var(--cream)">1-9</b> fill ·
+      <b style="color:var(--cream)">N</b> notes ·
+      <b style="color:var(--cream)">Z</b> undo ·
+      <b style="color:var(--cream)">arrows</b> move
+    </span>
+  </div>
+
+  <details class="src">
+    <summary>how the puzzle is generated</summary>
+    <p>
+      a full solved grid is built with randomized backtracking, then chopped
+      into 1–4 cell cages whose digits never repeat. a constraint-propagation
+      solver (row/col/box rules + per-cage sum combinations, most-constrained-
+      cell first) checks the cage layout has exactly one solution — if not,
+      it reveals the fewest starting digits needed to force uniqueness, same
+      trick real killer sudoku setters use. today's puzzle is seeded from the
+      UTC date, so it's the same for everyone (and the same tabby judges
+      everyone equally).
+    </p>
+  </details>
+
+  <footer>
+    a killer sudoku with a smug tabby sidekick · built by
+    <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis</a>
+    on <a href="https://atproto.com" target="_blank" rel="noopener">atproto</a>
+    · <a href="https://rateyourbuild.bisks.net/site/meowdoku" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+  </footer>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="overlay-card">
+    <div class="confetti" id="confetti"></div>
+    <svg class="mascot mascot-win" width="100" height="100" viewBox="0 0 100 100"><use href="#mascot-yay"/></svg>
+    <h2>purrfect!</h2>
+    <p class="time">meowdoku <span id="ov-num"></span> in <b id="ov-time"></b></p>
+    <p class="blurb">cage sums, no starting digits, one very smug cat. nice work.</p>
+    <canvas id="shareCanvas" width="1200" height="630"></canvas>
+    <div class="overlay-actions">
+      <a class="btn primary" id="share-bsky" target="_blank" rel="noopener">🦋 share to bluesky</a>
+      <button class="btn" id="share-native" style="display:none">📤 share card</button>
+      <button class="btn" id="share-download">⬇ download card</button>
+      <button class="btn" id="ov-close">keep looking at it</button>
+    </div>
+  </div>
+</div>
+
+<script src="engine.js"></script>
+<script>
+(function(){
+  "use strict";
+  var C = window.Meowdoku;
+
+  var boardValues, notes, fixed, selected, undoStack, notesMode = false;
+  var currentPuzzle, elapsedMs = 0, startTimestamp = 0, timerInterval = null, won = false;
+
+  var cellsEl = document.getElementById('cells');
+  var svgEl = document.getElementById('board-svg');
+  var numpadEl = document.getElementById('numpad');
+  var cellEls = [];
+
+  function idx(r,c){ return r*9+c; }
+
+  // ---------- board svg (grid lines + cage dashes + sums) ----------
+  function buildBoardSvg(puzzle){
+    var U = 100, M = 9, s = '';
+    for(var i=0;i<=9;i++){
+      s += '<line x1="'+(i*U)+'" y1="0" x2="'+(i*U)+'" y2="900" class="grid-line"/>';
+      s += '<line x1="0" y1="'+(i*U)+'" x2="900" y2="'+(i*U)+'" class="grid-line"/>';
+    }
+    for(var j=0;j<=9;j+=3){
+      s += '<line x1="'+(j*U)+'" y1="0" x2="'+(j*U)+'" y2="900" class="box-line"/>';
+      s += '<line x1="0" y1="'+(j*U)+'" x2="900" y2="'+(j*U)+'" class="box-line"/>';
+    }
+    puzzle.cages.forEach(function(cg){
+      var cellSet = {};
+      cg.cells.forEach(function(rc){ cellSet[rc[0]*9+rc[1]] = true; });
+      var hue = Math.round((cg.color * 137.508) % 360);
+      var stroke = 'hsl('+hue+' 70% 62%)';
+      function has(dr,dc,r,c){
+        var nr=r+dr, nc=c+dc;
+        if(nr<0||nr>8||nc<0||nc>8) return false;
+        return !!cellSet[nr*9+nc];
+      }
+      var anchor = cg.cells[0];
+      cg.cells.forEach(function(rc){
+        var r=rc[0], c=rc[1];
+        if(r<anchor[0] || (r===anchor[0] && c<anchor[1])) anchor=rc;
+        var x0=c*U, y0=r*U;
+        if(!has(-1,0,r,c)) s += line(x0+M,y0+M,x0+U-M,y0+M,stroke);
+        if(!has(1,0,r,c)) s += line(x0+M,y0+U-M,x0+U-M,y0+U-M,stroke);
+        if(!has(0,-1,r,c)) s += line(x0+M,y0+M,x0+M,y0+U-M,stroke);
+        if(!has(0,1,r,c)) s += line(x0+U-M,y0+M,x0+U-M,y0+U-M,stroke);
+      });
+      var lx = anchor[1]*U+M+3, ly = anchor[0]*U+M+17;
+      s += '<text x="'+lx+'" y="'+ly+'" class="cage-sum" fill="'+ 'hsl('+hue+' 85% 80%)' +'" ' +
+           'paint-order="stroke" stroke="#0c0e14" stroke-width="3">'+cg.sum+'</text>';
+    });
+    svgEl.innerHTML = s;
+    function line(x1,y1,x2,y2,stroke){
+      return '<line x1="'+x1+'" y1="'+y1+'" x2="'+x2+'" y2="'+y2+'" stroke="'+stroke+'" ' +
+             'stroke-width="3.5" stroke-dasharray="7 6" stroke-linecap="round"/>';
+    }
+  }
+
+  // ---------- cells ----------
+  function buildCells(){
+    cellsEl.innerHTML = '';
+    cellEls = [];
+    for(var r=0;r<9;r++){
+      for(var c=0;c<9;c++){
+        var i = idx(r,c);
+        var btn = document.createElement('button');
+        btn.className = 'cell';
+        btn.type = 'button';
+        btn.dataset.idx = i;
+        btn.dataset.box = String((Math.floor(r/3)+Math.floor(c/3))%2);
+        btn.addEventListener('click', function(e){
+          selected = +e.currentTarget.dataset.idx;
+          renderCells();
+        });
+        cellsEl.appendChild(btn);
+        cellEls.push(btn);
+      }
+    }
+  }
+
+  function buildNumpad(){
+    numpadEl.innerHTML = '';
+    for(var d=1; d<=9; d++){
+      var b = document.createElement('button');
+      b.textContent = d;
+      b.dataset.d = d;
+      b.addEventListener('click', function(e){ inputDigit(+e.currentTarget.dataset.d); });
+      numpadEl.appendChild(b);
+    }
+  }
+
+  var lastValidate = null;
+  function renderCells(){
+    var v = C.validate(currentPuzzle.cages, currentPuzzle.cellCage, boardValues);
+    lastValidate = v;
+    var selR = selected!=null ? Math.floor(selected/9) : -1;
+    var selC = selected!=null ? selected%9 : -1;
+    var selVal = selected!=null ? boardValues[selected] : 0;
+
+    for(var i=0;i<81;i++){
+      var el = cellEls[i], r = Math.floor(i/9), c = i%9;
+      var sameUnit = selected!=null && (r===selR || c===selC || (Math.floor(r/3)===Math.floor(selR/3) && Math.floor(c/3)===Math.floor(selC/3)));
+      el.classList.toggle('fixed', !!fixed[i]);
+      el.classList.toggle('selected', i===selected);
+      el.classList.toggle('peer', selected!=null && i!==selected && sameUnit);
+      el.classList.toggle('same-value', selVal!==0 && boardValues[i]===selVal && i!==selected);
+      el.classList.toggle('conflict', !!v.conflicts[i]);
+      var cageId = currentPuzzle.cellCage[i];
+      var cst = v.cageStatus[cageId];
+      el.classList.toggle('cage-complete', !!(cst && cst.complete));
+
+      if(boardValues[i]){
+        el.innerHTML = '<span class="digit">'+boardValues[i]+'</span>';
+      } else {
+        var ns = notes[i], html = '<div class="notes">';
+        for(var d=1; d<=9; d++) html += '<span>'+(ns.has(d)?d:'')+'</span>';
+        html += '</div>';
+        el.innerHTML = html;
+      }
+    }
+
+    updateNumpad();
+    updateHud(v);
+
+    if(v.win && !won){ onWin(); }
+  }
+
+  function updateNumpad(){
+    var counts = new Array(10).fill(0);
+    boardValues.forEach(function(v){ if(v) counts[v]++; });
+    for(var i=0;i<numpadEl.children.length;i++){
+      var btn = numpadEl.children[i], d = +btn.dataset.d;
+      btn.classList.toggle('done', counts[d]>=9);
+    }
+  }
+
+  function updateHud(v){
+    var count = 0;
+    for(var k in v.conflicts) count++;
+    var el = document.getElementById('stat-conflicts');
+    el.textContent = count;
+    document.getElementById('stat-conflicts-wrap').classList.toggle('on', count>0);
+  }
+
+  // ---------- input ----------
+  function pushUndo(i){
+    undoStack.push({ i: i, value: boardValues[i], notes: new Set(notes[i]) });
+    if(undoStack.length>200) undoStack.shift();
+  }
+
+  function inputDigit(d){
+    if(selected==null || fixed[selected] || won) return;
+    pushUndo(selected);
+    if(notesMode){
+      if(boardValues[selected]) { undoStack.pop(); return; }
+      var s = notes[selected];
+      if(s.has(d)) s.delete(d); else s.add(d);
+    } else {
+      boardValues[selected] = boardValues[selected]===d ? 0 : d;
+      notes[selected] = new Set();
+    }
+    saveProgress();
+    renderCells();
+  }
+
+  function eraseSelected(){
+    if(selected==null || fixed[selected] || won) return;
+    if(!boardValues[selected] && notes[selected].size===0) return;
+    pushUndo(selected);
+    boardValues[selected] = 0;
+    notes[selected] = new Set();
+    saveProgress();
+    renderCells();
+  }
+
+  function undo(){
+    var last = undoStack.pop();
+    if(!last) return;
+    boardValues[last.i] = last.value;
+    notes[last.i] = last.notes;
+    saveProgress();
+    renderCells();
+  }
+
+  function toggleNotesMode(){
+    notesMode = !notesMode;
+    document.getElementById('btn-notes').classList.toggle('toggled', notesMode);
+  }
+
+  document.getElementById('btn-notes').addEventListener('click', toggleNotesMode);
+  document.getElementById('btn-undo').addEventListener('click', undo);
+  document.getElementById('btn-erase').addEventListener('click', eraseSelected);
+  document.getElementById('btn-new').addEventListener('click', function(){
+    var seed = 'practice-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,7);
+    location.hash = 's=' + seed;
+    loadPuzzle(seed);
+  });
+
+  window.addEventListener('keydown', function(e){
+    if(e.metaKey||e.ctrlKey||e.altKey) return;
+    if(/^[1-9]$/.test(e.key)){ if(selected!=null){ inputDigit(+e.key); e.preventDefault(); } return; }
+    if(e.key==='Backspace'||e.key==='Delete'||e.key==='0'){ eraseSelected(); e.preventDefault(); return; }
+    if(e.key==='n'||e.key==='N'){ toggleNotesMode(); e.preventDefault(); return; }
+    if(e.key==='z'||e.key==='Z'||e.key==='u'||e.key==='U'){ undo(); e.preventDefault(); return; }
+    if(selected==null) return;
+    var r=Math.floor(selected/9), c=selected%9;
+    if(e.key==='ArrowUp'){ selected=idx(Math.max(0,r-1),c); renderCells(); e.preventDefault(); }
+    else if(e.key==='ArrowDown'){ selected=idx(Math.min(8,r+1),c); renderCells(); e.preventDefault(); }
+    else if(e.key==='ArrowLeft'){ selected=idx(r,Math.max(0,c-1)); renderCells(); e.preventDefault(); }
+    else if(e.key==='ArrowRight'){ selected=idx(r,Math.min(8,c+1)); renderCells(); e.preventDefault(); }
+  });
+
+  // ---------- timer ----------
+  function tick(){
+    var ms = Date.now() - startTimestamp;
+    document.getElementById('stat-time').textContent = C.formatTime(ms);
+  }
+  function startTimer(){
+    clearInterval(timerInterval);
+    if(won) { tick(); return; }
+    timerInterval = setInterval(function(){
+      elapsedMs = Date.now() - startTimestamp;
+      tick();
+      saveProgress();
+    }, 1000);
+    tick();
+  }
+
+  // ---------- persistence ----------
+  function storageKey(seed){ return 'meowdoku:progress:' + seed; }
+  function saveProgress(done){
+    try{
+      var data = {
+        values: boardValues,
+        notes: notes.map(function(s){ return Array.from(s); }),
+        elapsedMs: won ? elapsedMs : (Date.now()-startTimestamp),
+        done: won || !!done
+      };
+      localStorage.setItem(storageKey(currentPuzzle.seed), JSON.stringify(data));
+    }catch(e){ /* storage unavailable — progress just won't persist */ }
+  }
+  function loadProgress(seed){
+    try{
+      var raw = localStorage.getItem(storageKey(seed));
+      if(!raw) return null;
+      return JSON.parse(raw);
+    }catch(e){ return null; }
+  }
+
+  // ---------- puzzle load ----------
+  function isDailySeed(seed){ return /^meowdoku-\d{4}-\d{2}-\d{2}$/.test(seed); }
+
+  function labelFor(puzzle){
+    if(isDailySeed(puzzle.seed)){
+      var d = new Date();
+      return { text: '#' + C.puzzleNumber(d), long: 'daily #' + C.puzzleNumber(d) + ' · ' + C.utcDateString(d) };
+    }
+    return { text: 'practice', long: 'a shuffled practice puzzle' };
+  }
+
+  function loadPuzzle(seed){
+    document.getElementById('puzzleid').textContent = 'herding cages…';
+    won = false;
+    document.getElementById('overlay').classList.remove('show');
+    setTimeout(function(){
+      currentPuzzle = C.generatePuzzle(seed);
+      boardValues = new Array(81).fill(0);
+      notes = Array.from({length:81}, function(){ return new Set(); });
+      fixed = new Array(81).fill(false);
+      currentPuzzle.givens.forEach(function(g){
+        var i = idx(g.r, g.c);
+        boardValues[i] = g.value;
+        fixed[i] = true;
+      });
+      selected = null;
+      undoStack = [];
+      elapsedMs = 0;
+      startTimestamp = Date.now();
+
+      var saved = loadProgress(seed);
+      if(saved && saved.values && saved.values.length===81){
+        boardValues = saved.values;
+        notes = (saved.notes||[]).map(function(arr){ return new Set(arr); });
+        while(notes.length<81) notes.push(new Set());
+        elapsedMs = saved.elapsedMs || 0;
+        won = !!saved.done;
+      }
+      startTimestamp = Date.now() - elapsedMs;
+
+      var lab = labelFor(currentPuzzle);
+      document.getElementById('puzzleid').innerHTML = 'meowdoku <b>' + lab.text + '</b>';
+
+      buildBoardSvg(currentPuzzle);
+      renderCells();
+      startTimer();
+      if(won){ showWinOverlay(true); }
+    }, 20);
+  }
+
+  // ---------- win + share ----------
+  function onWin(){
+    won = true;
+    clearInterval(timerInterval);
+    saveProgress(true);
+    showWinOverlay(false);
+  }
+
+  function popConfetti(){
+    var wrap = document.getElementById('confetti');
+    wrap.innerHTML = '';
+    var colors = ['#e8926f','#f2c9a0','#3ddc84','#b18cff','#ffdca8'];
+    for(var i=0;i<18;i++){
+      var s = document.createElement('span');
+      var ang = Math.random()*Math.PI*2, dist = 60+Math.random()*90;
+      s.style.setProperty('--dx', (Math.cos(ang)*dist)+'px');
+      s.style.setProperty('--dy', (Math.sin(ang)*dist)+'px');
+      s.style.background = colors[i%colors.length];
+      s.style.animationDelay = (Math.random()*0.15)+'s';
+      wrap.appendChild(s);
+    }
+  }
+
+  function buildShareCard(timeStr, label){
+    var canvas = document.getElementById('shareCanvas');
+    var ctx = canvas.getContext('2d');
+    var W = canvas.width, H = canvas.height;
+
+    var bg = ctx.createRadialGradient(W*0.5,-40,80,W*0.5,H*0.5,900);
+    bg.addColorStop(0,'#1b1712'); bg.addColorStop(1,'#0c0e14');
+    ctx.fillStyle = bg; ctx.fillRect(0,0,W,H);
+
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#e8926f';
+    ctx.font = '700 62px ui-monospace, monospace';
+    ctx.fillText('meowdoku', 60, 110);
+    ctx.fillStyle = '#8b93a7';
+    ctx.font = '20px ui-monospace, monospace';
+    ctx.fillText('killer sudoku with a smug tabby sidekick', 60, 145);
+
+    ctx.fillStyle = '#f0eee6';
+    ctx.font = '700 40px ui-monospace, monospace';
+    ctx.fillText(label, 60, 230);
+    ctx.fillStyle = '#3ddc84';
+    ctx.font = '700 52px ui-monospace, monospace';
+    ctx.fillText('solved in ' + timeStr, 60, 292);
+
+    // mini board preview, right side
+    var puzzle = currentPuzzle;
+    var boardPx = 330, ox = W-boardPx-70, oy = (H-boardPx)/2+20, cell = boardPx/9;
+    ctx.fillStyle = '#12141c';
+    roundRect(ctx, ox-16, oy-16, boardPx+32, boardPx+32, 14); ctx.fill();
+    for(var i=0;i<81;i++){
+      var r = Math.floor(i/9), c = i%9;
+      var cageColor = puzzle.cages[puzzle.cellCage[i]].color;
+      var hue = Math.round((cageColor * 137.508) % 360);
+      ctx.fillStyle = 'hsla(' + hue + ',60%,55%,0.16)';
+      ctx.fillRect(ox+c*cell, oy+r*cell, cell, cell);
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,.15)'; ctx.lineWidth = 1;
+    for(var g=0; g<=9; g++){
+      ctx.beginPath(); ctx.moveTo(ox+g*cell, oy); ctx.lineTo(ox+g*cell, oy+boardPx); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ox, oy+g*cell); ctx.lineTo(ox+boardPx, oy+g*cell); ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(232,146,111,.7)'; ctx.lineWidth = 3;
+    for(var g2=0; g2<=9; g2+=3){
+      ctx.beginPath(); ctx.moveTo(ox+g2*cell, oy); ctx.lineTo(ox+g2*cell, oy+boardPx); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(ox, oy+g2*cell); ctx.lineTo(ox+boardPx, oy+g2*cell); ctx.stroke();
+    }
+    ctx.fillStyle = '#f0eee6';
+    ctx.font = '600 15px ui-monospace, monospace';
+    for(var i2=0;i2<81;i2++){
+      var v = puzzle.solution[i2];
+      var r2 = Math.floor(i2/9), c2 = i2%9;
+      ctx.fillText(String(v), ox+c2*cell+cell/2-4, oy+r2*cell+cell/2+5);
+    }
+
+    ctx.fillStyle = '#5ce1c6';
+    ctx.font = '18px ui-monospace, monospace';
+    ctx.fillText('meowdoku.bisks.net', 60, H-50);
+  }
+  function roundRect(ctx,x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+
+  var lastShareText = '';
+  function showWinOverlay(silent){
+    var lab = labelFor(currentPuzzle);
+    var timeStr = C.formatTime(elapsedMs);
+    document.getElementById('ov-num').textContent = lab.text;
+    document.getElementById('ov-time').textContent = timeStr;
+
+    var shareUrl = location.origin + location.pathname + '#s=' + encodeURIComponent(currentPuzzle.seed);
+    lastShareText = 'solved meowdoku ' + lab.text + ' in ' + timeStr + ' 🐾🧩\n\n' + shareUrl;
+    document.getElementById('share-bsky').href = 'https://bsky.app/intent/compose?text=' + encodeURIComponent(lastShareText);
+
+    buildShareCard(timeStr, 'meowdoku ' + lab.text);
+    document.getElementById('overlay').classList.add('show');
+    if(!silent) popConfetti();
+  }
+
+  document.getElementById('ov-close').addEventListener('click', function(){
+    document.getElementById('overlay').classList.remove('show');
+  });
+  document.getElementById('share-download').addEventListener('click', function(){
+    var canvas = document.getElementById('shareCanvas');
+    canvas.toBlob(function(blob){
+      if(!blob) return;
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'meowdoku.png';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function(){ URL.revokeObjectURL(a.href); }, 2000);
+    }, 'image/png');
+  });
+  function canShareFiles(){
+    if(!navigator.share || !navigator.canShare) return false;
+    try{
+      var probe = new File([''],'probe.png',{type:'image/png'});
+      return navigator.canShare({files:[probe]});
+    }catch(e){ return false; }
+  }
+  if(canShareFiles()){
+    var nb = document.getElementById('share-native');
+    nb.style.display = '';
+    nb.addEventListener('click', function(){
+      document.getElementById('shareCanvas').toBlob(function(blob){
+        if(!blob) return;
+        var file = new File([blob], 'meowdoku.png', {type:'image/png'});
+        navigator.share({ files:[file], text:lastShareText, title:'meowdoku' }).catch(function(){});
+      }, 'image/png');
+    });
+  }
+
+  // ---------- boot ----------
+  buildCells();
+  buildNumpad();
+
+  var hashSeed = (location.hash.match(/^#s=(.+)$/)||[])[1];
+  var initialSeed = hashSeed ? decodeURIComponent(hashSeed) : C.dailySeed(new Date());
+  loadPuzzle(initialSeed);
+})();
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
