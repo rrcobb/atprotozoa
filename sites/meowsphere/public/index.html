@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>meowsphere — a live sphere of cats</title>
+    <meta
+      name="description"
+      content="Every 'meow' and cat emoji on the Bluesky firehose, right now, floating as a bubble on a slow-spinning sphere. Drag to spin it yourself, click a bubble to read the post."
+    />
+    <meta property="og:title" content="meowsphere" />
+    <meta
+      property="og:description"
+      content="A live sphere of cats: every meow and cat post on the Bluesky firehose right now, orbiting a slow-spinning globe you can drag around."
+    />
+    <meta property="og:image" content="https://meowsphere.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="meowsphere: a sphere made of small glowing cat/meow bubbles against a dark background."
+    />
+    <meta property="og:url" content="https://meowsphere.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="meowsphere — a live sphere of cats" />
+    <meta
+      name="twitter:description"
+      content="Every meow on the Bluesky firehose right now, floating as a bubble on a slow-spinning globe. Drag it, click a bubble to read the post."
+    />
+    <meta name="twitter:image" content="https://meowsphere.bisks.net/og.png" />
+    <!-- bisks.net house style, dark variant: one readable mono, hairline
+         separators, a warm amber accent for "cat" and teal for "live." -->
+    <style>
+      :root {
+        --bg: #08090d;
+        --panel: #10121b;
+        --ink: #e8ecf3;
+        --muted: #808daa;
+        --faint: rgba(232, 236, 243, 0.12);
+        --accent: #6ee7c8;
+        --cat: #ffb86b;
+        --cat2: #ff8fb3;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+      header {
+        display: flex; align-items: baseline; justify-content: space-between;
+        gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;
+      }
+      header h1 { font-size: 1.25rem; font-weight: 700; margin: 0; letter-spacing: 0.01em; }
+      header h1 a { color: inherit; text-decoration: none; }
+      header h1 span.m { color: var(--cat); }
+      .status {
+        font-size: 0.75rem; color: var(--muted);
+        display: flex; align-items: center; gap: 0.4rem;
+      }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: #333; transition: background 0.3s; }
+      .dot.live { background: var(--accent); animation: pulse 2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+      .intro {
+        color: var(--muted); font-size: 0.9rem; line-height: 1.7;
+        margin: 0 0 1.5rem; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro em { color: var(--ink); font-style: normal; }
+      .intro a { color: var(--accent); text-decoration: none; }
+      .intro a:hover { text-decoration: underline; }
+
+      /* the sphere */
+      .stagewrap {
+        position: relative;
+        margin: 0 0 1rem;
+        border: 1px solid var(--faint);
+        border-radius: 14px;
+        background: radial-gradient(ellipse at 50% 38%, #14182a 0%, var(--bg) 72%);
+        overflow: hidden;
+      }
+      #stage {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 1 / 1;
+        max-height: 68vh;
+        cursor: grab;
+        touch-action: none;
+        user-select: none;
+      }
+      #stage.dragging { cursor: grabbing; }
+      .bubble {
+        position: absolute;
+        left: 0; top: 0;
+        transform: translate(-50%, -50%);
+        white-space: nowrap;
+        padding: 0.28rem 0.6rem;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 184, 107, 0.35);
+        background: rgba(16, 18, 27, 0.82);
+        color: var(--ink);
+        font-size: 0.78rem;
+        pointer-events: auto;
+        cursor: pointer;
+        will-change: transform, opacity, left, top;
+        transition: border-color 0.15s;
+      }
+      .bubble:hover { border-color: var(--cat); }
+      .bubble .paw { margin-right: 0.3em; }
+      .bubble.empty { display: none; }
+      .hint {
+        position: absolute; left: 0.75rem; bottom: 0.6rem;
+        font-size: 0.7rem; color: var(--muted); pointer-events: none;
+        opacity: 0.75;
+      }
+      .emptystate {
+        position: absolute; inset: 0; display: flex; align-items: center;
+        justify-content: center; color: var(--muted); font-size: 0.85rem;
+        text-align: center; padding: 2rem; pointer-events: none;
+      }
+      .emptystate.gone { display: none; }
+
+      .controls {
+        display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap;
+        margin: 0.75rem 0 1.75rem; font-size: 0.78rem; color: var(--muted);
+      }
+      .controls button {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--ink);
+        background: none; border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.25rem 0.6rem; cursor: pointer; line-height: 1.3;
+        transition: border-color 0.15s, color 0.15s;
+      }
+      .controls button:hover { border-color: var(--muted); }
+      .controls button.on { border-color: var(--cat); color: var(--cat); }
+      .spacer { flex: 1 1 auto; }
+      .stats b { color: var(--ink); }
+
+      /* clicked-post detail panel */
+      .detail {
+        border: 1px solid var(--faint); border-radius: 10px; background: var(--panel);
+        padding: 0.9rem 1rem; margin: 0 0 1.75rem; display: none;
+      }
+      .detail.open { display: block; }
+      .dhead { display: flex; align-items: center; gap: 0.5rem; margin: 0 0 0.5rem; font-size: 0.8rem; }
+      .dhead .avatar {
+        width: 20px; height: 20px; border-radius: 50%; flex: none;
+        background: var(--faint) center/cover no-repeat; border: 1px solid var(--faint);
+      }
+      .dhead .handle { color: var(--muted); text-decoration: none; word-break: break-all; }
+      .dhead .handle:hover { color: var(--accent); text-decoration: underline; }
+      .dhead .close {
+        margin-left: auto; background: none; border: none; color: var(--muted);
+        cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 0.2rem;
+      }
+      .dhead .close:hover { color: var(--cat2); }
+      .detail .body { margin: 0 0 0.5rem; color: var(--ink); line-height: 1.6; word-break: break-word; font-size: 0.92rem; white-space: pre-wrap; }
+      .detail a.perma { font-size: 0.78rem; color: var(--accent); text-decoration: none; }
+      .detail a.perma:hover { text-decoration: underline; }
+
+      section { margin: 0 0 1.75rem; }
+
+      /* sharing */
+      .share {
+        display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+        margin: 0 0 1.75rem; font-size: 0.8rem;
+      }
+      #shareLink {
+        color: var(--bg); background: var(--cat); text-decoration: none;
+        font-weight: 600; border-radius: 6px; padding: 0.45rem 0.9rem;
+      }
+      #shareLink:hover { opacity: 0.85; }
+
+      footer { margin-top: 2rem; color: var(--muted); font-size: 0.78rem; }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">meow<span class="m">sphere</span></a></h1>
+        <div class="status">
+          <span class="dot" id="dot"></span>
+          <span id="statusText">not connected</span>
+        </div>
+      </header>
+
+      <p class="intro">
+        A live sphere of cats: this connects straight to the Bluesky firehose in your browser
+        and watches for anyone posting <em>"meow"</em> or a cat emoji, right now. Every match
+        gets a bubble on the globe below — drag it to spin it yourself, or let it turn on its
+        own. Click a bubble to read the actual post. Nothing is stored anywhere; it's just
+        what's flying past this second.
+      </p>
+
+      <div class="stagewrap">
+        <div id="stage">
+          <div class="emptystate" id="emptyState">waiting for the first meow…</div>
+        </div>
+        <div class="hint">drag to spin</div>
+      </div>
+
+      <div class="controls">
+        <button id="pauseBtn" title="freeze new arrivals (the stream keeps flowing underneath)">pause arrivals</button>
+        <button id="spinBtn" class="on" title="toggle the slow automatic spin">auto-spin</button>
+        <span class="spacer"></span>
+        <span class="stats" id="statsLine">seen <b>0</b> meows · <b>0</b> on the sphere</span>
+      </div>
+
+      <div class="detail" id="detail">
+        <div class="dhead">
+          <span class="avatar" id="dAvatar"></span>
+          <a class="handle" id="dHandle" href="#" target="_blank" rel="noopener">resolving…</a>
+          <button class="close" id="dClose" type="button">×</button>
+        </div>
+        <p class="body" id="dBody"></p>
+        <a class="perma" id="dPerma" href="#" target="_blank" rel="noopener">view on bluesky →</a>
+      </div>
+
+      <div class="share">
+        <a id="shareLink" href="#" target="_blank" rel="noopener">share the meowsphere on bluesky</a>
+      </div>
+
+      <footer>
+        firehose via <a href="https://github.com/bluesky-social/jetstream">jetstream</a>
+        · <a href="https://rateyourbuild.bisks.net/site/meowsphere">rate this on rateyourbuild →</a>
+        · a <a href="https://bisks.net">bisks.net</a> experiment
+      </footer>
+    </div>
+
+    <script>
+      // ---- config --------------------------------------------------------
+      const JETSTREAM =
+        "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+      const SLOTS = 90; // fixed points distributed on the sphere; new meows fill/recycle them
+      const R_FACTOR = 0.42; // sphere radius as a fraction of stage size
+      const FOCAL_FACTOR = 1.15; // perspective focal length as a fraction of stage size
+      const AUTO_SPIN_SPEED = 0.09; // radians/sec
+      const POP_MS = 450; // freshly-placed bubble "pop" duration
+
+      // ---- dom -------------------------------------------------------------
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const stage = document.getElementById("stage");
+      const emptyState = document.getElementById("emptyState");
+      const pauseBtn = document.getElementById("pauseBtn");
+      const spinBtn = document.getElementById("spinBtn");
+      const statsLine = document.getElementById("statsLine");
+      const shareLink = document.getElementById("shareLink");
+      const detail = document.getElementById("detail");
+      const dAvatar = document.getElementById("dAvatar");
+      const dHandle = document.getElementById("dHandle");
+      const dBody = document.getElementById("dBody");
+      const dPerma = document.getElementById("dPerma");
+      const dClose = document.getElementById("dClose");
+
+      // ---- misc helpers ------------------------------------------------------
+      function escapeHtml(s) {
+        return String(s).replace(
+          /[&<>"']/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      }
+      function postUrl(did, rkey) {
+        return `https://bsky.app/profile/${did}/post/${rkey}`;
+      }
+      function profileUrl(did) {
+        return `https://bsky.app/profile/${did}`;
+      }
+
+      const PROFILE_API = "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=";
+      const profileCache = new Map();
+      function fetchProfile(did) {
+        let p = profileCache.get(did);
+        if (p) return p;
+        p = fetch(PROFILE_API + encodeURIComponent(did))
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => (d && d.handle ? { handle: d.handle, avatar: d.avatar } : null))
+          .catch(() => null);
+        profileCache.set(did, p);
+        return p;
+      }
+
+      // ---- cat/meow detection -------------------------------------------------
+      const CAT_EMOJI = /🐱|🐈‍⬛|🐈|😺|😸|😹|😻|😼|😽|🙀|😿|😾/u;
+      function isMeowy(text) {
+        if (/meow/i.test(text)) return { icon: "🐈" };
+        const m = text.match(CAT_EMOJI);
+        if (m) return { icon: m[0] };
+        return null;
+      }
+
+      // Cheap gate for obviously automated / spammy posts, same idea as
+      // sites/semanticmute — not exhaustive, just trims the loudest bot noise.
+      function looksLikeSpam(text) {
+        if (/#nowplaying|listen live|onelink\.to/i.test(text)) return true;
+        if (/shop now|buy now|↗️ ?buy|amzn\.to/i.test(text)) return true;
+        const hashtags = (text.match(/#/g) || []).length;
+        if (hashtags >= 4) return true;
+        return false;
+      }
+
+      const AUTHOR_COOLDOWN_MS = 15000;
+      const lastShownByAuthor = new Map();
+      function authorOnCooldown(did, now) {
+        const prev = lastShownByAuthor.get(did);
+        return prev != null && now - prev < AUTHOR_COOLDOWN_MS;
+      }
+
+      // ---- sphere geometry ------------------------------------------------------
+      // Fibonacci-sphere distribution: evenly spread SLOTS unit points over the
+      // sphere surface (same distribution as sites/spaceghost's ghostplanet.js).
+      const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+      const points = [];
+      for (let i = 0; i < SLOTS; i++) {
+        const y0 = 1 - (i / (SLOTS - 1)) * 2;
+        const rAtY = Math.sqrt(Math.max(0, 1 - y0 * y0));
+        const theta = GOLDEN_ANGLE * i;
+        points.push({ x0: Math.cos(theta) * rAtY, y0, z0: Math.sin(theta) * rAtY });
+      }
+      // slot[i] = null | { text, did, rkey, icon, el, spawnAt }
+      const slots = new Array(SLOTS).fill(null);
+      let nextSlot = 0;
+      let filledCount = 0;
+
+      function bubbleEl(i) {
+        let el = points[i].el;
+        if (!el) {
+          el = document.createElement("div");
+          el.className = "bubble empty";
+          el.addEventListener("click", () => {
+            const s = slots[i];
+            if (s) openDetail(s);
+          });
+          stage.appendChild(el);
+          points[i].el = el;
+        }
+        return el;
+      }
+
+      function placeMeow(item) {
+        const i = nextSlot;
+        nextSlot = (nextSlot + 1) % SLOTS;
+        if (!slots[i]) filledCount++;
+        item.spawnAt = performance.now();
+        slots[i] = item;
+        const el = bubbleEl(i);
+        el.classList.remove("empty");
+        el.innerHTML =
+          `<span class="paw">${item.icon}</span>` + escapeHtml(item.preview);
+        emptyState.classList.toggle("gone", filledCount > 0);
+      }
+
+      function openDetail(item) {
+        detail.classList.add("open");
+        dBody.textContent = item.text;
+        dPerma.href = postUrl(item.did, item.rkey);
+        dHandle.href = profileUrl(item.did);
+        dHandle.textContent = "resolving…";
+        dAvatar.style.backgroundImage = "";
+        fetchProfile(item.did).then((prof) => {
+          if (!prof) {
+            dHandle.textContent = item.did.slice(0, 20) + "…";
+            return;
+          }
+          dHandle.textContent = "@" + prof.handle;
+          dHandle.href = "https://bsky.app/profile/" + prof.handle;
+          if (prof.avatar) dAvatar.style.backgroundImage = `url("${prof.avatar}")`;
+        });
+      }
+      dClose.addEventListener("click", () => detail.classList.remove("open"));
+
+      // ---- rotation state (auto-spin + drag) -------------------------------------
+      let rotY = 0.3;
+      let rotX = -0.25;
+      let autoSpin = true;
+      let dragging = false;
+      let lastPointer = null;
+      let lastFrameT = null;
+
+      spinBtn.addEventListener("click", () => {
+        autoSpin = !autoSpin;
+        spinBtn.classList.toggle("on", autoSpin);
+      });
+
+      function pointerPos(e) {
+        return e.touches && e.touches[0]
+          ? { x: e.touches[0].clientX, y: e.touches[0].clientY }
+          : { x: e.clientX, y: e.clientY };
+      }
+      function dragStart(e) {
+        dragging = true;
+        stage.classList.add("dragging");
+        lastPointer = pointerPos(e);
+      }
+      function dragMove(e) {
+        if (!dragging) return;
+        const p = pointerPos(e);
+        const dx = p.x - lastPointer.x;
+        const dy = p.y - lastPointer.y;
+        lastPointer = p;
+        rotY += dx * 0.008;
+        rotX = Math.max(-1.35, Math.min(1.35, rotX - dy * 0.008));
+        e.preventDefault();
+      }
+      function dragEnd() {
+        dragging = false;
+        stage.classList.remove("dragging");
+      }
+      stage.addEventListener("pointerdown", dragStart);
+      window.addEventListener("pointermove", dragMove, { passive: false });
+      window.addEventListener("pointerup", dragEnd);
+      stage.addEventListener("touchstart", dragStart, { passive: true });
+      window.addEventListener("touchmove", dragMove, { passive: false });
+      window.addEventListener("touchend", dragEnd);
+
+      // ---- render loop ------------------------------------------------------------
+      function frame(t) {
+        requestAnimationFrame(frame);
+        const dt = lastFrameT == null ? 0 : (t - lastFrameT) / 1000;
+        lastFrameT = t;
+        if (autoSpin && !dragging) rotY += AUTO_SPIN_SPEED * dt;
+
+        const cx = stage.clientWidth / 2;
+        const cy = stage.clientHeight / 2;
+        const size = Math.min(stage.clientWidth, stage.clientHeight) || stage.clientWidth;
+        const Rr = size * R_FACTOR;
+        const focal = size * FOCAL_FACTOR;
+
+        const cosY = Math.cos(rotY), sinY = Math.sin(rotY);
+        const cosX = Math.cos(rotX), sinX = Math.sin(rotX);
+
+        for (let i = 0; i < SLOTS; i++) {
+          const item = slots[i];
+          if (!item) continue;
+          const p = points[i];
+          // rotate around Y, then around X
+          const x1 = p.x0 * cosY + p.z0 * sinY;
+          const z1 = -p.x0 * sinY + p.z0 * cosY;
+          const y1 = p.y0;
+          const y2 = y1 * cosX - z1 * sinX;
+          const z2 = y1 * sinX + z1 * cosX;
+          const x2 = x1;
+
+          const scale = focal / (focal + z2 * Rr);
+          const sx = cx + x2 * Rr * scale;
+          const sy = cy + y2 * Rr * scale;
+          const depth = (z2 + 1) / 2; // 0 (far) .. 1 (near)
+          const opacity = 0.22 + depth * 0.78;
+
+          let pop = 1;
+          const age = t - item.spawnAt;
+          if (age < POP_MS) pop = 1 + (1 - age / POP_MS) * 0.7;
+
+          const el = item.el;
+          el.style.left = sx.toFixed(1) + "px";
+          el.style.top = sy.toFixed(1) + "px";
+          el.style.transform = `translate(-50%, -50%) scale(${(scale * pop).toFixed(3)})`;
+          el.style.opacity = opacity.toFixed(2);
+          el.style.zIndex = Math.round(depth * 1000);
+        }
+      }
+      requestAnimationFrame(frame);
+
+      // ---- stats & share ------------------------------------------------------
+      let meowsSeen = 0;
+      function updateStats() {
+        statsLine.innerHTML =
+          `seen <b>${meowsSeen}</b> meows · <b>${filledCount}</b> on the sphere`;
+        shareLink.href =
+          "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText());
+      }
+      function buildShareText() {
+        return (
+          `a live sphere of cats — ${meowsSeen} "meow"s and counting, straight off the ` +
+          `Bluesky firehose, floating on a globe you can spin yourself\n\n` +
+          `meowsphere.bisks.net`
+        );
+      }
+      updateStats();
+
+      // ---- arrivals throttle ---------------------------------------------------
+      let paused = false;
+      pauseBtn.addEventListener("click", () => {
+        paused = !paused;
+        pauseBtn.textContent = paused ? "resume arrivals" : "pause arrivals";
+        pauseBtn.classList.toggle("on", paused);
+      });
+
+      // ---- firehose ------------------------------------------------------------
+      function handlePost(evt) {
+        const commit = evt.commit;
+        if (!commit || commit.operation !== "create") return;
+        const rec = commit.record;
+        if (!rec || typeof rec.text !== "string") return;
+        const text = rec.text.trim();
+        if (!text || looksLikeSpam(text)) return;
+        const match = isMeowy(text);
+        if (!match) return;
+
+        meowsSeen++;
+        if (meowsSeen % 3 === 0) updateStats();
+
+        if (paused) return;
+        const now = Date.now();
+        if (authorOnCooldown(evt.did, now)) return;
+        lastShownByAuthor.set(evt.did, now);
+
+        placeMeow({
+          text,
+          did: evt.did,
+          rkey: commit.rkey,
+          icon: match.icon,
+          preview: text.length > 30 ? text.slice(0, 30).trim() + "…" : text,
+        });
+        updateStats();
+      }
+
+      // ---- websocket -------------------------------------------------------------
+      let ws = null;
+      let reconnectDelay = 1000;
+      let connected = false;
+
+      function setStatus(msg, live) {
+        statusText.textContent = msg;
+        dot.classList.toggle("live", !!live);
+      }
+
+      function connect() {
+        setStatus("connecting…", false);
+        ws = new WebSocket(JETSTREAM);
+        ws.onopen = () => {
+          reconnectDelay = 1000;
+          connected = true;
+          setStatus("live", true);
+        };
+        ws.onmessage = (m) => {
+          let evt;
+          try {
+            evt = JSON.parse(m.data);
+          } catch {
+            return;
+          }
+          if (evt.kind === "commit") handlePost(evt);
+        };
+        ws.onclose = () => {
+          setStatus("reconnecting…", false);
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        };
+        ws.onerror = () => {
+          try {
+            ws.close();
+          } catch {}
+        };
+      }
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+        } else if (connected && (!ws || ws.readyState > WebSocket.OPEN)) {
+          connect();
+        }
+      });
+
+      connect();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
