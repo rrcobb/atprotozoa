@@ -1413,7 +1413,7 @@
         const boxKey = replyBoxKeyFor(subject, reviewerDid, "");
         const replyOpen = openReplyBoxes.has(boxKey);
         const err = voteError?.rk === rk ? voteError.message : replyError?.rk === boxKey ? replyError.message : "";
-        const fixes = entry ? bugFixesFor(subject, entry.createdAt ?? entry.ratedAt) : [];
+        const fixes = entry ? bugFixesFor(subject, entry.createdAt ?? entry.ratedAt, entry.bugged) : [];
 
         return `
           <div class="engagement" data-subject="${esc(subject)}" data-reviewer="${esc(reviewerDid)}" data-parent="" data-target="${esc(reviewerDid)}">
@@ -1462,7 +1462,7 @@
           : site
             ? `<a class="review-site" href="/site/${esc(site.name)}">${esc(site.title)}</a><a class="pill" href="/genre/${esc(site.genre)}">${esc(site.genre)}</a>`
             : `<span class="review-site">${esc(entry.subject)}</span>`;
-        const fixes = bugFixesFor(entry.subject, entry.createdAt ?? entry.ratedAt);
+        const fixes = bugFixesFor(entry.subject, entry.createdAt ?? entry.ratedAt, entry.bugged);
         return `<div class="review-row">
           <div class="review-row-head">
             ${siteHtml}
@@ -2350,19 +2350,26 @@
       // never entry.ratedAt alone once createdAt exists, since that's bumped
       // on every edit and would make an edited review look younger than
       // fixes it actually predates), oldest first. Used for the "✅ fixed"
-      // badge(s) and the 🤖 in-thread reply bubble(s) on ANY review of that
-      // subject — not just ones flagged "bugged". @angussoftware.dev asked
-      // (2026-08-29, "backfill the replies for that 5 fixes") for the 5
-      // fixes already logged by that point to show up as real replies on
-      // rateyourbuild itself; none of the site's own reviews happen to have
-      // the bugged box checked, so gating this on `entry.bugged` (the
-      // original shape) would have backfilled nothing. This returns every
-      // match, not just the latest, so a review that predates several fixes
-      // shows all of them instead of silently dropping all but the newest.
-      // (The private 🔔 alert stays bugged-only — see
-      // subscription-index.js's checkBugFixes — since that ask was
-      // explicitly "if I leave review as bugged".)
-      function bugFixesFor(subject, since) {
+      // badge(s) and the 🤖 in-thread reply bubble(s).
+      //
+      // Gated on `bugged` (the review's own bugged flag) since 2026-08-30:
+      // @angussoftware.dev asked to reply only to the person who requested
+      // the bug fix, not everyone who reviewed the page, and to clean up the
+      // bot bubbles this had already left on non-bugged reviews. This
+      // briefly (2026-08-29 through 2026-08-30) matched ANY review of the
+      // subject, bugged or not, because the first 5-fix backfill predated
+      // this site's own reviews having the bugged box checked and a
+      // bugged-only gate would have backfilled nothing — but that was a
+      // one-off bootstrapping problem, not the right steady-state rule. Since
+      // the reply/badge is computed at render time from bugfixes.json plus
+      // each review's own bugged flag (nothing persisted per-reply), gating
+      // here is also the cleanup: a non-bugged review simply stops rendering
+      // any bot commentary, no separate records to delete. Still returns
+      // every matching fix, not just the latest, so a bugged review that
+      // predates several fixes shows all of them instead of dropping all but
+      // the newest.
+      function bugFixesFor(subject, since, bugged) {
+        if (!bugged) return [];
         return bugfixes
           .filter((fix) => fix.subject === subject && Number.isFinite(Date.parse(fix.fixedAt)) && Date.parse(fix.fixedAt) > since)
           .sort((a, b) => Date.parse(a.fixedAt) - Date.parse(b.fixedAt));
