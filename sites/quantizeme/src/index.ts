@@ -115,6 +115,16 @@ function extractClaims(posts: { text: string }[]): Claim[] {
   return claims;
 }
 
+// Same fix as public/lib/failuremodes.js: reversal/whiplash counted once per
+// topic (not once per same-topic pair — that scaled combinatorially with how
+// much someone posted, not with how often they actually flipped), and the
+// count-based sins are a rate per 100 claims rather than a raw count, so
+// score reflects failure rate instead of post volume.
+function rateOf(count: number, base: number): number {
+  if (!base) return 0;
+  return (count / base) * 100;
+}
+
 function scoreClaims(claims: Claim[]): { score: number; top: string | null } {
   const byTopic = new Map<string, number[]>();
   claims.forEach((c, i) => {
@@ -127,13 +137,16 @@ function scoreClaims(claims: Claim[]): { score: number; top: string | null } {
   let reversals = 0, whiplash = 0;
   for (const [, idxs] of byTopic) {
     if (idxs.length < 2) continue;
-    for (let a = 0; a < idxs.length; a++) {
-      for (let b = a + 1; b < idxs.length; b++) {
+    let hasReversal = false, hasWhiplash = false;
+    for (let a = 0; a < idxs.length && !(hasReversal && hasWhiplash); a++) {
+      for (let b = a + 1; b < idxs.length && !(hasReversal && hasWhiplash); b++) {
         const c1 = claims[idxs[a]], c2 = claims[idxs[b]];
-        if (c1.polarity && c2.polarity && c1.polarity !== c2.polarity) reversals++;
-        else if (c1.absolute && c2.absolute && c1.absolute !== c2.absolute) whiplash++;
+        if (!hasReversal && c1.polarity && c2.polarity && c1.polarity !== c2.polarity) hasReversal = true;
+        else if (!hasWhiplash && c1.absolute && c2.absolute && c1.absolute !== c2.absolute) hasWhiplash = true;
       }
     }
+    if (hasReversal) reversals++;
+    if (hasWhiplash) whiplash++;
   }
 
   const hedgeCount = claims.filter((c) => c.hedge).length;
@@ -142,20 +155,20 @@ function scoreClaims(claims: Claim[]): { score: number; top: string | null } {
   const strawmanCount = claims.filter((c) => c.strawman).length;
   const doomCount = claims.filter((c) => c.doom).length;
 
-  const hedgeFog = claims.length >= 6 && hedgeCount / claims.length >= 0.22 && hedgeCount >= 3 ? hedgeCount : 0;
-  const mainCharacter = certaintyCount >= 4 ? certaintyCount : 0;
-  const whatabout = whataboutCount >= 2 ? whataboutCount : 0;
-  const strawman = strawmanCount >= 2 ? strawmanCount : 0;
-  const doom = doomCount >= 2 ? doomCount : 0;
+  const hedgeFog = claims.length >= 6 && hedgeCount / claims.length >= 0.22 && hedgeCount >= 3 ? rateOf(hedgeCount, claims.length) : 0;
+  const mainCharacter = certaintyCount >= 4 ? rateOf(certaintyCount, claims.length) : 0;
+  const whatabout = whataboutCount >= 2 ? rateOf(whataboutCount, claims.length) : 0;
+  const strawman = strawmanCount >= 2 ? rateOf(strawmanCount, claims.length) : 0;
+  const doom = doomCount >= 2 ? rateOf(doomCount, claims.length) : 0;
 
   const weighted: [string, number][] = [
     ["Reversal", reversals * 3],
     ["Certainty Whiplash", whiplash * 2],
-    ["Hedge Fog", hedgeFog * 1],
-    ["Main Character Certainty", mainCharacter * 1],
-    ["Whataboutism", whatabout * 2],
-    ["Strawman", strawman * 2],
-    ["Doom Loop", doom * 1],
+    ["Hedge Fog", Math.round(hedgeFog) * 1],
+    ["Main Character Certainty", Math.round(mainCharacter) * 1],
+    ["Whataboutism", Math.round(whatabout) * 2],
+    ["Strawman", Math.round(strawman) * 2],
+    ["Doom Loop", Math.round(doom) * 1],
   ];
   const score = weighted.reduce((sum, [, v]) => sum + v, 0);
   const top = weighted.filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])[0]?.[0] || null;

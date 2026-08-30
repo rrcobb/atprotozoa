@@ -167,6 +167,16 @@
   // Cross-references claims by shared topic word, looking for the same topic
   // showing up with flipped sentiment or flipped absolutes from different
   // posts — the closest a regex gets to "noting an inconsistency."
+  //
+  // One reversal/whiplash entry per TOPIC, not per pair. A topic that comes
+  // up 40 times over someone's whole history (normal for a prolific poster —
+  // "work," "the weather," their team) has up to 40-choose-2 same-topic
+  // pairs; counting every pair as its own reversal made the score scale with
+  // how much someone posts rather than how often they actually flip, so a
+  // full-repo scan (no page cap, by design) reliably pushed any active
+  // account into the top tier regardless of their actual failure rate. See
+  // sites/receipts/... quantizeme entry / the "does everyone get the same
+  // score" report this fixed.
   function findContradictions(claims) {
     const byTopic = new Map();
     claims.forEach((c, i) => {
@@ -176,29 +186,28 @@
       }
     });
 
-    const seenPairs = new Set();
     const reversals = [];
     const whiplash = [];
 
     for (const [topic, idxs] of byTopic) {
       if (idxs.length < 2) continue;
-      for (let a = 0; a < idxs.length; a++) {
-        for (let b = a + 1; b < idxs.length; b++) {
+      let reversalPair = null;
+      let whiplashPair = null;
+      for (let a = 0; a < idxs.length && !(reversalPair && whiplashPair); a++) {
+        for (let b = a + 1; b < idxs.length && !(reversalPair && whiplashPair); b++) {
           const c1 = claims[idxs[a]];
           const c2 = claims[idxs[b]];
           if (c1.uri === c2.uri) continue; // same post, not a cross-post flip
-          const pairKey = topic + "|" + [idxs[a], idxs[b]].sort().join(",");
-          if (seenPairs.has(pairKey)) continue;
 
-          if (c1.polarity && c2.polarity && c1.polarity !== c2.polarity) {
-            seenPairs.add(pairKey);
-            reversals.push({ topic, a: c1, b: c2 });
-          } else if (c1.absolute && c2.absolute && c1.absolute !== c2.absolute) {
-            seenPairs.add(pairKey);
-            whiplash.push({ topic, a: c1, b: c2 });
+          if (!reversalPair && c1.polarity && c2.polarity && c1.polarity !== c2.polarity) {
+            reversalPair = { topic, a: c1, b: c2 };
+          } else if (!whiplashPair && c1.absolute && c2.absolute && c1.absolute !== c2.absolute) {
+            whiplashPair = { topic, a: c1, b: c2 };
           }
         }
       }
+      if (reversalPair) reversals.push(reversalPair);
+      if (whiplashPair) whiplash.push(whiplashPair);
     }
     return { reversals, whiplash };
   }
@@ -272,6 +281,19 @@
     },
   };
 
+  // Count-based weights (hedge fog, certainty, whataboutism, strawman, doom,
+  // broken record) get normalized to "per 100 claims/posts scanned" instead
+  // of a raw count. A full-repo download has no cap on how many posts it
+  // reads, so raw counts scaled with account size, not failure rate — a
+  // heavy poster racked up score just by having posted a lot. Reversal/
+  // Certainty Whiplash don't need this: findContradictions already caps
+  // them at one per topic, so they're bounded by distinct revisited topics
+  // rather than post volume.
+  function rateOf(count, base) {
+    if (!base) return 0;
+    return (count / base) * 100;
+  }
+
   function buildSins(claims, posts) {
     const { reversals, whiplash } = findContradictions(claims);
     const repeats = findRepeats(posts);
@@ -305,7 +327,7 @@
 
     const hedgeClaims = claims.filter((c) => c.hedge);
     if (claims.length >= 6 && hedgeClaims.length / claims.length >= 0.22 && hedgeClaims.length >= 3) {
-      push("Hedge Fog", hedgeClaims.length, `${hedgeClaims.length} of ${claims.length} positions came wrapped in a hedge`, [
+      push("Hedge Fog", Math.round(rateOf(hedgeClaims.length, claims.length)), `${hedgeClaims.length} of ${claims.length} positions came wrapped in a hedge`, [
         { topic: null, quotes: hedgeClaims.slice(0, 3).map((c) => ({ text: truncate(c.text, 220), uri: c.uri, postUrl: c.postUrl })) },
       ]);
     }
@@ -314,7 +336,7 @@
     if (certaintyClaims.length >= 4) {
       push(
         "Main Character Certainty",
-        certaintyClaims.length,
+        Math.round(rateOf(certaintyClaims.length, claims.length)),
         `${certaintyClaims.length} statements were "obviously" / "literally" true, no further evidence supplied`,
         [{ topic: null, quotes: certaintyClaims.slice(0, 3).map((c) => ({ text: truncate(c.text, 220), uri: c.uri, postUrl: c.postUrl })) }]
       );
@@ -324,7 +346,7 @@
     if (whataboutClaims.length >= 2) {
       push(
         "Whataboutism",
-        whataboutClaims.length,
+        Math.round(rateOf(whataboutClaims.length, claims.length)),
         `${whataboutClaims.length} time${whataboutClaims.length === 1 ? "" : "s"} the subject changed instead of the point getting answered`,
         [{ topic: null, quotes: whataboutClaims.slice(0, 3).map((c) => ({ text: truncate(c.text, 220), uri: c.uri, postUrl: c.postUrl })) }]
       );
@@ -334,7 +356,7 @@
     if (strawmanClaims.length >= 2) {
       push(
         "Strawman",
-        strawmanClaims.length,
+        Math.round(rateOf(strawmanClaims.length, claims.length)),
         `${strawmanClaims.length} time${strawmanClaims.length === 1 ? "" : "s"} someone else's point got restated before getting knocked down`,
         [{ topic: null, quotes: strawmanClaims.slice(0, 3).map((c) => ({ text: truncate(c.text, 220), uri: c.uri, postUrl: c.postUrl })) }]
       );
@@ -344,7 +366,7 @@
     if (doomClaims.length >= 2) {
       push(
         "Doom Loop",
-        doomClaims.length,
+        Math.round(rateOf(doomClaims.length, claims.length)),
         `${doomClaims.length} posts declared something over, doomed, or beyond saving`,
         [{ topic: null, quotes: doomClaims.slice(0, 3).map((c) => ({ text: truncate(c.text, 220), uri: c.uri, postUrl: c.postUrl })) }]
       );
@@ -353,7 +375,7 @@
     if (repeats.length) {
       push(
         "Broken Record",
-        repeats.length,
+        Math.round(rateOf(repeats.length, posts.length)),
         `${repeats.length} sentence${repeats.length === 1 ? "" : "s"} posted more than once, nearly word for word`,
         repeats.slice(0, 4).map((r) => ({
           topic: null,
