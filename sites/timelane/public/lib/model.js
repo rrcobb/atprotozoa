@@ -35,7 +35,7 @@ export function newSwimlane(title, color) {
   };
 }
 
-export function newItem({ kind = "bar", title = "new item", start, end, color } = {}) {
+export function newItem({ kind = "bar", title = "new item", start, end, color, tags } = {}) {
   return {
     id: uid(),
     kind, // "bar" | "event"
@@ -45,6 +45,7 @@ export function newItem({ kind = "bar", title = "new item", start, end, color } 
     color: color || null,
     task: null, // { done: bool, due: "YYYY-MM-DD"|null }
     notes: "",
+    tags: Array.isArray(tags) ? tags.filter(Boolean) : [],
     segments: [],
     markers: [],
   };
@@ -104,6 +105,7 @@ export function outlineLines(board) {
       const bits = [item.title];
       if (item.start) bits.push(item.kind === "bar" && item.end ? `(${item.start} → ${item.end})` : `(${item.start})`);
       if (item.task) bits.push(item.task.done ? "[done]" : item.task.due ? `[due ${item.task.due}]` : "[task]");
+      if (item.tags && item.tags.length) bits.push(item.tags.map((t) => `#${t}`).join(" "));
       lines.push(`  - ${bits.join(" ")}`);
       for (const seg of item.segments) {
         lines.push(`    - segment: ${seg.title}${seg.start ? ` (${seg.start} → ${seg.end || seg.start})` : ""}`);

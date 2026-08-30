@@ -398,12 +398,14 @@ function renderItem(item, lane, rangeStart) {
   const color = item.color || lane.color;
   const overdue = item.task && Dates.isOverdue(item.task.due, item.task.done);
   const taskGlyph = item.task ? (item.task.done ? " ✓" : overdue ? " ⚠" : " ◷") : "";
+  const tagText = item.tags && item.tags.length ? ` (${item.tags.map((t) => `#${t}`).join(" ")})` : "";
+  const fullTitle = escapeHtml(item.title + tagText);
   let html = "";
 
   if (item.kind === "bar" && item.start && item.end) {
     const x = Dates.dayDiff(rangeStart, item.start) * zoom;
     const w = Math.max(zoom * Dates.dayDiff(item.start, item.end), 18);
-    html += `<div class="item-bar${overdue ? " overdue" : ""}" style="left:${x}px;width:${w}px;background:${color}" data-item-id="${item.id}" data-action="open-item" title="${escapeHtml(item.title)}">
+    html += `<div class="item-bar${overdue ? " overdue" : ""}" style="left:${x}px;width:${w}px;background:${color}" data-item-id="${item.id}" data-action="open-item" title="${fullTitle}">
       <div class="handle left" data-item-id="${item.id}"></div>${escapeHtml(item.title)}${taskGlyph}<div class="handle right" data-item-id="${item.id}"></div>
     </div>`;
     for (const seg of item.segments) {
@@ -419,7 +421,7 @@ function renderItem(item, lane, rangeStart) {
     }
   } else if (item.start) {
     const x = Dates.dayDiff(rangeStart, item.start) * zoom;
-    html += `<div class="item-event${overdue ? " overdue" : ""}" style="left:${x}px;background:${color}" data-item-id="${item.id}" data-action="open-item" title="${escapeHtml(item.title)}"></div>`;
+    html += `<div class="item-event${overdue ? " overdue" : ""}" style="left:${x}px;background:${color}" data-item-id="${item.id}" data-action="open-item" title="${fullTitle}"></div>`;
     html += `<div class="item-label-out" style="left:${x}px">${escapeHtml(item.title)}${taskGlyph}</div>`;
     for (const mk of item.markers) {
       if (!mk.at) continue;
@@ -484,7 +486,7 @@ function renderInboxStrip() {
     store.inbox
       .map(
         (c) =>
-          `<div class="inbox-chip${c.isTask ? " task" : ""}" draggable="true" data-card-id="${c.id}">${escapeHtml(c.title)}${c.due ? ` <span style="color:var(--amber)">@${escapeHtml(c.due)}</span>` : ""}</div>`,
+          `<div class="inbox-chip${c.isTask ? " task" : ""}" draggable="true" data-card-id="${c.id}">${escapeHtml(c.title)}${c.due ? ` <span style="color:var(--amber)">@${escapeHtml(c.due)}</span>` : ""}${(c.tags || []).map((t) => ` <span class="tag-chip">#${escapeHtml(t)}</span>`).join("")}</div>`,
       )
       .join("");
 }
@@ -505,7 +507,7 @@ function addInboxCardToLane(cardId, laneId) {
   const card = store.inbox[idx];
   const lane = Model.findSwimlane(board, laneId);
   if (!lane) return;
-  const item = Model.newItem({ kind: "event", title: card.title, start: card.due || Dates.todayISO(), color: lane.color });
+  const item = Model.newItem({ kind: "event", title: card.title, start: card.due || Dates.todayISO(), color: lane.color, tags: card.tags });
   if (card.isTask) item.task = { done: !!card.done, due: card.due || null };
   lane.items.push(item);
   store.inbox.splice(idx, 1);
@@ -748,9 +750,18 @@ function renderItemModal(lane, item) {
     </div>
     <div class="row">
       <div class="field">
+        <label>tags (comma separated)</label>
+        <input type="text" id="mTags" value="${escapeHtml((item.tags || []).join(", "))}" placeholder="admin, launch">
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
         <label>notes (markdown)</label>
         <textarea id="mNotes">${escapeHtml(item.notes || "")}</textarea>
       </div>
+    </div>
+    <div class="row" id="mNotesPreviewRow" style="${item.notes ? "" : "display:none"}">
+      <div class="field notes-preview" id="mNotesPreview">${MD.renderInlineMarkdown(item.notes || "")}</div>
     </div>
     <hr>
     <div id="mSegmentsWrap" style="${isBar ? "" : "display:none"}">
@@ -815,8 +826,17 @@ function renderItemModal(lane, item) {
       commit(true);
     });
   }
+  $("mTags").addEventListener("change", (e) => {
+    item.tags = e.target.value
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    commit(true);
+  });
   $("mNotes").addEventListener("input", (e) => {
     item.notes = e.target.value;
+    $("mNotesPreviewRow").style.display = item.notes ? "" : "none";
+    $("mNotesPreview").innerHTML = MD.renderInlineMarkdown(item.notes);
     commit(false);
   });
 
@@ -1054,7 +1074,7 @@ function cloneLaneWithNewIds(lane) {
   const fresh = Model.newSwimlane(lane.title, lane.color);
   fresh.collapsed = !!lane.collapsed;
   for (const item of lane.items || []) {
-    const newItem = Model.newItem({ kind: item.kind, title: item.title, start: item.start, end: item.end, color: item.color });
+    const newItem = Model.newItem({ kind: item.kind, title: item.title, start: item.start, end: item.end, color: item.color, tags: item.tags });
     newItem.task = item.task ? { done: !!item.task.done, due: item.task.due || null } : null;
     newItem.notes = item.notes || "";
     for (const seg of item.segments || []) newItem.segments.push(Model.newSegment({ title: seg.title, start: seg.start, end: seg.end, color: seg.color }));
@@ -1141,7 +1161,8 @@ function renderOutlineView() {
     for (const item of lane.items) {
       const overdue = item.task && Dates.isOverdue(item.task.due, item.task.done);
       const dateStr = item.start ? (item.kind === "bar" && item.end ? `${item.start} → ${item.end}` : item.start) : "no date";
-      html += `<li>${item.task ? `<input type="checkbox" class="oTaskToggle" data-item-id="${item.id}" ${item.task.done ? "checked" : ""}>` : ""}<span class="item-line" data-action="open-item" data-item-id="${item.id}">${escapeHtml(item.title)}</span><span class="meta">${escapeHtml(dateStr)}${item.task && item.task.due ? ` · due ${item.task.due}` : ""}${overdue ? " · overdue" : ""}</span>`;
+      const tagsStr = item.tags && item.tags.length ? ` ${item.tags.map((t) => `#${t}`).join(" ")}` : "";
+      html += `<li>${item.task ? `<input type="checkbox" class="oTaskToggle" data-item-id="${item.id}" ${item.task.done ? "checked" : ""}>` : ""}<span class="item-line" data-action="open-item" data-item-id="${item.id}">${escapeHtml(item.title)}</span><span class="meta">${escapeHtml(dateStr)}${item.task && item.task.due ? ` · due ${item.task.due}` : ""}${overdue ? " · overdue" : ""}${escapeHtml(tagsStr)}</span>`;
       if (item.segments.length || item.markers.length) {
         html += `<ul>`;
         for (const seg of item.segments) html += `<li class="meta">segment: ${escapeHtml(seg.title)}${seg.start ? ` (${seg.start} → ${seg.end || seg.start})` : ""}</li>`;
@@ -1209,6 +1230,7 @@ function renderInboxView() {
       <div class="inbox-card" data-card-id="${c.id}">
         <span class="title">${escapeHtml(c.title)}${c.done ? " ✓" : ""}</span>
         ${c.due ? `<span class="due">@${escapeHtml(c.due)}</span>` : ""}
+        ${(c.tags || []).map((t) => `<span class="tag-chip">#${escapeHtml(t)}</span>`).join("")}
         <select class="assign-select" ${!board || board.swimlanes.length === 0 ? "disabled" : ""}>
           <option value="">assign to lane…</option>
           ${laneOptions}
@@ -1266,6 +1288,7 @@ function renderTasksView() {
         <input type="checkbox" class="tDone" ${item.task.done ? "checked" : ""}>
         <span class="lane-tag">${escapeHtml(lane.title)}</span>
         <span class="title">${escapeHtml(item.title)}</span>
+        ${(item.tags || []).map((t) => `<span class="tag-chip">#${escapeHtml(t)}</span>`).join("")}
         <span class="due">${dueText}</span>
       </div>`;
     })
