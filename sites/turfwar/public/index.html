@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>turfwar — a live language turf war off the firehose</title>
+    <meta
+      name="description"
+      content="Every post on Bluesky's firehose is a strike for its language's faction on a 576-cell map. Watch english, japanese, portuguese, spanish, korean, german, french and everyone else fight for territory, live, forever."
+    />
+    <meta property="og:title" content="turfwar — a live language turf war off the firehose" />
+    <meta
+      property="og:description"
+      content="Unhinged live map: every real Bluesky post is a strike for its language's faction. Dense, loud, dark, and it never stops."
+    />
+    <meta property="og:image" content="https://turfwar.bisks.net/og.png" />
+    <meta property="og:url" content="https://turfwar.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="turfwar — a live language turf war off the firehose" />
+    <meta name="twitter:description" content="Every real Bluesky post is a strike on a live 576-cell territory map. It never stops." />
+    <meta name="twitter:image" content="https://turfwar.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #050406;
+        --panel: #0c0910;
+        --panel2: #120d16;
+        --ink: #f2eef4;
+        --muted: #96899e;
+        --faint: #3a2c40;
+        --line: #241a2a;
+        --red: #ff3355;
+        --amber: #ffb84d;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background:
+          radial-gradient(ellipse at 20% -10%, #23070f 0%, transparent 55%),
+          radial-gradient(ellipse at 100% 110%, #0f0a1e 0%, transparent 50%),
+          var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      .wrap { max-width: 1180px; margin: 0 auto; padding: 1.8rem 1.1rem 5rem; }
+      a { color: var(--red); }
+      a:hover { color: var(--amber); }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1rem 0 0.4rem; }
+      h1 {
+        font-size: 2.3rem; font-weight: 900; letter-spacing: -0.01em; margin: 0 0 0.3rem;
+        background: linear-gradient(90deg, var(--red), var(--amber) 70%, #fff2c2);
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+        text-shadow: 0 0 26px rgba(255, 51, 85, 0.25);
+      }
+      .sub { color: var(--muted); font-size: 0.9rem; line-height: 1.65; max-width: 74ch; margin: 0 0 1.2rem; }
+      .sub b { color: var(--ink); }
+
+      .statsbar {
+        display: flex; flex-wrap: wrap; gap: 0.9rem; align-items: center; background: var(--panel);
+        border: 1px solid var(--line); border-radius: 12px; padding: 0.65rem 0.95rem; margin-bottom: 1rem;
+        font-size: 0.78rem; color: var(--muted);
+      }
+      .statsbar b { color: var(--ink); }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+      .dot.live { background: var(--red); animation: pulse 1.6s infinite; box-shadow: 0 0 8px var(--red); }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+      .statsbar .spacer { flex: 1; }
+      .statsbar button {
+        background: var(--panel2); color: var(--muted); border: 1px solid var(--line); border-radius: 8px;
+        font-family: var(--mono); font-size: 0.76rem; padding: 0.4rem 0.7rem; cursor: pointer;
+      }
+      .statsbar button:hover { color: var(--ink); border-color: var(--red); }
+
+      .stage {
+        display: grid; grid-template-columns: 1fr 300px; gap: 1rem; align-items: start;
+      }
+      @media (max-width: 860px) { .stage { grid-template-columns: 1fr; } }
+
+      .mapcard {
+        position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+        padding: 0.7rem; overflow: hidden;
+      }
+      .mapcard.shake { animation: shake 0.28s ease; }
+      @keyframes shake {
+        0%, 100% { transform: translate(0, 0); }
+        20% { transform: translate(-3px, 2px); }
+        40% { transform: translate(3px, -2px); }
+        60% { transform: translate(-2px, -2px); }
+        80% { transform: translate(2px, 2px); }
+      }
+      canvas#map { width: 100%; height: auto; display: block; border-radius: 10px; image-rendering: pixelated; }
+      .flash {
+        position: absolute; inset: 0; pointer-events: none; border-radius: 16px; opacity: 0;
+        mix-blend-mode: screen;
+      }
+      .flash.on { animation: flashfade 0.5s ease-out; }
+      @keyframes flashfade { 0% { opacity: 0.55; } 100% { opacity: 0; } }
+
+      .dombanner {
+        position: absolute; left: 50%; top: 12px; transform: translateX(-50%) scale(0.9);
+        background: rgba(5, 4, 6, 0.82); border: 1px solid var(--red); border-radius: 999px;
+        padding: 0.4rem 1rem; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+        opacity: 0; pointer-events: none; transition: opacity 0.3s ease, transform 0.3s ease;
+      }
+      .dombanner.show { opacity: 1; transform: translateX(-50%) scale(1); animation: dompulse 1.4s infinite; }
+      @keyframes dompulse { 0%, 100% { box-shadow: 0 0 0 rgba(255,51,85,0); } 50% { box-shadow: 0 0 22px rgba(255,51,85,0.55); } }
+
+      .side { display: flex; flex-direction: column; gap: 0.9rem; }
+      .panel {
+        background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 0.85rem 0.95rem;
+      }
+      .panel h2 {
+        margin: 0 0 0.6rem; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+        font-weight: 800;
+      }
+      .lb-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.45rem; font-size: 0.78rem; }
+      .lb-swatch { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+      .lb-label { flex: none; width: 6.4em; color: var(--ink); }
+      .lb-bar-track { flex: 1; height: 8px; background: var(--panel2); border-radius: 999px; overflow: hidden; }
+      .lb-bar-fill { height: 100%; border-radius: 999px; transition: width 0.35s ease; }
+      .lb-count { flex: none; width: 3em; text-align: right; color: var(--muted); font-size: 0.72rem; }
+      .lb-row.leader .lb-label { color: var(--amber); font-weight: 800; }
+
+      .ticker { height: 220px; overflow: hidden; position: relative; }
+      .ticker-list { display: flex; flex-direction: column-reverse; gap: 0.3rem; font-size: 0.72rem; }
+      .ticker-item { color: var(--muted); border-left: 2px solid var(--faint); padding-left: 0.5rem; opacity: 0.9; }
+      .ticker-item b { font-weight: 800; }
+
+      .share { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .share a, .share button {
+        display: inline-block; font-size: 0.78rem; color: var(--muted); background: var(--panel2);
+        border: 1px solid var(--line); border-radius: 9px; padding: 0.45rem 0.8rem; text-decoration: none;
+        font-family: var(--mono); cursor: pointer;
+      }
+      .share a:hover, .share button:hover { color: var(--ink); border-color: var(--red); }
+
+      footer { margin-top: 2.2rem; color: var(--muted); font-size: 0.78rem; line-height: 1.7; }
+      footer a { color: var(--muted); text-decoration: underline; }
+      footer a:hover { color: var(--ink); }
+      .rateyourbuild { margin-top: 0.5rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <h1>turfwar</h1>
+        <p class="sub">
+          <a href="https://bsky.app/profile/kerry.bsky.social" target="_blank" rel="noopener">@kerry.bsky.social</a>
+          sent switchboard code <b>SB-61NU</b> off
+          <a href="https://switchboard.bisks.net/" target="_blank" rel="noopener">switchboard</a> — decoded to an
+          <b>unhinged maps visualizer</b>, loud, competitive, dark, dense. This is that: every real post created on
+          Bluesky's live firehose is a strike for its language's faction on a <b>576-cell</b> map. Claim a neutral
+          cell outright; attack an enemy cell and it takes three hits to flip. No input, no login — just point it at
+          the firehose and let languages fight over territory, forever.
+        </p>
+      </header>
+
+      <div class="statsbar">
+        <span class="dot" id="dot"></span>
+        <span id="connText">connecting…</span>
+        <span>· <b id="totalStrikes">0</b> posts landed</span>
+        <span>· <b id="neutralCount">576</b> cells unclaimed</span>
+        <span class="spacer"></span>
+        <button id="resetBtn" type="button">restart the war</button>
+      </div>
+
+      <div class="stage">
+        <div class="mapcard" id="mapcard">
+          <div class="dombanner" id="dombanner"></div>
+          <canvas id="map" width="960" height="540"></canvas>
+          <div class="flash" id="flash"></div>
+        </div>
+        <div class="side">
+          <div class="panel">
+            <h2>territory</h2>
+            <div id="leaderboard"></div>
+          </div>
+          <div class="panel">
+            <h2>front line</h2>
+            <div class="ticker"><div class="ticker-list" id="ticker"></div></div>
+          </div>
+          <div class="panel share">
+            <a id="shareLink" href="https://bsky.app/intent/compose?text=turfwar.bisks.net" target="_blank" rel="noopener">skeet the standings</a>
+            <button id="snapshotBtn" type="button">save snapshot</button>
+          </div>
+        </div>
+      </div>
+
+      <footer>
+        Faction = the primary language tag (<code>langs[0]</code>) on each post as it's created — real traffic, not a
+        simulation. Eight factions: english, japanese, portuguese, spanish, korean, german, french, and an
+        "everyone else" catch-all for every other tag, so nothing is ever unrepresented. A strike prefers the
+        frontier — a neutral or enemy cell touching land a faction already holds — 75% of the time, and picks
+        anywhere else the rest, so the whole map stays contested instead of one corner. State lives only in this tab;
+        reload or hit restart and the war starts over from an empty board. Posts arrive live off the
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a> firehose —
+        nothing you do here is sent anywhere.
+        <br />
+        idea: <a href="https://bsky.app/profile/kerry.bsky.social">@kerry.bsky.social</a> via
+        <a href="https://bsky.app/profile/vibecode.rodeo">@vibecode.rodeo</a>'s
+        <a href="https://switchboard.bisks.net/">switchboard</a>
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+        <div class="rateyourbuild"><a href="https://rateyourbuild.bisks.net/site/turfwar">rate this on rateyourbuild →</a></div>
+      </footer>
+    </div>
+
+    <script src="/client.js"></script>
+    <script>
+      const T = window.turfwar;
+      const canvas = document.getElementById("map");
+      const ctx = canvas.getContext("2d");
+      const dot = document.getElementById("dot");
+      const connText = document.getElementById("connText");
+      const totalStrikesEl = document.getElementById("totalStrikes");
+      const neutralCountEl = document.getElementById("neutralCount");
+      const leaderboardEl = document.getElementById("leaderboard");
+      const tickerEl = document.getElementById("ticker");
+      const flashEl = document.getElementById("flash");
+      const mapcardEl = document.getElementById("mapcard");
+      const dombannerEl = document.getElementById("dombanner");
+      const shareLink = document.getElementById("shareLink");
+      const resetBtn = document.getElementById("resetBtn");
+      const snapshotBtn = document.getElementById("snapshotBtn");
+
+      let cellPx = canvas.width / T.W;
+
+      function resize() {
+        const w = mapcardEl.clientWidth - 22; // minus padding
+        cellPx = Math.max(6, Math.floor(w / T.W));
+        canvas.width = cellPx * T.W;
+        canvas.height = cellPx * T.H;
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      function drawBoard() {
+        ctx.fillStyle = "#0a070c";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        for (let y = 0; y < T.H; y++) {
+          for (let x = 0; x < T.W; x++) {
+            const i = y * T.W + x;
+            const o = T.owner[i];
+            const px = x * cellPx, py = y * cellPx;
+            if (o === 0) {
+              ctx.fillStyle = "#120d16";
+              ctx.fillRect(px, py, cellPx - 1, cellPx - 1);
+            } else {
+              const f = T.FACTIONS[o - 1];
+              const hp = T.health[i];
+              ctx.globalAlpha = 0.35 + hp * 0.2;
+              ctx.fillStyle = f.color;
+              ctx.fillRect(px, py, cellPx - 1, cellPx - 1);
+              ctx.globalAlpha = 1;
+            }
+          }
+        }
+        const now = performance.now();
+        const bursts = T.bursts();
+        for (const b of bursts) {
+          const age = now - b.t0;
+          const dur = b.kind === "capture" ? 550 : 380;
+          if (age > dur) continue;
+          const p = age / dur;
+          const cx = b.x * cellPx + cellPx / 2, cy = b.y * cellPx + cellPx / 2;
+          const r = cellPx * (0.5 + p * (b.kind === "capture" ? 2.6 : 1.4));
+          ctx.strokeStyle = b.color;
+          ctx.globalAlpha = 1 - p;
+          ctx.lineWidth = b.kind === "capture" ? 3 : 1.6;
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      function loop() {
+        drawBoard();
+        requestAnimationFrame(loop);
+      }
+      requestAnimationFrame(loop);
+
+      function renderLeaderboard() {
+        const { c, neutral } = T.counts();
+        neutralCountEl.textContent = neutral;
+        const rows = T.FACTIONS.map((f, i) => ({ f, i, n: c[i] }));
+        rows.sort((a, b) => b.n - a.n);
+        const max = Math.max(1, rows[0].n);
+        leaderboardEl.innerHTML = rows.map((r, rank) => `
+          <div class="lb-row${rank === 0 && r.n > 0 ? " leader" : ""}">
+            <span class="lb-swatch" style="background:${r.f.color}"></span>
+            <span class="lb-label">${rank === 0 && r.n > 0 ? "👑 " : ""}${r.f.label}</span>
+            <span class="lb-bar-track"><span class="lb-bar-fill" style="width:${(r.n / max) * 100}%;background:${r.f.color}"></span></span>
+            <span class="lb-count">${r.n}</span>
+          </div>
+        `).join("");
+      }
+
+      function renderTicker() {
+        const items = T.log().slice(0, 24);
+        tickerEl.innerHTML = items.map((e) => `<div class="ticker-item" style="border-color:${e.color}">${escapeHtml(e.text)}</div>`).reverse().join("");
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function buildShareText() {
+        const { c } = T.counts();
+        const rows = T.FACTIONS.map((f, i) => ({ f, n: c[i] })).sort((a, b) => b.n - a.n);
+        const leader = rows[0];
+        return leader.n
+          ? `right now on turfwar, ${leader.f.label} holds ${leader.n}/${T.N} cells of the live firehose turf war — turfwar.bisks.net`
+          : `watching languages fight over a live firehose turf map — turfwar.bisks.net`;
+      }
+      function updateShare() {
+        shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText());
+      }
+
+      T.on((kind, payload) => {
+        if (kind === "connection") {
+          const live = T.isConnected();
+          dot.classList.toggle("live", live);
+          connText.textContent = live ? "live" : "reconnecting…";
+        } else if (kind === "strike") {
+          totalStrikesEl.textContent = T.totalStrikes();
+        } else if (kind === "capture") {
+          const f = T.FACTIONS[payload];
+          flashEl.style.background = `radial-gradient(circle, ${f.color}55, transparent 65%)`;
+          flashEl.classList.remove("on"); void flashEl.offsetWidth; flashEl.classList.add("on");
+          mapcardEl.classList.remove("shake"); void mapcardEl.offsetWidth; mapcardEl.classList.add("shake");
+        } else if (kind === "domination") {
+          const f = T.FACTIONS[payload];
+          dombannerEl.textContent = `${f.label} is dominating the map`;
+          dombannerEl.style.color = f.color;
+          dombannerEl.style.borderColor = f.color;
+          dombannerEl.classList.add("show");
+        } else if (kind === "reset") {
+          dombannerEl.classList.remove("show");
+        }
+      });
+
+      setInterval(() => { renderLeaderboard(); renderTicker(); updateShare(); }, 400);
+      renderLeaderboard();
+      updateShare();
+
+      resetBtn.addEventListener("click", () => T.reset());
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch { return false; }
+      }
+      snapshotBtn.addEventListener("click", () => {
+        canvas.toBlob(async (blob) => {
+          if (!blob) return;
+          const file = new File([blob], "turfwar.png", { type: "image/png" });
+          if (canShareFiles()) {
+            try { await navigator.share({ files: [file], text: buildShareText(), title: "turfwar" }); return; } catch {}
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url; a.download = "turfwar.png";
+          document.body.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 4000);
+        }, "image/png");
+      });
+
+      T.connect();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.7rem; line-height: 1;
+        background: rgba(20, 20, 20, 0.72); color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px; padding: 0.45rem 0.6rem; cursor: pointer;
+        -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden;
+        pointer-events: none; z-index: 2147483000; display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear; animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () { setMode(!coop.classList.contains("on")); });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
