@@ -1324,12 +1324,33 @@
       // right in the review's own thread, for anyone viewing it — sourced
       // from the same public/data/bugfixes.json a fix already gets logged
       // to, no separate write path needed.
-      function renderBotFixReply(fix) {
-        const when = fix.fixedAt ? new Date(fix.fixedAt).toLocaleDateString(undefined, { dateStyle: "medium" }) : "";
+      //
+      // A site that keeps fixing itself (rateyourbuild's own reviews are
+      // the obvious case) can rack up many bugfixes.json entries against
+      // one old review. Rendering one reply-row per entry made a single
+      // review's thread look flooded with near-identical bot commentary
+      // (@angussoftware.dev, 2026-08-30: "way too many comments... clean up
+      // the redundant comment records"). One review, one bot bubble: a
+      // single fix still reads as a normal reply; more than one collapses
+      // into one bubble with a compact list, so the record count can keep
+      // growing without the thread growing with it.
+      function renderBotFixReplies(fixes) {
+        if (!fixes.length) return "";
+        const when = new Date(fixes[fixes.length - 1].fixedAt).toLocaleDateString(undefined, { dateStyle: "medium" });
+        if (fixes.length === 1) {
+          return `<div class="reply-row bot-reply">
+            <span class="reply-handle user-chip bot-chip">🤖 @buildthis.bisks.net</span>
+            <span class="reply-date">${esc(when)}</span>
+            <p class="reply-body">fixed: ${esc(fixes[0].note || "a fix for this landed.")}</p>
+          </div>`;
+        }
         return `<div class="reply-row bot-reply">
           <span class="reply-handle user-chip bot-chip">🤖 @buildthis.bisks.net</span>
           <span class="reply-date">${esc(when)}</span>
-          <p class="reply-body">fixed: ${esc(fix.note || "a fix for this landed.")}</p>
+          <p class="reply-body">${fixes.length} fixes landed since this review:</p>
+          <ul class="bot-fix-list">
+            ${fixes.map((fix) => `<li>${esc(fix.note || "a fix for this landed.")}</li>`).join("")}
+          </ul>
         </div>`;
       }
 
@@ -1403,7 +1424,7 @@
               <span class="vote-counts">${up}&uarr; ${down}&darr;</span>
               ${
                 (() => {
-                  const shownCount = topReplies.length + fixes.length;
+                  const shownCount = topReplies.length + (fixes.length ? 1 : 0);
                   return isOwnReview
                     ? shownCount
                       ? `<span class="reply-count">${shownCount} repl${shownCount === 1 ? "y" : "ies"}</span>`
@@ -1417,7 +1438,7 @@
             ${
               topReplies.length || replyOpen || fixes.length
                 ? `<div class="reply-list">
-                    ${fixes.map(renderBotFixReply).join("")}
+                    ${renderBotFixReplies(fixes)}
                     ${topReplies.map((r) => renderReplyNode(r, subject, reviewerDid, byParent, 1)).join("")}
                     ${session && !isOwnReview && replyOpen ? renderReplyComposer(boxKey) : ""}
                   </div>`
