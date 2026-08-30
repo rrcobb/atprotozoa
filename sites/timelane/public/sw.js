@@ -6,7 +6,7 @@
 // straightforward cache-first app shell with no "don't cache live data"
 // carve-out to worry about.
 
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const CACHE_NAME = `timelane-${CACHE_VERSION}`;
 
 const PRECACHE_URLS = [

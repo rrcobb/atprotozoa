@@ -13,6 +13,7 @@ let view = "board";
 let zoom = 16; // px per day
 let suppressClick = false;
 let dragState = null;
+let panState = null;
 let overdueDismissedCount = -1;
 let lastOverdueCount = 0;
 
@@ -46,7 +47,28 @@ const els = {
   tasksList: document.getElementById("tasksList"),
   modalRoot: document.getElementById("modalRoot"),
   shareAppLink: document.getElementById("shareAppLink"),
+  themeToggle: document.getElementById("themeToggle"),
 };
+
+// ---------------------------------------------------------------------------
+// light/dark theme (canvas apps get both; this one's local-only, so it's just
+// a data-attribute + a localStorage key, no server round-trip)
+// ---------------------------------------------------------------------------
+
+function currentTheme() {
+  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+}
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  els.themeToggle.textContent = theme === "light" ? "◑" : "◐";
+  try {
+    localStorage.setItem("timelane-theme", theme);
+  } catch {
+    // storage disabled — theme just won't persist across loads
+  }
+}
+els.themeToggle.addEventListener("click", () => applyTheme(currentTheme() === "light" ? "dark" : "light"));
+applyTheme(currentTheme());
 
 function activeBoard() {
   return store.boards.find((b) => b.id === store.activeBoardId) || null;
@@ -328,6 +350,23 @@ function computeRange(board) {
   return { start: Dates.addDays(dates[0], -4), end: Dates.addDays(dates[dates.length - 1], 7) };
 }
 
+function buildWeekendBands(start, totalDays, pxPerDay) {
+  if (pxPerDay < 6) return [];
+  const bands = [];
+  let bandStart = null;
+  for (let i = 0; i <= totalDays; i++) {
+    const d = Dates.parseISO(Dates.addDays(start, i));
+    const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+    if (isWeekend && bandStart === null) bandStart = i;
+    if (!isWeekend && bandStart !== null) {
+      bands.push({ x: bandStart * pxPerDay, w: (i - bandStart) * pxPerDay });
+      bandStart = null;
+    }
+  }
+  if (bandStart !== null) bands.push({ x: bandStart * pxPerDay, w: (totalDays + 1 - bandStart) * pxPerDay });
+  return bands;
+}
+
 function buildTicks(start, end, pxPerDay) {
   const ticks = [];
   const totalDays = Dates.dayDiff(start, end);
@@ -378,8 +417,17 @@ els.timelineScroll.addEventListener(
   (e) => {
     if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
+    const rect = els.timelineScroll.getBoundingClientRect();
+    const screenX = e.clientX - rect.left;
+    const contentX = screenX + els.timelineScroll.scrollLeft;
+    const oldZoom = zoom;
     zoom = e.deltaY < 0 ? Math.min(80, Math.round(zoom * 1.15)) : Math.max(2, Math.round(zoom / 1.15));
     renderBoardView();
+    // keep the date under the cursor fixed in place, like a canvas zoom
+    if (contentX > 180) {
+      const dayOffset = (contentX - 180) / oldZoom;
+      els.timelineScroll.scrollLeft = 180 + dayOffset * zoom - screenX;
+    }
   },
   { passive: false },
 );
@@ -437,7 +485,7 @@ function renderItem(item, lane, rangeStart) {
 function renderLaneRow(lane, rangeStart) {
   const itemsHtml = lane.items.map((item) => renderItem(item, lane, rangeStart)).join("");
   return `<div class="lane-row" data-lane-id="${lane.id}">
-    <div class="lane-header" draggable="true" data-lane-id="${lane.id}">
+    <div class="lane-header" draggable="true" data-lane-id="${lane.id}" style="border-left-color:${lane.color}">
       <span class="dot" style="background:${lane.color}"></span>
       <span class="title">${escapeHtml(lane.title)}</span>
       <button class="ghost menu-btn" data-action="lane-menu" data-lane-id="${lane.id}" title="lane settings">⋯</button>
@@ -468,6 +516,11 @@ function renderBoardView() {
     <div class="ruler-ticks">${ticks.map((t) => `<div class="tick${t.major ? " major" : ""}" style="left:${t.x}px">${escapeHtml(t.label)}</div>`).join("")}</div>
   </div>`;
   html += `<div class="today-line" style="left:${todayX}px"></div>`;
+  const bands = buildWeekendBands(start, totalDays, zoom);
+  html += `<div class="canvas-grid">
+    ${bands.map((b) => `<div class="weekend-band" style="left:${b.x}px;width:${b.w}px"></div>`).join("")}
+    ${ticks.map((t) => `<div class="grid-line${t.major ? " major" : ""}" style="left:${t.x}px"></div>`).join("")}
+  </div>`;
   html += board.swimlanes.map((lane) => renderLaneRow(lane, start)).join("");
   if (board.swimlanes.length === 0) {
     html += `<p style="padding:16px;color:var(--dim)">no swimlanes yet — "+ swimlane" up top, or drag something in from the inbox.</p>`;
@@ -578,6 +631,18 @@ els.timelineInner.addEventListener("click", (e) => {
 // elements, so the two don't conflict.)
 
 function onPointerDown(e) {
+  if (e.button === 1) {
+    // middle-mouse-button canvas pan, like the drawing-app timelines this was modeled on
+    panState = {
+      startX: e.clientX,
+      startY: e.clientY,
+      scrollLeft: els.timelineScroll.scrollLeft,
+      scrollTop: els.timelineScroll.scrollTop,
+    };
+    els.timelineScroll.classList.add("panning");
+    e.preventDefault();
+    return;
+  }
   const handleLeft = e.target.closest(".handle.left");
   const handleRight = e.target.closest(".handle.right");
   const barEl = e.target.closest(".item-bar");
@@ -636,6 +701,11 @@ function onPointerDown(e) {
 }
 
 function onPointerMove(e) {
+  if (panState) {
+    els.timelineScroll.scrollLeft = panState.scrollLeft - (e.clientX - panState.startX);
+    els.timelineScroll.scrollTop = panState.scrollTop - (e.clientY - panState.startY);
+    return;
+  }
   if (!dragState) return;
   const deltaPx = e.clientX - dragState.startX;
   let deltaDays = Math.round(deltaPx / zoom);
@@ -666,6 +736,11 @@ function onPointerMove(e) {
 }
 
 function onPointerUp() {
+  if (panState) {
+    panState = null;
+    els.timelineScroll.classList.remove("panning");
+    return;
+  }
   if (!dragState) return;
   const board = activeBoard();
   const found = board && Model.findItem(board, dragState.itemId);
@@ -689,7 +764,9 @@ function onPointerUp() {
   dragState = null;
 }
 
-els.timelineInner.addEventListener("pointerdown", onPointerDown);
+// attached to the scroll container, not timelineInner: timelineInner is only as
+// tall as its content, so a middle-click below the last lane would miss it there
+els.timelineScroll.addEventListener("pointerdown", onPointerDown);
 document.addEventListener("pointermove", onPointerMove);
 document.addEventListener("pointerup", onPointerUp);
 
@@ -752,6 +829,12 @@ function renderItemModal(lane, item) {
       <div class="field">
         <label>tags (comma separated)</label>
         <input type="text" id="mTags" value="${escapeHtml((item.tags || []).join(", "))}" placeholder="admin, launch">
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>color</label>
+        <div class="swatch-row" id="mColorSwatches"></div>
       </div>
     </div>
     <div class="row">
@@ -863,8 +946,27 @@ function renderItemModal(lane, item) {
     renderCurrentView();
   });
 
+  renderColorSwatches(item, lane, commit);
   renderSegmentsList(item, commit);
   renderMarkersList(item, commit);
+}
+
+function renderColorSwatches(item, lane, commit) {
+  const wrap = document.getElementById("mColorSwatches");
+  if (!wrap) return;
+  const selected = item.color || null;
+  const matchBtn = `<button type="button" class="swatch match${selected === null ? " selected" : ""}" data-color="" title="match lane color">auto</button>`;
+  const swatchBtns = Model.PALETTE.map(
+    (hex) => `<button type="button" class="swatch${selected === hex ? " selected" : ""}" data-color="${hex}" style="background:${hex}" title="${hex}"></button>`,
+  ).join("");
+  wrap.innerHTML = matchBtn + swatchBtns;
+  wrap.querySelectorAll(".swatch").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      item.color = btn.dataset.color || null;
+      commit(true);
+      renderColorSwatches(item, lane, commit);
+    });
+  });
 }
 
 function renderSegmentsList(item, commit) {

@@ -9,7 +9,20 @@
   --amber: #e0a83e;
   --coral: #d9694f;
   --danger: #e05a4e;
+  --grid-dot: rgba(255, 255, 255, 0.06);
+  --weekend: rgba(255, 255, 255, 0.035);
   font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+
+:root[data-theme="light"] {
+  --ink: #f3f1e8;
+  --panel: #ffffff;
+  --panel-2: #ece7d8;
+  --border: #d7d0bb;
+  --paper: #1c231f;
+  --dim: #6d7266;
+  --grid-dot: rgba(0, 0, 0, 0.08);
+  --weekend: rgba(0, 0, 0, 0.035);
 }
 
 * { box-sizing: border-box; }
@@ -66,6 +79,8 @@ header.top h1 {
   cursor: default;
 }
 header.top h1 .prefill-anchor { cursor: pointer; }
+
+#themeToggle { font-size: 15px; padding: 5px 8px; }
 
 .spacer { flex: 1; }
 
@@ -147,15 +162,42 @@ main {
   padding: 0 4px;
 }
 
-/* --- timeline --- */
+/* --- timeline (canvas) --- */
 .timeline-scroll {
   flex: 1;
   overflow: auto;
   position: relative;
+  background-image: radial-gradient(circle, var(--grid-dot) 1px, transparent 1px);
+  background-size: 22px 22px;
+  background-position: 180px 28px;
+  cursor: default;
 }
+.timeline-scroll.panning { cursor: grabbing; }
 .timeline-inner {
   position: relative;
 }
+.canvas-grid {
+  position: absolute;
+  top: 28px;
+  left: 180px;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+.canvas-grid .weekend-band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--weekend);
+}
+.canvas-grid .grid-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--border);
+  opacity: 0.35;
+}
+.canvas-grid .grid-line.major { opacity: 0.6; }
 .ruler {
   display: flex;
   position: sticky;
@@ -217,6 +259,7 @@ main {
   min-width: 180px;
   background: var(--panel);
   border-right: 1px solid var(--border);
+  border-left: 3px solid transparent;
   z-index: 2;
   display: flex;
   align-items: center;
@@ -238,7 +281,7 @@ main {
   position: absolute;
   top: 10px;
   height: 26px;
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 3px 8px;
   font-size: 12px;
   overflow: hidden;
@@ -247,8 +290,10 @@ main {
   cursor: pointer;
   color: #0c1116;
   font-weight: 600;
-  box-shadow: 0 1px 2px rgba(0,0,0,.4);
+  box-shadow: 0 2px 6px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.2);
+  transition: box-shadow .12s ease, transform .12s ease;
 }
+.item-bar:hover { box-shadow: 0 3px 10px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.25); transform: translateY(-1px); }
 .item-bar.overdue { outline: 2px solid var(--danger); }
 .item-bar .handle {
   position: absolute;
@@ -354,22 +399,46 @@ main {
 .task-row.soon .due { color: var(--amber); font-weight: 700; }
 .task-row.done .title { text-decoration: line-through; color: var(--dim); }
 
-/* --- modal --- */
+/* --- modal: an inspector panel docked to the right edge, canvas-app style --- */
 .modal-backdrop {
-  position: fixed; inset: 0; background: rgba(0,0,0,.6);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 50; padding: 16px;
+  position: fixed; inset: 0; background: rgba(0,0,0,.35);
+  display: flex; align-items: stretch; justify-content: flex-end;
+  z-index: 50;
 }
 .modal {
   background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
   padding: 20px;
-  max-width: 560px;
+  max-width: 420px;
   width: 100%;
-  max-height: 86vh;
+  height: 100%;
+  max-height: 100%;
   overflow: auto;
+  box-shadow: -10px 0 28px rgba(0,0,0,.35);
+  animation: inspector-slide-in .16s ease-out;
 }
+@keyframes inspector-slide-in {
+  from { transform: translateX(28px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@media (max-width: 640px) {
+  .modal { max-width: 100%; }
+}
+
+.modal .swatch-row { display: flex; gap: 6px; flex-wrap: wrap; padding: 2px 0; }
+.modal .swatch {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid transparent; padding: 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: #0c1116;
+}
+.modal .swatch.match {
+  width: auto; border-radius: 11px; padding: 0 8px;
+  background: var(--panel-2) !important; border: 1px dashed var(--border);
+  font-size: 10px; color: var(--dim);
+}
+.modal .swatch.selected { border-color: var(--paper); box-shadow: 0 0 0 2px var(--panel); }
 .modal h2 { margin-top: 0; font-size: 16px; }
 .modal .row { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; flex-wrap: wrap; }
 .modal label { font-size: 12px; color: var(--dim); display: block; margin-bottom: 3px; }

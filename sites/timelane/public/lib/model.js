@@ -59,7 +59,18 @@ export function newMarker({ title = "marker", at, color } = {}) {
   return { id: uid(), title, at: at || null, color: color || null };
 }
 
-const PALETTE = ["#2f8f7a", "#e0a83e", "#d9694f", "#5b7fd9", "#9b6bd9", "#3fa8c9", "#c95b8f"];
+export const PALETTE = [
+  "#2f8f7a",
+  "#e0a83e",
+  "#d9694f",
+  "#5b7fd9",
+  "#9b6bd9",
+  "#3fa8c9",
+  "#c95b8f",
+  "#6ea852",
+  "#7d8ea3",
+  "#b2503f",
+];
 let paletteIdx = 0;
 export function pickColor() {
   const c = PALETTE[paletteIdx % PALETTE.length];
