@@ -432,6 +432,59 @@ els.timelineScroll.addEventListener(
   { passive: false },
 );
 
+// two-finger pinch-to-zoom, the touch equivalent of the ctrl+wheel handler
+// above — one-finger pan is left to native scrolling (see touch-action in
+// style.css), this only steps in once a second finger joins.
+let pinchState = null;
+function touchMid(t0, t1) {
+  return { x: (t0.clientX + t1.clientX) / 2, y: (t0.clientY + t1.clientY) / 2 };
+}
+function touchDist(t0, t1) {
+  return Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+}
+els.timelineScroll.addEventListener(
+  "touchstart",
+  (e) => {
+    if (e.touches.length !== 2) {
+      pinchState = null;
+      return;
+    }
+    const rect = els.timelineScroll.getBoundingClientRect();
+    const mid = touchMid(e.touches[0], e.touches[1]);
+    const screenX = mid.x - rect.left;
+    pinchState = {
+      dist: touchDist(e.touches[0], e.touches[1]),
+      zoom,
+      contentX: screenX + els.timelineScroll.scrollLeft,
+      screenX,
+    };
+  },
+  { passive: true },
+);
+els.timelineScroll.addEventListener(
+  "touchmove",
+  (e) => {
+    if (!pinchState || e.touches.length !== 2) return;
+    e.preventDefault();
+    const dist = touchDist(e.touches[0], e.touches[1]);
+    const newZoom = Math.max(2, Math.min(80, Math.round(pinchState.zoom * (dist / pinchState.dist))));
+    if (newZoom === zoom) return;
+    zoom = newZoom;
+    renderBoardView();
+    if (pinchState.contentX > 180) {
+      const dayOffset = (pinchState.contentX - 180) / pinchState.zoom;
+      els.timelineScroll.scrollLeft = 180 + dayOffset * zoom - pinchState.screenX;
+    }
+  },
+  { passive: false },
+);
+els.timelineScroll.addEventListener("touchend", (e) => {
+  if (e.touches.length < 2) pinchState = null;
+});
+els.timelineScroll.addEventListener("touchcancel", () => {
+  pinchState = null;
+});
+
 els.addLaneBtn.addEventListener("click", () => {
   const board = activeBoard();
   if (!board) return;
