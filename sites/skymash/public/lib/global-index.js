@@ -63,8 +63,18 @@ export class GlobalIndex {
     this.collection = collection;
     this.normalize = normalize;
     this.onUpdate = typeof onUpdate === "function" ? onUpdate : () => {};
-    this.cacheKey = `skymash:global-index:${collection}:v1`;
+    // v2: the cache used to store the *normalized* entry as `record`, which
+    // broke a non-idempotent normalize() (see rawRecords below) — bumped so
+    // stale v1 caches (holding an already-normalized shape) are ignored
+    // instead of being misread as raw records on the first post-fix load.
+    this.cacheKey = `skymash:global-index:${collection}:v2`;
     this.entries = new Map();
+    // The raw atproto record for each entry, keyed the same as `entries` —
+    // persisted to the cache instead of the normalized entry (see
+    // schedulePersist/restoreCache) so a normalize() that isn't idempotent
+    // (e.g. converting an ISO votedAt string to a ms number) doesn't get
+    // silently double-applied across a page reload and corrupt itself.
+    this.rawRecords = new Map();
     this.liveKeys = new Set();
     this.lastUpdated = 0;
     this.socket = null;
@@ -122,6 +132,7 @@ export class GlobalIndex {
     if (!entry) return;
     this.liveKeys.add(key);
     this.entries.set(key, entry);
+    this.rawRecords.set(key, record);
     this.lastUpdated = Date.now();
     this.schedulePersist();
     this.emit();
@@ -157,8 +168,16 @@ export class GlobalIndex {
       if (!parsed || !Array.isArray(parsed.entries)) return;
       for (const item of parsed.entries.slice(0, MAX_ENTRIES)) {
         if (!item || typeof item.did !== "string" || typeof item.rkey !== "string") continue;
+        // item.record is the ORIGINAL atproto record (see schedulePersist) —
+        // normalize() must only ever see that shape, never its own output,
+        // or a non-idempotent normalize (e.g. one that turns an ISO date
+        // string into a ms number) corrupts itself on every reload.
         const normalised = this.normalize(item.did, item.rkey, item.record);
-        if (normalised) this.entries.set(`${item.did}::${item.rkey}`, normalised);
+        if (normalised) {
+          const key = `${item.did}::${item.rkey}`;
+          this.entries.set(key, normalised);
+          this.rawRecords.set(key, item.record);
+        }
       }
       this.lastUpdated = Number(parsed.savedAt) || 0;
     } catch (_) {
@@ -171,9 +190,9 @@ export class GlobalIndex {
     this.persistTimer = setTimeout(() => {
       this.persistTimer = null;
       try {
-        const entries = Array.from(this.entries.entries()).map(([key, entry]) => {
+        const entries = Array.from(this.rawRecords.entries()).map(([key, record]) => {
           const [did, rkey] = key.split("::");
-          return { did, rkey, record: entry };
+          return { did, rkey, record };
         });
         localStorage.setItem(this.cacheKey, JSON.stringify({ savedAt: this.lastUpdated, entries }));
       } catch (_) {
@@ -257,6 +276,7 @@ export class GlobalIndex {
     this.liveKeys.add(key);
     let changed = false;
     if (commit.operation === "delete") {
+      this.rawRecords.delete(key);
       changed = this.entries.delete(key);
     } else if (commit.operation === "create" || commit.operation === "update") {
       changed = this.applyRecord(event.did, commit.rkey, commit.record, true);
@@ -272,9 +292,13 @@ export class GlobalIndex {
     const key = `${did}::${rkey}`;
     if (!fromLive && this.liveKeys.has(key)) return false;
     const entry = this.normalize(did, rkey, record);
-    if (!entry) return this.entries.delete(key);
+    if (!entry) {
+      this.rawRecords.delete(key);
+      return this.entries.delete(key);
+    }
     if (!this.entries.has(key) && this.entries.size >= MAX_ENTRIES) return false;
     this.entries.set(key, entry);
+    this.rawRecords.set(key, record);
     return true;
   }
 
