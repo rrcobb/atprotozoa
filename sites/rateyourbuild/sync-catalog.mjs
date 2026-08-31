@@ -47,6 +47,13 @@ const next = sites.map((s) => ({
   subgenre: subgenreFor(s),
   by: s.by || null,
   builtAt: s.builtAt || null,
+  // The at:// URI of the post that originally tagged the bot for this build
+  // (site.json's own mentionUri, when the bot recorded one) — lets the
+  // per-site rateyourbuild page link straight to the original ask, so a
+  // reviewer has real context before rating. Missing on builds that predate
+  // mentionUri being recorded; the site page falls back to the prompter's
+  // profile in that case.
+  mentionUri: s.mentionUri || null,
 }));
 
 const nextStr = JSON.stringify(next, null, 2) + "\n";

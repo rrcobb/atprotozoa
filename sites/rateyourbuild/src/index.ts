@@ -36,6 +36,7 @@ type CatalogSite = {
   subgenre: string | null;
   by: string | null;
   builtAt: string | null;
+  mentionUri: string | null;
 };
 
 const SITES = catalog as CatalogSite[];

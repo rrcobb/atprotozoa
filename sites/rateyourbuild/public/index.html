@@ -252,6 +252,18 @@
         if (!ms) return "unknown";
         return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" }) + " UTC";
       }
+      // Original-ask context link for a site's detail page: prefer the actual
+      // Bluesky post that tagged the bot (site.json's mentionUri, an at://
+      // URI — bsky.app resolves a DID directly, no handle lookup needed), and
+      // fall back to just the DID's profile when only that's known. Builds
+      // that predate mentionUri (or where "by" is a non-Bluesky source like
+      // "theme-box") have neither, so this can return null.
+      function originalAskLink(site) {
+        const m = /^at:\/\/(did:[^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/.exec(site.mentionUri || "");
+        if (m) return { href: `https://bsky.app/profile/${m[1]}/post/${m[2]}`, label: "read the original ask ↗" };
+        if (site.by && /\./.test(site.by)) return { href: `https://bsky.app/profile/${encodeURIComponent(site.by)}`, label: "asker's profile ↗" };
+        return null;
+      }
       function pluralGenre(g) {
         return /[a-z]$/.test(g) ? g + (g.endsWith("s") ? "" : "s") : g;
       }
@@ -1523,6 +1535,7 @@
             <p class="detail-meta">
               built ${esc(fmtDateTime(site.builtAt ? Date.parse(site.builtAt) : 0))}
               · <a href="${esc(site.url)}" target="_blank" rel="noopener">visit ${esc(site.name)}.bisks.net ↗</a>
+              ${(() => { const ask = originalAskLink(site); return ask ? ` · <a href="${esc(ask.href)}" target="_blank" rel="noopener">${esc(ask.label)}</a>` : ""; })()}
             </p>
             ${rankings.length ? `<ul class="rank-list">${rankings.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
             <p class="detail-meta">${renderSubButton("site", site.name, null, "notify me about new ratings & reviews", "unsubscribe from rating alerts")}</p>
