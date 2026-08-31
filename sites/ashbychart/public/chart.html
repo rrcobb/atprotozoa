@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ashbychart — an Ashby materials-selection chart, for Bluesky accounts</title>
+    <meta
+      name="description"
+      content="Someone built this chart. Two public account stats, plotted against each other, with the trade-off frontier drawn in."
+    />
+    <meta property="og:title" content="ashbychart — an Ashby materials-selection chart, for Bluesky accounts" />
+    <meta
+      property="og:description"
+      content="Someone built this chart. Two public account stats, plotted against each other, with the trade-off frontier drawn in."
+    />
+    <meta property="og:image" content="https://ashbychart.bisks.net/og.png" />
+    <meta property="og:url" content="https://ashbychart.bisks.net/c/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="/">← ashbychart</a>
+        <h1 id="h-title">loading…</h1>
+        <p class="tag" id="h-meta"></p>
+      </header>
+
+      <section>
+        <div class="plotbox">
+          <div class="axis-label y" id="lab-y"></div>
+          <div class="plot-square" id="square"></div>
+          <div class="axis-label x" id="lab-x"></div>
+        </div>
+        <div class="legend">
+          <span><span class="swatch" style="background:#1a5fd0"></span>account</span>
+          <span><span class="swatch frontier"></span>trade-off frontier (nobody beats these on both axes)</span>
+        </div>
+        <p class="status" id="load-status">loading profiles…</p>
+        <p class="hint" id="skip-hint" style="display: none"></p>
+      </section>
+
+      <section>
+        <h2 class="section-title">share</h2>
+        <div class="share-row">
+          <a class="share-link" id="btn-share-chart" href="#" target="_blank" rel="noopener">share this chart</a>
+          <button class="secondary" id="btn-download-card" style="display: none">download card</button>
+          <button class="secondary" id="btn-native-share" style="display: none">share…</button>
+          <a class="share-link" id="btn-remix" href="#">remix this chart</a>
+        </div>
+        <p class="hint">
+          remix keeps this chart's axes and handle list as a starting point in
+          the maker — change what you want and it becomes its own new link.
+          the original stays exactly as shared.
+        </p>
+        <canvas id="card-canvas" width="1000" height="700" style="display: none"></canvas>
+      </section>
+
+      <footer>
+        this chart's axes and handle list are decoded from the URL itself — no
+        server index, so this link renders the same for anyone. the numbers
+        are fetched live from each account's public profile every time it's
+        opened, so a chart can look different tomorrow.
+        <a href="/">make your own →</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { makeScatterSvg, clearPoints, drawAxes, drawFrontier, drawPoint, computeDomain } from "/lib/scatter.js";
+      import { PROPS, decodeChart, computeStats, propValue, paretoFrontier, chartFingerprint } from "/lib/ashby.js";
+      import { getProfile } from "/lib/atproto.js";
+
+      const $ = (s) => document.querySelector(s);
+      const encoded = (location.pathname.match(/\/c\/([^/]+)\/?$/) || [])[1] || "";
+
+      let cfg = null;
+      let fingerprint = null;
+
+      const svg = makeScatterSvg();
+      $("#square").appendChild(svg);
+
+      function renderHeader() {
+        const title = cfg.title || `${PROPS[cfg.y].short} vs ${PROPS[cfg.x].short}`;
+        document.title = `ashbychart: ${title}`;
+        $("#h-title").textContent = title;
+        $("#h-meta").textContent = `x: ${PROPS[cfg.x].label}${cfg.xLog ? " (log)" : ""}  ·  y: ${PROPS[cfg.y].label}${cfg.yLog ? " (log)" : ""}`;
+        $("#lab-x").textContent = PROPS[cfg.x].label;
+        $("#lab-y").textContent = PROPS[cfg.y].label;
+
+        const url = `https://ashbychart.bisks.net/c/${encoded}/`;
+        const shareText = `${title} — ${PROPS[cfg.x].short} vs ${PROPS[cfg.y].short}. ${url}`;
+        $("#btn-share-chart").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+        $("#btn-remix").href = `/?remix=${encoded}`;
+      }
+
+      let livePoints = [];
+      let frontier = [];
+      let xDomain = null;
+      let yDomain = null;
+
+      async function loadAndRender() {
+        const status = $("#load-status");
+        const results = await Promise.allSettled(cfg.handles.map((h) => getProfile(h)));
+
+        const points = [];
+        const skipped = [];
+        results.forEach((r, i) => {
+          const handle = cfg.handles[i];
+          if (r.status !== "fulfilled") {
+            skipped.push(`${handle} (not found)`);
+            return;
+          }
+          const profile = r.value;
+          const stats = computeStats(profile);
+          const x = propValue(stats, cfg.x);
+          const y = propValue(stats, cfg.y);
+          if (!Number.isFinite(x) || !Number.isFinite(y)) {
+            skipped.push(`${handle} (no profile date on file, needed for that axis)`);
+            return;
+          }
+          points.push({
+            handle,
+            label: profile.handle || handle,
+            avatar: profile.avatar || "",
+            x,
+            y,
+          });
+        });
+
+        livePoints = points;
+        frontier = paretoFrontier(points);
+        const frontierKeys = new Set(frontier.map((p) => p.handle));
+
+        if (points.length < 2) {
+          status.textContent = points.length
+            ? "only one account plotted — need at least 2 to draw anything useful."
+            : "couldn't load enough accounts to plot.";
+          status.className = "status err";
+        } else {
+          status.textContent = `${points.length} account${points.length === 1 ? "" : "s"} plotted.`;
+          status.className = "status ok";
+        }
+
+        if (skipped.length) {
+          $("#skip-hint").style.display = "block";
+          $("#skip-hint").textContent = `skipped: ${skipped.join(", ")}`;
+        }
+
+        if (points.length >= 2) {
+          xDomain = computeDomain(points.map((p) => p.x), cfg.xLog);
+          yDomain = computeDomain(points.map((p) => p.y), cfg.yLog);
+          drawAxes(svg, xDomain, yDomain);
+          drawFrontier(svg, frontier, xDomain, yDomain);
+          clearPoints(svg);
+          points.forEach((p) => drawPoint(svg, { ...p, onFrontier: frontierKeys.has(p.handle) }, xDomain, yDomain));
+          $("#btn-download-card").style.display = "inline-block";
+        }
+      }
+
+      async function boot() {
+        try {
+          cfg = decodeChart(encoded);
+        } catch (e) {
+          $("#h-title").textContent = "couldn't read that chart";
+          $("#h-meta").textContent = "the link looks malformed or got cut off somewhere.";
+          $("#load-status").textContent = "";
+          return;
+        }
+        fingerprint = await chartFingerprint(encoded);
+        renderHeader();
+        await loadAndRender();
+      }
+
+      // --- download / native-share card --------------------------------------
+
+      function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+        const words = text.split(" ");
+        let line = "";
+        let cy = y;
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            ctx.fillText(line, x, cy);
+            line = w;
+            cy += lineHeight;
+          } else {
+            line = test;
+          }
+        }
+        if (line) ctx.fillText(line, x, cy);
+        return cy;
+      }
+
+      function norm(v, domain) {
+        const { min, max, log } = domain;
+        if (log) {
+          const a = Math.log10(Math.max(0, min) + 1);
+          const b = Math.log10(Math.max(0, max) + 1);
+          const x = Math.log10(Math.max(0, v) + 1);
+          return b === a ? 0.5 : (x - a) / (b - a);
+        }
+        return max === min ? 0.5 : (v - min) / (max - min);
+      }
+
+      async function buildCard() {
+        if (livePoints.length < 2 || !xDomain || !yDomain) return false;
+        const canvas = $("#card-canvas");
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const mono = "ui-monospace, monospace";
+
+        ctx.fillStyle = "#fffdf8";
+        ctx.fillRect(0, 0, W, H);
+
+        const pad = 60;
+        ctx.fillStyle = "#14171a";
+        ctx.font = `800 34px ${mono}`;
+        ctx.textAlign = "left";
+        const titleY = wrapCanvasText(ctx, cfg.title || `${PROPS[cfg.y].short} vs ${PROPS[cfg.x].short}`, pad, 66, W - pad * 2, 40);
+
+        const plotX = pad + 20, plotY = titleY + 40, plotW = W - pad * 2 - 20, plotH = H - plotY - 70;
+        ctx.strokeStyle = "#14171a";
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(plotX, plotY, plotW, plotH);
+
+        const toPx = (x, y) => [plotX + norm(x, xDomain) * plotW, plotY + (1 - norm(y, yDomain)) * plotH];
+
+        if (frontier.length >= 2) {
+          ctx.strokeStyle = "#d0461a";
+          ctx.lineWidth = 2.5;
+          ctx.setLineDash([6, 5]);
+          ctx.beginPath();
+          frontier.forEach((p, i) => {
+            const [px, py] = toPx(p.x, p.y);
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          });
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
+        const frontierKeys = new Set(frontier.map((p) => p.handle));
+        ctx.textAlign = "center";
+        for (const p of livePoints) {
+          const [px, py] = toPx(p.x, p.y);
+          ctx.beginPath();
+          ctx.arc(px, py, 8, 0, Math.PI * 2);
+          ctx.fillStyle = "#1a5fd0";
+          ctx.fill();
+          if (frontierKeys.has(p.handle)) {
+            ctx.strokeStyle = "#d0461a";
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.arc(px, py, 11, 0, Math.PI * 2);
+            ctx.stroke();
+          }
+          ctx.fillStyle = "#14171a";
+          ctx.font = `13px ${mono}`;
+          ctx.fillText(p.label, px, py - 16);
+        }
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#6b6b6b";
+        ctx.font = `16px ${mono}`;
+        ctx.fillText(`x: ${PROPS[cfg.x].label}   y: ${PROPS[cfg.y].label}`, pad, H - 40);
+        ctx.fillStyle = "#1a5fd0";
+        ctx.font = `700 16px ${mono}`;
+        ctx.fillText("ashbychart.bisks.net", pad, H - 18);
+
+        return true;
+      }
+
+      $("#btn-download-card").addEventListener("click", async () => {
+        const ok = await buildCard();
+        if (!ok) return;
+        const canvas = $("#card-canvas");
+        const link = document.createElement("a");
+        link.download = `ashbychart-${fingerprint}.png`;
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+      });
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+      if (canShareFiles()) {
+        $("#btn-native-share").style.display = "inline-block";
+        $("#btn-native-share").addEventListener("click", async () => {
+          const ok = await buildCard();
+          if (!ok) return;
+          $("#card-canvas").toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], `ashbychart-${fingerprint}.png`, { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: cfg.title || "ashbychart", title: "ashbychart" });
+            } catch {
+              // cancelled — no-op
+            }
+          }, "image/png");
+        });
+      }
+
+      boot();
+    </script>
+  </body>
+</html>

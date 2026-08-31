@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ashbychart — an Ashby materials-selection chart, for Bluesky accounts</title>
+    <meta
+      name="description"
+      content="Pick two public account stats, drop in some handles, and see who's out on the trade-off frontier — the classic engineering 'materials selection chart' trick, aimed at atproto profiles instead of alloys."
+    />
+    <meta property="og:title" content="ashbychart — an Ashby materials-selection chart, for Bluesky accounts" />
+    <meta
+      property="og:description"
+      content="Pick two public account stats, drop in some handles, and see who's out on the trade-off frontier — Ashby's materials-selection chart trick, aimed at atproto profiles."
+    />
+    <meta property="og:image" content="https://ashbychart.bisks.net/og.png" />
+    <meta property="og:url" content="https://ashbychart.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net/">bisks.net</a>
+        <h1 id="h-title">ashbych<span onclick='var e=document.getElementById("f-handles");if(e){e.value=(e.value?e.value+"\n":"")+"@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">a</span>rt</h1>
+        <p class="tag">
+          an <a href="https://en.wikipedia.org/wiki/Material_selection#Ashby_charts" target="_blank" rel="noopener">Ashby chart</a> —
+          the trade-space plot engineers use to pick materials by two properties
+          at once — pointed at Bluesky accounts instead of alloys. Pick two
+          plain public counts, drop in some handles, and see who's sitting on
+          the trade-off frontier.
+        </p>
+      </header>
+
+      <section>
+        <h2 class="section-title">the fraught part</h2>
+        <p class="hint">
+          <a href="https://bsky.app/profile/jurph.bsky.social" target="_blank" rel="noopener">@jurph.bsky.social</a>
+          suggested this (pointing at
+          <a href="https://github.com/slehmann1/OpenAshby" target="_blank" rel="noopener">slehmann1/OpenAshby</a>
+          and walgren/Ashb… as prior art), and flagged the obvious catch: the
+          choice of properties for a "chart for people" is fraught. So this
+          one only plots boring public numbers atproto already shows on every
+          profile — followers, follows, posts, and two ratios of those. No
+          taste, no vibes, nothing anyone could take as a verdict on them as a
+          person. Forwarded by
+          <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies.bsky.social</a>.
+        </p>
+      </section>
+
+      <section id="featured">
+        <h2 class="section-title">the thread that started this</h2>
+        <a class="share-link" id="featured-link" href="#">plot @bisks.net, @jurph, and @norvid-studies →</a>
+      </section>
+
+      <section>
+        <h2 class="section-title">new chart</h2>
+
+        <label for="f-title">title (optional)</label>
+        <input id="f-title" type="text" maxlength="80" placeholder="e.g. who's actually posting the most" />
+
+        <div class="field-grid" style="margin-top: 0.9rem">
+          <div class="axis-field">
+            <label for="f-x">x axis</label>
+            <select id="f-x"></select>
+            <label class="scale-toggle"><input type="checkbox" id="f-xlog" checked /> log scale</label>
+          </div>
+          <div class="axis-field">
+            <label for="f-y">y axis</label>
+            <select id="f-y"></select>
+            <label class="scale-toggle"><input type="checkbox" id="f-ylog" checked /> log scale</label>
+          </div>
+        </div>
+
+        <label for="f-handles" style="margin-top: 0.9rem">handles</label>
+        <textarea id="f-handles" placeholder="one per line, or comma/space separated&#10;e.g. bisks.net, jurph.bsky.social"></textarea>
+        <p class="hint">up to 40 — past that a scatter plot with labels stops being readable.</p>
+
+        <div class="share-row">
+          <button id="btn-create">build chart</button>
+        </div>
+        <p class="status" id="create-status"></p>
+      </section>
+
+      <section>
+        <h2 class="section-title">your charts</h2>
+        <p class="hint">
+          just yours — remembered in this browser only, not a public index.
+          every link above still works for anyone; this list is only a
+          shortcut back to charts you made here.
+        </p>
+        <div id="chart-list">
+          <p class="hint">nothing yet — be the first.</p>
+        </div>
+      </section>
+
+      <footer>
+        Ashby-style trade-space chart, built by
+        <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+        — a chart's title, axes, and handle list are encoded straight into its
+        <code>/c/&lt;…&gt;/</code> URL, so the link itself is the whole chart;
+        the numbers are fetched live from each account's public profile when
+        it's opened. <a href="https://rateyourbuild.bisks.net/site/ashbychart" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { PROPS, PROP_KEYS, encodeChart, decodeChart } from "/lib/ashby.js";
+
+      const $ = (s) => document.querySelector(s);
+
+      function fillSelect(sel, def) {
+        sel.innerHTML = PROP_KEYS.map((k) => `<option value="${k}">${PROPS[k].label}</option>`).join("");
+        sel.value = def;
+      }
+      fillSelect($("#f-x"), "followers");
+      fillSelect($("#f-y"), "posts");
+
+      // remixing an existing chart: /?remix=<encoded> prefills the form from
+      // that chart so tweaking it just means editing fields, not retyping
+      // everything — the remix becomes its own new link on create, the
+      // original this was remixed from is untouched.
+      const remixParam = new URLSearchParams(location.search).get("remix");
+      if (remixParam) {
+        try {
+          const remixed = decodeChart(remixParam);
+          $("#f-title").value = remixed.title;
+          $("#f-x").value = remixed.x;
+          $("#f-y").value = remixed.y;
+          $("#f-xlog").checked = remixed.xLog;
+          $("#f-ylog").checked = remixed.yLog;
+          $("#f-handles").value = remixed.handles.join("\n");
+          $("#create-status").textContent = "started from a remixed chart — edit anything, then build to get your own link.";
+          $("#create-status").className = "status ok";
+        } catch {
+          $("#create-status").textContent = "couldn't read that chart to remix — starting fresh.";
+          $("#create-status").className = "status err";
+        }
+      }
+
+      function parseHandles(raw) {
+        return [
+          ...new Set(
+            raw
+              .split(/[\s,]+/)
+              .map((h) => h.trim().replace(/^@/, ""))
+              .filter(Boolean),
+          ),
+        ].slice(0, 40);
+      }
+
+      function chartUrl(cfg) {
+        return `/c/${encodeChart(cfg)}/`;
+      }
+
+      function rememberChart(cfg, url) {
+        const charts = JSON.parse(localStorage.getItem("ashbychart:charts") || "[]");
+        charts.unshift({ title: cfg.title || `${PROPS[cfg.y].short} vs ${PROPS[cfg.x].short}`, url, createdAt: Date.now() });
+        localStorage.setItem("ashbychart:charts", JSON.stringify(charts.slice(0, 50)));
+      }
+
+      $("#btn-create").addEventListener("click", () => {
+        const status = $("#create-status");
+        const handles = parseHandles($("#f-handles").value);
+        if (handles.length < 2) {
+          status.textContent = "add at least 2 handles to plot something.";
+          status.className = "status err";
+          return;
+        }
+        const cfg = {
+          title: $("#f-title").value.trim(),
+          x: $("#f-x").value,
+          y: $("#f-y").value,
+          xLog: $("#f-xlog").checked,
+          yLog: $("#f-ylog").checked,
+          handles,
+        };
+        const url = chartUrl(cfg);
+        rememberChart(cfg, url);
+        location.href = url;
+      });
+
+      function esc(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function loadCharts() {
+        const list = $("#chart-list");
+        const charts = JSON.parse(localStorage.getItem("ashbychart:charts") || "[]");
+        if (!charts.length) return;
+        list.innerHTML = charts.map((c) => `<div><a class="share-link" href="${esc(c.url)}">${esc(c.title)}</a></div>`).join("");
+      }
+      loadCharts();
+
+      // the thread this whole thing came from, generated the same way any
+      // other chart is — just linked from the homepage.
+      const FEATURED = {
+        title: "the thread that started this",
+        x: "followers",
+        y: "postsPerDay",
+        xLog: true,
+        yLog: true,
+        handles: ["bisks.net", "jurph.bsky.social", "norvid-studies.bsky.social"],
+      };
+      $("#featured-link").href = chartUrl(FEATURED);
+    </script>
+  </body>
+</html>
