@@ -14,8 +14,9 @@ import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const W = 1200, H = 630;
-const BG = "#fffdf8", INK = "#14171a", MUTED = "#6b6b6b", FAINT = "#e2ddd0";
-const ACCENT = "#1a5fd0", ACCENT2 = "#d0461a";
+// 2026-08-31: recolored to match style.css's "early Facebook blue" reskin.
+const BG = "#e9eaed", INK = "#1d2129", MUTED = "#666666", FAINT = "#d8dfea";
+const ACCENT = "#3b5998", ACCENT2 = "#a90000";
 
 // Two beveled "matchup card" silhouettes facing off, echoing the vote screen.
 const cardW = 190, cardH = 240, cardY = 210;
