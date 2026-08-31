@@ -1,17 +1,19 @@
-// cluster.js — skymash's eligibility check: turn a Bluesky handle/DID into a
-// "cluster score" (mutual-follow pool size, widened to follows if too thin).
-// Everything reads Bluesky's PUBLIC AppView anonymously (api.bsky.app, CORS
-// *, no auth). Copied and trimmed from simcluster-twin/public/lib/cluster.js
+// cluster.js — skymash's cluster-score lookup: turn a Bluesky handle/DID into
+// a "cluster score" (mutual-follow pool size, widened to follows if too
+// thin). Everything reads Bluesky's PUBLIC AppView anonymously (api.bsky.app,
+// CORS *, no auth). Copied and trimmed from simcluster-twin/public/lib/cluster.js
 // (itself from grand-moot-auto/public/lib/cluster.js, mootdrone, clustercrawl,
 // simcluster — copy, don't abstract), which is the same scoring shape the
 // whole simcluster-* family uses: community positioning, not follower count.
 //
-// This is skymash's answer to "40+ on Shimmer Math Labs' Simcluster
+// This started as skymash's answer to "40+ on Shimmer Math Labs' Simcluster
 // framework" from the build brief — there's no single canonical numeric
-// "Simcluster score" elsewhere in this repo, so skymash uses the family's own
-// mutual-pool-size metric as its eligibility bar, with the threshold from the
-// brief (40) and full transparency about what's actually being measured (see
-// the about page).
+// "Simcluster score" elsewhere in this repo, so skymash used the family's own
+// mutual-pool-size metric as an eligibility bar. As of 2026-08-31 it's no
+// longer a bar: @fromthewestmeadow.com asked to open nominations to everyone
+// on the site, not just the simcluster people, so the score this module
+// returns is now shown for transparency/flavor only (see app.js and the
+// about page) and no longer gates anything.
 
 const PUB = "https://api.bsky.app/xrpc";
 

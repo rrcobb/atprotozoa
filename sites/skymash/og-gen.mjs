@@ -38,7 +38,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="64" y="140" font-family="JetBrains Mono" font-weight="800" font-size="66" fill="${INK}">skymash</text>
   <text x="64" y="188" font-family="JetBrains Mono" font-size="22" fill="${MUTED}">hot-or-not for Bluesky, but <tspan fill="${ACCENT}">earned</tspan></text>
 
-  <text x="64" y="280" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">two eligible profiles, latest posts and all.</text>
+  <text x="64" y="280" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">two profiles, latest posts and all.</text>
   <text x="64" y="306" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">click the one you like more.</text>
   <text x="64" y="332" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">rankings are pure Elo from head-to-head votes —</text>
   <text x="64" y="358" font-family="JetBrains Mono" font-size="17" fill="${MUTED}">no follower counts, no engagement metrics.</text>

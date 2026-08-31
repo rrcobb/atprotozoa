@@ -2,10 +2,17 @@
 // eligible profiles + their latest posts, rating-aware matchmaking, click to
 // pick), the Elo leaderboard (computed client-side from every
 // net.bisks.skymash.vote record on the network, with batch-fetched avatars
-// from public/lib/identity.js), the nominate form (eligibility-gated by
-// public/lib/cluster.js's mutual-follow "cluster score"), and self-service
-// opt-out (net.bisks.skymash.optout). Frontend-first, no server state — see
-// notes/ideas/pds-and-lexicons.md "Tier 3".
+// from public/lib/identity.js), the nominate form (open to any account —
+// public/lib/cluster.js's mutual-follow "cluster score" is shown alongside
+// each nomination for flavor, not a gate; see the 2026-08-31 change below),
+// and self-service opt-out (net.bisks.skymash.optout). Frontend-first, no
+// server state — see notes/ideas/pds-and-lexicons.md "Tier 3".
+//
+// 2026-08-31: nomination used to require a 40+ cluster score (the brief's
+// "Simcluster" bar). @fromthewestmeadow.com asked to open it up to everyone
+// on the site, not just the simcluster people, so the threshold check is
+// gone — clusterScore() still runs and gets stored/shown, it just no longer
+// blocks anything.
 
 import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
 import { GlobalIndex } from "/lib/global-index.js";
@@ -13,7 +20,6 @@ import { clusterScore } from "/lib/cluster.js";
 import { computeStandings } from "/lib/elo.js";
 import { getProfiles } from "/lib/identity.js";
 
-const ELIGIBLE_THRESHOLD = 40;
 const PUB = "https://api.bsky.app/xrpc";
 const NOMINATION_COLLECTION = "net.bisks.skymash.nomination";
 const VOTE_COLLECTION = "net.bisks.skymash.vote";
@@ -108,7 +114,7 @@ let voteSnapshot = { entries: [], backfillDone: false };
 let optOutSnapshot = { entries: [], backfillDone: false };
 let currentPair = null; // { a: {did, profile, feed}, b: {...} }
 
-function eligiblePool() {
+function activePool() {
   return dedupPool(poolSnapshot.entries, optOutSnapshot.entries);
 }
 
@@ -249,7 +255,7 @@ function pickTwo(pool, ratings) {
 }
 
 async function loadMatchup() {
-  const pool = eligiblePool();
+  const pool = activePool();
   const voteStatus = $("#vote-status");
   $("#vote-share").style.display = "none";
   $("#vote-hint-anon").style.display = session ? "none" : (pool.length >= 2 ? "" : "none");
@@ -374,7 +380,7 @@ async function renderLeaderboard() {
     table.style.display = "none";
     return;
   }
-  const poolMap = new Map(eligiblePool().map((p) => [p.subject, p]));
+  const poolMap = new Map(activePool().map((p) => [p.subject, p]));
   boardStatus.textContent = voteSnapshot.backfillDone ? "" : "still backfilling full vote history — standings may shift.";
   table.style.display = "";
 
@@ -418,11 +424,6 @@ $("#btn-nominate").addEventListener("click", async () => {
   try {
     status.textContent = "resolving…";
     const result = await clusterScore(raw, { onStep: (s) => (status.textContent = s) });
-    if (result.score < ELIGIBLE_THRESHOLD) {
-      status.textContent = `not eligible — cluster score ${result.score} (${result.kind}), needs ${ELIGIBLE_THRESHOLD}+.`;
-      status.className = "status err";
-      return;
-    }
     const prof = await getProfile(result.did).catch(() => null);
     const handle = prof?.handle || raw.replace(/^@/, "");
     const record = { subject: result.did, handle, score: result.score, nominatedAt: new Date().toISOString() };
@@ -469,9 +470,9 @@ $("#btn-optout").addEventListener("click", async () => {
 });
 
 function renderPool() {
-  const pool = eligiblePool().sort((a, b) => b.score - a.score);
+  const pool = activePool().sort((a, b) => b.score - a.score);
   const status = $("#pool-status");
-  status.textContent = `${pool.length} eligible account${pool.length === 1 ? "" : "s"} nominated so far${
+  status.textContent = `${pool.length} account${pool.length === 1 ? "" : "s"} nominated so far${
     poolSnapshot.backfillDone ? "" : " (still loading full history…)"
   }.`;
   $("#pool-list").innerHTML =

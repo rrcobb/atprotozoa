@@ -1,5 +1,5 @@
 // skymash Worker: served at the root of skymash.bisks.net, so requests pass
-// straight to the static-asset router. Everything else (eligibility checks,
+// straight to the static-asset router. Everything else (matchmaking,
 // pairing, votes, the leaderboard) is client-side per the frontend-first house
 // rule — nominations and votes are net.bisks.skymash.* records written to
 // each voter's own PDS, read back network-wide via listReposByCollection +
