@@ -228,6 +228,40 @@
   let rafId = null;
   let lastT = 0;
 
+  // ---- click-and-drag: grab the nearest strand point and pin it to the
+  // pointer each frame; the bending + rope-length constraints in Knot.step()
+  // pull the rest of the loop along elastically, same as tugging real string.
+  // Keyed by pointerId so multiple fingers/mice can drag different knots (or
+  // different points of the same knot) at once.
+  const drags = new Map();
+  const GRAB_PX = 22; // how close (in css px) a click needs to be to a strand
+
+  function localCoords(canvas, clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    return [clientX - rect.left, clientY - rect.top];
+  }
+
+  function toUnit(size, lx, ly) {
+    const scale = size * 0.42; // matches Knot.draw()'s scale/cx/cy
+    return [(lx - size / 2) / scale, (ly - size / 2) / scale, scale];
+  }
+
+  function nearestPointIndex(knot, ux, uy, maxUnitDist) {
+    let best = -1;
+    let bestD2 = maxUnitDist * maxUnitDist;
+    for (let i = 0; i < knot.total; i++) {
+      const p = knot.pos[i];
+      const dx = p[0] - ux;
+      const dy = p[1] - uy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = i;
+      }
+    }
+    return best;
+  }
+
   function readStateFromURL() {
     const p = new URLSearchParams(location.search);
     const n = parseInt(p.get("n"), 10);
@@ -250,6 +284,7 @@
     grid.innerHTML = "";
     knots = [];
     canvases = [];
+    drags.clear();
     const count = Math.min(state.cols * state.cols, MAX_CELLS);
     const cellPx = state.cols <= 3 ? 220 : state.cols <= 4 ? 180 : 140;
     grid.style.gridTemplateColumns = `repeat(${state.cols}, ${cellPx}px)`;
@@ -269,12 +304,42 @@
       canvas.style.height = inner + "px";
       const ctx = canvas.getContext("2d");
       ctx.scale(dpr, dpr);
+      canvas.style.cursor = "grab";
+      canvas.style.touchAction = "none";
       card.appendChild(canvas);
       grid.appendChild(card);
 
       const knot = new Knot(state.n, cellSeed(state.seed, i), PALETTE[i % PALETTE.length]);
       knots.push(knot);
       canvases.push({ canvas, ctx, size: inner });
+
+      const knotIndex = i;
+      canvas.addEventListener("pointerdown", (e) => {
+        const [lx, ly] = localCoords(canvas, e.clientX, e.clientY);
+        const [ux, uy, scale] = toUnit(inner, lx, ly);
+        const idx = nearestPointIndex(knots[knotIndex], ux, uy, GRAB_PX / scale);
+        if (idx === -1) return;
+        drags.set(e.pointerId, { i: knotIndex, pointIndex: idx, ux, uy });
+        canvas.setPointerCapture(e.pointerId);
+        canvas.style.cursor = "grabbing";
+        e.preventDefault();
+      });
+      canvas.addEventListener("pointermove", (e) => {
+        const d = drags.get(e.pointerId);
+        if (!d || d.i !== knotIndex) return;
+        const [lx, ly] = localCoords(canvas, e.clientX, e.clientY);
+        const [ux, uy] = toUnit(inner, lx, ly);
+        d.ux = ux;
+        d.uy = uy;
+        e.preventDefault();
+      });
+      const releaseDrag = (e) => {
+        if (!drags.has(e.pointerId)) return;
+        drags.delete(e.pointerId);
+        canvas.style.cursor = "grab";
+      };
+      canvas.addEventListener("pointerup", releaseDrag);
+      canvas.addEventListener("pointercancel", releaseDrag);
     }
     writeStateToURL();
     updateShareLink();
@@ -286,6 +351,22 @@
     lastT = t;
     if (!paused) {
       for (const knot of knots) knot.step(t, dt);
+    } else if (drags.size) {
+      // keep the physics live for whatever's being dragged even while
+      // paused, so tugging a strand still pulls its neighbors along.
+      const stepped = new Set();
+      for (const d of drags.values()) {
+        if (stepped.has(d.i)) continue;
+        stepped.add(d.i);
+        knots[d.i].step(t, dt);
+      }
+    }
+    // pin every actively-dragged point to its pointer, on top of whatever
+    // the spring/bending/rope-length solve just computed for it.
+    for (const d of drags.values()) {
+      const p = knots[d.i].pos[d.pointIndex];
+      p[0] = d.ux;
+      p[1] = d.uy;
     }
     for (let i = 0; i < knots.length; i++) {
       const { ctx, size } = canvases[i];
