@@ -555,7 +555,8 @@ async function renderLeaderboard() {
       const avatarCell = avatar
         ? `<img class="board-avatar" src="${esc(avatar)}" alt="" loading="lazy" />`
         : `<span class="board-avatar board-avatar-empty"></span>`;
-      return `<tr><td class="rank">${i + 1}</td><td class="profile"><span class="board-profile">${avatarCell}<span class="handle-text">@${esc(handle)}</span></span></td><td class="rating">${s.rating}</td><td>${s.wins}–${s.losses}</td><td>${s.total}</td><td>${s.winPct == null ? "—" : s.winPct + "%"}</td></tr>`;
+      const profileUrl = `https://bsky.app/profile/${esc(handle)}`;
+      return `<tr><td class="rank">${i + 1}</td><td class="profile"><a class="board-profile" href="${profileUrl}" target="_blank" rel="noopener noreferrer" title="@${esc(handle)}">${avatarCell}<span class="handle-text">@${esc(handle)}</span></a></td><td class="rating">${s.rating}</td><td>${s.wins}–${s.losses}</td><td>${s.total}</td><td>${s.winPct == null ? "—" : s.winPct + "%"}</td></tr>`;
     })
     .join("");
 }
