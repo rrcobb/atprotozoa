@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>didsigil — your identity, rendered as a sigil</title>
+<meta name="description" content="Every did:plc hashes into a deterministic kaleidoscope: same identity, same sigil, every time. Enter a Bluesky handle and see your own." />
+<meta property="og:title" content="didsigil — your identity, rendered as a sigil" />
+<meta property="og:description" content="Every did:plc hashes into a deterministic kaleidoscope: same identity, same sigil, every time. Enter a Bluesky handle and see your own." />
+<meta property="og:url" content="https://didsigil.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://didsigil.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="didsigil: a radial kaleidoscope sigil generated from a Bluesky DID." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="didsigil — your identity, rendered as a sigil" />
+<meta name="twitter:description" content="Every did:plc hashes into a deterministic kaleidoscope: same identity, same sigil, every time." />
+<meta name="twitter:image" content="https://didsigil.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #08070c;
+    --bg2: #120e1c;
+    --fg: #f1eef8;
+    --dim: #a49bc0;
+    --accent: #8f7bff;
+    --accent2: #ff9ecf;
+    --card: #17132455;
+    --cardsolid: #171324;
+    --border: #322a4a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #291a4a 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 8%, #3a1230 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3.5rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 620px; }
+  h1 {
+    font-size: 1.9rem; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2rem; line-height: 1.55; max-width: 54ch; }
+  .tag code { color: var(--accent2); }
+
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0; background: var(--cardsolid); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.75rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #c04cff); color: #0d0620; border: none;
+    border-radius: 8px; padding: 0.75rem 1.1rem; font: inherit; font-weight: 700; font-size: 0.9rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: #ff8a8a; }
+
+  .card { display: none; }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .stage {
+    position: relative;
+    width: min(100%, 420px);
+    aspect-ratio: 1 / 1;
+    margin: 0 auto 1.1rem;
+  }
+  #sigilCanvas {
+    width: 100%; height: 100%; border-radius: 50%;
+    box-shadow: 0 0 70px -18px var(--accent), 0 0 0 1px var(--border);
+    animation: spin 100s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .avatarOverlay {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 22%; height: 22%; border-radius: 50%; object-fit: cover;
+    border: 2px solid rgba(241,238,248,0.85);
+    box-shadow: 0 0 18px rgba(0,0,0,0.6);
+    background: var(--cardsolid);
+  }
+
+  .who { text-align: center; margin-bottom: 0.3rem; }
+  .who .handle { font-weight: 700; font-size: 1.05rem; }
+  .who .did { color: var(--dim); font-size: 0.68rem; word-break: break-all; margin-top: 0.15rem; }
+
+  .stats {
+    display: flex; justify-content: center; gap: 0.5rem; flex-wrap: wrap;
+    margin: 0.9rem 0 1.4rem; font-size: 0.72rem; color: var(--dim);
+  }
+  .stats span {
+    border: 1px solid var(--border); border-radius: 999px; padding: 0.3rem 0.7rem;
+  }
+  .stats b { color: var(--accent2); }
+
+  .share {
+    border-top: 1px dashed var(--border); padding-top: 1.2rem;
+  }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), #c04cff); color: #0d0620; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.7; }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>d<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">i</span>dsigil</h1>
+    <p class="tag">
+      Your <code>did:plc</code> hashes into a seed, the seed draws a radial
+      kaleidoscope — same identity, same sigil, every time, nothing stored
+      anywhere. Enter a Bluesky handle to see theirs.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">draw</button>
+    </form>
+    <p class="hint">works on any handle — yours, a friend's, an enemy's.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="stage">
+        <canvas id="sigilCanvas" width="640" height="640"></canvas>
+        <img id="avatar" class="avatarOverlay" alt="" />
+      </div>
+
+      <div class="who">
+        <div class="handle" id="handleOut"></div>
+        <div class="did" id="didOut"></div>
+      </div>
+
+      <div class="stats">
+        <span><b id="statSegments"></b>-fold symmetry</span>
+        <span><b id="statRings"></b> rings</span>
+        <span>hue <b id="statHue"></b>&deg;</span>
+      </div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your sigil</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+      <a href="https://rateyourbuild.bisks.net/site/didsigil">rate this on rateyourbuild →</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script src="lib/sigil.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  didOut: document.getElementById("didOut"),
+  statSegments: document.getElementById("statSegments"),
+  statRings: document.getElementById("statRings"),
+  statHue: document.getElementById("statHue"),
+  sigilCanvas: document.getElementById("sigilCanvas"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function shareUrlFor(handle) {
+  return "https://didsigil.bisks.net/?h=" + encodeURIComponent(handle);
+}
+
+function shareText(handle, params) {
+  return (
+    `@${handle}'s identity, rendered as a sigil — ${params.segments}-fold symmetry, hue ${Math.round(params.hueBase)}°. ` +
+    `same DID, same sigil, every time.\n\n` +
+    `see your own → ${shareUrlFor(handle)}`
+  );
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+async function buildShareCard({ did, profile, params }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#08070c";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.78, H * 0.1, 0, W * 0.78, H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#2a1240");
+  glow.addColorStop(1, "rgba(8,7,12,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  const cx = 300, cy = 315, radius = 235;
+  drawSigil(ctx, cx, cy, radius, did);
+
+  const avatar = await loadImg(profile.avatar);
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * 0.22, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, cx - radius * 0.22, cy - radius * 0.22, radius * 0.44, radius * 0.44);
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * 0.22, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(241,238,248,0.85)";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff9ecf";
+  ctx.font = `800 46px ${mono}`;
+  ctx.fillText("didsigil", 640, 130);
+
+  ctx.fillStyle = "#f1eef8";
+  ctx.font = `700 30px ${mono}`;
+  ctx.fillText("@" + profile.handle, 640, 180);
+
+  ctx.fillStyle = "#a49bc0";
+  ctx.font = `400 15px ${mono}`;
+  const didLine = did.length > 40 ? did.slice(0, 40) + "…" : did;
+  ctx.fillText(didLine, 640, 208);
+
+  ctx.strokeStyle = "#322a4a";
+  ctx.lineWidth = 1.5;
+  const boxX = 640, boxY = 250, boxW = W - boxX - 60, boxH = 260;
+  ctx.fillStyle = "rgba(23,19,36,0.8)";
+  ctx.beginPath();
+  ctx.roundRect(boxX, boxY, boxW, boxH, 16);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = "#8f7bff";
+  ctx.font = `700 14px ${mono}`;
+  ctx.fillText("SYMMETRY", boxX + 32, boxY + 44);
+  ctx.fillStyle = "#f1eef8";
+  ctx.font = `800 34px ${mono}`;
+  ctx.fillText(params.segments + "-fold", boxX + 32, boxY + 84);
+
+  ctx.fillStyle = "#8f7bff";
+  ctx.font = `700 14px ${mono}`;
+  ctx.fillText("RINGS", boxX + 32, boxY + 128);
+  ctx.fillStyle = "#f1eef8";
+  ctx.font = `800 34px ${mono}`;
+  ctx.fillText(String(params.rings), boxX + 32, boxY + 168);
+
+  ctx.fillStyle = "#8f7bff";
+  ctx.font = `700 14px ${mono}`;
+  ctx.fillText("HUE", boxX + 32, boxY + 212);
+  ctx.fillStyle = `hsl(${params.hueBase}, 70%, 65%)`;
+  ctx.font = `800 34px ${mono}`;
+  ctx.fillText(Math.round(params.hueBase) + "°", boxX + 32, boxY + 252);
+
+  ctx.fillStyle = "#ff9ecf";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("didsigil.bisks.net", 640, H - 40);
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("resolving " + handle + " ...");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+
+    const params = sigilParams(did);
+
+    const liveCtx = els.sigilCanvas.getContext("2d");
+    const size = els.sigilCanvas.width;
+    liveCtx.clearRect(0, 0, size, size);
+    drawSigil(liveCtx, size / 2, size / 2, size / 2 - 4, did);
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + profile.handle;
+    els.didOut.textContent = did;
+    els.statSegments.textContent = params.segments;
+    els.statRings.textContent = params.rings;
+    els.statHue.textContent = Math.round(params.hueBase);
+
+    setStatus("");
+    els.card.classList.add("show");
+
+    lastShareText = shareText(profile.handle, params);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+    await buildShareCard({ did, profile, params });
+  } catch (err) {
+    setStatus("couldn't resolve that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "sigil").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "didsigil-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "sigil").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "didsigil-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "didsigil" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+const sharedHandle = new URLSearchParams(location.search).get("h");
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>

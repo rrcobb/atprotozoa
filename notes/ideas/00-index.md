@@ -73,12 +73,21 @@ so `/radio`'s backfill just calls that existing CAR-first `listRecords()`
 instead of hand-rolling a second paginated walk — the standing order applied
 by reuse rather than a new implementation; see
 `sites/padmoot/public/lib/global-index.js`). Still one-repo-only:
-alice-meets-bob (deliberately — see below), duohaunt, griftmax, velvetrope
-(deliberately, its own `/api` explicitly 410s cross-account queue reads:
-"requests and decisions live only in their authors' PDSes"). (keytags is a
-deliberate exception too, not a gap — its records are opaque hashes unless
-you hold the key, so there's nothing an aggregate view could meaningfully
-show.)
+alice-meets-bob (deliberately — see below), griftmax (deliberately, as of a
+2026-08-31 daily-slot check — its own copy says so directly: "this is
+deliberately not a global leaderboard... ascensions stay in this browser"),
+velvetrope (deliberately, its own `/api` explicitly 410s cross-account queue
+reads: "requests and decisions live only in their authors' PDSes"). (keytags
+is a deliberate exception too, not a gap — its records are opaque hashes
+unless you hold the key, so there's nothing an aggregate view could
+meaningfully show.)
+
+This list was also stale on **duohaunt**: it already ships a real network-wide
+`/` wall (`sites/duohaunt/public/lib/global-wall.js`, same
+listReposByCollection + CAR-per-repo recipe as the rest of this section) —
+just never checked off here. Caught by the same 2026-08-31 daily-slot pass
+that confirmed griftmax's local-only shape is deliberate rather than a gap
+this thread should still be closing.
 
 This list had drifted stale in three more places, caught by later daily-slot
 passes rather than fixed at the time: **clusterpedia** and **postwith** were
