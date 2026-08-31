@@ -13,10 +13,17 @@
 // on the site, not just the simcluster people, so the threshold check is
 // gone — clusterScore() still runs and gets stored/shown, it just no longer
 // blocks anything.
+//
+// 2026-08-31 (later same thread): @fromthewestmeadow.com asked to make it
+// easy to skip a matchup, and to be able to compare people you actually
+// recognize. Added a real pre-vote "skip" button (#btn-skip-live — unlike
+// the old #btn-skip, it's live during the matchup, not just after voting)
+// and an "only match people I follow" toggle that limits matchmaking to the
+// signed-in voter's own follow graph (lib/cluster.js's getFollowingDids).
 
 import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
 import { GlobalIndex } from "/lib/global-index.js";
-import { clusterScore } from "/lib/cluster.js";
+import { clusterScore, getFollowingDids } from "/lib/cluster.js";
 import { computeStandings } from "/lib/elo.js";
 import { getProfiles } from "/lib/identity.js";
 
@@ -114,8 +121,45 @@ let voteSnapshot = { entries: [], backfillDone: false };
 let optOutSnapshot = { entries: [], backfillDone: false };
 let currentPair = null; // { a: {did, profile, feed}, b: {...} }
 
+// "only match people I follow" — the signed-in voter's own follow graph,
+// bulk-fetched once (see lib/cluster.js's getFollowingDids) and cached for
+// the session. null = not loaded yet (or filter is off); a Set once loaded.
+let followFilterEnabled = false;
+let followingDids = null;
+let followingLoading = false;
+
 function activePool() {
   return dedupPool(poolSnapshot.entries, optOutSnapshot.entries);
+}
+
+// The pool actually eligible for a new matchup: the full nomination pool,
+// or — when the follow filter is on — just the overlap with the signed-in
+// voter's follows. Returns null while that follow list is still loading, so
+// callers can distinguish "still loading" from "genuinely too few".
+function poolForVoting() {
+  const pool = activePool();
+  if (!followFilterEnabled) return pool;
+  if (!followingDids) return null;
+  return pool.filter((p) => followingDids.has(p.subject));
+}
+
+async function ensureFollowing() {
+  if (!session || followingDids || followingLoading) return followingDids;
+  followingLoading = true;
+  const hint = $("#follow-filter-hint");
+  hint.textContent = "loading who you follow…";
+  hint.style.display = "";
+  try {
+    const dids = await getFollowingDids(session.did);
+    followingDids = new Set(dids);
+    hint.style.display = "none";
+  } catch (e) {
+    hint.textContent = `couldn't load your follows (${e.message}) — showing the full pool instead.`;
+    hint.style.display = "";
+  } finally {
+    followingLoading = false;
+  }
+  return followingDids;
 }
 
 const nominationIndex = new GlobalIndex(NOMINATION_COLLECTION, {
@@ -206,8 +250,31 @@ btnSignout.addEventListener("click", async () => {
   await clearSession();
   session = null;
   awaitingHandle = false;
+  followFilterEnabled = false;
+  followingDids = null;
+  $("#follow-filter-toggle").checked = false;
+  $("#follow-filter-hint").style.display = "none";
   updateSessionUI();
   renderPool();
+});
+
+// "only match people I follow" toggle — requires a session (the filter
+// reads the signed-in account's own follow graph), so checking it while
+// signed out bounces back off with a hint instead of silently doing nothing.
+const followFilterToggle = $("#follow-filter-toggle");
+followFilterToggle.addEventListener("change", async () => {
+  const hint = $("#follow-filter-hint");
+  if (followFilterToggle.checked && !session) {
+    followFilterToggle.checked = false;
+    hint.textContent = "sign in above first — this filters matchups to people your signed-in account follows.";
+    hint.style.display = "";
+    return;
+  }
+  followFilterEnabled = followFilterToggle.checked;
+  if (!followFilterEnabled) hint.style.display = "none";
+  currentPair = null;
+  if (followFilterEnabled) await ensureFollowing();
+  if (currentTab() === "vote") loadMatchup();
 });
 
 // Handle typeahead on the nominate field — same public actor-search widget
@@ -255,13 +322,29 @@ function pickTwo(pool, ratings) {
 }
 
 async function loadMatchup() {
-  const pool = activePool();
+  const pool = poolForVoting();
   const voteStatus = $("#vote-status");
   $("#vote-share").style.display = "none";
+  if (pool === null) {
+    // Follow filter is on and the follow list is still loading — wait
+    // rather than flashing a false "not enough" hint.
+    $("#vote-pool-hint").style.display = "none";
+    $("#matchup").style.display = "none";
+    $("#vote-actions").style.display = "none";
+    $("#vote-hint-anon").style.display = "none";
+    voteStatus.textContent = "loading who you follow…";
+    voteStatus.className = "status";
+    return;
+  }
   $("#vote-hint-anon").style.display = session ? "none" : (pool.length >= 2 ? "" : "none");
   if (pool.length < 2) {
-    $("#vote-pool-hint").style.display = "";
+    const poolHint = $("#vote-pool-hint");
+    poolHint.innerHTML = followFilterEnabled
+      ? `not enough people you follow are in the pool yet — <a href="#/nominate">nominate one</a>, or turn off "only match people I follow" above.`
+      : `not enough accounts nominated yet — <a href="#/nominate">go nominate one</a>.`;
+    poolHint.style.display = "";
     $("#matchup").style.display = "none";
+    $("#vote-actions").style.display = "none";
     return;
   }
   $("#vote-pool-hint").style.display = "none";
@@ -308,6 +391,7 @@ function fillCard(side, entry) {
 
 function renderMatchup() {
   $("#matchup").style.display = "";
+  $("#vote-actions").style.display = "";
   fillCard("a", currentPair.a);
   fillCard("b", currentPair.b);
 }
@@ -363,6 +447,10 @@ $("#avatar-b").addEventListener("click", () => castVote("b"));
 $("#pick-a").addEventListener("click", () => castVote("a"));
 $("#pick-b").addEventListener("click", () => castVote("b"));
 $("#btn-skip").addEventListener("click", () => loadMatchup());
+// The live "skip this matchup" button — available before voting, unlike
+// #btn-skip above (which only appears in the post-vote share row). Loads a
+// fresh pair without writing any record.
+$("#btn-skip-live").addEventListener("click", () => loadMatchup());
 
 // --- leaderboard -----------------------------------------------------------
 
@@ -496,10 +584,12 @@ function renderPool() {
     optOutBtn.style.display = "none";
     optOutStatus.textContent = "";
   }
-  if (currentTab() === "vote" && !currentPair && pool.length >= 2) loadMatchup();
-  if (currentTab() === "vote" && pool.length < 2) {
+  const votingPool = poolForVoting();
+  if (currentTab() === "vote" && !currentPair && votingPool !== null && votingPool.length >= 2) loadMatchup();
+  if (currentTab() === "vote" && votingPool !== null && votingPool.length < 2) {
     $("#vote-pool-hint").style.display = "";
     $("#matchup").style.display = "none";
+    $("#vote-actions").style.display = "none";
   }
 }
 

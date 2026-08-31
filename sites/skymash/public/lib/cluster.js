@@ -96,3 +96,11 @@ export async function clusterScore(actor, { onStep } = {}) {
     counts: { follows: follows.length, followers: followers.length, mutuals: mutualCount },
   };
 }
+
+// Bulk list of DIDs a given account follows — used by app.js's "only match
+// people I follow" vote filter, so matchups can be limited to accounts a
+// signed-in voter will actually recognize. Same graphAll() bulk walk as
+// clusterScore() above, just returning the raw list instead of a score.
+export async function getFollowingDids(did) {
+  return graphAll("app.bsky.graph.getFollows", "follows", did);
+}
