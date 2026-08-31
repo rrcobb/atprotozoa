@@ -209,6 +209,11 @@ const btnSignin = $("#btn-signin");
 const btnSignout = $("#btn-signout");
 let awaitingHandle = false;
 
+// Same handle-search typeahead as the nominate field (lib/handle-typeahead.js) —
+// attached before the Enter-to-submit listener below so a dropdown selection's
+// synchronous input.value update lands before we read it on Enter.
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(handleInput);
+
 function updateSessionUI() {
   if (session) {
     sessionWho.textContent = `signed in as @${session.handle}`;
