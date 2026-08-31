@@ -6,10 +6,10 @@
 //   - transient auth state → sessionStorage; the logged-in session → IndexedDB
 //
 // The client_id is the URL of our static client-metadata.json. Scope is
-// narrowed to our own net.bisks.skymash.nomination and net.bisks.skymash.vote
-// collections, create+update only (both are "write, or overwrite in place" —
-// neither ever deletes) — no account-wide access. Must stay in lockstep with
-// client-metadata.json.
+// narrowed to our own net.bisks.skymash.nomination, net.bisks.skymash.vote,
+// and net.bisks.skymash.optout collections, create+update only (all three are
+// "write, or overwrite in place" — none ever deletes) — no account-wide
+// access. Must stay in lockstep with client-metadata.json.
 
 import {
   generateDPoPKeyPair,
@@ -27,7 +27,7 @@ export const MOUNT = ""; // canonical host is skymash.bisks.net — brand-new si
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
 const SCOPE =
-  "atproto repo:net.bisks.skymash.nomination?action=create&action=update repo:net.bisks.skymash.vote?action=create&action=update";
+  "atproto repo:net.bisks.skymash.nomination?action=create&action=update repo:net.bisks.skymash.vote?action=create&action=update repo:net.bisks.skymash.optout?action=create&action=update";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";

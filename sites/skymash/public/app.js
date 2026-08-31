@@ -1,19 +1,28 @@
 // app.js — skymash's whole client: OAuth session, the vote screen (two
-// eligible profiles + their latest posts, click to pick), the Elo
-// leaderboard (computed client-side from every net.bisks.skymash.vote
-// record on the network), and the nominate form (eligibility-gated by
-// public/lib/cluster.js's mutual-follow "cluster score"). Frontend-first,
-// no server state — see notes/ideas/pds-and-lexicons.md "Tier 3".
+// eligible profiles + their latest posts, rating-aware matchmaking, click to
+// pick), the Elo leaderboard (computed client-side from every
+// net.bisks.skymash.vote record on the network, with batch-fetched avatars
+// from public/lib/identity.js), the nominate form (eligibility-gated by
+// public/lib/cluster.js's mutual-follow "cluster score"), and self-service
+// opt-out (net.bisks.skymash.optout). Frontend-first, no server state — see
+// notes/ideas/pds-and-lexicons.md "Tier 3".
 
 import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
 import { GlobalIndex } from "/lib/global-index.js";
 import { clusterScore } from "/lib/cluster.js";
 import { computeStandings } from "/lib/elo.js";
+import { getProfiles } from "/lib/identity.js";
 
 const ELIGIBLE_THRESHOLD = 40;
 const PUB = "https://api.bsky.app/xrpc";
 const NOMINATION_COLLECTION = "net.bisks.skymash.nomination";
 const VOTE_COLLECTION = "net.bisks.skymash.vote";
+const OPTOUT_COLLECTION = "net.bisks.skymash.optout";
+// How wide a rating band around the anchor pick counts as "nearby" for
+// matchmaking, and how often the second pick ignores rating entirely — see
+// pickTwo() below.
+const MATCHMAKING_WINDOW = 3;
+const RANDOM_PAIR_CHANCE = 0.3;
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -66,11 +75,25 @@ function normalizeVote(did, rkey, record) {
   return { rater: did, a, b, winner, votedAt };
 }
 
+// An opt-out only ever counts if it's on the *subject's own* repo — a
+// nominator can't write one on someone else's behalf, and this check is what
+// enforces that even if some other client ever wrote a mismatched record.
+function normalizeOptOut(did, rkey, record) {
+  if (!record || typeof record !== "object") return null;
+  const subject = typeof record.subject === "string" ? record.subject : "";
+  if (!subject || subject !== did) return null;
+  const optedOutAt = typeof record.optedOutAt === "string" ? Date.parse(record.optedOutAt) || 0 : 0;
+  return { subject, optedOutAt };
+}
+
 // One nomination per (nominator, subject) — the pool is the de-duplicated
-// union across every nominator, keeping the highest recorded score per subject.
-function dedupPool(entries) {
+// union across every nominator, keeping the highest recorded score per
+// subject, minus anyone who's opted themselves out.
+function dedupPool(entries, optOutEntries) {
+  const optedOut = new Set((optOutEntries || []).map((e) => e.subject));
   const bySubject = new Map();
   for (const e of entries) {
+    if (optedOut.has(e.subject)) continue;
     const existing = bySubject.get(e.subject);
     if (!existing || e.score > existing.score) bySubject.set(e.subject, e);
   }
@@ -82,7 +105,12 @@ function dedupPool(entries) {
 let session = null;
 let poolSnapshot = { entries: [], backfillDone: false };
 let voteSnapshot = { entries: [], backfillDone: false };
+let optOutSnapshot = { entries: [], backfillDone: false };
 let currentPair = null; // { a: {did, profile, feed}, b: {...} }
+
+function eligiblePool() {
+  return dedupPool(poolSnapshot.entries, optOutSnapshot.entries);
+}
 
 const nominationIndex = new GlobalIndex(NOMINATION_COLLECTION, {
   normalize: normalizeNomination,
@@ -96,6 +124,13 @@ const voteIndex = new GlobalIndex(VOTE_COLLECTION, {
   onUpdate(snap) {
     voteSnapshot = snap;
     renderLeaderboard();
+  },
+});
+const optOutIndex = new GlobalIndex(OPTOUT_COLLECTION, {
+  normalize: normalizeOptOut,
+  onUpdate(snap) {
+    optOutSnapshot = snap;
+    renderPool();
   },
 });
 
@@ -166,6 +201,7 @@ btnSignout.addEventListener("click", async () => {
   session = null;
   awaitingHandle = false;
   updateSessionUI();
+  renderPool();
 });
 
 // The cee.wtf secret: one character of the h1, wired to the self-identifying
@@ -182,15 +218,34 @@ $("#cee-anchor").addEventListener("click", () => {
 
 // --- vote screen ---------------------------------------------------------------
 
-function pickTwo(pool) {
-  const i = Math.floor(Math.random() * pool.length);
-  let j = Math.floor(Math.random() * (pool.length - 1));
-  if (j >= i) j++;
-  return [pool[i], pool[j]];
+// Matchmaking: mostly pair an account with a similarly-rated neighbor (so
+// close matches stay close), but RANDOM_PAIR_CHANCE of the time pick a fully
+// random opponent instead — that's what surfaces brand-new nominees (no
+// votes yet, so no reliable rating) and keeps the leaderboard from calcifying
+// into the same handful of accounts always facing each other. Ratings come
+// from the same Elo replay the leaderboard uses, so matchmaking and standings
+// never disagree about who's "close."
+function pickTwo(pool, ratings) {
+  const sorted = pool
+    .map((p) => ({ p, rating: ratings.get(p.subject) ?? 1500 }))
+    .sort((x, y) => x.rating - y.rating);
+  const i = Math.floor(Math.random() * sorted.length);
+  let j;
+  if (sorted.length <= MATCHMAKING_WINDOW * 2 + 1 || Math.random() < RANDOM_PAIR_CHANCE) {
+    j = Math.floor(Math.random() * (sorted.length - 1));
+    if (j >= i) j++;
+  } else {
+    const lo = Math.max(0, i - MATCHMAKING_WINDOW);
+    const hi = Math.min(sorted.length - 1, i + MATCHMAKING_WINDOW);
+    do {
+      j = lo + Math.floor(Math.random() * (hi - lo + 1));
+    } while (j === i);
+  }
+  return [sorted[i].p, sorted[j].p];
 }
 
 async function loadMatchup() {
-  const pool = dedupPool(poolSnapshot.entries);
+  const pool = eligiblePool();
   const voteStatus = $("#vote-status");
   $("#vote-share").style.display = "none";
   $("#vote-hint-anon").style.display = session ? "none" : (pool.length >= 2 ? "" : "none");
@@ -204,7 +259,8 @@ async function loadMatchup() {
   document.querySelectorAll(".matchup-card").forEach((c) => c.classList.remove("picked"));
   voteStatus.textContent = "loading matchup…";
   voteStatus.className = "status";
-  const [p1, p2] = pickTwo(pool);
+  const ratings = new Map(computeStandings(voteSnapshot.entries || []).map((s) => [s.did, s.rating]));
+  const [p1, p2] = pickTwo(pool, ratings);
   try {
     const [profA, feedA, profB, feedB] = await Promise.all([
       getProfile(p1.subject),
@@ -300,7 +356,9 @@ $("#btn-skip").addEventListener("click", () => loadMatchup());
 
 // --- leaderboard -----------------------------------------------------------
 
-function renderLeaderboard() {
+let boardRenderToken = 0;
+
+async function renderLeaderboard() {
   const boardStatus = $("#board-status");
   const table = $("#board-table");
   const body = $("#board-body");
@@ -312,14 +370,24 @@ function renderLeaderboard() {
     table.style.display = "none";
     return;
   }
-  const poolMap = new Map(dedupPool(poolSnapshot.entries).map((p) => [p.subject, p]));
+  const poolMap = new Map(eligiblePool().map((p) => [p.subject, p]));
   boardStatus.textContent = voteSnapshot.backfillDone ? "" : "still backfilling full vote history — standings may shift.";
   table.style.display = "";
+
+  const token = ++boardRenderToken;
+  const profiles = await getProfiles(standings.map((s) => s.did));
+  if (token !== boardRenderToken) return; // a newer render started while profiles loaded
+
   body.innerHTML = standings
     .map((s, i) => {
       const p = poolMap.get(s.did);
-      const handle = p ? p.handle : s.did;
-      return `<tr><td class="rank">${i + 1}</td><td>@${esc(handle)}</td><td class="rating">${s.rating}</td><td>${s.wins}–${s.losses}</td><td>${s.winPct == null ? "—" : s.winPct + "%"}</td></tr>`;
+      const prof = profiles.get(s.did);
+      const handle = prof?.handle || p?.handle || s.did;
+      const avatar = prof?.avatar || "";
+      const avatarCell = avatar
+        ? `<img class="board-avatar" src="${esc(avatar)}" alt="" loading="lazy" />`
+        : `<span class="board-avatar board-avatar-empty"></span>`;
+      return `<tr><td class="rank">${i + 1}</td><td class="profile"><span class="board-profile">${avatarCell}@${esc(handle)}</span></td><td class="rating">${s.rating}</td><td>${s.wins}–${s.losses}</td><td>${s.total}</td><td>${s.winPct == null ? "—" : s.winPct + "%"}</td></tr>`;
     })
     .join("");
 }
@@ -373,8 +441,31 @@ $("#btn-nominate").addEventListener("click", async () => {
   }
 });
 
+$("#btn-optout").addEventListener("click", async () => {
+  if (!session) return;
+  const btn = $("#btn-optout");
+  const status = $("#optout-status");
+  btn.disabled = true;
+  status.textContent = "opting out…";
+  try {
+    const record = { subject: session.did, optedOutAt: new Date().toISOString() };
+    const base = session.pdsUrl.replace(/\/$/, "");
+    const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo: session.did, collection: OPTOUT_COLLECTION, rkey: "self", record }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    optOutIndex.applyOwn(session.did, "self", record);
+    status.textContent = "done — you're out of the pool. this can't be undone from here (record's on your own PDS).";
+  } catch (e) {
+    status.textContent = `couldn't opt out (${e.message}).`;
+    btn.disabled = false;
+  }
+});
+
 function renderPool() {
-  const pool = dedupPool(poolSnapshot.entries).sort((a, b) => b.score - a.score);
+  const pool = eligiblePool().sort((a, b) => b.score - a.score);
   const status = $("#pool-status");
   status.textContent = `${pool.length} eligible account${pool.length === 1 ? "" : "s"} nominated so far${
     poolSnapshot.backfillDone ? "" : " (still loading full history…)"
@@ -382,6 +473,24 @@ function renderPool() {
   $("#pool-list").innerHTML =
     pool.map((p) => `<div class="pool-row"><span>@${esc(p.handle)}</span><span class="score">cluster score ${p.score}</span></div>`).join("") ||
     `<p class="empty">nobody yet — be the first.</p>`;
+
+  const optOutBtn = $("#btn-optout");
+  const optOutStatus = $("#optout-status");
+  if (session) {
+    const alreadyOut = (optOutSnapshot.entries || []).some((e) => e.subject === session.did);
+    const inPool = pool.some((p) => p.subject === session.did);
+    optOutBtn.style.display = "";
+    optOutBtn.disabled = alreadyOut;
+    optOutBtn.textContent = alreadyOut ? "you're opted out of the pool" : "remove me from the pool";
+    optOutStatus.textContent = alreadyOut
+      ? "signed-in account is excluded from nominations, past and future."
+      : inPool
+        ? "you're currently nominated — click to opt out."
+        : "not currently nominated, but you can opt out pre-emptively.";
+  } else {
+    optOutBtn.style.display = "none";
+    optOutStatus.textContent = "";
+  }
   if (currentTab() === "vote" && !currentPair && pool.length >= 2) loadMatchup();
   if (currentTab() === "vote" && pool.length < 2) {
     $("#vote-pool-hint").style.display = "";
@@ -408,6 +517,7 @@ async function boot() {
 
   nominationIndex.start();
   voteIndex.start();
+  optOutIndex.start();
 
   showTab(currentTab());
 }
