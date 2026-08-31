@@ -20,6 +20,13 @@
 // the old #btn-skip, it's live during the matchup, not just after voting)
 // and an "only match people I follow" toggle that limits matchmaking to the
 // signed-in voter's own follow graph (lib/cluster.js's getFollowingDids).
+//
+// 2026-08-31 (later still): @fromthewestmeadow.com asked to make the 50
+// posts per card more readable and show embeds/images/reply context. The
+// AppView's getAuthorFeed already hydrates each post's embed and reply
+// parent, so fillCard() below reads straight off item.post.embed and
+// item.reply.parent instead of just item.post.record.text — see
+// renderEmbed() and renderReplyContext().
 
 import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
 import { GlobalIndex } from "/lib/global-index.js";
@@ -375,6 +382,62 @@ async function loadMatchup() {
   }
 }
 
+// A reply's parent post, if the AppView could resolve it (it comes back as
+// app.bsky.feed.defs#notFoundPost or #blockedPost when it couldn't — those
+// have no .author/.record, so the reply-context row is just skipped).
+function renderReplyContext(item) {
+  const parent = item?.reply?.parent;
+  const author = parent?.author;
+  const text = parent?.record?.text;
+  if (!author?.handle || typeof text !== "string") return "";
+  return `<div class="feed-reply-ctx">↩ replying to <span class="who">@${esc(author.handle)}</span>: “${esc(truncate(text, 100))}”</div>`;
+}
+
+// post.embed is the AppView's already-hydrated view (images/external have
+// real thumb URLs, record embeds carry the quoted post's author + text) —
+// no separate fetch needed. Covers the common shapes; anything else (a
+// video, a blocked/detached quote) is skipped rather than guessed at.
+function renderEmbed(embed) {
+  if (!embed || typeof embed !== "object") return "";
+  const type = embed.$type || "";
+
+  if (type === "app.bsky.embed.images#view" && Array.isArray(embed.images) && embed.images.length) {
+    const imgs = embed.images
+      .slice(0, 4)
+      .map((im) => `<img src="${esc(im.thumb || im.fullsize || "")}" alt="${esc(im.alt || "")}" loading="lazy" />`)
+      .join("");
+    return `<div class="feed-embed-images n${Math.min(embed.images.length, 4)}">${imgs}</div>`;
+  }
+
+  if (type === "app.bsky.embed.video#view" && embed.thumbnail) {
+    return `<div class="feed-embed-images n1"><img src="${esc(embed.thumbnail)}" alt="${esc(embed.alt || "video")}" loading="lazy" /></div>`;
+  }
+
+  if (type === "app.bsky.embed.external#view" && embed.external) {
+    const ext = embed.external;
+    return `<div class="feed-embed-external">
+      ${ext.thumb ? `<img src="${esc(ext.thumb)}" alt="" loading="lazy" />` : ""}
+      <div class="ext-text"><div class="ext-title">${esc(truncate(ext.title || ext.uri || "", 80))}</div></div>
+    </div>`;
+  }
+
+  if (type === "app.bsky.embed.record#view" && embed.record) {
+    const rec = embed.record;
+    if (rec.author && typeof rec.value?.text === "string") {
+      return `<div class="feed-embed-quote">quoting <span class="who">@${esc(rec.author.handle || "")}</span>: “${esc(truncate(rec.value.text, 100))}”</div>`;
+    }
+    return "";
+  }
+
+  if (type === "app.bsky.embed.recordWithMedia#view") {
+    // Both embed.media and embed.record are already tagged with their own
+    // $type by the AppView, so just recurse into each.
+    return renderEmbed(embed.media) + renderEmbed(embed.record);
+  }
+
+  return "";
+}
+
 function fillCard(side, entry) {
   const prof = entry.profile || {};
   $(`#avatar-${side}`).src = prof.avatar || "";
@@ -388,7 +451,9 @@ function fillCard(side, entry) {
       .map((item) => {
         const text = item?.post?.record?.text || "";
         const at = item?.post?.record?.createdAt ? new Date(item.post.record.createdAt).toLocaleDateString() : "";
-        return `<div class="feed-post">${esc(truncate(text, 200))}<div class="t">${esc(at)}</div></div>`;
+        const replyRow = renderReplyContext(item);
+        const embedRow = renderEmbed(item?.post?.embed);
+        return `<div class="feed-post">${replyRow}${esc(truncate(text, 200))}${embedRow}<div class="t">${esc(at)}</div></div>`;
       })
       .join("");
   }
