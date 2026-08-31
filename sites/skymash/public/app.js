@@ -204,6 +204,10 @@ btnSignout.addEventListener("click", async () => {
   renderPool();
 });
 
+// Handle typeahead on the nominate field — same public actor-search widget
+// every other site's handle input uses (see lib/handle-typeahead.js).
+if (window.attachHandleTypeahead) window.attachHandleTypeahead($("#nominate-handle"));
+
 // The cee.wtf secret: one character of the h1, wired to the self-identifying
 // handle input on this page (the nominate form's handle field). No visual
 // difference — see notes on the standing order this implements.
