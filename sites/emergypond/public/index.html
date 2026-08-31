@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>emergypond — a living Odum energy-systems diagram</title>
+    <meta
+      name="description"
+      content="A pond ecosystem drawn in Howard Odum's energy systems notation — sun, producer, consumer, storage, heat sinks — wired into a live simulation. Pull the sliders and watch the whole web fatten or starve."
+    />
+    <link rel="canonical" href="https://emergypond.bisks.net/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="emergypond — a living Odum energy-systems diagram" />
+    <meta
+      property="og:description"
+      content="Sun, producer, consumer, storage, heat sink — real emergy notation wired into a live pond simulation. Fatten it or starve it with the sliders."
+    />
+    <meta property="og:url" content="https://emergypond.bisks.net/" />
+    <meta property="og:image" content="https://emergypond.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="emergypond — a living Odum energy-systems diagram" />
+    <meta
+      name="twitter:description"
+      content="Sun, producer, consumer, storage, heat sink, all in real emergy notation. Fatten it or starve it."
+    />
+    <meta name="twitter:image" content="https://emergypond.bisks.net/og.png" />
+
+    <style>
+      :root {
+        --bg: #061418;
+        --bg2: #0a2028;
+        --panel: #0c232a;
+        --panel-line: #163a42;
+        --ink: #eaf6f2;
+        --muted: #86aca6;
+        --faint: #4c6e6a;
+        --sun: #ffcf5c;
+        --producer: #4caf7d;
+        --producer-dim: #234a37;
+        --storage: #38a6c4;
+        --storage-dim: #163944;
+        --consumer: #e8935a;
+        --consumer-dim: #4a3222;
+        --heat: #ff5d4a;
+        --recycle: #b18aec;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(ellipse 900px 500px at 50% -10%, #0e2c33 0%, transparent 60%),
+          linear-gradient(180deg, var(--bg) 0%, #040c0e 100%);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+      }
+      a { color: var(--storage); }
+      a:hover { color: var(--sun); }
+      .wrap { max-width: 1180px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+
+      header.top { text-align: center; margin-bottom: 1.75rem; }
+      header.top h1 {
+        font-size: 2.4rem; margin: 0 0 0.35rem; letter-spacing: -0.02em;
+        background: linear-gradient(90deg, var(--sun), var(--producer) 45%, var(--storage) 75%, var(--recycle));
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+        font-weight: 800;
+      }
+      header.top .sub { color: var(--muted); max-width: 640px; margin: 0 auto 0.5rem; font-size: 0.95rem; }
+      header.top .byline { color: var(--faint); font-size: 0.78rem; }
+      header.top .byline a { color: var(--faint); text-decoration-color: var(--panel-line); }
+
+      .status-bar {
+        display: flex; flex-wrap: wrap; gap: 0.6rem 1.2rem; align-items: center; justify-content: center;
+        margin: 1.25rem 0 0.5rem; padding: 0.6rem 1rem; background: var(--panel);
+        border: 1px solid var(--panel-line); border-radius: 10px; font-size: 0.82rem; color: var(--muted);
+      }
+      .status-bar .pill {
+        padding: 0.15rem 0.65rem; border-radius: 999px; font-weight: 700; letter-spacing: 0.02em;
+        border: 1px solid var(--panel-line); text-transform: uppercase; font-size: 0.72rem;
+      }
+      .status-bar .pill.fattening { color: #7be0a8; border-color: #2a6b45; background: #0c2a1a; }
+      .status-bar .pill.starving { color: #ffb27a; border-color: #7a4a1e; background: #2a1a0c; }
+      .status-bar .pill.steady { color: #9fd0ea; border-color: #1e5a7a; background: #0c1f2a; }
+      .status-bar .pill.collapsed { color: #ff8a8a; border-color: #7a1e1e; background: #2a0c0c; }
+      .status-bar b { color: var(--ink); }
+
+      .stage {
+        position: relative; margin-top: 1.25rem; border-radius: 16px; overflow: hidden;
+        border: 1px solid var(--panel-line);
+        background: radial-gradient(ellipse 700px 400px at 20% 10%, #10323a 0%, transparent 55%), #061a1f;
+      }
+      .stage svg { display: block; width: 100%; height: auto; }
+
+      .flow-label {
+        font-family: var(--mono); font-size: 11px; fill: var(--muted); pointer-events: none;
+      }
+      .glyph-label {
+        font-family: var(--mono); font-size: 12px; font-weight: 700; fill: var(--ink); text-anchor: middle;
+        pointer-events: none;
+      }
+      .glyph-value {
+        font-family: var(--mono); font-size: 11px; fill: var(--muted); text-anchor: middle; pointer-events: none;
+      }
+
+      .controls {
+        margin-top: 1.5rem; padding: 1.25rem 1.5rem; background: var(--panel);
+        border: 1px solid var(--panel-line); border-radius: 14px;
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1.1rem 1.6rem;
+      }
+      .controls h2 {
+        grid-column: 1 / -1; margin: 0 0 0.1rem; font-size: 0.95rem; color: var(--muted);
+        font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase;
+        display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+      }
+      .controls h2 .btns { display: flex; gap: 0.5rem; text-transform: none; letter-spacing: 0; }
+      .controls h2 button {
+        font-family: var(--mono); font-size: 0.75rem; background: var(--bg2); color: var(--ink);
+        border: 1px solid var(--panel-line); border-radius: 6px; padding: 0.3rem 0.65rem; cursor: pointer;
+      }
+      .controls h2 button:hover { border-color: var(--storage); color: var(--storage); }
+      .slider-row label {
+        display: flex; justify-content: space-between; font-size: 0.82rem; color: var(--ink); margin-bottom: 0.3rem;
+      }
+      .slider-row label .val { color: var(--muted); font-variant-numeric: tabular-nums; }
+      .slider-row input[type="range"] {
+        width: 100%; accent-color: var(--storage); height: 4px;
+      }
+      .slider-row .hint { color: var(--faint); font-size: 0.7rem; margin-top: 0.2rem; }
+
+      .legend {
+        margin-top: 1.5rem; padding: 1.1rem 1.5rem; background: var(--panel);
+        border: 1px solid var(--panel-line); border-radius: 14px;
+      }
+      .legend h2 {
+        margin: 0 0 0.8rem; font-size: 0.82rem; color: var(--muted); font-weight: 700;
+        letter-spacing: 0.04em; text-transform: uppercase;
+      }
+      .legend ul {
+        list-style: none; margin: 0; padding: 0; display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.6rem 1.2rem;
+      }
+      .legend li { display: flex; gap: 0.6rem; align-items: flex-start; font-size: 0.78rem; color: var(--muted); }
+      .legend li svg { flex: none; width: 26px; height: 26px; }
+      .legend li b { color: var(--ink); display: block; font-size: 0.8rem; }
+
+      footer.foot {
+        margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--panel-line);
+        display: flex; flex-wrap: wrap; gap: 0.5rem 1.2rem; align-items: center; justify-content: space-between;
+        color: var(--faint); font-size: 0.78rem;
+      }
+      footer.foot .share { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+      footer.foot a.share-btn {
+        display: inline-flex; align-items: center; gap: 0.4rem; background: var(--bg2);
+        border: 1px solid var(--panel-line); border-radius: 8px; padding: 0.45rem 0.85rem;
+        color: var(--ink); text-decoration: none; font-size: 0.8rem;
+      }
+      footer.foot a.share-btn:hover { border-color: var(--sun); color: var(--sun); }
+      footer.foot .links a { color: var(--faint); margin-left: 0.9rem; }
+
+      @media (max-width: 640px) {
+        header.top h1 { font-size: 1.7rem; }
+        .controls { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <h1>emergypond</h1>
+        <p class="sub">
+          A pond ecosystem drawn in Howard Odum's energy systems language — sun,
+          producer, consumer, storage, heat sink, wired into a running simulation.
+          Every shape is a real Odum glyph; every line is an actual flow.
+          Pull the sliders and watch the web fatten, or starve it down to nothing.
+        </p>
+        <p class="byline">
+          claimed by <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies.bsky.social</a>
+          off <a href="https://bsky.app/profile/words.bsky.social" target="_blank" rel="noopener">@words.bsky.social</a>'s
+          "the simcluster needs to get emergy pilled" — built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+        </p>
+      </header>
+
+      <div class="status-bar">
+        <span class="pill steady" id="statusPill">steady</span>
+        <span>producer <b id="readP">—</b> sej</span>
+        <span>storage <b id="readS">—</b> sej</span>
+        <span>consumer <b id="readC">—</b> sej</span>
+        <span>system emergy <b id="readTotal">—</b> sej</span>
+        <span>heat dissipated <b id="readHeat">—</b> sej/day</span>
+      </div>
+
+      <div class="stage">
+        <svg id="diagram" viewBox="0 0 1000 620" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Live Odum energy systems diagram of a pond ecosystem">
+          <defs>
+            <marker id="arrow-sun" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 Z" fill="var(--sun)" />
+            </marker>
+            <marker id="arrow-heat" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 Z" fill="var(--heat)" />
+            </marker>
+            <marker id="arrow-producer" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 Z" fill="var(--producer)" />
+            </marker>
+            <marker id="arrow-storage" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 Z" fill="var(--storage)" />
+            </marker>
+            <marker id="arrow-recycle" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 Z" fill="var(--recycle)" />
+            </marker>
+            <radialGradient id="sunGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="var(--sun)" stop-opacity="0.9" />
+              <stop offset="100%" stop-color="var(--sun)" stop-opacity="0" />
+            </radialGradient>
+            <radialGradient id="heatGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="var(--heat)" stop-opacity="0.85" />
+              <stop offset="100%" stop-color="var(--heat)" stop-opacity="0" />
+            </radialGradient>
+            <linearGradient id="tankFill" x1="0" y1="1" x2="0" y2="0">
+              <stop offset="0%" stop-color="var(--storage)" />
+              <stop offset="100%" stop-color="#7fd6ea" />
+            </linearGradient>
+            <clipPath id="tankClip">
+              <path d="M-50,-70 Q-60,-70 -60,-60 L-60,60 Q-60,70 -50,70 L50,70 Q60,70 60,60 L60,-60 Q60,-70 50,-70 Z" />
+            </clipPath>
+          </defs>
+
+          <!-- pond ripple backdrop -->
+          <g opacity="0.12" stroke="var(--storage)" fill="none">
+            <path d="M0,560 Q125,545 250,560 T500,560 T750,560 T1000,560" />
+            <path d="M0,590 Q125,575 250,590 T500,590 T750,590 T1000,590" />
+          </g>
+
+          <!-- ===== pathways (drawn first, under glyphs) ===== -->
+          <path id="flowSun" d="M170,150 C230,170 250,190 270,225" fill="none" stroke="var(--sun)" stroke-width="3" marker-end="url(#arrow-sun)" stroke-linecap="round" />
+          <path id="flowProdHeat" d="M300,360 L300,445" fill="none" stroke="var(--heat)" stroke-width="3" marker-end="url(#arrow-heat)" stroke-linecap="round" />
+          <path id="flowProdStore" d="M368,300 L452,300" fill="none" stroke="var(--producer)" stroke-width="3" marker-end="url(#arrow-producer)" stroke-linecap="round" />
+          <path id="flowStoreCons" d="M588,300 L672,300" fill="none" stroke="var(--storage)" stroke-width="3" marker-end="url(#arrow-storage)" stroke-linecap="round" />
+          <path id="flowConsHeat" d="M740,360 L740,445" fill="none" stroke="var(--heat)" stroke-width="3" marker-end="url(#arrow-heat)" stroke-linecap="round" />
+          <path id="flowRecycle" d="M705,352 C660,470 400,480 520,362" fill="none" stroke="var(--recycle)" stroke-width="2.5" stroke-dasharray="7 6" marker-end="url(#arrow-recycle)" stroke-linecap="round" opacity="0.85" />
+
+          <text class="flow-label" x="205" y="185">sunlight</text>
+          <text class="flow-label" x="308" y="410" text-anchor="middle">heat</text>
+          <text class="flow-label" x="410" y="290" text-anchor="middle">detritus</text>
+          <text class="flow-label" x="630" y="290" text-anchor="middle">grazing</text>
+          <text class="flow-label" x="748" y="410" text-anchor="middle">heat</text>
+          <text class="flow-label" x="590" y="470" text-anchor="middle" fill="var(--recycle)">recycled nutrients</text>
+
+          <!-- ===== interaction glyph: sunlight meets the producer ===== -->
+          <g transform="translate(288,236)">
+            <path d="M0,-13 L13,0 L0,13 L-13,0 Z" fill="#0c232a" stroke="var(--sun)" stroke-width="1.5" />
+          </g>
+
+          <!-- ===== Source (sun) ===== -->
+          <g id="sunGlyph" transform="translate(120,110)">
+            <circle r="90" fill="url(#sunGlow)" id="sunHalo" />
+            <g id="sunRays" stroke="var(--sun)" stroke-width="3" stroke-linecap="round"></g>
+            <circle r="34" fill="#1a1206" stroke="var(--sun)" stroke-width="3" />
+            <circle r="34" fill="var(--sun)" opacity="0.85" id="sunCore" />
+            <text class="glyph-label" y="58" fill="var(--sun)">SOURCE</text>
+            <text class="glyph-value" y="74" id="sunReadout">—</text>
+          </g>
+
+          <!-- ===== Producer (bullet) ===== -->
+          <g id="producerGlyph" transform="translate(300,300)">
+            <g id="producerScale">
+              <path d="M-60,-45 Q-60,-50 -55,-50 L-8,-50 Q56,-50 56,0 Q56,50 -8,50 L-55,50 Q-60,50 -60,45 Z"
+                fill="var(--producer-dim)" stroke="var(--producer)" stroke-width="2.5" id="producerShape" />
+              <path d="M-40,-30 L-40,30 M-20,-40 L-20,40 M0,-46 L0,46" stroke="var(--producer)" stroke-width="1" opacity="0.35" />
+            </g>
+            <text class="glyph-label" y="72" fill="var(--producer)">PRODUCER</text>
+            <text class="glyph-value" y="88" id="producerReadout">—</text>
+          </g>
+
+          <!-- ===== Storage (tank) ===== -->
+          <g id="storageGlyph" transform="translate(520,300)">
+            <path d="M-50,-70 Q-60,-70 -60,-60 L-60,60 Q-60,70 -50,70 L50,70 Q60,70 60,60 L60,-60 Q60,-70 50,-70 Z"
+              fill="#08181c" stroke="var(--storage)" stroke-width="2.5" />
+            <g clip-path="url(#tankClip)">
+              <rect id="tankLevel" x="-60" y="10" width="120" height="60" fill="url(#tankFill)" opacity="0.85" />
+            </g>
+            <path d="M-50,-70 Q-60,-70 -60,-60 L-60,60 Q-60,70 -50,70 L50,70 Q60,70 60,60 L60,-60 Q60,-70 50,-70 Z"
+              fill="none" stroke="var(--storage)" stroke-width="2.5" />
+            <text class="glyph-label" y="92" fill="var(--storage)">STORAGE</text>
+            <text class="glyph-value" y="108" id="storageReadout">—</text>
+          </g>
+
+          <!-- ===== Consumer (hexagon) ===== -->
+          <g id="consumerGlyph" transform="translate(740,300)">
+            <g id="consumerScale">
+              <polygon id="consumerShape" points="" fill="var(--consumer-dim)" stroke="var(--consumer)" stroke-width="2.5" />
+            </g>
+            <text class="glyph-label" y="72" fill="var(--consumer)">CONSUMER</text>
+            <text class="glyph-value" y="88" id="consumerReadout">—</text>
+          </g>
+
+          <!-- ===== Heat sinks (ground/dissipation symbol) ===== -->
+          <g id="heatGlyph1" transform="translate(300,470)">
+            <circle r="46" fill="url(#heatGlow)" id="heatHalo1" opacity="0.3" />
+            <line x1="0" y1="-24" x2="0" y2="0" stroke="var(--heat)" stroke-width="2.5" />
+            <line x1="-22" y1="6" x2="22" y2="6" stroke="var(--heat)" stroke-width="3" />
+            <line x1="-15" y1="14" x2="15" y2="14" stroke="var(--heat)" stroke-width="3" />
+            <line x1="-8" y1="22" x2="8" y2="22" stroke="var(--heat)" stroke-width="3" />
+            <text class="glyph-value" y="42" fill="var(--heat)" id="heat1Readout">—</text>
+          </g>
+          <g id="heatGlyph2" transform="translate(740,470)">
+            <circle r="46" fill="url(#heatGlow)" id="heatHalo2" opacity="0.3" />
+            <line x1="0" y1="-24" x2="0" y2="0" stroke="var(--heat)" stroke-width="2.5" />
+            <line x1="-22" y1="6" x2="22" y2="6" stroke="var(--heat)" stroke-width="3" />
+            <line x1="-15" y1="14" x2="15" y2="14" stroke="var(--heat)" stroke-width="3" />
+            <line x1="-8" y1="22" x2="8" y2="22" stroke="var(--heat)" stroke-width="3" />
+            <text class="glyph-value" y="42" fill="var(--heat)" id="heat2Readout">—</text>
+          </g>
+        </svg>
+      </div>
+
+      <div class="controls">
+        <h2>
+          parameters
+          <span class="btns">
+            <button id="pauseBtn" type="button">pause</button>
+            <button id="resetBtn" type="button">reset</button>
+          </span>
+        </h2>
+        <div class="slider-row">
+          <label>☉ sunlight <span class="val" id="sunVal">100%</span></label>
+          <input type="range" id="sunSlider" min="0" max="200" value="100" step="1" />
+          <div class="hint">drives producer's photosynthetic input — the whole system's energy source</div>
+        </div>
+        <div class="slider-row">
+          <label>⬠ producer efficiency <span class="val" id="effVal">80%</span></label>
+          <input type="range" id="effSlider" min="20" max="150" value="80" step="1" />
+          <div class="hint">how much of the sunlight the producer actually fixes</div>
+        </div>
+        <div class="slider-row">
+          <label>⬡ consumer appetite <span class="val" id="grazeVal">70%</span></label>
+          <input type="range" id="grazeSlider" min="0" max="150" value="70" step="1" />
+          <div class="hint">how hard the consumer draws down storage</div>
+        </div>
+        <div class="slider-row">
+          <label>⏚ metabolic loss <span class="val" id="metabVal">20%</span></label>
+          <input type="range" id="metabSlider" min="5" max="60" value="20" step="1" />
+          <div class="hint">respiration rate — the tax every population pays to the heat sink</div>
+        </div>
+        <div class="slider-row">
+          <label>▭ pond capacity <span class="val" id="capVal">90 sej</span></label>
+          <input type="range" id="capSlider" min="20" max="200" value="90" step="1" />
+          <div class="hint">how much energy the storage tank can hold before it overflows to waste</div>
+        </div>
+      </div>
+
+      <div class="legend">
+        <h2>Odum's energese, decoded</h2>
+        <ul>
+          <li>
+            <svg viewBox="-20 -20 40 40"><circle r="15" fill="none" stroke="var(--sun)" stroke-width="2.5" /></svg>
+            <span><b>Source</b> — energy entering the system from outside. Here: the sun.</span>
+          </li>
+          <li>
+            <svg viewBox="-20 -20 40 40"><path d="M-15,-11 Q-15,-13 -13,-13 L-2,-13 Q14,-13 14,0 Q14,13 -2,13 L-13,13 Q-15,13 -15,11 Z" fill="none" stroke="var(--producer)" stroke-width="2.5" /></svg>
+            <span><b>Producer</b> — an autotroph converting a flow-in into stored potential. The pond's algae/plants.</span>
+          </li>
+          <li>
+            <svg viewBox="-20 -20 40 40"><polygon points="15,0 7.5,13 -7.5,13 -15,0 -7.5,-13 7.5,-13" fill="none" stroke="var(--consumer)" stroke-width="2.5" /></svg>
+            <span><b>Consumer</b> — a heterotroph, feeding on stored energy rather than making its own.</span>
+          </li>
+          <li>
+            <svg viewBox="-20 -22 40 44"><path d="M-13,-18 Q-16,-18 -16,-15 L-16,15 Q-16,18 -13,18 L13,18 Q16,18 16,15 L16,-15 Q16,-18 13,-18 Z" fill="none" stroke="var(--storage)" stroke-width="2.5" /></svg>
+            <span><b>Storage</b> — a reservoir. A tank of biomass, nutrients, or detritus building up or draining.</span>
+          </li>
+          <li>
+            <svg viewBox="-20 -20 40 20"><line x1="0" y1="-14" x2="0" y2="0" stroke="var(--heat)" stroke-width="2" /><line x1="-11" y1="3" x2="11" y2="3" stroke="var(--heat)" stroke-width="2.5" /><line x1="-7" y1="8" x2="7" y2="8" stroke="var(--heat)" stroke-width="2.5" /><line x1="-3" y1="13" x2="3" y2="13" stroke="var(--heat)" stroke-width="2.5" /></svg>
+            <span><b>Heat sink</b> — energy dispersed to the environment. The second law's toll on every transformation.</span>
+          </li>
+          <li>
+            <svg viewBox="-20 -20 40 40"><path d="M8,0 L0,-8 M0,-8 L-8,0 M-8,0 L0,8 M0,8 L8,0" stroke="var(--ink)" stroke-width="2" fill="none" /><path d="M-14,-10 L14,10" stroke-dasharray="3 3" stroke="var(--ink)" stroke-width="1.5" opacity="0.6" marker-end="url(#arrow-storage)" /></svg>
+            <span><b>Pathway</b> — a line of flowing energy or material. Weight and motion scale with the flow rate.</span>
+          </li>
+          <li>
+            <svg viewBox="-20 -20 40 40"><path d="M0,-13 L13,0 L0,13 L-13,0 Z" fill="none" stroke="var(--sun)" stroke-width="2" /></svg>
+            <span><b>Interaction</b> — two flows combining to drive a process. Sunlight meeting the producer.</span>
+          </li>
+        </ul>
+      </div>
+
+      <footer class="foot">
+        <div class="share">
+          <a class="share-btn" id="shareBtn" href="#" target="_blank" rel="noopener">🦋 share this pond</a>
+          <span>#howardodum #emergy</span>
+        </div>
+        <div class="links">
+          <a href="https://rateyourbuild.bisks.net/site/emergypond" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+          <a href="https://bisks.net/" target="_blank" rel="noopener">more at bisks.net</a>
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        // ---------- DOM ----------
+        const $ = (id) => document.getElementById(id);
+        const sunSlider = $("sunSlider"), effSlider = $("effSlider"), grazeSlider = $("grazeSlider");
+        const metabSlider = $("metabSlider"), capSlider = $("capSlider");
+        const pauseBtn = $("pauseBtn"), resetBtn = $("resetBtn");
+
+        const sunRays = $("sunRays"), sunCore = $("sunCore"), sunHalo = $("sunHalo");
+        const producerShape = $("producerShape"), producerScale = $("producerScale");
+        const consumerShape = $("consumerShape"), consumerScale = $("consumerScale");
+        const tankLevel = $("tankLevel");
+        const heatHalo1 = $("heatHalo1"), heatHalo2 = $("heatHalo2");
+        const flowSun = $("flowSun"), flowProdHeat = $("flowProdHeat"), flowProdStore = $("flowProdStore");
+        const flowStoreCons = $("flowStoreCons"), flowConsHeat = $("flowConsHeat"), flowRecycle = $("flowRecycle");
+
+        const statusPill = $("statusPill");
+        const readP = $("readP"), readS = $("readS"), readC = $("readC"), readTotal = $("readTotal"), readHeat = $("readHeat");
+        const sunReadout = $("sunReadout"), producerReadout = $("producerReadout");
+        const storageReadout = $("storageReadout"), consumerReadout = $("consumerReadout");
+        const heat1Readout = $("heat1Readout"), heat2Readout = $("heat2Readout");
+
+        // ---------- hexagon points ----------
+        function hexPoints(r) {
+          const pts = [];
+          for (let i = 0; i < 6; i++) {
+            const a = (Math.PI / 3) * i;
+            pts.push((r * Math.cos(a)).toFixed(1) + "," + (r * Math.sin(a)).toFixed(1));
+          }
+          return pts.join(" ");
+        }
+
+        // ---------- sun rays ----------
+        const RAY_COUNT = 14;
+        const rayEls = [];
+        for (let i = 0; i < RAY_COUNT; i++) {
+          const a = (Math.PI * 2 * i) / RAY_COUNT;
+          const el = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          el.dataset.angle = a;
+          sunRays.appendChild(el);
+          rayEls.push(el);
+        }
+
+        // ---------- sim state ----------
+        const PMAX = 100, CMAX = 100;
+        let sim = { P: 30, C: 15, S: 40 };
+        let flows = { sunIn: 0, heatP: 0, toStorage: 0, toConsumer: 0, heatC: 0, recycle: 0 };
+        let display = { P: sim.P, C: sim.C, S: sim.S };
+        let dispFlows = { sunIn: 0, heatP: 0, toStorage: 0, toConsumer: 0, heatC: 0, recycle: 0 };
+        let totalHistory = [];
+        let paused = false;
+        let dashPhase = 0;
+
+        function params() {
+          return {
+            sun: +sunSlider.value / 100,
+            eff: +effSlider.value / 100,
+            graze: +grazeSlider.value / 100,
+            metab: +metabSlider.value / 100,
+            smax: +capSlider.value,
+          };
+        }
+
+        function reset() {
+          sim = { P: 30, C: 15, S: 40 };
+          display = { P: sim.P, C: sim.C, S: sim.S };
+          totalHistory = [];
+        }
+
+        // ---------- simulation step (one "day") ----------
+        function step() {
+          const p = params();
+          const { P, C, S } = sim;
+
+          const sunlightInput = p.sun * 42;
+          const gainP = p.eff * sunlightInput * Math.max(0, 1 - P / PMAX);
+          const heatP = p.metab * P;
+          const toStorage = 0.5 * P * Math.max(0, 1 - S / p.smax);
+
+          const toConsumer = p.graze * S * Math.max(0, 1 - C / CMAX);
+          const assim = 0.6;
+          const gainC = assim * toConsumer;
+          const heatCraw = p.metab * C;
+          const recycle = 0.35 * heatCraw;
+          const heatC = heatCraw - recycle;
+          const sedimentLeak = 0.02 * S;
+
+          const dP = gainP - heatP - toStorage;
+          const dC = gainC - heatCraw;
+          const dS = toStorage - toConsumer + recycle - sedimentLeak;
+
+          sim.P = Math.max(0, Math.min(PMAX, P + dP));
+          sim.C = Math.max(0, Math.min(CMAX, C + dC));
+          sim.S = Math.max(0, Math.min(p.smax, S + dS));
+
+          flows = { sunIn: sunlightInput, heatP, toStorage, toConsumer, heatC, recycle };
+
+          const total = sim.P + sim.C + sim.S;
+          totalHistory.push(total);
+          if (totalHistory.length > 40) totalHistory.shift();
+        }
+
+        function trendLabel() {
+          const total = sim.P + sim.C + sim.S;
+          if (total < 6) return "collapsed";
+          if (totalHistory.length < 10) return "steady";
+          const then = totalHistory[Math.max(0, totalHistory.length - 10)];
+          const delta = total - then;
+          if (delta > 3) return "fattening";
+          if (delta < -3) return "starving";
+          return "steady";
+        }
+
+        // ---------- render ----------
+        const lerp = (a, b, t) => a + (b - a) * t;
+
+        function render(dt) {
+          const t = Math.min(1, dt * 4);
+          display.P = lerp(display.P, sim.P, t);
+          display.C = lerp(display.C, sim.C, t);
+          display.S = lerp(display.S, sim.S, t);
+          for (const k in flows) dispFlows[k] = lerp(dispFlows[k], flows[k], t);
+
+          const p = params();
+
+          // sun
+          const sunLevel = p.sun;
+          sunCore.style.opacity = String(Math.min(1, 0.4 + sunLevel * 0.5));
+          sunHalo.setAttribute("opacity", String(Math.min(0.9, 0.25 + sunLevel * 0.4)));
+          const rayLen = 14 + sunLevel * 26;
+          rayEls.forEach((el) => {
+            const a = +el.dataset.angle;
+            const r0 = 40, r1 = 40 + rayLen;
+            el.setAttribute("x1", (Math.cos(a) * r0).toFixed(1));
+            el.setAttribute("y1", (Math.sin(a) * r0).toFixed(1));
+            el.setAttribute("x2", (Math.cos(a) * r1).toFixed(1));
+            el.setAttribute("y2", (Math.sin(a) * r1).toFixed(1));
+            el.style.opacity = String(Math.min(1, 0.35 + sunLevel * 0.5));
+          });
+          sunReadout.textContent = dispFlows.sunIn.toFixed(0) + " sej/day in";
+
+          // producer
+          const pScale = 0.55 + (display.P / PMAX) * 0.85;
+          producerScale.setAttribute("transform", "scale(" + pScale.toFixed(3) + ")");
+          const pHealth = display.P / PMAX;
+          producerShape.setAttribute("fill", pHealth > 0.08 ? "var(--producer-dim)" : "#241a12");
+          producerShape.setAttribute("stroke", pHealth > 0.08 ? "var(--producer)" : "#6b5030");
+          producerReadout.textContent = display.P.toFixed(1) + " sej";
+
+          // storage tank fill
+          const fillFrac = Math.max(0, Math.min(1, display.S / p.smax));
+          const tankH = 140 * fillFrac;
+          tankLevel.setAttribute("y", (70 - tankH).toFixed(1));
+          tankLevel.setAttribute("height", tankH.toFixed(1));
+          storageReadout.textContent = display.S.toFixed(1) + " / " + p.smax + " sej";
+
+          // consumer
+          const cScale = 0.5 + (display.C / CMAX) * 0.9;
+          consumerScale.setAttribute("transform", "scale(" + cScale.toFixed(3) + ")");
+          consumerShape.setAttribute("points", hexPoints(46));
+          const cHealth = display.C / CMAX;
+          consumerShape.setAttribute("fill", cHealth > 0.06 ? "var(--consumer-dim)" : "#241a12");
+          consumerShape.setAttribute("stroke", cHealth > 0.06 ? "var(--consumer)" : "#6b5030");
+          consumerReadout.textContent = display.C.toFixed(1) + " sej";
+
+          // heat sinks
+          const heatMax = 20;
+          heatHalo1.setAttribute("opacity", String(Math.min(0.9, 0.15 + (dispFlows.heatP / heatMax) * 0.7)));
+          heatHalo2.setAttribute("opacity", String(Math.min(0.9, 0.15 + (dispFlows.heatC / heatMax) * 0.7)));
+          heat1Readout.textContent = dispFlows.heatP.toFixed(1);
+          heat2Readout.textContent = dispFlows.heatC.toFixed(1);
+
+          // flow line weights
+          setFlow(flowSun, dispFlows.sunIn, 45);
+          setFlow(flowProdHeat, dispFlows.heatP, 20);
+          setFlow(flowProdStore, dispFlows.toStorage, 20);
+          setFlow(flowStoreCons, dispFlows.toConsumer, 20);
+          setFlow(flowConsHeat, dispFlows.heatC, 20);
+          setFlow(flowRecycle, dispFlows.recycle, 8);
+
+          // marching-ants dash animation, speed scaled to total throughput
+          const throughput = dispFlows.sunIn + dispFlows.toStorage + dispFlows.toConsumer;
+          dashPhase -= dt * (6 + throughput * 0.35);
+          [flowSun, flowProdHeat, flowProdStore, flowStoreCons, flowConsHeat].forEach((el) => {
+            el.setAttribute("stroke-dasharray", "9 6");
+            el.setAttribute("stroke-dashoffset", dashPhase.toFixed(1));
+          });
+          flowRecycle.setAttribute("stroke-dashoffset", dashPhase.toFixed(1));
+
+          // status
+          const total = sim.P + sim.C + sim.S;
+          const label = trendLabel();
+          statusPill.textContent = label;
+          statusPill.className = "pill " + label;
+          readP.textContent = display.P.toFixed(1);
+          readS.textContent = display.S.toFixed(1);
+          readC.textContent = display.C.toFixed(1);
+          readTotal.textContent = total.toFixed(1);
+          readHeat.textContent = (dispFlows.heatP + dispFlows.heatC).toFixed(1);
+        }
+
+        function setFlow(el, magnitude, cap) {
+          const w = 1.5 + Math.min(1, magnitude / cap) * 9;
+          el.setAttribute("stroke-width", w.toFixed(1));
+          el.style.opacity = String(0.35 + Math.min(1, magnitude / cap) * 0.65);
+        }
+
+        // ---------- main loop ----------
+        let last = null;
+        let acc = 0;
+        const STEP_MS = 220;
+        function frame(ts) {
+          if (last === null) last = ts;
+          const dt = Math.min(0.1, (ts - last) / 1000);
+          last = ts;
+          if (!paused) {
+            acc += dt * 1000;
+            while (acc >= STEP_MS) {
+              step();
+              acc -= STEP_MS;
+            }
+          }
+          render(dt);
+          requestAnimationFrame(frame);
+        }
+
+        // ---------- UI wiring ----------
+        function syncLabels() {
+          $("sunVal").textContent = sunSlider.value + "%";
+          $("effVal").textContent = effSlider.value + "%";
+          $("grazeVal").textContent = grazeSlider.value + "%";
+          $("metabVal").textContent = metabSlider.value + "%";
+          $("capVal").textContent = capSlider.value + " sej";
+        }
+        [sunSlider, effSlider, grazeSlider, metabSlider, capSlider].forEach((el) =>
+          el.addEventListener("input", syncLabels)
+        );
+        syncLabels();
+
+        pauseBtn.addEventListener("click", () => {
+          paused = !paused;
+          pauseBtn.textContent = paused ? "resume" : "pause";
+        });
+        resetBtn.addEventListener("click", reset);
+
+        // ---------- share ----------
+        function updateShare() {
+          const label = trendLabel();
+          const total = (sim.P + sim.C + sim.S).toFixed(0);
+          const text =
+            "my emergypond is " + label.toUpperCase() + " — producer " + sim.P.toFixed(0) +
+            ", consumer " + sim.C.toFixed(0) + ", storage " + sim.S.toFixed(0) +
+            " sej (" + total + " total). fatten or starve your own: https://emergypond.bisks.net/";
+          $("shareBtn").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+        }
+        setInterval(updateShare, 1000);
+        updateShare();
+
+        requestAnimationFrame(frame);
+      })();
+    </script>
+  </body>
+</html>
