@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Influential25 — the 25 Most Influential Bluesky Posters of 2026</title>
+    <meta
+      name="description"
+      content="Sign in with Bluesky, search for anyone, nominate up to 10 accounts for the 25 Most Influential Bluesky Posters of 2026. Nominations are tallied live off the network — no backend, no gatekeeping."
+    />
+    <meta property="og:title" content="Influential25 — the 25 Most Influential Bluesky Posters of 2026" />
+    <meta
+      property="og:description"
+      content="Sign in with Bluesky, search for anyone, nominate up to 10 accounts for the 25 Most Influential Bluesky Posters of 2026. Nominations are tallied live off the network — no backend, no gatekeeping."
+    />
+    <meta property="og:image" content="https://influential25.bisks.net/og.png" />
+    <meta property="og:url" content="https://influential25.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net/">bisks.net</a>
+        <h1>Influential<span onclick='var e=document.getElementById("f-my-handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">2</span>5</h1>
+        <p class="tag">
+          @pds.dad's idea, "the 25 Most Influential Bluesky Posters of 2026" —
+          search to nominate someone, sign in with Bluesky, and vote for up to
+          10 accounts. once the dust settles, everyone in the top 25 gets
+          bragging rights (and a week to post about it — you know the gif).
+          no sign-in needed to browse, just to nominate.
+        </p>
+        <nav class="tabs">
+          <a class="active" href="/">nominate</a>
+          <a href="/leaderboard/">the top 25</a>
+        </nav>
+      </header>
+
+      <section id="session-section">
+        <div class="session-row" id="signed-out-row">
+          <input id="f-my-handle" type="text" placeholder="your handle (e.g. you.bsky.social)" />
+          <button id="btn-signin">sign in with bluesky</button>
+        </div>
+        <div class="session-row" id="signed-in-row" style="display: none">
+          <span>signed in as <strong id="who"></strong> — <span id="quota"></span></span>
+          <button class="secondary" id="btn-signout">sign out</button>
+        </div>
+        <p class="status" id="auth-status"></p>
+      </section>
+
+      <section>
+        <h2 class="section-title">nominate an influential poster</h2>
+        <label for="f-target">handle to nominate</label>
+        <input id="f-target" type="text" placeholder="@handle.bsky.social" autocomplete="off" />
+        <p class="status" id="lookup-status"></p>
+
+        <div class="vote-card" id="vote-card" style="display: none">
+          <div class="vote-target">
+            <img class="avatar" id="t-avatar" alt="" />
+            <div class="vote-target-meta">
+              <div class="vote-target-name" id="t-name"></div>
+              <div class="vote-target-handle" id="t-handle"></div>
+            </div>
+            <div class="vote-target-score">
+              <span class="score-pill zero" id="t-score">0</span>
+            </div>
+          </div>
+
+          <div class="vote-buttons">
+            <button class="btn-up" id="btn-nominate" type="button">nominate</button>
+          </div>
+          <p class="cooldown-note" id="cooldown-note"></p>
+          <p class="status" id="vote-status"></p>
+        </div>
+      </section>
+
+      <section>
+        <h2 class="section-title">current top 25</h2>
+        <div id="mini-board"><p class="empty">loading…</p></div>
+        <p class="share-row"><a href="/leaderboard/">see the full board →</a></p>
+      </section>
+
+      <section>
+        <h2 class="section-title">recent nominations</h2>
+        <div id="mini-feed"><p class="empty">loading…</p></div>
+      </section>
+
+      <footer>
+        every nomination is a <code>net.bisks.influential25.vote</code> record written straight to your
+        own PDS, then picked up either from a one-time full-repo scan of every voter on the network or live off the
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        firehose. no self-nominations; each account's first 10 distinct nominations count, in order —
+        anything past that is silently ignored (no server holds a global index — see
+        <a href="/leaderboard/">the leaderboard</a> for the current scan status). idea by
+        <a href="https://bsky.app/profile/pds.dad" target="_blank" rel="noopener">@pds.dad</a>, brought here by
+        <a href="https://bsky.app/profile/caleb.jasik.xyz" target="_blank" rel="noopener">@caleb.jasik.xyz</a>.
+        rate this on <a href="https://rateyourbuild.bisks.net/site/influential25" target="_blank" rel="noopener">rateyourbuild →</a>
+        built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch, resolveHandle } from "/lib/oauth.js";
+      import { getProfile } from "/lib/atproto.js";
+      import { board, activity, statsFor, nominationsUsed, alreadyNominated, waitForVote } from "/lib/i25-client.js";
+      import "/lib/handle-typeahead.js";
+
+      const $ = (s) => document.querySelector(s);
+      const COLLECTION = "net.bisks.influential25.vote";
+      const MAX_PER_VOTER = 10;
+
+      let session = null;
+      let target = null; // { did, handle, displayName, avatar }
+      let targetVotes = 0;
+
+      function esc(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function timeAgo(ts) {
+        const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+        if (s < 60) return `${s}s ago`;
+        const m = Math.floor(s / 60);
+        if (m < 60) return `${m}m ago`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `${h}h ago`;
+        return `${Math.floor(h / 24)}d ago`;
+      }
+
+      let quotaUsed = 0;
+      async function refreshQuota() {
+        if (!session) return;
+        try {
+          quotaUsed = await nominationsUsed(session.did);
+        } catch {
+          // leave quotaUsed as-is on a transient fetch failure
+        }
+        $("#quota").textContent = `${quotaUsed}/${MAX_PER_VOTER} nominations used`;
+      }
+
+      function renderAuthUI() {
+        $("#signed-out-row").style.display = session ? "none" : "flex";
+        $("#signed-in-row").style.display = session ? "flex" : "none";
+        if (session) $("#who").textContent = "@" + session.handle;
+        refreshQuota();
+        renderVoteButton();
+      }
+
+      function renderVoteButton() {
+        const note = $("#cooldown-note");
+        const btn = $("#btn-nominate");
+        if (!target) return;
+        let disabled = false;
+        let msg = "";
+        if (!session) {
+          disabled = true;
+          msg = "sign in to nominate.";
+        } else if (target.did === session.did) {
+          disabled = true;
+          msg = "no self-nominations.";
+        } else if (quotaUsed >= MAX_PER_VOTER) {
+          disabled = true;
+          msg = `you've used all ${MAX_PER_VOTER} of your nominations.`;
+        } else {
+          msg = `${MAX_PER_VOTER - quotaUsed} nomination${MAX_PER_VOTER - quotaUsed === 1 ? "" : "s"} left — make them count.`;
+        }
+        btn.disabled = disabled;
+        note.textContent = msg;
+      }
+
+      // --- auth ---------------------------------------------------------------
+
+      $("#btn-signin").addEventListener("click", async () => {
+        const h = $("#f-my-handle").value.trim();
+        if (!h) return;
+        const status = $("#auth-status");
+        status.textContent = "redirecting to your PDS…";
+        status.className = "status";
+        try {
+          await login(h);
+        } catch (e) {
+          status.textContent = `sign-in failed: ${e.message}`;
+          status.className = "status err";
+        }
+      });
+      $("#f-my-handle").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("#btn-signin").click();
+      });
+      $("#btn-signout").addEventListener("click", async () => {
+        await clearSession();
+        session = null;
+        renderAuthUI();
+      });
+
+      // --- target lookup --------------------------------------------------------
+
+      attachHandleTypeahead($("#f-target"), { onSelect: (actor) => lookupTarget(actor.did) });
+
+      $("#f-target").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          lookupTargetFromInput();
+        }
+      });
+
+      async function lookupTargetFromInput() {
+        const raw = $("#f-target").value.trim().replace(/^@/, "");
+        if (!raw) return;
+        const status = $("#lookup-status");
+        status.textContent = "looking up…";
+        status.className = "status";
+        try {
+          const did = raw.startsWith("did:") ? raw : await resolveHandle(raw);
+          if (!did) throw new Error("couldn't resolve that handle");
+          await lookupTarget(did);
+        } catch (e) {
+          status.textContent = e.message;
+          status.className = "status err";
+          $("#vote-card").style.display = "none";
+        }
+      }
+
+      async function lookupTarget(did) {
+        const status = $("#lookup-status");
+        status.textContent = "looking up…";
+        status.className = "status";
+        const profile = await getProfile(did);
+        if (!profile) {
+          status.textContent = "couldn't find that account.";
+          status.className = "status err";
+          $("#vote-card").style.display = "none";
+          return;
+        }
+        target = {
+          did,
+          handle: profile.handle && profile.handle !== "handle.invalid" ? profile.handle : did,
+          displayName: profile.displayName || profile.handle || did,
+          avatar: profile.avatar || "",
+        };
+        status.textContent = "";
+
+        $("#t-avatar").src = target.avatar || "";
+        $("#t-name").textContent = target.displayName;
+        $("#t-handle").textContent = "@" + target.handle;
+        $("#vote-card").style.display = "block";
+        $("#vote-status").textContent = "";
+
+        try {
+          targetVotes = await statsFor(did);
+        } catch {
+          targetVotes = 0;
+        }
+        const pill = $("#t-score");
+        pill.textContent = `${targetVotes} nomination${targetVotes === 1 ? "" : "s"}`;
+        pill.className = "score-pill zero";
+
+        if (session) {
+          try {
+            const already = await alreadyNominated(session.did, did);
+            if (already) {
+              $("#btn-nominate").disabled = true;
+              $("#cooldown-note").textContent = "you've already nominated them.";
+              return;
+            }
+          } catch {}
+        }
+        await refreshQuota();
+        renderVoteButton();
+      }
+
+      function applyOptimisticCount() {
+        targetVotes += 1;
+        const pill = $("#t-score");
+        pill.textContent = `${targetVotes} nomination${targetVotes === 1 ? "" : "s"}`;
+      }
+
+      async function refreshTargetCount() {
+        if (!target) return;
+        try {
+          targetVotes = await statsFor(target.did);
+          const pill = $("#t-score");
+          pill.textContent = `${targetVotes} nomination${targetVotes === 1 ? "" : "s"}`;
+        } catch {
+          // leave the pill as-is on a transient fetch failure
+        }
+      }
+
+      // --- casting a nomination --------------------------------------------------
+
+      // The write only proves the record landed on the voter's own PDS — it
+      // says nothing about whether it actually counted (self-nomination and
+      // the 10-per-voter cap are both silently enforced client-side, see
+      // i25-client.js). So after writing, wait for the same nomination to
+      // show up in our own live Jetstream ingest and only report success once
+      // it's actually there.
+      async function confirmVote(voterDid, targetDid, votedAt, status) {
+        const result = await waitForVote(voterDid, targetDid, votedAt, 15000);
+        if (result.seen) {
+          status.textContent = "nomination counted — board's up to date.";
+          status.className = "status ok";
+          lookupTarget(targetDid);
+          loadMiniBoard();
+          loadMiniFeed();
+          return;
+        }
+        status.textContent =
+          "nomination saved to your PDS, but we haven't seen it counted yet — you may be over your 10-nomination cap, or the firehose is catching up. check back in a bit.";
+        status.className = "status warn";
+        await refreshQuota();
+        renderVoteButton();
+        refreshTargetCount(); // undo the optimistic bump if the nomination never actually counted
+      }
+
+      async function castVote() {
+        if (!session || !target) return;
+        const status = $("#vote-status");
+
+        status.textContent = "writing to your PDS…";
+        status.className = "status";
+        $("#btn-nominate").disabled = true;
+        try {
+          const record = {
+            $type: COLLECTION,
+            target: target.did,
+            createdAt: new Date().toISOString(),
+          };
+
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.createRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: COLLECTION, record }),
+          });
+          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+
+          status.textContent = "nomination written — confirming it counted…";
+          status.className = "status ok";
+          quotaUsed += 1;
+          applyOptimisticCount();
+          renderVoteButton();
+
+          confirmVote(session.did, target.did, Date.now(), status);
+        } catch (e) {
+          status.textContent = `couldn't cast that nomination: ${e.message}`;
+          status.className = "status err";
+          renderVoteButton();
+        }
+      }
+      $("#btn-nominate").addEventListener("click", castVote);
+
+      // --- mini board + feed -------------------------------------------------
+
+      async function loadMiniBoard() {
+        const el = $("#mini-board");
+        try {
+          const rows = await board({ limit: 5 });
+          if (!rows.length) {
+            el.innerHTML = `<p class="empty">no nominations yet — be the first.</p>`;
+            return;
+          }
+          el.innerHTML = rows
+            .map(
+              (p) => `
+              <a class="board-row" href="/p/${encodeURIComponent(p.handle)}">
+                <span class="board-rank">#${p.rank}</span>
+                <img class="avatar sm" src="${esc(p.avatar || "")}" alt="" />
+                <span class="board-meta">
+                  <div class="board-name">${esc(p.displayName)}</div>
+                  <div class="board-handle">@${esc(p.handle)}</div>
+                </span>
+                <span class="board-score zero">${p.votesReceived}</span>
+              </a>`,
+            )
+            .join("");
+        } catch {
+          el.innerHTML = `<p class="empty">couldn't load the board right now.</p>`;
+        }
+      }
+
+      async function loadMiniFeed() {
+        const el = $("#mini-feed");
+        try {
+          const votes = await activity({ limit: 8 });
+          if (!votes.length) {
+            el.innerHTML = `<p class="empty">nothing yet.</p>`;
+            return;
+          }
+          el.innerHTML = votes
+            .map(
+              (v) => `
+              <div class="feed-item">
+                <div class="feed-line">
+                  <a href="/p/${encodeURIComponent(v.voterHandle)}">@${esc(v.voterHandle)}</a>
+                  nominated
+                  <a href="/p/${encodeURIComponent(v.targetHandle)}">@${esc(v.targetHandle)}</a>
+                </div>
+                <div class="feed-time">${timeAgo(v.createdAt)}</div>
+              </div>`,
+            )
+            .join("");
+        } catch {
+          el.innerHTML = `<p class="empty">couldn't load activity right now.</p>`;
+        }
+      }
+
+      // --- boot -----------------------------------------------------------------
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          $("#auth-status").textContent = e.message;
+          $("#auth-status").className = "status err";
+        }
+        renderAuthUI();
+        await Promise.all([loadMiniBoard(), loadMiniFeed()]);
+
+        setInterval(() => {
+          if (document.visibilityState === "visible") {
+            loadMiniBoard();
+            loadMiniFeed();
+          }
+        }, 15000);
+      }
+      boot();
+    </script>
+</body>
+</html>

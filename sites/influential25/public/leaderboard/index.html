@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>the top 25 — Influential25</title>
+    <meta
+      name="description"
+      content="The 25 Most Influential Bluesky Posters of 2026, ranked live by nomination count off the whole network. Search by handle, see who's climbing."
+    />
+    <meta property="og:title" content="the top 25 — Influential25" />
+    <meta
+      property="og:description"
+      content="The 25 Most Influential Bluesky Posters of 2026, ranked live by nomination count off the whole network. Search by handle, see who's climbing."
+    />
+    <meta property="og:image" content="https://influential25.bisks.net/og.png" />
+    <meta property="og:url" content="https://influential25.bisks.net/leaderboard/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net/">bisks.net</a>
+        <h1>Influential<span onclick='var e=document.getElementById("f-search");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">2</span>5</h1>
+        <p class="tag">the 25 Most Influential Bluesky Posters of 2026 — ranked live, nobody's editing this list by hand.</p>
+        <nav class="tabs">
+          <a href="/">nominate</a>
+          <a class="active" href="/leaderboard/">the top 25</a>
+        </nav>
+      </header>
+
+      <section>
+        <div class="lb-controls">
+          <input id="f-search" type="search" placeholder="search by handle or name…" />
+        </div>
+        <p class="status" id="tracking-note"></p>
+        <div class="sort-tabs" id="sort-tabs">
+          <button data-sort="top" class="active">the board</button>
+          <button data-sort="recent">recent nominations</button>
+        </div>
+        <div id="board-list"><p class="empty">loading…</p></div>
+        <p class="share-row" id="cutoff-note" style="display: none"></p>
+      </section>
+
+      <footer>
+        nomination counts come from every <code>net.bisks.influential25.vote</code> record on the network — found via
+        <code>com.atproto.sync.listReposByCollection</code> and pulled in one full-repo download per voter, not a
+        paginated per-repo walk — plus a live <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        subscription for anything cast just now. no server holds this index; it's rebuilt in your own browser, same
+        no-self-nomination and 10-per-voter cap either way. once you're in the top 25, that's your week to post about it.
+        idea by <a href="https://bsky.app/profile/pds.dad" target="_blank" rel="noopener">@pds.dad</a>.
+        rate this on <a href="https://rateyourbuild.bisks.net/site/influential25" target="_blank" rel="noopener">rateyourbuild →</a>
+        built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { board, activity, meta } from "/lib/i25-client.js";
+
+      const $ = (s) => document.querySelector(s);
+      const TOP_CUTOFF = 25;
+
+      function esc(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function timeAgo(ts) {
+        const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+        if (s < 60) return `${s}s ago`;
+        const m = Math.floor(s / 60);
+        if (m < 60) return `${m}m ago`;
+        const h = Math.floor(m / 60);
+        if (h < 24) return `${h}h ago`;
+        return `${Math.floor(h / 24)}d ago`;
+      }
+
+      let sort = "top";
+      let query = "";
+      let debounceTimer = null;
+
+      $("#sort-tabs").addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-sort]");
+        if (!btn) return;
+        sort = btn.dataset.sort;
+        [...$("#sort-tabs").children].forEach((b) => b.classList.toggle("active", b === btn));
+        load();
+      });
+      $("#f-search").addEventListener("input", (e) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          query = e.target.value.trim();
+          load();
+        }, 200);
+      });
+
+      function renderBoard(rows) {
+        const el = $("#board-list");
+        const cutoffNote = $("#cutoff-note");
+        if (!rows.length) {
+          el.innerHTML = `<p class="empty">nobody's been nominated yet — go fix that.</p>`;
+          cutoffNote.style.display = "none";
+          return;
+        }
+        el.innerHTML = rows
+          .map(
+            (p) => `
+            <a class="board-row${p.rank && p.rank <= TOP_CUTOFF ? " top25" : ""}" href="/p/${encodeURIComponent(p.handle)}">
+              <span class="board-rank">${p.rank ? "#" + p.rank : "—"}</span>
+              <img class="avatar sm" src="${esc(p.avatar || "")}" alt="" />
+              <span class="board-meta">
+                <div class="board-name">${esc(p.displayName)}</div>
+                <div class="board-handle">@${esc(p.handle)}</div>
+              </span>
+              <span class="board-score zero">${p.votesReceived} nom${p.votesReceived === 1 ? "" : "s"}</span>
+            </a>`,
+          )
+          .join("");
+        if (!query && rows.length > TOP_CUTOFF) {
+          cutoffNote.style.display = "block";
+          cutoffNote.innerHTML = `↑ that's the top ${TOP_CUTOFF}. everyone below is still climbing.`;
+        } else {
+          cutoffNote.style.display = "none";
+        }
+      }
+
+      function renderFeed(votes) {
+        const el = $("#board-list");
+        $("#cutoff-note").style.display = "none";
+        if (!votes.length) {
+          el.innerHTML = `<p class="empty">no nominations yet.</p>`;
+          return;
+        }
+        el.innerHTML = votes
+          .map(
+            (v) => `
+            <div class="feed-item">
+              <div class="feed-line">
+                <a href="/p/${encodeURIComponent(v.voterHandle)}">@${esc(v.voterHandle)}</a>
+                nominated
+                <a href="/p/${encodeURIComponent(v.targetHandle)}">@${esc(v.targetHandle)}</a>
+              </div>
+              <div class="feed-time">${timeAgo(v.createdAt)}</div>
+            </div>`,
+          )
+          .join("");
+      }
+
+      async function load() {
+        const el = $("#board-list");
+        if (!el.children.length || el.querySelector(".empty")) el.innerHTML = `<p class="empty">loading…</p>`;
+        try {
+          if (sort === "recent") {
+            const rows = await activity({ limit: 100, query });
+            renderFeed(rows);
+            return;
+          }
+          const rows = await board({ limit: query ? 500 : TOP_CUTOFF + 25, query });
+          renderBoard(rows);
+        } catch {
+          el.innerHTML = `<p class="empty">couldn't load the board right now.</p>`;
+        }
+      }
+
+      async function updateTrackingNote() {
+        const m = await meta();
+        const note = $("#tracking-note");
+        if (!note) return;
+        const parts = [`${m.connected ? "connected" : "reconnecting…"} (${m.totalVotes} nominations seen)`];
+        const gb = m.globalBackfill;
+        if (gb) {
+          parts.push(
+            gb.done
+              ? `network history backfilled (${gb.scannedRepos} repos scanned)`
+              : `scanning network history… ${gb.scannedRepos}/${gb.totalReposSeen || "?"} repos`,
+          );
+        }
+        note.textContent = parts.join(" — ");
+      }
+
+      load();
+      updateTrackingNote();
+      setInterval(() => {
+        if (document.visibilityState === "visible") {
+          load();
+          updateTrackingNote();
+        }
+      }, 5000);
+    </script>
+  </body>
+</html>

@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Influential25 profile — bisks.net</title>
+    <meta
+      name="description"
+      content="See anyone's rank on the 25 Most Influential Bluesky Posters of 2026, then sign in with Bluesky and nominate them yourself."
+    />
+    <meta property="og:title" content="Influential25 profile — bisks.net" />
+    <meta
+      property="og:description"
+      content="See anyone's rank on the 25 Most Influential Bluesky Posters of 2026, then sign in with Bluesky and nominate them yourself."
+    />
+    <meta property="og:image" content="https://influential25.bisks.net/og.png" />
+    <meta property="og:url" content="https://influential25.bisks.net/p/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net/">bisks.net</a>
+        <h1>Influential<span onclick='var e=document.getElementById("f-my-handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">2</span>5</h1>
+        <nav class="tabs">
+          <a href="/">nominate</a>
+          <a href="/leaderboard/">the top 25</a>
+        </nav>
+      </header>
+
+      <section id="not-found" style="display: none">
+        <p class="empty">couldn't find that account, or nobody's nominated them yet.</p>
+      </section>
+
+      <section id="profile-section" style="display: none">
+        <div class="profile-head">
+          <img class="avatar" id="p-avatar" alt="" />
+          <div>
+            <div class="profile-name" id="p-name"></div>
+            <div class="profile-handle" id="p-handle"></div>
+          </div>
+          <div class="vote-target-score" style="margin-left: auto">
+            <span class="score-pill zero" id="p-rank">unranked</span>
+          </div>
+        </div>
+
+        <div class="profile-stats">
+          <div><div class="profile-stat-num" id="s-received">0</div><div class="profile-stat-label">nominations</div></div>
+          <div><div class="profile-stat-num" id="s-cast">0</div><div class="profile-stat-label">nominations made</div></div>
+        </div>
+
+        <div class="share-row">
+          <a id="btn-share" href="#" target="_blank" rel="noopener" class="secondary" style="display: inline-block; padding: 0.6rem 1.15rem; border: 1px solid #e1e8ed; border-radius: 999px; text-decoration: none; color: inherit; font-size: 0.85rem; font-weight: 600">
+            share this profile
+          </a>
+          <button class="secondary" id="btn-card" style="display: none">save share card</button>
+        </div>
+
+        <section id="session-section" style="margin-top: 1.6rem">
+          <div class="session-row" id="signed-out-row">
+            <input id="f-my-handle" type="text" placeholder="your handle (e.g. you.bsky.social)" />
+            <button id="btn-signin">sign in with bluesky</button>
+          </div>
+          <div class="session-row" id="signed-in-row" style="display: none">
+            <span>signed in as <strong id="who"></strong></span>
+            <button class="secondary" id="btn-signout">sign out</button>
+          </div>
+          <p class="status" id="auth-status"></p>
+        </section>
+
+        <div class="vote-card">
+          <div class="vote-buttons">
+            <button class="btn-up" id="btn-nominate" type="button">nominate</button>
+          </div>
+          <p class="cooldown-note" id="cooldown-note"></p>
+          <p class="status" id="vote-status"></p>
+        </div>
+
+        <section>
+          <h2 class="section-title">nominated by</h2>
+          <div id="received-list"><p class="empty">loading…</p></div>
+        </section>
+
+        <section>
+          <h2 class="section-title">nominations made by this account</h2>
+          <div id="cast-list"><p class="empty">loading…</p></div>
+        </section>
+      </section>
+
+      <footer>
+        every nomination here is a <code>net.bisks.influential25.vote</code> record — found network-wide via
+        a full-repo scan of every voter, not just a live window, plus a live
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a> firehose.
+        rate this on <a href="https://rateyourbuild.bisks.net/site/influential25" target="_blank" rel="noopener">rateyourbuild →</a>
+        built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
+      import { getProfile } from "/lib/atproto.js";
+      import { profileStats, alreadyNominated, nominationsUsed, waitForVote } from "/lib/i25-client.js";
+
+      const $ = (s) => document.querySelector(s);
+      const COLLECTION = "net.bisks.influential25.vote";
+      const MAX_PER_VOTER = 10;
+
+      const m = location.pathname.match(/^\/p\/([^/]+)\/?$/);
+      const actor = m ? decodeURIComponent(m[1]) : "";
+
+      let session = null;
+      let profile = null;
+      let quotaUsed = 0;
+      let already = false;
+
+      function esc(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function timeAgo(ts) {
+        const s = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+        if (s < 60) return `${s}s ago`;
+        const mi = Math.floor(s / 60);
+        if (mi < 60) return `${mi}m ago`;
+        const h = Math.floor(mi / 60);
+        if (h < 24) return `${h}h ago`;
+        return `${Math.floor(h / 24)}d ago`;
+      }
+
+      function renderAuthUI() {
+        $("#signed-out-row").style.display = session ? "none" : "flex";
+        $("#signed-in-row").style.display = session ? "flex" : "none";
+        if (session) $("#who").textContent = "@" + session.handle;
+        renderVoteButton();
+      }
+
+      function renderVoteButton() {
+        const note = $("#cooldown-note");
+        const btn = $("#btn-nominate");
+        if (!profile) return;
+        let disabled = false;
+        let msg = "";
+        if (!session) {
+          disabled = true;
+          msg = "sign in to nominate.";
+        } else if (profile.did === session.did) {
+          disabled = true;
+          msg = "no self-nominations.";
+        } else if (already) {
+          disabled = true;
+          msg = "you've already nominated them.";
+        } else if (quotaUsed >= MAX_PER_VOTER) {
+          disabled = true;
+          msg = `you've used all ${MAX_PER_VOTER} of your nominations.`;
+        } else {
+          msg = `${MAX_PER_VOTER - quotaUsed} nomination${MAX_PER_VOTER - quotaUsed === 1 ? "" : "s"} left.`;
+        }
+        btn.disabled = disabled;
+        note.textContent = msg;
+      }
+
+      async function refreshVoteState() {
+        if (!session || !profile) {
+          quotaUsed = 0;
+          already = false;
+          return;
+        }
+        try {
+          [quotaUsed, already] = await Promise.all([
+            nominationsUsed(session.did),
+            alreadyNominated(session.did, profile.did),
+          ]);
+        } catch {
+          // leave state as-is on a transient fetch failure
+        }
+      }
+
+      $("#btn-signin").addEventListener("click", async () => {
+        const h = $("#f-my-handle").value.trim();
+        if (!h) return;
+        const status = $("#auth-status");
+        status.textContent = "redirecting to your PDS…";
+        status.className = "status";
+        try {
+          await login(h);
+        } catch (e) {
+          status.textContent = `sign-in failed: ${e.message}`;
+          status.className = "status err";
+        }
+      });
+      $("#f-my-handle").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("#btn-signin").click();
+      });
+      $("#btn-signout").addEventListener("click", async () => {
+        await clearSession();
+        session = null;
+        renderAuthUI();
+      });
+
+      async function confirmVote(voterDid, targetDid, votedAt, status) {
+        const result = await waitForVote(voterDid, targetDid, votedAt, 15000);
+        if (result.seen) {
+          status.textContent = "nomination counted — profile's up to date.";
+          status.className = "status ok";
+          loadProfile();
+          return;
+        }
+        status.textContent =
+          "nomination saved to your PDS, but we haven't seen it counted yet — check back in a bit.";
+        status.className = "status warn";
+        await refreshVoteState();
+        renderVoteButton();
+      }
+
+      async function castVote() {
+        if (!session || !profile) return;
+        const status = $("#vote-status");
+
+        status.textContent = "writing to your PDS…";
+        status.className = "status";
+        $("#btn-nominate").disabled = true;
+        try {
+          const record = { $type: COLLECTION, target: profile.did, createdAt: new Date().toISOString() };
+
+          const base = session.pdsUrl.replace(/\/$/, "");
+          const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.createRecord`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ repo: session.did, collection: COLLECTION, record }),
+          });
+          if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+
+          status.textContent = "nomination written — confirming it counted…";
+          status.className = "status ok";
+          quotaUsed += 1;
+          already = true;
+          renderVoteButton();
+          confirmVote(session.did, profile.did, Date.now(), status);
+        } catch (e) {
+          status.textContent = `couldn't cast that nomination: ${e.message}`;
+          status.className = "status err";
+          renderVoteButton();
+        }
+      }
+      $("#btn-nominate").addEventListener("click", castVote);
+
+      function renderVoteRow(v, mode) {
+        const other = mode === "received" ? v.voterHandle : v.targetHandle;
+        return `
+          <div class="feed-item">
+            <div class="feed-line">
+              ${mode === "received" ? "from" : "to"}
+              <a href="/p/${encodeURIComponent(other)}">@${esc(other)}</a>
+            </div>
+            <div class="feed-time">${timeAgo(v.createdAt)}</div>
+          </div>`;
+      }
+
+      // --- share card (canvas), same recipe as sites/didscope's buildShareCard ---
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+
+      function drawShareCard() {
+        const c = document.createElement("canvas");
+        c.width = 1200;
+        c.height = 630;
+        const ctx = c.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, c.width, c.height);
+        ctx.fillStyle = "#0f1419";
+        ctx.font = "800 56px ui-monospace, monospace";
+        ctx.fillText("Influential25", 60, 120);
+        ctx.fillStyle = "#536471";
+        ctx.font = "22px ui-monospace, monospace";
+        ctx.fillText("25 Most Influential Bluesky Posters of 2026", 60, 165);
+
+        ctx.fillStyle = "#1083fe";
+        ctx.font = "800 140px ui-monospace, monospace";
+        const rankText = profile.rank ? `#${profile.rank}` : "unranked";
+        ctx.fillText(rankText, 60, 340);
+
+        ctx.fillStyle = "#0f1419";
+        ctx.font = "800 44px ui-monospace, monospace";
+        ctx.fillText(`@${profile.handle}`, 60, 420);
+        ctx.fillStyle = "#536471";
+        ctx.font = "26px ui-monospace, monospace";
+        ctx.fillText(
+          `${profile.votesReceived} nomination${profile.votesReceived === 1 ? "" : "s"}`,
+          60,
+          462,
+        );
+
+        ctx.fillStyle = "#1083fe";
+        ctx.font = "700 24px ui-monospace, monospace";
+        ctx.fillText("influential25.bisks.net", 60, 570);
+        return c;
+      }
+
+      async function shareCard() {
+        const canvas = drawShareCard();
+        const blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+        if (!blob) return;
+        const shareUrl = `https://influential25.bisks.net/p/${encodeURIComponent(profile.handle)}`;
+        const shareText = `@${profile.handle} is ${profile.rank ? `#${profile.rank}` : "unranked"} on the 25 Most Influential Bluesky Posters of 2026 (${profile.votesReceived} nomination${profile.votesReceived === 1 ? "" : "s"}). vote at ${shareUrl}`;
+        if (canShareFiles()) {
+          const file = new File([blob], "influential25.png", { type: "image/png" });
+          try {
+            await navigator.share({ files: [file], text: shareText, title: "Influential25" });
+            return;
+          } catch {
+            // fall through to download
+          }
+        }
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `influential25-${profile.handle}.png`;
+        a.click();
+      }
+      $("#btn-card").addEventListener("click", shareCard);
+
+      async function loadProfile() {
+        if (!actor) {
+          $("#not-found").style.display = "block";
+          return;
+        }
+        try {
+          let did = actor;
+          if (!did.startsWith("did:")) {
+            const resolved = await getProfile(actor);
+            did = resolved?.did;
+          }
+          if (!did) throw new Error("not found");
+          profile = await profileStats(did);
+          if (!profile) throw new Error("not found");
+
+          $("#profile-section").style.display = "block";
+          $("#not-found").style.display = "none";
+          document.title = `${profile.displayName} — Influential25 ${profile.rank ? "#" + profile.rank : ""}`;
+
+          $("#p-avatar").src = profile.avatar || "";
+          $("#p-name").textContent = profile.displayName;
+          $("#p-handle").textContent = "@" + profile.handle;
+          const pill = $("#p-rank");
+          pill.textContent = profile.rank ? "#" + profile.rank : "unranked";
+          pill.className = `score-pill ${profile.rank && profile.rank <= 25 ? "pos" : "zero"}`;
+
+          $("#s-received").textContent = profile.votesReceived;
+          $("#s-cast").textContent = profile.nominationsCast;
+
+          const shareUrl = `https://influential25.bisks.net/p/${encodeURIComponent(profile.handle)}`;
+          const shareText = `@${profile.handle} is ${profile.rank ? `#${profile.rank}` : "unranked"} on the 25 Most Influential Bluesky Posters of 2026 (${profile.votesReceived} nomination${profile.votesReceived === 1 ? "" : "s"}). vote at ${shareUrl}`;
+          $("#btn-share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+          $("#btn-card").style.display = "inline-block";
+
+          const received = profile.received || [];
+          $("#received-list").innerHTML = received.length
+            ? received.map((v) => renderVoteRow(v, "received")).join("")
+            : `<p class="empty">no nominations yet.</p>`;
+
+          const cast = profile.cast || [];
+          $("#cast-list").innerHTML = cast.length
+            ? cast.map((v) => renderVoteRow(v, "cast")).join("")
+            : `<p class="empty">hasn't nominated anyone yet.</p>`;
+
+          await refreshVoteState();
+          renderVoteButton();
+        } catch {
+          $("#not-found").style.display = "block";
+          $("#profile-section").style.display = "none";
+        }
+      }
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          $("#auth-status").textContent = e.message;
+          $("#auth-status").className = "status err";
+        }
+        renderAuthUI();
+        await loadProfile();
+      }
+      boot();
+    </script>
+  </body>
+</html>
