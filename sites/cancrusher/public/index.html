@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>cancrusher — a physically-ish accurate soda can crushing simulator</title>
+<meta name="description" content="drag the plate down and crush a virtual soda can with real (well, real-ish) buckling physics. every crush is different." />
+<meta property="og:title" content="cancrusher — a physically-ish accurate soda can crushing simulator" />
+<meta property="og:description" content="drag the plate down and crush a virtual soda can with real (well, real-ish) buckling physics. every crush is different." />
+<meta property="og:url" content="https://cancrusher.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://cancrusher.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="cancrusher: a soda can mid-crumple under a hydraulic press plate, with a fake precise physics readout beside it." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="cancrusher — a physically-ish accurate soda can crushing simulator" />
+<meta name="twitter:description" content="drag the plate down and crush a virtual soda can with real (well, real-ish) buckling physics. every crush is different." />
+<meta name="twitter:image" content="https://cancrusher.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #10161a;
+    --bg2: #1a2226;
+    --fg: #eef4f2;
+    --dim: #8fa3a8;
+    --accent: #ff4433;
+    --accent2: #ffd23f;
+    --panel: #182024;
+    --border: #2c3a40;
+    --metal: #cdd6d8;
+    --metal-dark: #7c898d;
+  }
+  * {
+    box-sizing: border-box; -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none; user-select: none;
+  }
+  html, body {
+    margin: 0; padding: 0; height: 100%; height: 100dvh; overscroll-behavior: none;
+    background: radial-gradient(ellipse at 50% -10%, #1e2c30 0%, transparent 55%), var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    overflow: hidden;
+  }
+  #app {
+    position: relative;
+    width: 100%; height: 100%; height: 100dvh;
+    display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  header {
+    padding: 0.6rem 1rem 0.3rem;
+    text-align: center;
+    z-index: 5;
+  }
+  h1 {
+    margin: 0; font-size: 1.25rem; letter-spacing: 0.02em;
+    color: var(--fg);
+  }
+  h1 .accent { color: var(--accent); }
+  .tagline {
+    margin: 0.15rem 0 0; font-size: 0.72rem; color: var(--dim);
+  }
+  main {
+    flex: 1; position: relative; min-height: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #stage-wrap {
+    position: relative; width: 100%; height: 100%;
+  }
+  #stage {
+    width: 100%; height: 100%; display: block; touch-action: none;
+    cursor: ns-resize;
+  }
+  #readout {
+    position: absolute; top: 0.5rem; left: 0.5rem;
+    background: rgba(16, 22, 26, 0.82);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.55rem 0.7rem;
+    font-size: 0.63rem;
+    line-height: 1.55;
+    color: var(--dim);
+    pointer-events: none;
+    min-width: 168px;
+  }
+  #readout .row { display: flex; justify-content: space-between; gap: 0.6rem; }
+  #readout .row span:last-child { color: var(--fg); font-weight: 600; }
+  #readout .warn span:last-child { color: var(--accent2); }
+  #readout .bad span:last-child { color: var(--accent); }
+  #crushbar-wrap {
+    position: absolute; top: 0.5rem; right: 0.5rem; left: auto;
+    width: 130px;
+    background: rgba(16, 22, 26, 0.82);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.5rem 0.65rem;
+    pointer-events: none;
+  }
+  #crushbar-label {
+    font-size: 0.6rem; color: var(--dim); display: flex; justify-content: space-between;
+    margin-bottom: 0.3rem;
+  }
+  #crushbar-label b { color: var(--fg); }
+  #crushbar-track {
+    height: 8px; border-radius: 5px; background: #0c1114;
+    border: 1px solid var(--border); overflow: hidden;
+  }
+  #crushbar-fill {
+    height: 100%; width: 0%; border-radius: 5px;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    transition: width 0.08s linear;
+  }
+  #hint {
+    position: absolute; left: 50%; bottom: 6.4rem; transform: translateX(-50%);
+    font-size: 0.68rem; color: var(--dim); text-align: center;
+    background: rgba(16, 22, 26, 0.7); border: 1px solid var(--border);
+    border-radius: 999px; padding: 0.35rem 0.8rem;
+    pointer-events: none; transition: opacity 0.3s;
+    white-space: nowrap;
+  }
+  #hint.hidden { opacity: 0; }
+  #controls {
+    position: absolute; left: 0; right: 0; bottom: 0.9rem;
+    display: flex; justify-content: center; gap: 0.6rem;
+    z-index: 4;
+  }
+  .btn {
+    font-family: inherit; font-size: 0.78rem; font-weight: 700;
+    border-radius: 999px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--fg);
+    padding: 0.6rem 1.1rem; cursor: pointer;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #1a0a08; }
+  .btn.secondary { background: transparent; }
+  #vent-banner {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -60%) scale(0.9);
+    background: rgba(255, 68, 51, 0.14); border: 1px solid var(--accent);
+    color: var(--accent2); font-weight: 800; font-size: 0.95rem;
+    padding: 0.5rem 1rem; border-radius: 10px;
+    opacity: 0; pointer-events: none; transition: opacity 0.25s, transform 0.25s;
+    letter-spacing: 0.03em; text-align: center; white-space: nowrap;
+  }
+  #vent-banner.show { opacity: 1; transform: translate(-50%, -60%) scale(1); }
+  #result {
+    position: absolute; inset: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(10, 14, 16, 0.72); backdrop-filter: blur(2px);
+    opacity: 0; pointer-events: none; transition: opacity 0.35s;
+  }
+  #result.show { opacity: 1; pointer-events: auto; }
+  #result .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 1.4rem 1.5rem; width: min(90vw, 360px);
+    text-align: center;
+  }
+  #result h2 { margin: 0 0 0.2rem; font-size: 1.15rem; color: var(--accent2); }
+  #result .pct { font-size: 3rem; font-weight: 800; margin: 0.35rem 0; color: var(--fg); }
+  #result .pct small { font-size: 1.1rem; color: var(--dim); font-weight: 600; }
+  #result .sub { font-size: 0.72rem; color: var(--dim); margin-bottom: 1rem; line-height: 1.5; }
+  #result .actions { display: flex; flex-direction: column; gap: 0.5rem; }
+  #result a.btn, #result button.btn { text-decoration: none; display: block; }
+  footer {
+    padding: 0.35rem 0 0.5rem; text-align: center; font-size: 0.62rem; color: var(--dim);
+    z-index: 5;
+  }
+  footer a { color: var(--dim); }
+  footer .links { display: flex; justify-content: center; gap: 0.9rem; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>can<span class="accent">crusher</span></h1>
+    <p class="tagline">a physically-ish accurate soda can crushing simulator</p>
+  </header>
+  <main>
+    <div id="stage-wrap">
+      <canvas id="stage"></canvas>
+      <div id="readout">
+        <div class="row"><span>SHELL THICKNESS</span><span>0.10 mm</span></div>
+        <div class="row" id="ro-pressure"><span>INTERNAL PRESSURE</span><span>331 kPa</span></div>
+        <div class="row" id="ro-integrity"><span>STRUCTURAL INTEGRITY</span><span>100%</span></div>
+        <div class="row" id="ro-mode"><span>BUCKLING MODE</span><span>elastic</span></div>
+        <div class="row" id="ro-force"><span>PEAK FORCE</span><span>0 N</span></div>
+      </div>
+      <div id="crushbar-wrap">
+        <div id="crushbar-label"><span>CRUSHED</span><b id="crushbar-pct">0%</b></div>
+        <div id="crushbar-track"><div id="crushbar-fill"></div></div>
+      </div>
+      <div id="vent-banner">SEAL FAILURE — VENTING</div>
+      <div id="hint">drag the plate down · or tap STOMP</div>
+      <div id="controls">
+        <button class="btn secondary" id="new-can-btn">new can</button>
+        <button class="btn primary" id="stomp-btn">STOMP</button>
+      </div>
+      <div id="result">
+        <div class="card">
+          <h2>crushed.</h2>
+          <div class="pct"><span id="final-pct">0</span><small>% of original height</small></div>
+          <div class="sub" id="final-sub">peak force 0 N · seal held.</div>
+          <div class="actions">
+            <a class="btn primary" id="share-bsky" target="_blank" rel="noopener">share to bluesky</a>
+            <button class="btn secondary" id="share-card-btn">save/share image</button>
+            <button class="btn secondary" id="again-btn">crush another</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="links">
+      <a href="https://bisks.net/" target="_blank" rel="noopener">bisks.net gallery</a>
+      <a href="https://rateyourbuild.bisks.net/site/cancrusher" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+    </div>
+  </footer>
+</div>
+<canvas id="shareCanvas" width="1200" height="630" style="display:none"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/matter-js@0.19.0/build/matter.min.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
