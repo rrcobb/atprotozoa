@@ -85,13 +85,13 @@ const CLAIMS = [
 ];
 
 const OPPOSITES = [
-  "so betting on it getting dramatically better, shipping faster, and making someone very rich is the safe trade.",
-  "so the reasonable prediction is: it gets better, it gets cheaper, and it ships anyway.",
-  "which means, historically speaking, it's about to have its best quarter yet.",
-  "which is exactly the setup for the opposite to happen within the year.",
-  "so mark your calendar — the rebuttal headline writes itself in six months.",
-  "which is the tell that it's about to get funded, shipped, and hyped even harder.",
-  "so expect a bigger round, a bigger launch, and a very awkward correction thread.",
+  "Betting on {subject} getting dramatically better, shipping faster, and making someone very rich is the safe trade right now.",
+  "The reasonable prediction for {subject}: it gets better, it gets cheaper, and it ships anyway.",
+  "Historically speaking, {subject} is about to have its best quarter yet.",
+  "This is exactly the setup for the opposite to happen to {subject} within the year.",
+  "Mark your calendar — the rebuttal headline about {subject} writes itself in six months.",
+  "This is the tell that {subject} is about to get funded, shipped, and hyped even harder.",
+  "Expect a bigger round, a bigger launch, and a very awkward correction thread for {subject}.",
 ];
 
 function pick(arr) {
@@ -113,7 +113,7 @@ function generate() {
   const opp = pick(OPPOSITES);
 
   currentTake = `${subject.charAt(0).toUpperCase()}${subject.slice(1)} ${claim}.`;
-  currentOpp = `Guaranteed opposite: ${subject} ${opp}`;
+  currentOpp = `Guaranteed opposite: ${opp.replace("{subject}", subject)}`;
 
   const takeEl = document.getElementById("gen-take");
   const verdictEl = document.getElementById("gen-verdict");
