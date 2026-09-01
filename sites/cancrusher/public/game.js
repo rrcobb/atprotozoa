@@ -1,68 +1,80 @@
-// cancrusher — a physically-ish accurate soda can crushing simulator.
+// cancrusher — a 3D pressurized-shell can-crushing simulator.
 //
-// @cee.wtf asked for a soda can crushing simulator. This isn't a finite-
-// element solver (nothing running in a browser tab is), but it IS a real
-// Matter.js soft-body sim rather than a canned animation: the can's wall is
-// two chains of near-rigid rod constraints (left side, right side) linked by
-// softer horizontal "rungs" and diagonal cross-braces. A chain of fixed-
-// length rods pinned end to end can't shorten by stretching — the only way
-// to close the gap between the fixed base and the descending press plate is
-// for the chain to bow sideways, i.e. buckle, same as a compressed strut in
-// real structural mechanics. Random per-constraint stiffness jitter seeds
-// which side gives first, so no two crushes fold the same way. On top of
-// that: internal can pressure is tracked (Boyle's-law-flavored, not exact)
-// and "venting" past a crush threshold measurably softens the shell — a
-// pressurized can really does resist crushing more than a vented one.
+// @cee.wtf's original ask was "physically accurate," and the first two
+// passes leaned on Matter.js's 2D rigid-body solver wearing a soft-body
+// costume: two vertical rails of circle bodies linked by constraints,
+// buckling because a chain of fixed-length rods can't shorten except by
+// bowing sideways. Cee's fair complaint after pass two: it reads as a 2D
+// physics tutorial, not a can. This pass throws Matter.js out entirely and
+// replaces it with an actual cylindrical shell: a ring mesh of ~130 mass
+// points connected by axial (vertical), hoop (circumferential), and shear
+// (diagonal) springs, integrated with position-based dynamics — Jakobsen
+// relaxation, the same family of solver behind Havok Cloth and most game
+// soft bodies. Internal gas pressure is simulated for real, not faked: the
+// mesh's enclosed volume is estimated every frame from actual particle
+// positions, Boyle's law (PV = const) turns that into a pressure scalar,
+// and that pressure pushes outward on every wall vertex — a full can
+// gaining real rigidity from its own contents, the same reason an
+// unopened can resists a stomp far better than an empty one. Venting
+// drops that pressure toward ambient over ~350ms AND independently
+// softens the hoop/shear springs, so resistance genuinely collapses once
+// the seal fails, not just a cosmetic multiplier. The press plate is a
+// particle in the same solver (heavy, so it barely deflects, but not
+// infinitely rigid) rather than a scripted animation, so its contact
+// force against the shell is a read from the constraint solver, not a
+// guess. None of this is finite-element accurate — nothing running in a
+// browser tab is — and buckling asymmetry is still seeded with small
+// per-particle/per-spring jitter, same as before, so no two crushes fold
+// the same way. But it's a real constrained 3D particle simulation
+// rendered with actual 3D projection and per-face lighting, buckling
+// because the numbers say so — not a flat two-rail silhouette.
 (function () {
   "use strict";
 
-  const { Engine, World, Bodies, Body, Constraint, Runner, Events } = Matter;
+  // ---- mesh shape -----------------------------------------------------------
 
-  // ---- arena --------------------------------------------------------------
+  const RINGS = 11; // 0 = top rim, RINGS-1 = base
+  const SEGMENTS = 12; // particles around the circumference
+  const R = 54; // can radius, world units
+  const H = 260; // can height, world units
+  const RING_SPACING = H / (RINGS - 1);
+  const SEG_ANGLE = (Math.PI * 2) / SEGMENTS;
+  const HOOP_REST = 2 * R * Math.sin(SEG_ANGLE / 2);
+  const DIAG_REST = Math.hypot(RING_SPACING, HOOP_REST);
+  const LABEL_RING_LO = 3;
+  const LABEL_RING_HI = 7;
 
-  const ARENA_W = 380;
-  const ARENA_H = 600;
-  const FLOOR_Y = ARENA_H - 60;
-
-  const CAN_W = 118;
-  const HALF_W = CAN_W / 2;
-  const CAN_H = 280;
-  const ROWS = 8;
-  const ROW_SPACING = CAN_H / (ROWS - 1);
-  const CX = ARENA_W / 2;
-  const BOTTOM_ROW_Y = FLOOR_Y - 8;
-  const TOP_ROW_Y = BOTTOM_ROW_Y - CAN_H;
-
-  const CAP_H = 16;
-  const CAP_W = CAN_W + 14;
-
-  const STOMPER_W = CAN_W + 50;
-  const STOMPER_H = 18;
-  const STOMPER_START_Y = TOP_ROW_Y - 90;
-  const DRAG_TOP_LIMIT = 40;
-
-  const FOLLOW_K = 0.18;
-  const MAX_DRAG_V = 22;
-  const STOMP_IMPULSE = 27;
+  const MIN_PLATE_Y = H * 0.09; // folded metal has to occupy some height
+  const STOMPER_START_Y = H + 170;
+  const DRAG_TOP_LIMIT = H + 210;
+  const MIN_RADIUS = 6; // self-collision floor — opposite walls can't cross the axis
 
   const VENT_THRESHOLD = 0.14; // real cans lose most axial rigidity on the first real dent
   const COMPLETE_THRESHOLD = 0.55;
   const SETTLE_MS = 480;
 
-  // ---- can skins ------------------------------------------------------------
-  // Cosmetic variety plus a small, honest material tweak per skin: a taller
-  // "reinforced" energy can resists the first dent a bit more (higher base
-  // stiffness), a sparkling-water can is thinner-walled and gives faster.
-  // Same VENT/COMPLETE thresholds across skins, so crush % stays comparable
-  // for the personal-best tracker below.
+  const P0 = 331; // kPa, sealed baseline
+  const AMBIENT = 101; // kPa, atmospheric
+  const V0 = (Math.PI * R * R) * H; // rest enclosed volume, world units^3
+
+  // ---- can skins --------------------------------------------------------
+  // Cosmetic variety plus small, honest material deltas per skin: a taller
+  // "reinforced" energy can resists the first dent a bit more (stiffer
+  // shell + a touch more internal pressure), a sparkling-water can is
+  // thinner-walled and softer. Same VENT/COMPLETE thresholds across skins,
+  // so crush % stays comparable for the personal-best tracker below.
   const SKINS = [
-    { label: "cola classic", band: "rgba(255, 68, 51, 0.82)", text: "FIZZ!", textColor: "#ffe9a8", stiffMul: 1.0 },
-    { label: "zero sugar", band: "rgba(20, 22, 24, 0.86)", text: "ZERO", textColor: "#eef4f2", stiffMul: 1.0 },
-    { label: "energy+", band: "rgba(120, 255, 60, 0.8)", text: "BOOST", textColor: "#0c1114", stiffMul: 1.22 },
-    { label: "sparkling water", band: "rgba(70, 160, 255, 0.68)", text: "SPARK", textColor: "#ffffff", stiffMul: 0.85 },
+    { label: "cola classic", band: "rgba(255, 68, 51, 0.82)", text: "FIZZ!", textColor: "#ffe9a8", stiffMul: 1.0, pressureMul: 1.0 },
+    { label: "zero sugar", band: "rgba(20, 22, 24, 0.86)", text: "ZERO", textColor: "#eef4f2", stiffMul: 1.0, pressureMul: 1.0 },
+    { label: "energy+", band: "rgba(120, 255, 60, 0.8)", text: "BOOST", textColor: "#0c1114", stiffMul: 1.22, pressureMul: 1.12 },
+    { label: "sparkling water", band: "rgba(70, 160, 255, 0.68)", text: "SPARK", textColor: "#ffffff", stiffMul: 0.85, pressureMul: 0.88 },
   ];
   function pickSkin() {
     return SKINS[Math.floor(Math.random() * SKINS.length)];
+  }
+
+  function jitter(n) {
+    return (Math.random() * 2 - 1) * n;
   }
 
   // ---- audio (synthesized, no assets) --------------------------------------
@@ -155,190 +167,109 @@
     } catch (_) {}
   }
 
-  // ---- physics setup --------------------------------------------------------
+  // ---- mesh construction ------------------------------------------------
 
-  const engine = Engine.create();
-  engine.gravity.y = 1;
-  engine.positionIterations = 10;
-  engine.velocityIterations = 8;
-  engine.constraintIterations = 4;
-  const world = engine.world;
-
-  const NOGROUP = Body.nextGroup(true);
-
-  function wallParticle(x, y) {
-    const b = Bodies.circle(x, y, 6, {
-      density: 0.0022,
-      friction: 0.4,
-      frictionAir: 0.015,
-      restitution: 0.05,
-    });
-    b.collisionFilter.group = NOGROUP;
-    return b;
+  function idx(i, j) {
+    return i * SEGMENTS + ((j % SEGMENTS) + SEGMENTS) % SEGMENTS;
   }
 
-  function jitter(n) {
-    return (Math.random() * 2 - 1) * n;
-  }
+  let can = null; // { particles, springs:{hoop,axial,shear}, skin, startHeight }
+  let plate = null; // { y, py, invMass }
 
-  function makeBounds() {
-    const t = 60;
-    return [
-      Bodies.rectangle(CX, FLOOR_Y + t / 2 + 6, ARENA_W + 300, t, { isStatic: true, friction: 0.9 }),
-      Bodies.rectangle(-t / 2, ARENA_H / 2, t, ARENA_H + 300, { isStatic: true }),
-      Bodies.rectangle(ARENA_W + t / 2, ARENA_H / 2, t, ARENA_H + 300, { isStatic: true }),
-    ];
-  }
-  World.add(world, makeBounds());
-
-  let can = null; // { rows, topCap, constraints: {vertical, rung, diag, base, cap}, softenable }
-  let stomper = null;
-
-  function buildStomper() {
-    stomper = Bodies.rectangle(CX, STOMPER_START_Y, STOMPER_W, STOMPER_H, {
-      density: 0.02,
-      friction: 0.7,
-      frictionAir: 0.05,
-      restitution: 0,
-    });
-    World.add(world, stomper);
+  function makeParticle(x, y, z, invMass) {
+    return { x, y, z, px: x, py: y, pz: z, ax: 0, ay: 0, az: 0, invMass };
   }
 
   function buildCan() {
     const skin = pickSkin();
-    const rows = [];
-    for (let i = 0; i < ROWS; i++) {
-      const y = TOP_ROW_Y + i * ROW_SPACING;
-      const left = wallParticle(CX - HALF_W + jitter(3), y + jitter(1.5));
-      const right = wallParticle(CX + HALF_W + jitter(3), y + jitter(1.5));
-      rows.push({ left, right });
-    }
-
-    const topCap = Bodies.rectangle(CX, TOP_ROW_Y - CAP_H / 2 - 2, CAP_W, CAP_H, {
-      density: 0.006,
-      friction: 0.6,
-      frictionAir: 0.03,
-      restitution: 0,
-    });
-
-    const vertical = [];
-    const rung = [];
-    const diag = [];
-    const base = [];
-
-    function link(bodyA, bodyB, stiffness, damping) {
-      return Constraint.create({ bodyA, bodyB, stiffness, damping: damping || 0.15 });
-    }
-
-    for (let i = 0; i < ROWS; i++) {
-      rung.push(link(rows[i].left, rows[i].right, 0.5 * (0.9 + Math.random() * 0.2) * skin.stiffMul));
-      if (i < ROWS - 1) {
-        vertical.push(link(rows[i].left, rows[i + 1].left, (0.85 + Math.random() * 0.12) * skin.stiffMul));
-        vertical.push(link(rows[i].right, rows[i + 1].right, (0.85 + Math.random() * 0.12) * skin.stiffMul));
-        diag.push(link(rows[i].left, rows[i + 1].right, (0.18 + Math.random() * 0.08) * skin.stiffMul));
-        diag.push(link(rows[i].right, rows[i + 1].left, (0.18 + Math.random() * 0.08) * skin.stiffMul));
+    const particles = new Array(RINGS * SEGMENTS);
+    for (let i = 0; i < RINGS; i++) {
+      const y = H - i * RING_SPACING;
+      const pinned = i === RINGS - 1; // base is a rigid rim, doesn't crush
+      for (let j = 0; j < SEGMENTS; j++) {
+        const ang = j * SEG_ANGLE;
+        const rr = R + jitter(1.4);
+        const x = rr * Math.cos(ang) + jitter(0.6);
+        const z = rr * Math.sin(ang) + jitter(0.6);
+        particles[idx(i, j)] = makeParticle(x, y + jitter(0.6), z, pinned ? 0 : 1);
       }
     }
 
-    const bottom = rows[ROWS - 1];
-    base.push(
-      Constraint.create({
-        bodyA: bottom.left,
-        pointB: { x: bottom.left.position.x, y: bottom.left.position.y },
-        stiffness: 0.7,
-        damping: 0.5,
-        length: 0,
-      })
-    );
-    base.push(
-      Constraint.create({
-        bodyA: bottom.right,
-        pointB: { x: bottom.right.position.x, y: bottom.right.position.y },
-        stiffness: 0.7,
-        damping: 0.5,
-        length: 0,
-      })
-    );
+    const hoop = [];
+    const axial = [];
+    const shear = [];
 
-    const capLinks = [
-      Constraint.create({
-        bodyA: topCap,
-        pointA: { x: -CAP_W / 2 + 8, y: CAP_H / 2 },
-        bodyB: rows[0].left,
-        stiffness: 0.9,
-        damping: 0.2,
-      }),
-      Constraint.create({
-        bodyA: topCap,
-        pointA: { x: CAP_W / 2 - 8, y: CAP_H / 2 },
-        bodyB: rows[0].right,
-        stiffness: 0.9,
-        damping: 0.2,
-      }),
-    ];
+    function spring(list, a, b, rest, baseK) {
+      const k = Math.min(1, baseK * (0.9 + Math.random() * 0.2) * skin.stiffMul);
+      list.push({ a, b, rest, k });
+    }
 
-    World.add(world, [
-      ...rows.flatMap((r) => [r.left, r.right]),
-      topCap,
-      ...vertical,
-      ...rung,
-      ...diag,
-      ...base,
-      ...capLinks,
-    ]);
+    for (let i = 0; i < RINGS; i++) {
+      for (let j = 0; j < SEGMENTS; j++) {
+        spring(hoop, idx(i, j), idx(i, j + 1), HOOP_REST, 0.5);
+        if (i < RINGS - 1) {
+          spring(axial, idx(i, j), idx(i + 1, j), RING_SPACING, 0.95);
+          spring(shear, idx(i, j), idx(i + 1, j + 1), DIAG_REST, 0.22);
+          spring(shear, idx(i, j), idx(i + 1, j - 1), DIAG_REST, 0.22);
+        }
+      }
+    }
 
     can = {
-      rows,
-      topCap,
-      vertical,
-      rung,
-      diag,
-      base,
-      capLinks,
+      particles,
+      hoop,
+      axial,
+      shear,
       skin,
-      startHeight: bottom.left.position.y - topCap.position.y,
-      baseY: bottom.left.position.y,
+      startHeight: H,
+      labelSeg: Math.floor(Math.random() * SEGMENTS),
     };
   }
 
-  function removeCan() {
-    if (!can) return;
-    World.remove(world, [
-      ...can.rows.flatMap((r) => [r.left, r.right]),
-      can.topCap,
-      ...can.vertical,
-      ...can.rung,
-      ...can.diag,
-      ...can.base,
-      ...can.capLinks,
-    ]);
-    can = null;
+  function buildPlate() {
+    plate = { y: STOMPER_START_Y, py: STOMPER_START_Y, invMass: 1 / 46 };
   }
 
-  // ---- game state -----------------------------------------------------------
+  // ---- physics state ------------------------------------------------------
 
   const state = {
     dragging: false,
     dragTargetY: STOMPER_START_Y,
+    peakForce: 0,
     peakSpeed: 0,
     vented: false,
+    ventAt: 0,
+    ventStartPressure: P0,
     finished: false,
     locked: false,
     settleSince: null,
     debris: [],
     shake: 0,
+    lastPct: 0,
+    lastVolume: V0,
+    lastPressure: P0,
+    lastAsymmetry: 0,
+    contactForce: 0,
   };
 
   function resetState() {
     state.dragging = false;
     state.dragTargetY = STOMPER_START_Y;
+    state.peakForce = 0;
     state.peakSpeed = 0;
     state.vented = false;
+    state.ventAt = 0;
+    state.ventStartPressure = P0;
     state.finished = false;
     state.locked = false;
     state.settleSince = null;
     state.debris = [];
     state.shake = 0;
+    state.lastPct = 0;
+    state.lastVolume = V0;
+    state.lastPressure = P0;
+    state.lastAsymmetry = 0;
+    state.contactForce = 0;
   }
 
   function addShake(mag) {
@@ -370,57 +301,281 @@
   let best = loadBest();
 
   function newCan() {
-    removeCan();
     buildCan();
-    Body.setPosition(stomper, { x: CX, y: STOMPER_START_Y });
-    Body.setVelocity(stomper, { x: 0, y: 0 });
-    Body.setAngle(stomper, 0);
+    buildPlate();
     resetState();
     document.getElementById("result").classList.remove("show");
     document.getElementById("vent-banner").classList.remove("show");
     document.getElementById("hint").classList.remove("hidden");
   }
 
-  buildStomper();
   buildCan();
+  buildPlate();
+
+  // ---- measurement --------------------------------------------------------
+
+  function topRingAvgY() {
+    let sum = 0;
+    for (let j = 0; j < SEGMENTS; j++) sum += can.particles[idx(0, j)].y;
+    return sum / SEGMENTS;
+  }
+
+  function ringAvg(i) {
+    let sy = 0, sr = 0;
+    for (let j = 0; j < SEGMENTS; j++) {
+      const p = can.particles[idx(i, j)];
+      sy += p.y;
+      sr += Math.hypot(p.x, p.z);
+    }
+    return { y: sy / SEGMENTS, r: sr / SEGMENTS };
+  }
 
   function crushPct() {
-    if (!can) return 0;
-    const currentHeight = can.baseY - can.topCap.position.y;
-    const pct = 1 - currentHeight / can.startHeight;
+    const top = topRingAvgY();
+    const pct = 1 - top / can.startHeight;
     return Math.max(0, Math.min(1, pct));
   }
 
+  function estimateVolumeAndAsymmetry() {
+    let volume = 0;
+    let maxDev = 0;
+    const rings = new Array(RINGS);
+    for (let i = 0; i < RINGS; i++) rings[i] = ringAvg(i);
+    for (let i = 0; i < RINGS - 1; i++) {
+      const rAvg = (rings[i].r + rings[i + 1].r) / 2;
+      const h = Math.abs(rings[i].y - rings[i + 1].y);
+      volume += Math.PI * rAvg * rAvg * h;
+    }
+    // asymmetry: how far individual segments deviate from their ring's
+    // average radius — a perfectly uniform squash stays near 0, real
+    // buckling pushes it up as the cross-section goes non-circular.
+    for (let i = 0; i < RINGS; i++) {
+      const avgR = rings[i].r;
+      for (let j = 0; j < SEGMENTS; j++) {
+        const p = can.particles[idx(i, j)];
+        const dev = Math.abs(Math.hypot(p.x, p.z) - avgR);
+        if (dev > maxDev) maxDev = dev;
+      }
+    }
+    return { volume: Math.max(volume, V0 * 0.04), asymmetry: maxDev / R };
+  }
+
   function softenAfterVent() {
-    [...can.rung, ...can.diag].forEach((c) => {
-      c.stiffness *= 0.42;
-    });
+    for (const s of can.hoop) s.k *= 0.42;
+    for (const s of can.shear) s.k *= 0.42;
   }
 
-  Events.on(engine, "beforeUpdate", () => {
+  // ---- position-based dynamics solver ---------------------------------------
+
+  const SUBSTEP_DT = 1 / 180;
+  const MAX_SUBSTEPS = 5;
+  const CONSTRAINT_ITERS = 6;
+  const DAMPING = 0.985;
+  const PLATE_DAMPING = 0.985;
+  const GRAVITY_Y = -70;
+  const PLATE_GRAVITY_Y = -1400;
+  const FOLLOW_K = 14;
+  const MAX_DRAG_V = 620;
+  const STOMP_SPEED = 640;
+  const PRESSURE_ACCEL_SCALE = 0.6; // tuned so resting pressure ~ gravity order of magnitude, not an explosion
+  const COLLISION_STIFFNESS = 0.65; // <1 so a hard stomp's momentum carries the plate in over a few substeps instead of arresting dead in one
+  const YIELD_STRAIN = 0.045; // real aluminum barely springs back — this is where a spring stops being purely elastic
+  const PLASTIC_RATE = 0.02; // per-iteration creep of a yielded spring's rest length toward its deformed length
+
+  function applySpringSet(list) {
+    for (const s of list) {
+      const pa = can.particles[s.a];
+      const pb = can.particles[s.b];
+      const dx = pb.x - pa.x, dy = pb.y - pa.y, dz = pb.z - pa.z;
+      const len = Math.hypot(dx, dy, dz) || 1e-6;
+      const wSum = pa.invMass + pb.invMass;
+      if (wSum <= 0) continue;
+      const diff = ((len - s.rest) / len) * s.k;
+      const cx = dx * diff, cy = dy * diff, cz = dz * diff;
+      if (pa.invMass > 0) {
+        const f = pa.invMass / wSum;
+        pa.x += cx * f; pa.y += cy * f; pa.z += cz * f;
+      }
+      if (pb.invMass > 0) {
+        const f = pb.invMass / wSum;
+        pb.x -= cx * f; pb.y -= cy * f; pb.z -= cz * f;
+      }
+      // plastic yield: once a spring is strained past a small elastic
+      // margin, permanently creep its rest length toward the deformed
+      // length — buckles and folds stick instead of elastically
+      // bouncing back to the original cylinder the moment load releases.
+      const strain = (len - s.rest) / s.rest;
+      if (strain < -YIELD_STRAIN) {
+        s.rest += (len - s.rest * (1 - YIELD_STRAIN)) * PLASTIC_RATE;
+      } else if (strain > YIELD_STRAIN) {
+        s.rest += (len - s.rest * (1 + YIELD_STRAIN)) * PLASTIC_RATE;
+      }
+    }
+  }
+
+  function physicsStep(dt) {
+    // 1. pressure from current geometry (Boyle's law), feeds this step's forces
+    const { volume, asymmetry } = estimateVolumeAndAsymmetry();
+    state.lastVolume = volume;
+    state.lastAsymmetry = asymmetry;
+    let pressure;
+    if (state.vented) {
+      // a ruptured seal bleeds to atmosphere over time regardless of how
+      // much further the shell compresses — decay from the pressure at
+      // the moment of rupture, don't keep re-deriving from volume (a
+      // punctured can doesn't re-pressurize just because it's flatter).
+      const decay = Math.max(0, 1 - (performance.now() - state.ventAt) / 400);
+      pressure = AMBIENT + (state.ventStartPressure - AMBIENT) * decay;
+    } else {
+      pressure = (P0 * can.skin.pressureMul * V0) / volume;
+    }
+    state.lastPressure = pressure;
+    const pForce = Math.max(0, pressure - AMBIENT) * PRESSURE_ACCEL_SCALE;
+
+    // 2. external forces -> acceleration, then Verlet predict
+    for (let i = 0; i < RINGS; i++) {
+      for (let j = 0; j < SEGMENTS; j++) {
+        const p = can.particles[idx(i, j)];
+        if (p.invMass <= 0) continue;
+        const rad = Math.hypot(p.x, p.z) || 1e-6;
+        const nx = p.x / rad, nz = p.z / rad;
+        const ax = nx * pForce * p.invMass;
+        const az = nz * pForce * p.invMass;
+        const ay = GRAVITY_Y;
+        const nxp = p.x + (p.x - p.px) * DAMPING + ax * dt * dt;
+        const nyp = p.y + (p.y - p.py) * DAMPING + ay * dt * dt;
+        const nzp = p.z + (p.z - p.pz) * DAMPING + az * dt * dt;
+        p.px = p.x; p.py = p.y; p.pz = p.z;
+        p.x = nxp; p.y = nyp; p.z = nzp;
+      }
+    }
+
+    // plate: kinematic while dragging, Verlet (gravity + contact via
+    // constraint below) otherwise
     if (state.dragging && !state.locked) {
-      const dy = state.dragTargetY - stomper.position.y;
-      let vy = dy * FOLLOW_K;
+      const target = state.dragTargetY;
+      let vy = (target - plate.y) * FOLLOW_K;
       vy = Math.max(-MAX_DRAG_V, Math.min(MAX_DRAG_V, vy));
-      Body.setVelocity(stomper, { x: 0, y: vy });
+      plate.py = plate.y - vy * dt;
+      plate.y = plate.y + vy * dt;
+    } else {
+      const ny = plate.y + (plate.y - plate.py) * PLATE_DAMPING + PLATE_GRAVITY_Y * dt * dt;
+      plate.py = plate.y;
+      plate.y = ny;
     }
-    Body.setAngularVelocity(stomper, 0);
-    if (Math.abs(stomper.angle) > 0.001) Body.setAngle(stomper, stomper.angle * 0.7);
-    state.peakSpeed = Math.max(state.peakSpeed, stomper.speed);
-  });
 
-  function maybeCrunch(pair) {
-    if (pair.bodyA !== stomper && pair.bodyB !== stomper) return;
-    if (stomper.speed > 0.5) {
-      playCrunch(stomper.speed);
-      addShake(Math.min(14, stomper.speed * 0.9));
-      if (stomper.speed > 4) safeVibrate(Math.min(60, stomper.speed * 4));
+    // 3. constraint relaxation
+    for (let iter = 0; iter < CONSTRAINT_ITERS; iter++) {
+      applySpringSet(can.axial);
+      applySpringSet(can.hoop);
+      applySpringSet(can.shear);
+    }
+
+    // 4. collisions: floor, plate (one-sided, positional), min-radius self-collision
+    let contactForce = 0;
+    for (let i = 0; i < RINGS; i++) {
+      for (let j = 0; j < SEGMENTS; j++) {
+        const p = can.particles[idx(i, j)];
+        if (p.y < 0) p.y = 0;
+        if (p.invMass > 0 && p.y > plate.y) {
+          const pen = p.y - plate.y;
+          const wSum = p.invMass + plate.invMass;
+          const pf = p.invMass / wSum, ppf = plate.invMass / wSum;
+          contactForce += pen * (1 / SUBSTEP_DT) * (1 / SUBSTEP_DT);
+          const soft = pen * COLLISION_STIFFNESS;
+          p.y -= soft * pf;
+          plate.y += soft * ppf;
+        }
+        const rad = Math.hypot(p.x, p.z);
+        if (p.invMass > 0 && rad < MIN_RADIUS && rad > 1e-5) {
+          const s = MIN_RADIUS / rad;
+          p.x *= s; p.z *= s;
+        }
+      }
+    }
+    if (plate.y < MIN_PLATE_Y) { plate.y = MIN_PLATE_Y; plate.py = Math.min(plate.py, MIN_PLATE_Y); }
+    if (plate.y > DRAG_TOP_LIMIT) { plate.y = DRAG_TOP_LIMIT; plate.py = Math.max(plate.py, DRAG_TOP_LIMIT); }
+
+    state.contactForce = contactForce;
+    state.peakForce = Math.max(state.peakForce, contactForce);
+    const plateSpeed = Math.abs(plate.y - plate.py) / dt;
+    state.peakSpeed = Math.max(state.peakSpeed, plateSpeed);
+    if (plateSpeed > 12 && contactForce > 40) {
+      playCrunch(Math.min(30, plateSpeed / 20));
+      addShake(Math.min(14, plateSpeed * 0.05));
+      if (plateSpeed > 90) safeVibrate(Math.min(60, plateSpeed * 0.2));
     }
   }
-  Events.on(engine, "collisionStart", (e) => e.pairs.forEach(maybeCrunch));
-  Events.on(engine, "collisionActive", (e) => e.pairs.forEach(maybeCrunch));
 
-  // ---- canvas / camera --------------------------------------------------
+  // ---- camera / projection --------------------------------------------------
+
+  const ARENA_W = 380;
+  const ARENA_H = 600;
+  const ARENA_CX = ARENA_W / 2;
+  const FLOOR_ARENA_Y = 540;
+  const PPU = 300 / H;
+  const CAM_DIST = 1400;
+  const PIVOT_Y = H / 2;
+  const PITCH = 0.2;
+  const LIGHT_DIR = normalize3({ x: 0.4, y: 0.62, z: -0.68 });
+
+  let yaw = 0.6;
+  const YAW_SPEED = 0.16; // rad/s, slow product-shot turntable
+
+  function normalize3(v) {
+    const len = Math.hypot(v.x, v.y, v.z) || 1;
+    return { x: v.x / len, y: v.y / len, z: v.z / len };
+  }
+
+  function rotateDir(x, y, z) {
+    // same rotation as rotatePoint but for a direction (no pivot translation)
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const x1 = x * cy + z * sy;
+    const z1 = -x * sy + z * cy;
+    const cp = Math.cos(PITCH), sp = Math.sin(PITCH);
+    const y2 = y * cp - z1 * sp;
+    const z2 = y * sp + z1 * cp;
+    return { x: x1, y: y2, z: z2 };
+  }
+
+  function rotatePoint(x, y, z) {
+    // rotate about the can's mid-height so the turntable feels centered
+    const d = rotateDir(x, y - PIVOT_Y, z);
+    return { x: d.x, y: d.y + PIVOT_Y, z: d.z };
+  }
+
+  function project(rp) {
+    const persp = CAM_DIST / (CAM_DIST + rp.z);
+    return {
+      x: ARENA_CX + rp.x * PPU * persp,
+      y: FLOOR_ARENA_Y - rp.y * PPU * persp,
+      depth: rp.z,
+    };
+  }
+
+  function shade(normal, baseColor) {
+    const b = Math.max(0.22, Math.min(1, 0.35 + 0.75 * (normal.x * LIGHT_DIR.x + normal.y * LIGHT_DIR.y + normal.z * LIGHT_DIR.z)));
+    return tint(baseColor, b);
+  }
+
+  function tint(hex, b) {
+    // hex is [r,g,b]; return an rgb() string scaled toward black/white by b
+    const r = Math.max(0, Math.min(255, hex[0] * b));
+    const g = Math.max(0, Math.min(255, hex[1] * b));
+    const bl = Math.max(0, Math.min(255, hex[2] * b));
+    return `rgb(${r | 0},${g | 0},${bl | 0})`;
+  }
+
+  function faceNormal(a, b, c) {
+    const ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
+    const vx = c.x - a.x, vy = c.y - a.y, vz = c.z - a.z;
+    const nx = uy * vz - uz * vy;
+    const ny = uz * vx - ux * vz;
+    const nz = ux * vy - uy * vx;
+    return normalize3({ x: nx, y: ny, z: nz });
+  }
+
+  // ---- canvas / camera fit --------------------------------------------------
 
   const canvas = document.getElementById("stage");
   const ctx = canvas.getContext("2d");
@@ -449,6 +604,13 @@
 
   // ---- input ----------------------------------------------------------------
 
+  function arenaYToPlateTarget(arenaY) {
+    // linear grab-and-drag mapping, same spirit as the old build: the
+    // pointer directly drives a target height, physics handles the rest.
+    const t = Math.max(0, Math.min(1, arenaY / ARENA_H));
+    return STOMPER_START_Y - t * (STOMPER_START_Y - MIN_PLATE_Y) * 1.05;
+  }
+
   canvas.addEventListener("pointerdown", (e) => {
     if (state.locked) return;
     ensureAudio();
@@ -457,13 +619,13 @@
       canvas.setPointerCapture(e.pointerId);
     } catch (_) {}
     const p = clientToArena(e.clientX, e.clientY);
-    state.dragTargetY = Math.max(DRAG_TOP_LIMIT, Math.min(FLOOR_Y - 4, p.y));
+    state.dragTargetY = Math.max(MIN_PLATE_Y, Math.min(DRAG_TOP_LIMIT, arenaYToPlateTarget(p.y)));
     document.getElementById("hint").classList.add("hidden");
   });
   canvas.addEventListener("pointermove", (e) => {
     if (!state.dragging) return;
     const p = clientToArena(e.clientX, e.clientY);
-    state.dragTargetY = Math.max(DRAG_TOP_LIMIT, Math.min(FLOOR_Y - 4, p.y));
+    state.dragTargetY = Math.max(MIN_PLATE_Y, Math.min(DRAG_TOP_LIMIT, arenaYToPlateTarget(p.y)));
   });
   function endDrag() {
     state.dragging = false;
@@ -475,7 +637,10 @@
     if (state.locked) return;
     ensureAudio();
     state.dragging = false;
-    Body.setVelocity(stomper, { x: 0, y: Math.max(stomper.velocity.y, STOMP_IMPULSE) });
+    const impliedV = (plate.y - plate.py) / SUBSTEP_DT;
+    if (Math.abs(impliedV) < STOMP_SPEED || impliedV > 0) {
+      plate.py = plate.y + STOMP_SPEED * SUBSTEP_DT;
+    }
     document.getElementById("hint").classList.add("hidden");
   });
   document.getElementById("new-can-btn").addEventListener("click", newCan);
@@ -486,130 +651,166 @@
   function drawBackdrop() {
     ctx.fillStyle = "#0c1114";
     ctx.fillRect(0, 0, ARENA_W, ARENA_H);
-    const g = ctx.createRadialGradient(CX, ARENA_H * 0.15, 10, CX, ARENA_H * 0.15, ARENA_W);
+    const g = ctx.createRadialGradient(ARENA_CX, ARENA_H * 0.15, 10, ARENA_CX, ARENA_H * 0.15, ARENA_W);
     g.addColorStop(0, "rgba(40, 60, 66, 0.4)");
     g.addColorStop(1, "rgba(40, 60, 66, 0)");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, ARENA_W, ARENA_H);
 
+    // floor plane, for depth/grounding
+    const flL = project(rotatePoint(-140, 0, -140));
+    const flR = project(rotatePoint(140, 0, -140));
+    const brR = project(rotatePoint(140, 0, 140));
+    const brL = project(rotatePoint(-140, 0, 140));
+    ctx.beginPath();
+    ctx.moveTo(flL.x, flL.y);
+    ctx.lineTo(flR.x, flR.y);
+    ctx.lineTo(brR.x, brR.y);
+    ctx.lineTo(brL.x, brL.y);
+    ctx.closePath();
+    ctx.fillStyle = "#161e22";
+    ctx.fill();
     ctx.strokeStyle = "#2c3a40";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, FLOOR_Y + 6);
-    ctx.lineTo(ARENA_W, FLOOR_Y + 6);
+    ctx.lineWidth = 1.5;
     ctx.stroke();
   }
 
-  function drawCan() {
-    if (!can) return;
-    const rows = can.rows;
-    ctx.beginPath();
-    ctx.moveTo(rows[0].left.position.x, rows[0].left.position.y);
-    for (let i = 1; i < rows.length; i++) ctx.lineTo(rows[i].left.position.x, rows[i].left.position.y);
-    for (let i = rows.length - 1; i >= 0; i--) ctx.lineTo(rows[i].right.position.x, rows[i].right.position.y);
-    ctx.closePath();
-    const grad = ctx.createLinearGradient(CX - HALF_W - 20, 0, CX + HALF_W + 20, 0);
-    grad.addColorStop(0, "#8a9296");
-    grad.addColorStop(0.28, "#eef3f4");
-    grad.addColorStop(0.55, "#c7d0d3");
-    grad.addColorStop(1, "#767f83");
-    ctx.fillStyle = grad;
-    ctx.fill();
-    ctx.strokeStyle = "#4d565a";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+  const METAL = [206, 214, 216];
+  const METAL_DARK = [110, 120, 124];
+  const CAP_COLOR = [223, 230, 231];
+  const PLATE_COLOR = [69, 78, 82];
 
-    // label band across the middle rows, plus rib lines for a corrugated read
-    const bandStart = 2, bandEnd = 5;
-    ctx.beginPath();
-    ctx.moveTo(rows[bandStart].left.position.x, rows[bandStart].left.position.y);
-    for (let i = bandStart + 1; i <= bandEnd; i++) ctx.lineTo(rows[i].left.position.x, rows[i].left.position.y);
-    for (let i = bandEnd; i >= bandStart; i--) ctx.lineTo(rows[i].right.position.x, rows[i].right.position.y);
-    ctx.closePath();
-    ctx.fillStyle = can.skin.band;
-    ctx.fill();
+  function buildFaces() {
+    const faces = [];
+    const rp = new Array(RINGS * SEGMENTS);
+    for (let i = 0; i < RINGS; i++) {
+      for (let j = 0; j < SEGMENTS; j++) {
+        const p = can.particles[idx(i, j)];
+        rp[idx(i, j)] = rotatePoint(p.x, p.y, p.z);
+      }
+    }
 
-    const midRow = rows[Math.round((bandStart + bandEnd) / 2)];
-    ctx.save();
-    const mx = (midRow.left.position.x + midRow.right.position.x) / 2;
-    const my = (midRow.left.position.y + midRow.right.position.y) / 2;
-    const angle = Math.atan2(
-      midRow.right.position.y - midRow.left.position.y,
-      midRow.right.position.x - midRow.left.position.x
-    );
-    ctx.translate(mx, my);
-    ctx.rotate(angle);
-    ctx.fillStyle = can.skin.textColor;
-    ctx.font = "800 15px 'JetBrains Mono', monospace";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(can.skin.text, 0, 0);
-    ctx.restore();
+    for (let i = 0; i < RINGS - 1; i++) {
+      const inBand = i >= LABEL_RING_LO && i < LABEL_RING_HI;
+      for (let j = 0; j < SEGMENTS; j++) {
+        const a = rp[idx(i, j)], b = rp[idx(i, j + 1)], c = rp[idx(i + 1, j + 1)], d = rp[idx(i + 1, j)];
+        let n = faceNormal(a, b, c);
+        const cx = (a.x + b.x + c.x + d.x) / 4, cz = (a.z + b.z + c.z + d.z) / 4;
+        if (n.x * cx + n.z * cz < 0) n = { x: -n.x, y: -n.y, z: -n.z };
+        const depth = (a.depth + b.depth + c.depth + d.depth) / 4;
+        const color = j === can.labelSeg && inBand ? blend(METAL, hexToRgb(can.skin.band)) : METAL;
+        faces.push({ pts: [a, b, c, d], depth, color: shade(n, color), label: j === can.labelSeg && inBand });
+      }
+    }
 
-    ctx.strokeStyle = "rgba(77, 86, 90, 0.5)";
-    ctx.lineWidth = 1;
-    for (const r of rows) {
+    // caps: simple fans, closed ends so the can reads solid. Normals are
+    // the world up/down direction rotated the same way as everything
+    // else, so the caps catch the light as the can turns instead of
+    // staying flat-shaded.
+    const upDir = rotateDir(0, 1, 0);
+    const downDir = { x: -upDir.x, y: -upDir.y, z: -upDir.z };
+    const top = [];
+    for (let j = 0; j < SEGMENTS; j++) top.push(rp[idx(0, j)]);
+    const topDepth = top.reduce((s, p) => s + p.depth, 0) / top.length;
+    faces.push({ pts: top, depth: topDepth - 1, color: shade(upDir, CAP_COLOR) });
+
+    const bot = [];
+    for (let j = SEGMENTS - 1; j >= 0; j--) bot.push(rp[idx(RINGS - 1, j)]);
+    const botDepth = bot.reduce((s, p) => s + p.depth, 0) / bot.length;
+    faces.push({ pts: bot, depth: botDepth + 1, color: shade(downDir, METAL_DARK) });
+
+    return { faces, rp };
+  }
+
+  function hexToRgb(rgba) {
+    const m = rgba.match(/rgba?\(([^)]+)\)/);
+    if (!m) return [255, 255, 255];
+    const parts = m[1].split(",").map((s) => parseFloat(s));
+    return [parts[0], parts[1], parts[2]];
+  }
+  function blend(a, b) {
+    return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+  }
+
+  function buildPlateFaces() {
+    const w = R + 30, hlf = w, th = 16;
+    const y0 = plate.y, y1 = plate.y - th;
+    const corners2d = [
+      [-hlf, -hlf], [hlf, -hlf], [hlf, hlf], [-hlf, hlf],
+    ];
+    const top = corners2d.map(([x, z]) => rotatePoint(x, y0, z));
+    const bot = corners2d.map(([x, z]) => rotatePoint(x, y1, z));
+    const faces = [];
+    const topDepth = top.reduce((s, p) => s + p.depth, 0) / 4;
+    faces.push({ pts: top, depth: topDepth - 2, color: shade(rotateDir(0, 1, 0), PLATE_COLOR) });
+    for (let k = 0; k < 4; k++) {
+      const k2 = (k + 1) % 4;
+      const a = top[k], b = top[k2], c = bot[k2], d = bot[k];
+      let n = faceNormal(a, b, c);
+      const depth = (a.depth + b.depth + c.depth + d.depth) / 4;
+      faces.push({ pts: [a, b, c, d], depth, color: shade(n, PLATE_COLOR) });
+    }
+    // press arm — decorative, sells "hydraulic plate" over "floating slab"
+    const armTop = rotatePoint(0, y0 + 80, 0);
+    const armBase = rotatePoint(0, y0, 0);
+    faces.push({
+      pts: [armTop, armBase],
+      depth: (armTop.depth + armBase.depth) / 2 - 3,
+      color: "#2c3336",
+      isLine: true,
+    });
+    return faces;
+  }
+
+  function drawFaces(faces) {
+    faces.sort((f1, f2) => f2.depth - f1.depth);
+    for (const f of faces) {
+      if (f.isLine) {
+        ctx.strokeStyle = f.color;
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.moveTo(f.pts[0].x, f.pts[0].y);
+        ctx.lineTo(f.pts[1].x, f.pts[1].y);
+        ctx.stroke();
+        continue;
+      }
       ctx.beginPath();
-      ctx.moveTo(r.left.position.x, r.left.position.y);
-      ctx.lineTo(r.right.position.x, r.right.position.y);
+      ctx.moveTo(f.pts[0].x, f.pts[0].y);
+      for (let k = 1; k < f.pts.length; k++) ctx.lineTo(f.pts[k].x, f.pts[k].y);
+      ctx.closePath();
+      ctx.fillStyle = f.color;
+      ctx.fill();
+      if (f.label) {
+        ctx.save();
+        const cx = f.pts.reduce((s, p) => s + p.x, 0) / f.pts.length;
+        const cyy = f.pts.reduce((s, p) => s + p.y, 0) / f.pts.length;
+        ctx.fillStyle = can.skin.textColor;
+        ctx.font = "800 11px 'JetBrains Mono', monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.globalAlpha = 0.92;
+        ctx.fillText(can.skin.text, cx, cyy);
+        ctx.restore();
+      }
+    }
+    ctx.strokeStyle = "rgba(45, 52, 55, 0.35)";
+    ctx.lineWidth = 0.6;
+    for (const f of faces) {
+      if (f.isLine) continue;
+      ctx.beginPath();
+      ctx.moveTo(f.pts[0].x, f.pts[0].y);
+      for (let k = 1; k < f.pts.length; k++) ctx.lineTo(f.pts[k].x, f.pts[k].y);
+      ctx.closePath();
       ctx.stroke();
     }
-  }
-
-  function drawCap() {
-    if (!can) return;
-    const cap = can.topCap;
-    ctx.save();
-    ctx.translate(cap.position.x, cap.position.y);
-    ctx.rotate(cap.angle);
-    ctx.beginPath();
-    ctx.roundRect(-CAP_W / 2, -CAP_H / 2, CAP_W, CAP_H, 4);
-    ctx.fillStyle = "#dfe6e7";
-    ctx.fill();
-    ctx.strokeStyle = "#8a9296";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.ellipse(CAP_W * 0.18, 0, 6, 3, 0, 0, Math.PI * 2);
-    ctx.strokeStyle = "#8a9296";
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  function drawStomper() {
-    ctx.save();
-    ctx.translate(stomper.position.x, stomper.position.y);
-    ctx.rotate(stomper.angle);
-    ctx.beginPath();
-    ctx.roundRect(-STOMPER_W / 2, -STOMPER_H / 2, STOMPER_W, STOMPER_H, 3);
-    ctx.fillStyle = "#454e52";
-    ctx.fill();
-    ctx.save();
-    ctx.clip();
-    ctx.strokeStyle = "#ffd23f";
-    ctx.lineWidth = 6;
-    for (let x = -STOMPER_W; x < STOMPER_W; x += 16) {
-      ctx.beginPath();
-      ctx.moveTo(x, -STOMPER_H);
-      ctx.lineTo(x + STOMPER_H * 2, STOMPER_H);
-      ctx.stroke();
-    }
-    ctx.restore();
-    ctx.strokeStyle = "#1b2124";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-    // press arm, purely decorative — sells "hydraulic plate" over "floating bar"
-    ctx.fillStyle = "#2c3336";
-    ctx.fillRect(-6, -STOMPER_H / 2 - 60, 12, 60);
-    ctx.restore();
   }
 
   function spawnDebris() {
-    if (!can) return;
+    const top = project(rotatePoint(0, can.startHeight * (1 - state.lastPct), 0));
     for (let i = 0; i < 16; i++) {
       state.debris.push({
-        x: CX + jitter(HALF_W),
-        y: can.topCap.position.y,
+        x: top.x + jitter(60),
+        y: top.y,
         vx: jitter(4.5),
         vy: -Math.random() * 4 - 1,
         rot: Math.random() * Math.PI,
@@ -657,12 +858,12 @@
   const ventBanner = document.getElementById("vent-banner");
 
   function peakForceN() {
-    return Math.round(state.peakSpeed * 41);
+    return Math.round(state.peakForce * 0.0009);
   }
 
-  function bucklingMode(pct) {
+  function bucklingMode(pct, asymmetry) {
     if (pct < 0.06) return "elastic";
-    if (pct < 0.22) return "plastic deformation";
+    if (pct < 0.22) return asymmetry > 0.16 ? "asymmetric buckling" : "plastic deformation";
     if (pct < 0.5) return "asymmetric buckling";
     return "structural collapse";
   }
@@ -672,15 +873,14 @@
     crushbarFill.style.width = pctInt + "%";
     crushbarPct.textContent = pctInt + "%";
 
-    const pressure = state.vented ? 101 : Math.round(331 + pct * 140);
-    roPressure.textContent = pressure + " kPa";
+    roPressure.textContent = Math.round(state.lastPressure) + " kPa";
 
     const integrity = Math.max(0, Math.round((1 - pct) * 100));
     roIntegrity.textContent = integrity + "%";
     roIntegrityRow.classList.toggle("warn", integrity < 60 && integrity >= 30);
     roIntegrityRow.classList.toggle("bad", integrity < 30);
 
-    roMode.textContent = bucklingMode(pct);
+    roMode.textContent = bucklingMode(pct, state.lastAsymmetry);
     roForce.textContent = peakForceN() + " N";
     if (can) roType.textContent = can.skin.label;
     roBest.textContent = best ? best.pct + "%" : "—";
@@ -744,16 +944,16 @@
   async function buildShareCard() {
     const el = document.getElementById("shareCanvas");
     const c = el.getContext("2d");
-    const W = el.width, H = el.height;
+    const W = el.width, H2 = el.height;
     const mono = "'JetBrains Mono', ui-monospace, monospace";
 
     c.fillStyle = "#10161a";
-    c.fillRect(0, 0, W, H);
-    const g = c.createRadialGradient(W * 0.25, H * 0.1, 0, W * 0.25, H * 0.1, W * 0.6);
+    c.fillRect(0, 0, W, H2);
+    const g = c.createRadialGradient(W * 0.25, H2 * 0.1, 0, W * 0.25, H2 * 0.1, W * 0.6);
     g.addColorStop(0, "#1e2c30");
     g.addColorStop(1, "rgba(16,22,26,0)");
     c.fillStyle = g;
-    c.fillRect(0, 0, W, H);
+    c.fillRect(0, 0, W, H2);
 
     c.textAlign = "left";
     c.fillStyle = "#ff4433";
@@ -765,7 +965,7 @@
     const pctInt = Math.round(crushPct() * 100);
     c.fillStyle = "#8fa3a8";
     c.font = "600 24px " + mono;
-    c.fillText("a physically-ish accurate soda can crushing simulator", 60, 138);
+    c.fillText("a real 3D pressurized-shell can-crushing simulator", 60, 138);
 
     c.fillStyle = "#ffd23f";
     c.font = "800 130px " + mono;
@@ -819,7 +1019,7 @@
     c.fillStyle = "#8fa3a8";
     c.font = "600 20px " + mono;
     c.textAlign = "left";
-    c.fillText("cancrusher.bisks.net", 60, H - 50);
+    c.fillText("cancrusher.bisks.net", 60, H2 - 50);
 
     return new Promise((resolve) => el.toBlob(resolve, "image/png"));
   }
@@ -848,14 +1048,29 @@
   // ---- main loop --------------------------------------------------------
 
   let lastNow = null;
-  function draw(now) {
-    const dt = lastNow ? Math.min(2.5, (now - lastNow) / 16.7) : 1;
-    lastNow = now;
+  let accumulator = 0;
 
+  function draw(now) {
+    const rawDt = lastNow ? (now - lastNow) / 1000 : SUBSTEP_DT;
+    lastNow = now;
+    accumulator += Math.min(0.1, rawDt);
+
+    let steps = 0;
+    while (accumulator >= SUBSTEP_DT && steps < MAX_SUBSTEPS) {
+      physicsStep(SUBSTEP_DT);
+      accumulator -= SUBSTEP_DT;
+      steps++;
+    }
+    yaw += YAW_SPEED * rawDt;
+
+    const dt = rawDt * 60;
     const pct = crushPct();
+    state.lastPct = pct;
 
     if (!state.vented && pct >= VENT_THRESHOLD) {
       state.vented = true;
+      state.ventAt = now;
+      state.ventStartPressure = state.lastPressure;
       playHiss();
       softenAfterVent();
     }
@@ -887,15 +1102,14 @@
     ctx.clip();
 
     drawBackdrop();
-    drawCan();
-    drawCap();
+    const { faces } = buildFaces();
+    const plateFaces = buildPlateFaces();
+    drawFaces(faces.concat(plateFaces));
     drawDebris();
-    drawStomper();
 
     ctx.restore();
     requestAnimationFrame(draw);
   }
 
-  Runner.run(Runner.create(), engine);
   requestAnimationFrame(draw);
 })();

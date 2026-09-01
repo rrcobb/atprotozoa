@@ -21,7 +21,7 @@ function esc(s: string): string {
 
 const GENERIC_TITLE = "cancrusher — a physically-ish accurate soda can crushing simulator";
 const GENERIC_DESC =
-  "drag the plate down and crush a virtual soda can with real (well, real-ish) buckling physics. every crush is different.";
+  "drag the plate down and crush a real 3D pressurized-shell can simulation — internal gas pressure, plastic buckling, structural collapse. every crush folds differently.";
 const GENERIC_OG_URL = "https://cancrusher.bisks.net/";
 
 async function renderShare(env: Env, request: Request, rawPct: string): Promise<Response> {
