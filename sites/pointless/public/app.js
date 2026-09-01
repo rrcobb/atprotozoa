@@ -84,6 +84,48 @@ document.getElementById("secret").addEventListener("click", () => {
   input.focus();
 });
 
+// --- Real wallet, for paying the $0.00 Pro plan -----------------------------
+// The one other real thing on this page, alongside the certificate. Generates
+// a genuine Ethereum keypair with ethers.js, entirely client-side — nothing
+// is ever sent to us or anyone else. There's $0 in it, forever, but the keys
+// are as real as any wallet's.
+
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    const original = btn.textContent;
+    btn.textContent = "Copied";
+    setTimeout(() => { btn.textContent = original; }, 1400);
+  });
+}
+
+document.querySelectorAll(".copy-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const target = document.getElementById(btn.dataset.copyTarget);
+    if (target) copyText(target.textContent, btn);
+  });
+});
+
+document.getElementById("gen-wallet").addEventListener("click", async (e) => {
+  const genBtn = e.currentTarget;
+  const original = genBtn.textContent;
+  genBtn.textContent = "Generating…";
+  genBtn.disabled = true;
+  try {
+    const { ethers } = await import("https://esm.sh/ethers@6.13.4");
+    const wallet = ethers.Wallet.createRandom();
+    document.getElementById("wallet-address").textContent = wallet.address;
+    document.getElementById("wallet-key").textContent = wallet.privateKey;
+    document.getElementById("wallet-mnemonic").textContent = wallet.mnemonic.phrase;
+    document.getElementById("wallet-result").hidden = false;
+    document.getElementById("wallet-result").scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch (err) {
+    toast("Couldn't reach the wallet library — nothing else on this page needed the internet, typically.");
+  } finally {
+    genBtn.textContent = original;
+    genBtn.disabled = false;
+  }
+});
+
 // --- Certificate of Complete Uselessness -----------------------------------
 
 const ACHIEVEMENTS = [
