@@ -49,6 +49,22 @@
   const COMPLETE_THRESHOLD = 0.55;
   const SETTLE_MS = 480;
 
+  // ---- can skins ------------------------------------------------------------
+  // Cosmetic variety plus a small, honest material tweak per skin: a taller
+  // "reinforced" energy can resists the first dent a bit more (higher base
+  // stiffness), a sparkling-water can is thinner-walled and gives faster.
+  // Same VENT/COMPLETE thresholds across skins, so crush % stays comparable
+  // for the personal-best tracker below.
+  const SKINS = [
+    { label: "cola classic", band: "rgba(255, 68, 51, 0.82)", text: "FIZZ!", textColor: "#ffe9a8", stiffMul: 1.0 },
+    { label: "zero sugar", band: "rgba(20, 22, 24, 0.86)", text: "ZERO", textColor: "#eef4f2", stiffMul: 1.0 },
+    { label: "energy+", band: "rgba(120, 255, 60, 0.8)", text: "BOOST", textColor: "#0c1114", stiffMul: 1.22 },
+    { label: "sparkling water", band: "rgba(70, 160, 255, 0.68)", text: "SPARK", textColor: "#ffffff", stiffMul: 0.85 },
+  ];
+  function pickSkin() {
+    return SKINS[Math.floor(Math.random() * SKINS.length)];
+  }
+
   // ---- audio (synthesized, no assets) --------------------------------------
 
   let audioCtx = null;
@@ -189,6 +205,7 @@
   }
 
   function buildCan() {
+    const skin = pickSkin();
     const rows = [];
     for (let i = 0; i < ROWS; i++) {
       const y = TOP_ROW_Y + i * ROW_SPACING;
@@ -214,12 +231,12 @@
     }
 
     for (let i = 0; i < ROWS; i++) {
-      rung.push(link(rows[i].left, rows[i].right, 0.5 * (0.9 + Math.random() * 0.2)));
+      rung.push(link(rows[i].left, rows[i].right, 0.5 * (0.9 + Math.random() * 0.2) * skin.stiffMul));
       if (i < ROWS - 1) {
-        vertical.push(link(rows[i].left, rows[i + 1].left, 0.85 + Math.random() * 0.12));
-        vertical.push(link(rows[i].right, rows[i + 1].right, 0.85 + Math.random() * 0.12));
-        diag.push(link(rows[i].left, rows[i + 1].right, 0.18 + Math.random() * 0.08));
-        diag.push(link(rows[i].right, rows[i + 1].left, 0.18 + Math.random() * 0.08));
+        vertical.push(link(rows[i].left, rows[i + 1].left, (0.85 + Math.random() * 0.12) * skin.stiffMul));
+        vertical.push(link(rows[i].right, rows[i + 1].right, (0.85 + Math.random() * 0.12) * skin.stiffMul));
+        diag.push(link(rows[i].left, rows[i + 1].right, (0.18 + Math.random() * 0.08) * skin.stiffMul));
+        diag.push(link(rows[i].right, rows[i + 1].left, (0.18 + Math.random() * 0.08) * skin.stiffMul));
       }
     }
 
@@ -278,6 +295,7 @@
       diag,
       base,
       capLinks,
+      skin,
       startHeight: bottom.left.position.y - topCap.position.y,
       baseY: bottom.left.position.y,
     };
@@ -308,6 +326,7 @@
     locked: false,
     settleSince: null,
     debris: [],
+    shake: 0,
   };
 
   function resetState() {
@@ -319,7 +338,36 @@
     state.locked = false;
     state.settleSince = null;
     state.debris = [];
+    state.shake = 0;
   }
+
+  function addShake(mag) {
+    state.shake = Math.min(18, state.shake + mag);
+  }
+
+  function safeVibrate(pattern) {
+    try {
+      if (navigator.vibrate) navigator.vibrate(pattern);
+    } catch (_) {}
+  }
+
+  // ---- personal best (localStorage, purely client-side) ---------------------
+
+  const BEST_KEY = "cancrusher-best-v1";
+  function loadBest() {
+    try {
+      const raw = localStorage.getItem(BEST_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+  function saveBest(rec) {
+    try {
+      localStorage.setItem(BEST_KEY, JSON.stringify(rec));
+    } catch (_) {}
+  }
+  let best = loadBest();
 
   function newCan() {
     removeCan();
@@ -363,7 +411,11 @@
 
   function maybeCrunch(pair) {
     if (pair.bodyA !== stomper && pair.bodyB !== stomper) return;
-    if (stomper.speed > 0.5) playCrunch(stomper.speed);
+    if (stomper.speed > 0.5) {
+      playCrunch(stomper.speed);
+      addShake(Math.min(14, stomper.speed * 0.9));
+      if (stomper.speed > 4) safeVibrate(Math.min(60, stomper.speed * 4));
+    }
   }
   Events.on(engine, "collisionStart", (e) => e.pairs.forEach(maybeCrunch));
   Events.on(engine, "collisionActive", (e) => e.pairs.forEach(maybeCrunch));
@@ -474,7 +526,7 @@
     for (let i = bandStart + 1; i <= bandEnd; i++) ctx.lineTo(rows[i].left.position.x, rows[i].left.position.y);
     for (let i = bandEnd; i >= bandStart; i--) ctx.lineTo(rows[i].right.position.x, rows[i].right.position.y);
     ctx.closePath();
-    ctx.fillStyle = "rgba(255, 68, 51, 0.82)";
+    ctx.fillStyle = can.skin.band;
     ctx.fill();
 
     const midRow = rows[Math.round((bandStart + bandEnd) / 2)];
@@ -487,11 +539,11 @@
     );
     ctx.translate(mx, my);
     ctx.rotate(angle);
-    ctx.fillStyle = "#ffe9a8";
+    ctx.fillStyle = can.skin.textColor;
     ctx.font = "800 15px 'JetBrains Mono', monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("FIZZ!", 0, 0);
+    ctx.fillText(can.skin.text, 0, 0);
     ctx.restore();
 
     ctx.strokeStyle = "rgba(77, 86, 90, 0.5)";
@@ -598,6 +650,8 @@
   const roIntegrityRow = document.getElementById("ro-integrity");
   const roMode = document.querySelector("#ro-mode span:last-child");
   const roForce = document.querySelector("#ro-force span:last-child");
+  const roType = document.querySelector("#ro-type span:last-child");
+  const roBest = document.querySelector("#ro-best span:last-child");
   const crushbarFill = document.getElementById("crushbar-fill");
   const crushbarPct = document.getElementById("crushbar-pct");
   const ventBanner = document.getElementById("vent-banner");
@@ -628,6 +682,8 @@
 
     roMode.textContent = bucklingMode(pct);
     roForce.textContent = peakForceN() + " N";
+    if (can) roType.textContent = can.skin.label;
+    roBest.textContent = best ? best.pct + "%" : "—";
 
     ventBanner.classList.toggle("show", state.vented && !state.finished && pct < COMPLETE_THRESHOLD + 0.05);
   }
@@ -653,11 +709,23 @@
     state.dragging = false;
     playFinale();
     spawnDebris();
+    addShake(16);
+    safeVibrate([40, 30, 80]);
 
     const pctInt = Math.round(pct * 100);
+    const isRecord = !best || pctInt < best.pct;
+    if (isRecord) {
+      best = { pct: pctInt, force: peakForceN(), skin: can ? can.skin.label : "", at: new Date().toISOString() };
+      saveBest(best);
+    }
+
     document.getElementById("final-pct").textContent = pctInt;
     document.getElementById("final-sub").textContent =
-      `peak force ${peakForceN()} N · seal ${state.vented ? "failed" : "held"}.`;
+      `peak force ${peakForceN()} N · seal ${state.vented ? "failed" : "held"} · ${can ? can.skin.label : "can"}.`;
+    document.getElementById("record-badge").classList.toggle("show", isRecord);
+    document.getElementById("best-line").textContent = best
+      ? `personal best: ${best.pct}% crushed`
+      : "";
     document.getElementById("share-bsky").href =
       "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(pctInt));
     document.getElementById("result").classList.add("show");
@@ -720,6 +788,10 @@
       c.fillText(l, sx, 424);
       sx += 260;
     });
+
+    c.fillStyle = "#8fa3a8";
+    c.font = "600 18px " + mono;
+    c.fillText("can type: " + (can ? can.skin.label : "—"), 60, 462);
 
     // snapshot of the actual crushed can, not a generic stand-in graphic
     const boxX = 720, boxY = 60, boxW = 420, boxH = 510;
@@ -800,8 +872,14 @@
     updateDebris(dt);
     updateHud(pct);
 
+    state.shake *= Math.pow(0.85, dt);
+    if (state.shake < 0.05) state.shake = 0;
+    const shakeX = state.shake ? jitter(state.shake) : 0;
+    const shakeY = state.shake ? jitter(state.shake) : 0;
+
     ctx.save();
     ctx.scale(dpr, dpr);
+    ctx.translate(shakeX, shakeY);
     ctx.translate(offX, offY);
     ctx.scale(cssScale, cssScale);
     ctx.beginPath();
