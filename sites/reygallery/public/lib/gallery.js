@@ -233,5 +233,9 @@ export async function buildExhibit(onStep) {
   }
   pieces.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
 
-  return { profile: { did, handle, displayName, avatar: profile.avatar }, selfPortrait, pieces };
+  return {
+    profile: { did, handle, displayName, avatar: profile.avatar, bio: (profile.description || "").trim() },
+    selfPortrait,
+    pieces,
+  };
 }

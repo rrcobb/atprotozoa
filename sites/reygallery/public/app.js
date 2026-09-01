@@ -3,12 +3,21 @@ import { buildExhibit } from "./lib/gallery.js";
 const statusEl = document.getElementById("status");
 const onviewSection = document.getElementById("onview");
 const onviewExhibit = document.getElementById("onviewExhibit");
+const aboutSection = document.getElementById("about");
+const aboutBio = document.getElementById("aboutBio");
 const collectionSection = document.getElementById("collection");
 const collectionGrid = document.getElementById("collectionGrid");
 const modal = document.getElementById("modal");
 const modalInner = document.getElementById("modalInner");
 const modalClose = document.getElementById("modalClose");
+const modalPrev = document.getElementById("modalPrev");
+const modalNext = document.getElementById("modalNext");
 const shareBluesky = document.getElementById("shareBluesky");
+
+// Pieces the modal can step through, in the same order as the collection
+// grid, plus the index currently open (-1 when the modal is closed).
+let modalPieces = [];
+let modalIndex = -1;
 
 const SITE_URL = "https://reygallery.bisks.net/";
 
@@ -60,7 +69,25 @@ function renderOnView(piece) {
   onviewSection.hidden = false;
 }
 
-function openModal(piece) {
+function renderAbout(profile) {
+  if (!profile.bio) return;
+  const plaque = el("div", { class: "bio-plaque" });
+  plaque.appendChild(el("p", { class: "p-cat", text: `${profile.displayName || profile.handle}, in their own words` }));
+  plaque.appendChild(el("p", { class: "p-statement", text: profile.bio }));
+  aboutBio.appendChild(plaque);
+  aboutSection.hidden = false;
+}
+
+function closeModal() {
+  modal.hidden = true;
+  modalInner.replaceChildren();
+  modalIndex = -1;
+}
+
+function openModal(index) {
+  const piece = modalPieces[index];
+  if (!piece) return;
+  modalIndex = index;
   modalInner.replaceChildren();
   const media =
     piece.kind === "video"
@@ -72,41 +99,44 @@ function openModal(piece) {
       : el("img", { src: piece.image, alt: piece.alt || piece.title });
   modalInner.appendChild(el("div", { class: "frame" }, media));
   modalInner.appendChild(plaqueFor(piece, { catalogLabel: `catalog no. ${piece.catNo}` }));
+  modalPrev.hidden = modalPieces.length < 2 || index === 0;
+  modalNext.hidden = modalPieces.length < 2 || index === modalPieces.length - 1;
   modal.hidden = false;
 }
 
 function renderCollection(pieces) {
+  modalPieces = pieces;
   pieces.forEach((piece, i) => {
     piece.catNo = i + 1;
     const frame = frameForPiece(piece, { thumb: true });
-    frame.addEventListener("click", () => openModal(piece));
+    frame.addEventListener("click", () => openModal(i));
     const cap = el(
       "figcaption",
       null,
       el("span", { class: "g-title", text: `“${piece.title}”` }),
       el("span", { text: `${piece.artist}, ${piece.year}` }),
     );
-    const figure = el("figure", { onclick: () => openModal(piece) }, frame, cap);
+    const figure = el("figure", { onclick: () => openModal(i) }, frame, cap);
     collectionGrid.appendChild(figure);
   });
   collectionSection.hidden = false;
 }
 
-modalClose.addEventListener("click", () => {
-  modal.hidden = true;
-  modalInner.replaceChildren();
-});
+modalClose.addEventListener("click", closeModal);
 modal.addEventListener("click", (e) => {
-  if (e.target === modal) {
-    modal.hidden = true;
-    modalInner.replaceChildren();
-  }
+  if (e.target === modal) closeModal();
+});
+modalPrev.addEventListener("click", () => {
+  if (modalIndex > 0) openModal(modalIndex - 1);
+});
+modalNext.addEventListener("click", () => {
+  if (modalIndex < modalPieces.length - 1) openModal(modalIndex + 1);
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !modal.hidden) {
-    modal.hidden = true;
-    modalInner.replaceChildren();
-  }
+  if (modal.hidden) return;
+  if (e.key === "Escape") closeModal();
+  else if (e.key === "ArrowLeft" && modalIndex > 0) openModal(modalIndex - 1);
+  else if (e.key === "ArrowRight" && modalIndex < modalPieces.length - 1) openModal(modalIndex + 1);
 });
 
 async function main() {
@@ -126,6 +156,7 @@ async function main() {
 
     statusEl.remove();
     if (exhibit.selfPortrait) renderOnView(exhibit.selfPortrait);
+    renderAbout(exhibit.profile);
     if (exhibit.pieces.length) renderCollection(exhibit.pieces);
   } catch (err) {
     console.error(err);
