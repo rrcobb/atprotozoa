@@ -33,10 +33,11 @@
         <p class="tag">
           every site <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>
           has ever built, rated 0-10 with an optional written review — RateYourMusic for a bot's back
-          catalog. Ratings write to your own PDS as <code>net.bisks.rateyourbuild.rating</code> and
-          every chart is weighted by vote count, same idea as RYM: a single 10/10 can't out-rank a
-          site with fifty honest scores averaging 8. asked for by @angussoftware.dev.
-          this site is in its own catalog, too —
+          catalog. you can rate without signing in — it's saved in this browser; sign in any time to
+          publish it as <code>net.bisks.rateyourbuild.rating</code> in your own PDS, where it counts
+          toward the community score. every chart is weighted by vote count, same idea as RYM: a
+          single 10/10 can't out-rank a site with fifty honest scores averaging 8. asked for by
+          @angussoftware.dev. this site is in its own catalog, too —
           <a href="https://rateyourbuild.bisks.net/site/rateyourbuild">rate rateyourbuild on rateyourbuild →</a>
         </p>
         <nav class="tabs">
@@ -51,7 +52,7 @@
       <section id="session-section">
         <div class="session-row" id="signed-out-row">
           <input id="authHandle" type="text" placeholder="your bluesky handle" />
-          <button id="authGo">sign in to rate</button>
+          <button id="authGo">sign in to publish ratings</button>
         </div>
         <div class="session-row" id="signed-in-row" style="display: none">
           <span>rating as <strong id="who" class="user-chip"></strong> · <a id="my-reviews-link" href="#">your reviews →</a></span>
@@ -59,6 +60,7 @@
           <button class="secondary" id="authSignout">sign out</button>
         </div>
         <p class="status" id="auth-status"></p>
+        <p class="status" id="local-ratings-hint" hidden></p>
       </section>
 
       <section id="tab-featured" class="tab-panel">
@@ -293,7 +295,58 @@
         return `https://rateyourbuild.bisks.net/?prompter=${encodeURIComponent(by)}`;
       }
 
+      // --- local (no sign-in) ratings ---------------------------------------
+      // "modify it to not require signin" (@norvid-studies.bsky.social) —
+      // rating still has to become a real net.bisks.rateyourbuild.rating
+      // record in the rater's own PDS to count toward the public/community
+      // score (that's the whole design: portable, rater-owned data, no
+      // backend here to fake it), but nothing about the *act* of picking a
+      // score needs a session first. A signed-out rater's picks are kept
+      // browser-local (ryb-local-ratings) and treated as their "own rating"
+      // everywhere ownScore()/ownRecord() are read (browse cards, the site
+      // composer, "sort by mine", genre/prompter "your ratings" mode) — they
+      // just don't appear in anyone else's snapshot and don't move the
+      // weighted score until published. syncLocalRatingsToSession() below
+      // publishes them automatically the moment a session shows up.
+      const LOCAL_RATINGS_KEY = "ryb-local-ratings";
+      function loadLocalRatings() {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(LOCAL_RATINGS_KEY));
+          return parsed && typeof parsed === "object" ? parsed : {};
+        } catch (_) {
+          return {};
+        }
+      }
+      function saveLocalRatings() {
+        try { localStorage.setItem(LOCAL_RATINGS_KEY, JSON.stringify(localRatings)); } catch (_) {}
+      }
+      function localRating(subject) {
+        return localRatings[subject] || null;
+      }
+      function setLocalRating(subject, score, text, bugged, pinged) {
+        const existing = localRatings[subject];
+        const ratedAt = new Date().toISOString();
+        localRatings[subject] = {
+          score,
+          text: (text || "").trim().slice(0, REVIEW_MAX),
+          bugged: !!bugged,
+          pinged: !!pinged,
+          ratedAt,
+          createdAt: existing?.createdAt || ratedAt,
+        };
+        saveLocalRatings();
+        renderLocalRatingsHint();
+      }
+      function renderLocalRatingsHint() {
+        const el = $("#local-ratings-hint");
+        if (!el) return;
+        const count = Object.keys(localRatings).length;
+        el.hidden = session || !count;
+        if (!el.hidden) el.textContent = `${count} rating${count === 1 ? "" : "s"} saved in this browser — sign in above to publish ${count === 1 ? "it" : "them"}.`;
+      }
+
       let session = null;
+      let localRatings = loadLocalRatings();
       let catalog = [];
       let bugfixes = [];
       let genres = [];
@@ -441,8 +494,9 @@
         return snapshot.bySubject.get(name) || null;
       }
       function ownRecord(name) {
-        if (!session) return null;
-        return snapshot.entries.find((e) => e.did === session.did && e.subject === name) || null;
+        if (session) return snapshot.entries.find((e) => e.did === session.did && e.subject === name) || null;
+        const l = localRating(name);
+        return l ? { ...l, subject: name, did: null, local: true } : null;
       }
       function ownScore(name) {
         return ownRecord(name)?.score ?? null;
@@ -457,12 +511,6 @@
       // not just the ones somebody's gotten around to rating.
       function scoredList(list, mode = scoreMode, { includeUnrated = false } = {}) {
         if (mode === "mine") {
-          if (!session) {
-            if (!includeUnrated) return [];
-            return list
-              .map((s) => ({ site: s, stats: statsFor(s.name), w: null }))
-              .sort((a, b) => a.site.name.localeCompare(b.site.name));
-          }
           const scored = list.map((s) => ({ site: s, stats: statsFor(s.name), w: ownScore(s.name) }));
           const rated = scored.filter((x) => x.w != null).sort((a, b) => b.w - a.w || a.site.name.localeCompare(b.site.name));
           if (!includeUnrated) return rated;
@@ -516,14 +564,18 @@
       // text (and bugged/pinged flags) the rater already wrote (via the site
       // page) rather than clobbering them with an empty string.
       async function submitRating(subject, score, row) {
-        if (!session) return;
         const statusEl = row.nextElementSibling;
         row.querySelectorAll(".rate-btn").forEach((b) => (b.disabled = true));
         if (statusEl) statusEl.textContent = "saving…";
         try {
           const existing = ownRecord(subject);
-          await writeRating(subject, score, existing?.text || "", existing?.bugged || false, existing?.pinged || false);
-          lastRatedNote = { subject, score };
+          if (session) {
+            await writeRating(subject, score, existing?.text || "", existing?.bugged || false, existing?.pinged || false);
+          } else {
+            setLocalRating(subject, score, existing?.text || "", existing?.bugged || false, existing?.pinged || false);
+            renderRoute();
+          }
+          lastRatedNote = { subject, score, local: !session };
           setTimeout(() => {
             if (lastRatedNote && lastRatedNote.subject === subject) {
               lastRatedNote = null;
@@ -692,12 +744,13 @@
           : `<span class="score-big unrated">—</span><span class="score-sub">not yet rated</span>`;
         const btns = Array.from({ length: 11 }, (_, n) => {
           const active = own === n ? " active" : "";
-          const disabled = session ? "" : "disabled";
-          return `<button class="rate-btn${active}" data-score="${n}" ${disabled} title="rate ${n}/10">${n}</button>`;
+          return `<button class="rate-btn${active}" data-score="${n}" title="rate ${n}/10">${n}</button>`;
         }).join("");
         const justRated = lastRatedNote && lastRatedNote.subject === site.name;
         const statusHtml = justRated
-          ? `rated ${lastRatedNote.score}/10. <a class="share-link" target="_blank" rel="noopener" href="${esc(shareIntentHref(buildShareText(site, lastRatedNote.score)))}">share on bluesky</a>`
+          ? (lastRatedNote.local
+            ? `rated ${lastRatedNote.score}/10 locally — sign in above to publish it and count it toward the score.`
+            : `rated ${lastRatedNote.score}/10. <a class="share-link" target="_blank" rel="noopener" href="${esc(shareIntentHref(buildShareText(site, lastRatedNote.score)))}">share on bluesky</a>`)
           : `<a href="/site/${esc(site.name)}">write a review →</a>`;
         return `
           <div class="card" data-name="${esc(site.name)}">
@@ -818,7 +871,7 @@
         const slice = list.slice(0, visibleCount);
         $("#browse-meta").textContent =
           `showing ${slice.length} of ${total} sites` + (total !== catalog.length ? ` (of ${catalog.length} total)` : "") +
-          (sort === "mine" && !session ? " — sign in above to sort by your own ratings" : "");
+          (sort === "mine" && !catalog.some((s) => ownScore(s.name) != null) ? " — rate a few sites (no sign-in needed) to sort by your own ratings" : "");
         const descText = browseFilterDescription();
         $("#browse-filter-desc").textContent = descText;
         $("#browse-filter-desc").hidden = !descText;
@@ -874,7 +927,7 @@
         const subgenreCounts = new Map();
         for (const s of inGenre) if (s.subgenre) subgenreCounts.set(s.subgenre, (subgenreCounts.get(s.subgenre) || 0) + 1);
         const subgenreList = Array.from(subgenreCounts.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-        const emptyMsg = mode === "mine" ? (session ? "you haven't rated anything here yet." : "sign in to sort by your ratings.") : "nothing here yet.";
+        const emptyMsg = mode === "mine" ? "you haven't rated anything here yet — no sign-in needed to start." : "nothing here yet.";
         return `<div class="board">
           <div class="board-title">
             <a class="board-title-name" href="/genre/${esc(genre)}">${esc(genre)} <span class="board-sub">(${inGenre.length})</span></a>
@@ -922,7 +975,7 @@
           if (!p) { p = { by: site.by, sum: 0, count: 0, siteCount: 0 }; byPrompter.set(site.by, p); }
           p.siteCount += 1;
           if (mode === "mine") {
-            const own = session ? ownScore(site.name) : null;
+            const own = ownScore(site.name);
             if (own != null) { p.sum += own; p.count += 1; }
           } else {
             const stats = statsFor(site.name);
@@ -957,7 +1010,7 @@
           })
           .join("");
         const emptyMsg = mode === "mine"
-          ? (session ? "you haven't rated any of their sites yet." : "sign in to sort by your ratings.")
+          ? "you haven't rated any of their sites yet — no sign-in needed to start."
           : "nobody's prompted a site yet.";
         $("#prompter-board").innerHTML = rows ? `<div class="board">${rows}</div>` : `<p class="empty">${emptyMsg}</p>`;
       }
@@ -1547,8 +1600,9 @@
             <textarea id="review-text" maxlength="${REVIEW_MAX}" placeholder="write a review (optional)…">${esc(draftText)}</textarea>
             <label class="bug-flag"><input type="checkbox" id="review-bugged" ${draftBugged ? "checked" : ""} /> flag this review — the app itself seemed bugged</label>
             <label class="ping-flag"><input type="checkbox" id="review-pinged" ${draftPinged ? "checked" : ""} /> ping @buildthis about this review — a feature idea or something worth building/fixing</label>
-            <button id="review-submit" ${session ? "" : "disabled"}>${own ? "update review" : "submit review"}</button>
+            <button id="review-submit">${own ? "update review" : "submit review"}</button>
             <p class="status" id="review-status"></p>
+            ${!session ? `<p class="meta">saves locally in this browser without signing in. <a href="#" id="composer-signin-hint">sign in</a> to publish it publicly and count it toward ${esc(site.title)}'s community score.</p>` : ""}
           </div>
           <div class="review-list">
             <h3>reviews (${reviews.length})</h3>
@@ -1589,8 +1643,8 @@
         $("#review-bugged").addEventListener("change", saveDraft);
         $("#review-pinged").addEventListener("change", saveDraft);
         $("#review-submit").addEventListener("click", async () => {
-          if (!session || composerScore == null) {
-            $("#review-status").textContent = session ? "pick a score first." : "sign in above to rate.";
+          if (composerScore == null) {
+            $("#review-status").textContent = "pick a score first.";
             return;
           }
           const statusEl = $("#review-status");
@@ -1598,15 +1652,28 @@
           btn.disabled = true;
           statusEl.textContent = "saving…";
           try {
-            await writeRating(site.name, composerScore, $("#review-text").value, $("#review-bugged").checked, $("#review-pinged").checked);
+            if (session) {
+              await writeRating(site.name, composerScore, $("#review-text").value, $("#review-bugged").checked, $("#review-pinged").checked);
+              statusEl.textContent = "saved.";
+            } else {
+              setLocalRating(site.name, composerScore, $("#review-text").value, $("#review-bugged").checked, $("#review-pinged").checked);
+              statusEl.textContent = "saved locally — sign in above to publish it and count it toward the score.";
+            }
             clearDraft();
-            statusEl.textContent = "saved.";
             renderSitePage(site.name);
           } catch (err) {
             statusEl.textContent = `couldn't save: ${err.message}`;
             btn.disabled = false;
           }
         });
+        const signinHint = $("#composer-signin-hint");
+        if (signinHint) {
+          signinHint.addEventListener("click", (e) => {
+            e.preventDefault();
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            $("#authHandle")?.focus();
+          });
+        }
       }
 
       function renderComposerScores() {
@@ -1614,8 +1681,7 @@
         if (!row) return;
         row.innerHTML = Array.from({ length: 11 }, (_, n) => {
           const active = composerScore === n ? " active" : "";
-          const disabled = session ? "" : "disabled";
-          return `<button type="button" class="rate-btn${active}" data-score="${n}" ${disabled}>${n}</button>`;
+          return `<button type="button" class="rate-btn${active}" data-score="${n}">${n}</button>`;
         }).join("");
       }
 
@@ -2275,6 +2341,7 @@
         const tabMineLink = $("#reviewer-mine-link");
         tabMineLink.style.display = session ? "" : "none";
         tabMineLink.href = mineHref;
+        renderLocalRatingsHint();
       }
       $("#authGo").addEventListener("click", async () => {
         const h = $("#authHandle").value.trim();
@@ -2398,6 +2465,41 @@
         navigate(`/site/${encodeURIComponent(name)}`, { replace: true });
       }
 
+      // Promotes any ratings picked while signed out into real
+      // net.bisks.rateyourbuild.rating records the moment a session shows
+      // up — the local copy was always meant as a placeholder for "not
+      // signed in yet," not a separate permanent store. Skips a subject if
+      // this rater already has a real PDS record for it (from another
+      // device/session) rather than overwriting it with a possibly-older
+      // local draft; a subject that fails to publish (offline, PDS hiccup)
+      // just stays local and gets retried on the next sign-in.
+      async function syncLocalRatingsToSession() {
+        const subjects = Object.keys(localRatings);
+        if (!subjects.length) return;
+        const base = session.pdsUrl.replace(/\/$/, "");
+        for (const subject of subjects) {
+          const local = localRatings[subject];
+          try {
+            const res = await fetch(
+              `${base}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(session.did)}&collection=${encodeURIComponent(COLLECTION)}&rkey=${encodeURIComponent(subject)}`,
+            );
+            if (res.ok) {
+              delete localRatings[subject];
+              continue;
+            }
+          } catch (_) {
+            continue;
+          }
+          try {
+            await writeRating(subject, local.score, local.text || "", local.bugged, local.pinged);
+            delete localRatings[subject];
+          } catch (_) {
+            // couldn't publish right now — leave it local, retry next sign-in.
+          }
+        }
+        saveLocalRatings();
+      }
+
       async function boot() {
         try {
           session = (await completeLoginIfCallback()) || (await getSession());
@@ -2405,6 +2507,7 @@
           $("#auth-status").textContent = e.message;
           $("#auth-status").className = "status err";
         }
+        if (session) await syncLocalRatingsToSession();
         renderAuthBar();
         const subsReady = subscriptions.setSession(session);
         await Promise.all([loadCatalog(), loadBugfixes()]);
