@@ -28,7 +28,7 @@ TXT record so NSIDs actually resolve — needs a human with Cloudflare dashboard
 access, not something the builder can do from the repo.
 
 **3. Aggregate views via `listReposByCollection`.** (`pds-and-lexicons.md`)
-Find every repo holding a given collection. **Done for eleven sites so far:**
+Find every repo holding a given collection. **Done for thirteen sites so far:**
 steamtags (the reference implementation, `global-index.js`), memex, verdict's
 `/crowd` (as of 2026-08-18, aggregating every judgment on the network into a
 good/bad split, a kindest/harshest judge leaderboard, and the posts people
@@ -72,7 +72,14 @@ already carried its own CAR reader (`lib/car.js`) wired into `lib/atproto.js`'s
 so `/radio`'s backfill just calls that existing CAR-first `listRecords()`
 instead of hand-rolling a second paginated walk — the standing order applied
 by reuse rather than a new implementation; see
-`sites/padmoot/public/lib/global-index.js`). Still one-repo-only:
+`sites/padmoot/public/lib/global-index.js`), prestige's `/hall` (2026-09-01,
+a daily-slot pass — every known `net.bisks.prestige.link` chain reconstructed
+by walking prev/next across whichever DIDs the scan touches, not just one
+account's own declared chain), and numbergrid's `/global` (2026-09-02, a
+daily-slot pass — the network-wide mex, a "biggest board"/"furthest reach"
+leaderboard, and a list of numbers more than one account has independently
+spotted; `sites/numbergrid/public/lib/global-index.js`, same CAR-first
+per-account backfill as the rest of this section). Still one-repo-only:
 alice-meets-bob (deliberately — see below), griftmax (deliberately, as of a
 2026-08-31 daily-slot check — its own copy says so directly: "this is
 deliberately not a global leaderboard... ascensions stay in this browser"),
@@ -288,16 +295,26 @@ a page isn't.
 ## If picking one thing
 
 Cheapest real win: **the lexicon work (1–3)**. Steps 1–2 are documentation of
-what already exists; step 3 (the aggregate views) is now live for eleven sites
-and has become a small, reusable `global-index.js` recipe (backfill via
+what already exists; step 3 (the aggregate views) is now live for thirteen
+sites and has become a small, reusable `global-index.js` recipe (backfill via
 `listReposByCollection` + a live Jetstream feed) that any of the remaining
-one-repo-only lexicon sites could pick up next. Every remaining one is
+one-repo-only lexicon sites could pick up next. Every one built so far was
 `key: "tid"` or `key: "any"` (multi-record-per-repo, checked 2026-08-25),
-closer to docmoot's shape than catspace/kolpelor's singleton-"self" one — but
+closer to docmoot's shape than catspace/kolpelor's singleton-"self" one — and
 per the "prefer bulk reads" standing order (2026-08-25) and socialcredit's
-`global-backfill.js` (2026-08-26, the first to apply it here), that backfill
-should now be a full-repo `com.atproto.sync.getRepo` CAR download per
-candidate repo (`car.js`) rather than a paged `listRecords` scan.
+`global-backfill.js` (2026-08-26, the first to apply it here), backfill should
+be a full-repo `com.atproto.sync.getRepo` CAR download per candidate repo
+(`car.js`) rather than a paged `listRecords` scan.
+
+Checked 2026-09-02: the two lexicon-backed sites left with no
+`global-index.js` don't actually fit this recipe. blocknotes' collection is
+block/mute notes about *other* accounts — a network-wide aggregate of those
+would be "here's who has quietly blocked you," a different and more sensitive
+feature than the "everyone's data, together" shape this pattern solves.
+voidshout's shouts are already global by design (a shared map fed by
+Jetstream directly, not a per-user collection needing a backfill scan). Both
+are shape mismatches, not stale todos — this thread is functionally done
+until a new lexicon-backed site launches one-repo-only.
 
 Most fun for the effort: **one hand-built feed generator (5)**. **Done** — see
 above. Small, and it puts the project inside the Bluesky app instead of behind
