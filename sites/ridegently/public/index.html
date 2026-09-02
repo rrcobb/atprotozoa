@@ -70,7 +70,11 @@
     position: absolute;
     inset: 0;
     transform-style: preserve-3d;
+    cursor: grab;
+    touch-action: pan-y;
   }
+  .track.dragging { cursor: grabbing; }
+  .track.dragging .pod { transition: none; }
   .pod {
     position: absolute;
     top: 50%;
@@ -217,7 +221,13 @@
     height: 100px;
     margin-left: -59px;
     border-radius: 60% 60% 55% 55% / 65% 65% 45% 45%;
-    background: linear-gradient(160deg, color-mix(in srgb, var(--ride-color) 88%, white), color-mix(in srgb, var(--ride-color) 55%, black));
+    background:
+      radial-gradient(circle at 14% 12%, color-mix(in srgb, var(--ride-color) 35%, white) 0%, color-mix(in srgb, var(--ride-color) 35%, white) 9%, transparent 10%),
+      radial-gradient(circle at 34% 4%,  color-mix(in srgb, var(--ride-color) 35%, white) 0%, color-mix(in srgb, var(--ride-color) 35%, white) 8%, transparent 9%),
+      radial-gradient(circle at 56% 2%,  color-mix(in srgb, var(--ride-color) 35%, white) 0%, color-mix(in srgb, var(--ride-color) 35%, white) 9%, transparent 10%),
+      radial-gradient(circle at 78% 5%,  color-mix(in srgb, var(--ride-color) 35%, white) 0%, color-mix(in srgb, var(--ride-color) 35%, white) 8%, transparent 9%),
+      radial-gradient(circle at 94% 14%, color-mix(in srgb, var(--ride-color) 35%, white) 0%, color-mix(in srgb, var(--ride-color) 35%, white) 8%, transparent 9%),
+      linear-gradient(160deg, color-mix(in srgb, var(--ride-color) 88%, white), color-mix(in srgb, var(--ride-color) 55%, black));
     box-shadow: inset 0 -10px 18px rgba(0,0,0,.25), 0 12px 22px -8px color-mix(in srgb, var(--ride-color) 60%, transparent);
   }
   .mount .glyph-big {
@@ -340,7 +350,7 @@
 
 <main>
   <section id="selectScreen">
-    <div class="stage">
+    <div class="stage" id="stage">
       <div class="track" id="track"></div>
       <button class="arrow left" id="prevBtn" aria-label="previous">‹</button>
       <button class="arrow right" id="nextBtn" aria-label="next">›</button>
@@ -350,7 +360,7 @@
     <p class="blurb-line" id="marqueeBlurb"></p>
 
     <button id="rideBtn">ride it</button>
-    <p class="hint">← → to spin the turntable, click a pod to jump, enter to ride</p>
+    <p class="hint">← → or drag to spin the turntable, click a pod to jump, enter to ride</p>
   </section>
 
   <section id="rideScreen" hidden>
@@ -439,6 +449,7 @@
 
   const track = document.getElementById("track");
   const els = {
+    stage: document.getElementById("stage"),
     selectScreen: document.getElementById("selectScreen"),
     rideScreen: document.getElementById("rideScreen"),
     marqueeName: document.getElementById("marqueeName"),
@@ -457,6 +468,8 @@
     shareCardBtn: document.getElementById("shareCardBtn"),
   };
 
+  let justDragged = false;
+
   RIDES.forEach((r, i) => {
     const pod = document.createElement("div");
     pod.className = "pod";
@@ -464,6 +477,7 @@
     pod.dataset.index = String(i);
     pod.innerHTML = '<div class="logo">' + r.logo + '</div><div class="name">' + r.name + "</div>";
     pod.addEventListener("click", () => {
+      if (justDragged) return;
       if (selected === i) { ride(); } else { select(i); }
     });
     track.appendChild(pod);
@@ -472,16 +486,20 @@
 
   let selected = 0;
 
-  function diff(i, sel) {
-    let d = i - sel;
-    if (d > N / 2) d -= N;
-    if (d < -N / 2) d += N;
-    return d;
+  // wrap a pod-index delta (or a continuous drag position) into [-N/2, N/2)
+  // so the turntable always turns the short way round.
+  function wrap(d) {
+    let m = ((d % N) + N) % N;
+    if (m > N / 2) m -= N;
+    return m;
   }
 
-  function layout() {
+  // pos is the continuous turntable position (fractional while dragging,
+  // always an integer once settled on `selected`).
+  function layout(pos) {
+    if (pos === undefined) pos = selected;
     pods.forEach((pod, i) => {
-      const d = diff(i, selected);
+      const d = wrap(i - pos);
       const ad = Math.abs(d);
       const x = d * 168;
       const z = -ad * 130;
@@ -491,10 +509,11 @@
       pod.style.transform = "translateX(" + x + "px) translateZ(" + z + "px) rotateY(" + rot + "deg) scale(" + scale + ")";
       pod.style.opacity = String(opacity);
       pod.style.zIndex = String(100 - ad);
-      pod.classList.toggle("selected", d === 0);
+      pod.classList.toggle("selected", ad < 0.5);
       pod.style.pointerEvents = ad > 3 ? "none" : "auto";
     });
-    const r = RIDES[selected];
+    const nearest = ((Math.round(pos) % N) + N) % N;
+    const r = RIDES[nearest];
     els.marqueeName.innerHTML = r.name + '<span class="maker" id="marqueeMaker">' + r.maker + "</span>";
     els.marqueeBlurb.textContent = r.blurb;
     document.documentElement.style.setProperty("--ride-color", r.color);
@@ -515,6 +534,54 @@
     else if (e.key === "ArrowRight") select(selected + 1);
     else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ride(); }
   });
+
+  // ---- drag the turntable itself, Daytona-cabinet style ----
+  // A small deadzone before we touch any pod's transform: a click/tap always
+  // has a pixel or two of jitter between pointerdown and pointerup, and
+  // nudging the *centered* pod's z off exactly 0 (even briefly) can make it
+  // hit-test behind its own (invisible, flat) parent in a preserve-3d
+  // context, swallowing the click that should have fired ride(). Below the
+  // deadzone we leave every pod's transform untouched, so an ordinary click
+  // behaves exactly as if this drag handling didn't exist.
+  const SPIN_SENS = 130; // px of drag per pod-step
+  const DRAG_DEADZONE = 6; // px
+  let spinning = false, spinActive = false;
+  let spinStartX = 0, spinLastX = 0, spinStartPos = 0, spinDist = 0;
+
+  track.addEventListener("pointerdown", (e) => {
+    spinning = true;
+    spinActive = false;
+    spinStartX = spinLastX = e.clientX;
+    spinStartPos = selected;
+    spinDist = 0;
+  });
+
+  window.addEventListener("pointermove", (e) => {
+    if (!spinning) return;
+    spinLastX = e.clientX;
+    const dx = spinLastX - spinStartX;
+    spinDist = Math.max(spinDist, Math.abs(dx));
+    if (!spinActive && spinDist > DRAG_DEADZONE) {
+      spinActive = true;
+      track.classList.add("dragging");
+    }
+    if (spinActive) layout(spinStartPos - dx / SPIN_SENS);
+  });
+
+  function endSpin() {
+    if (!spinning) return;
+    spinning = false;
+    if (spinActive) {
+      track.classList.remove("dragging");
+      const dx = spinLastX - spinStartX;
+      select(Math.round(spinStartPos - dx / SPIN_SENS));
+      justDragged = true;
+      requestAnimationFrame(() => { justDragged = false; });
+    }
+    spinActive = false;
+  }
+  window.addEventListener("pointerup", endSpin);
+  window.addEventListener("pointercancel", endSpin);
 
   let currentRide = RIDES[0];
 
