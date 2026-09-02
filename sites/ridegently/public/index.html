@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ridegently — pick an LLM, ride it gently</title>
+<meta name="description" content="A Daytona-USA-style select screen for large language models. Spin the turntable, pick one, and take it for a gentle rock-on-a-spring ride. Like the ride-on toy sheep, but it's Claude.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="ridegently — pick an LLM, ride it gently">
+<meta property="og:description" content="A Daytona-USA-style select screen for large language models. Spin the turntable, pick one, and take it for a gentle rock-on-a-spring ride. Like the ride-on toy sheep, but it's Claude.">
+<meta property="og:image" content="https://ridegently.bisks.net/og.png">
+<meta property="og:url" content="https://ridegently.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ridegently — pick an LLM, ride it gently">
+<meta name="twitter:description" content="A Daytona-USA-style select screen for large language models. Spin the turntable, pick one, and take it for a gentle rock-on-a-spring ride. Like the ride-on toy sheep, but it's Claude.">
+<meta name="twitter:image" content="https://ridegently.bisks.net/og.png">
+
+<style>
+  :root {
+    --bg: #0b0c14;
+    --bg2: #14162a;
+    --fg: #f1f0ff;
+    --dim: #8d8bab;
+    --accent: #ffb703;
+    --ride-color: #d9744f;
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: radial-gradient(80% 60% at 50% -10%, var(--bg2), var(--bg) 65%);
+    color: var(--fg);
+    overflow-x: hidden;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 28px 16px 20px;
+  }
+
+  header { text-align: center; margin-bottom: 6px; }
+  h1 {
+    font-size: clamp(28px, 6vw, 44px);
+    margin: 0 0 6px;
+    letter-spacing: 1px;
+    background: linear-gradient(90deg, #ffb703, #ff5fa2 60%, #8b5cf6);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tagline { color: var(--dim); font-size: 14px; margin: 0; max-width: 46ch; }
+
+  main { width: 100%; max-width: 960px; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+  /* ---------- select screen ---------- */
+  #selectScreen { width: 100%; display: flex; flex-direction: column; align-items: center; }
+
+  .stage {
+    position: relative;
+    width: 100%;
+    height: 260px;
+    perspective: 1100px;
+    margin-top: 18px;
+  }
+  .track {
+    position: absolute;
+    inset: 0;
+    transform-style: preserve-3d;
+  }
+  .pod {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 148px;
+    height: 148px;
+    margin: -74px 0 0 -74px;
+    border-radius: 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    background: linear-gradient(160deg, color-mix(in srgb, var(--c) 85%, white), color-mix(in srgb, var(--c) 55%, black));
+    box-shadow: 0 14px 30px -10px color-mix(in srgb, var(--c) 60%, transparent), inset 0 0 0 2px color-mix(in srgb, var(--c) 40%, white 10%);
+    cursor: pointer;
+    transition: transform .5s cubic-bezier(.2,.8,.2,1), opacity .5s ease, box-shadow .3s ease;
+    will-change: transform, opacity;
+  }
+  .pod .glyph {
+    font-size: 46px;
+    font-weight: 800;
+    color: rgba(0,0,0,.55);
+    text-shadow: 0 1px 0 rgba(255,255,255,.25);
+  }
+  .pod .name { font-size: 12px; font-weight: 700; color: rgba(0,0,0,.7); letter-spacing: .5px; }
+  .pod.selected { box-shadow: 0 20px 44px -8px color-mix(in srgb, var(--c) 75%, transparent), 0 0 0 3px color-mix(in srgb, var(--c) 90%, white); }
+
+  .arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.15);
+    color: var(--fg);
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    font-size: 22px;
+    cursor: pointer;
+    z-index: 50;
+  }
+  .arrow:hover { background: rgba(255,255,255,.14); }
+  .arrow.left { left: 0; }
+  .arrow.right { right: 0; }
+
+  .marquee {
+    margin-top: 22px;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: var(--ride-color);
+    transition: color .3s ease;
+  }
+  .marquee .maker { color: var(--dim); font-weight: 500; font-size: 13px; letter-spacing: 1px; display: block; margin-top: 2px; }
+  .blurb-line { color: var(--dim); font-size: 13px; margin: 6px 0 0; min-height: 1.4em; }
+
+  #rideBtn {
+    margin-top: 20px;
+    padding: 12px 34px;
+    font: inherit;
+    font-weight: 800;
+    letter-spacing: 1px;
+    border-radius: 999px;
+    border: none;
+    cursor: pointer;
+    color: #111;
+    background: linear-gradient(90deg, #ffe37a, #ffb703);
+    box-shadow: 0 10px 26px -8px rgba(255,183,3,.6);
+  }
+  #rideBtn:active { transform: translateY(1px); }
+
+  .hint { color: var(--dim); font-size: 12px; margin-top: 10px; }
+
+  /* ---------- ride screen ---------- */
+  #rideScreen { width: 100%; display: flex; flex-direction: column; align-items: center; }
+  #rideScreen[hidden], #selectScreen[hidden] { display: none; }
+
+  .rink {
+    width: 100%;
+    max-width: 420px;
+    height: 300px;
+    position: relative;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .ground {
+    position: absolute;
+    bottom: 18px;
+    left: 8%;
+    right: 8%;
+    height: 10px;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, color-mix(in srgb, var(--ride-color) 35%, transparent), transparent 75%);
+    filter: blur(1px);
+  }
+
+  .toy {
+    position: relative;
+    transform-origin: 50% 100%;
+    animation: rock 1.7s ease-in-out infinite;
+    margin-bottom: 22px;
+  }
+  @keyframes rock {
+    0%   { transform: rotate(-7deg); }
+    50%  { transform: rotate(7deg); }
+    100% { transform: rotate(-7deg); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .toy { animation: none; }
+  }
+
+  .rockers { display: block; }
+
+  .mount {
+    position: absolute;
+    left: 50%;
+    bottom: 58px;
+    width: 118px;
+    height: 100px;
+    margin-left: -59px;
+    border-radius: 60% 60% 55% 55% / 65% 65% 45% 45%;
+    background: linear-gradient(160deg, color-mix(in srgb, var(--ride-color) 88%, white), color-mix(in srgb, var(--ride-color) 55%, black));
+    box-shadow: inset 0 -10px 18px rgba(0,0,0,.25), 0 12px 22px -8px color-mix(in srgb, var(--ride-color) 60%, transparent);
+  }
+  .mount .glyph-big {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 40px;
+    font-weight: 800;
+    color: rgba(0,0,0,.5);
+  }
+  .ear {
+    position: absolute;
+    top: -14px;
+    width: 20px;
+    height: 26px;
+    border-radius: 50% 50% 45% 45%;
+    background: color-mix(in srgb, var(--ride-color) 70%, black);
+  }
+  .ear.l { left: 18px; transform: rotate(-18deg); }
+  .ear.r { right: 18px; transform: rotate(18deg); }
+
+  .rider {
+    position: absolute;
+    left: 50%;
+    bottom: 118px;
+    margin-left: -18px;
+  }
+  .rider .head {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #ffd8b0;
+    margin: 0 auto;
+    box-shadow: inset -4px -3px 0 rgba(0,0,0,.08);
+  }
+  .rider .body {
+    width: 34px;
+    height: 30px;
+    border-radius: 14px 14px 6px 6px;
+    background: #4d5ea8;
+    margin: -4px auto 0;
+  }
+  .rider .arm {
+    position: absolute;
+    top: 20px;
+    width: 22px;
+    height: 6px;
+    border-radius: 4px;
+    background: #4d5ea8;
+  }
+  .rider .arm.l { left: -14px; transform: rotate(28deg); }
+  .rider .arm.r { right: -14px; transform: rotate(-28deg); }
+
+  .spring {
+    position: absolute;
+    left: 50%;
+    bottom: 8px;
+    width: 14px;
+    height: 56px;
+    margin-left: -7px;
+    background: repeating-linear-gradient(0deg, #666 0 4px, #999 4px 8px);
+    border-radius: 6px;
+    opacity: .85;
+  }
+
+  .ride-caption { margin-top: 8px; font-size: 20px; font-weight: 800; text-align: center; }
+  .ride-caption b { color: var(--ride-color); }
+  .ride-tagline { color: var(--dim); font-size: 13px; margin: 4px 0 0; text-align: center; max-width: 40ch; }
+
+  .ride-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 18px; }
+  .ride-actions button, .ride-actions a {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 10px 18px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.18);
+    background: rgba(255,255,255,.05);
+    color: var(--fg);
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .ride-actions a.primary, .ride-actions button.primary {
+    background: var(--ride-color);
+    border-color: transparent;
+    color: #12121a;
+  }
+  .ride-actions button:hover, .ride-actions a:hover { background: rgba(255,255,255,.12); }
+
+  footer {
+    margin-top: 26px;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+    font-size: 12px;
+    color: var(--dim);
+  }
+  footer a { color: var(--dim); }
+  footer a:hover { color: var(--fg); }
+
+  #shareCanvas { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ridegently</h1>
+  <p class="tagline">pick an LLM. ride it gently, like the sheep, but it's Claude.</p>
+</header>
+
+<main>
+  <section id="selectScreen">
+    <div class="stage">
+      <div class="track" id="track"></div>
+      <button class="arrow left" id="prevBtn" aria-label="previous">‹</button>
+      <button class="arrow right" id="nextBtn" aria-label="next">›</button>
+    </div>
+
+    <div class="marquee" id="marqueeName">—<span class="maker" id="marqueeMaker">&nbsp;</span></div>
+    <p class="blurb-line" id="marqueeBlurb"></p>
+
+    <button id="rideBtn">ride it</button>
+    <p class="hint">← → to spin the turntable, click a pod to jump, enter to ride</p>
+  </section>
+
+  <section id="rideScreen" hidden>
+    <div class="rink">
+      <div class="ground"></div>
+      <div class="toy" id="toy">
+        <svg class="rockers" width="180" height="26" viewBox="0 0 180 26" style="position:absolute; left:50%; bottom:0; margin-left:-90px;">
+          <path d="M10 20 Q90 -6 170 20" stroke="#5b4636" stroke-width="9" fill="none" stroke-linecap="round"/>
+        </svg>
+        <div class="spring"></div>
+        <div class="mount" id="mount">
+          <div class="ear l"></div>
+          <div class="ear r"></div>
+          <div class="glyph-big" id="mountGlyph">C</div>
+        </div>
+        <div class="rider">
+          <div class="arm l"></div>
+          <div class="arm r"></div>
+          <div class="head"></div>
+          <div class="body"></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="ride-caption">riding <b id="rideName">Claude</b> gently</p>
+    <p class="ride-tagline" id="rideTagline"></p>
+
+    <div class="ride-actions">
+      <button id="switchBtn">switch rides</button>
+      <a id="shareBluesky" class="primary" target="_blank" rel="noopener">skeet it</a>
+      <button id="shareCardBtn">share card</button>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <a href="https://bisks.net/">bisks.net</a>
+  <a id="rybLink" href="https://rateyourbuild.bisks.net/site/ridegently">rate this on rateyourbuild →</a>
+</footer>
+
+<canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+<script>
+(() => {
+  const RIDES = [
+    { id: "claude",   name: "Claude",     maker: "Anthropic",  glyph: "C", color: "#d9744f", blurb: "gentle, thoughtful, will absolutely refuse to go too fast" },
+    { id: "gemini",   name: "Gemini",     maker: "Google",     glyph: "G", color: "#4f6df3", blurb: "twins riding tandem, somehow still one horse" },
+    { id: "gpt",      name: "GPT",        maker: "OpenAI",     glyph: "P", color: "#12b886", blurb: "the original pony, still the one everyone asks for by name" },
+    { id: "llama",    name: "Llama",      maker: "Meta",       glyph: "L", color: "#66c25a", blurb: "open pasture, open weights, open saddle" },
+    { id: "grok",     name: "Grok",       maker: "xAI",        glyph: "X", color: "#ef4444", blurb: "rides like it's got something to prove" },
+    { id: "mistral",  name: "Mistral",    maker: "Mistral AI", glyph: "M", color: "#f5a524", blurb: "small, fast, faintly windswept" },
+    { id: "deepseek", name: "DeepSeek",   maker: "DeepSeek",   glyph: "D", color: "#8b5cf6", blurb: "came out of nowhere, now everyone wants a turn" },
+    { id: "command",  name: "Command R",  maker: "Cohere",     glyph: "R", color: "#ec4899", blurb: "the quiet one, very good at fetching things" },
+  ];
+  const N = RIDES.length;
+
+  const track = document.getElementById("track");
+  const els = {
+    selectScreen: document.getElementById("selectScreen"),
+    rideScreen: document.getElementById("rideScreen"),
+    marqueeName: document.getElementById("marqueeName"),
+    marqueeBlurb: document.getElementById("marqueeBlurb"),
+    prevBtn: document.getElementById("prevBtn"),
+    nextBtn: document.getElementById("nextBtn"),
+    rideBtn: document.getElementById("rideBtn"),
+    switchBtn: document.getElementById("switchBtn"),
+    toy: document.getElementById("toy"),
+    mount: document.getElementById("mount"),
+    mountGlyph: document.getElementById("mountGlyph"),
+    rideName: document.getElementById("rideName"),
+    rideTagline: document.getElementById("rideTagline"),
+    shareBluesky: document.getElementById("shareBluesky"),
+    shareCardBtn: document.getElementById("shareCardBtn"),
+  };
+
+  RIDES.forEach((r, i) => {
+    const pod = document.createElement("div");
+    pod.className = "pod";
+    pod.style.setProperty("--c", r.color);
+    pod.dataset.index = String(i);
+    pod.innerHTML = '<div class="glyph">' + r.glyph + '</div><div class="name">' + r.name + "</div>";
+    pod.addEventListener("click", () => {
+      if (selected === i) { ride(); } else { select(i); }
+    });
+    track.appendChild(pod);
+  });
+  const pods = Array.from(track.children);
+
+  let selected = 0;
+
+  function diff(i, sel) {
+    let d = i - sel;
+    if (d > N / 2) d -= N;
+    if (d < -N / 2) d += N;
+    return d;
+  }
+
+  function layout() {
+    pods.forEach((pod, i) => {
+      const d = diff(i, selected);
+      const ad = Math.abs(d);
+      const x = d * 168;
+      const z = -ad * 130;
+      const rot = d * -26;
+      const scale = Math.max(0.5, 1 - ad * 0.13);
+      const opacity = Math.max(0.08, 1 - ad * 0.24);
+      pod.style.transform = "translateX(" + x + "px) translateZ(" + z + "px) rotateY(" + rot + "deg) scale(" + scale + ")";
+      pod.style.opacity = String(opacity);
+      pod.style.zIndex = String(100 - ad);
+      pod.classList.toggle("selected", d === 0);
+      pod.style.pointerEvents = ad > 3 ? "none" : "auto";
+    });
+    const r = RIDES[selected];
+    els.marqueeName.innerHTML = r.name + '<span class="maker" id="marqueeMaker">' + r.maker + "</span>";
+    els.marqueeBlurb.textContent = r.blurb;
+    document.documentElement.style.setProperty("--ride-color", r.color);
+  }
+
+  function select(i) {
+    selected = ((i % N) + N) % N;
+    layout();
+  }
+
+  els.prevBtn.addEventListener("click", () => select(selected - 1));
+  els.nextBtn.addEventListener("click", () => select(selected + 1));
+  els.rideBtn.addEventListener("click", ride);
+
+  window.addEventListener("keydown", (e) => {
+    if (!els.rideScreen.hidden) return;
+    if (e.key === "ArrowLeft") select(selected - 1);
+    else if (e.key === "ArrowRight") select(selected + 1);
+    else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ride(); }
+  });
+
+  function ride() {
+    const r = RIDES[selected];
+    document.documentElement.style.setProperty("--ride-color", r.color);
+    els.mountGlyph.textContent = r.glyph;
+    els.rideName.textContent = r.name;
+    els.rideTagline.textContent = r.blurb + " — " + r.maker + ".";
+    document.title = "ridegently: riding " + r.name + " gently";
+
+    const shareUrl = location.origin + "/r/" + r.id;
+    const shareText = "riding " + r.name + " gently 🐑 " + shareUrl;
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+    els.selectScreen.hidden = true;
+    els.rideScreen.hidden = false;
+    els.toy.style.animation = "none";
+    // restart the rock animation cleanly on every new ride
+    void els.toy.offsetWidth;
+    els.toy.style.animation = "";
+  }
+
+  els.switchBtn.addEventListener("click", () => {
+    els.rideScreen.hidden = true;
+    els.selectScreen.hidden = false;
+    document.title = "ridegently — pick an LLM, ride it gently";
+  });
+
+  // ---- share card (canvas, downloadable / native share) ----
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      const probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function buildShareCard() {
+    const r = RIDES[selected];
+    const cv = document.getElementById("shareCanvas");
+    const ctx = cv.getContext("2d");
+    const W = cv.width, H = cv.height;
+
+    const bg = ctx.createRadialGradient(W * 0.25, -60, 60, W * 0.25, -60, 900);
+    bg.addColorStop(0, "#20172a");
+    bg.addColorStop(1, "#0b0c14");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "#f1f0ff";
+    ctx.font = "800 54px 'JetBrains Mono', monospace";
+    ctx.fillText("ridegently", 64, 110);
+    ctx.fillStyle = "#8d8bab";
+    ctx.font = "20px 'JetBrains Mono', monospace";
+    ctx.fillText("riding " + r.name + " gently", 64, 150);
+
+    // mount blob
+    const cx = 300, cy = 420;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.fillStyle = r.color;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 150, 120, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(0,0,0,.45)";
+    ctx.font = "800 96px 'JetBrains Mono', monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(r.glyph, 0, 34);
+    ctx.restore();
+    ctx.textAlign = "left";
+
+    ctx.fillStyle = "#f1f0ff";
+    ctx.font = "700 30px 'JetBrains Mono', monospace";
+    ctx.fillText(r.name + " — " + r.maker, 520, 380);
+    ctx.fillStyle = "#8d8bab";
+    ctx.font = "18px 'JetBrains Mono', monospace";
+    wrapText(ctx, r.blurb, 520, 420, 560, 26);
+
+    ctx.fillStyle = r.color;
+    ctx.font = "700 22px 'JetBrains Mono', monospace";
+    ctx.fillText("ridegently.bisks.net", 520, 560);
+
+    return cv;
+  }
+
+  function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+    const words = text.split(" ");
+    let line = "";
+    for (const w of words) {
+      const test = line ? line + " " + w : w;
+      if (ctx.measureText(test).width > maxWidth && line) {
+        ctx.fillText(line, x, y);
+        line = w;
+        y += lineHeight;
+      } else {
+        line = test;
+      }
+    }
+    if (line) ctx.fillText(line, x, y);
+  }
+
+  els.shareCardBtn.addEventListener("click", async () => {
+    const r = RIDES[selected];
+    const cv = buildShareCard();
+    cv.toBlob(async (blob) => {
+      if (!blob) return;
+      const shareUrl = location.origin + "/r/" + r.id;
+      const shareText = "riding " + r.name + " gently 🐑 " + shareUrl;
+      if (canShareFiles()) {
+        const file = new File([blob], "ridegently-" + r.id + ".png", { type: "image/png" });
+        try {
+          await navigator.share({ files: [file], text: shareText, title: "ridegently" });
+          return;
+        } catch (_) { /* fall through to download */ }
+      }
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "ridegently-" + r.id + ".png";
+      a.click();
+    }, "image/png");
+  });
+
+  layout();
+})();
+</script>
+</body>
+</html>
