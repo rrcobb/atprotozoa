@@ -90,11 +90,25 @@
     transition: transform .5s cubic-bezier(.2,.8,.2,1), opacity .5s ease, box-shadow .3s ease;
     will-change: transform, opacity;
   }
-  .pod .glyph {
-    font-size: 46px;
-    font-weight: 800;
-    color: rgba(0,0,0,.55);
-    text-shadow: 0 1px 0 rgba(255,255,255,.25);
+  .pod .logo {
+    width: 58px;
+    height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(0,0,0,.6);
+    filter: drop-shadow(0 1px 0 rgba(255,255,255,.25));
+    perspective: 220px;
+  }
+  .pod .logo svg { width: 72%; height: 72%; display: block; }
+  /* Daytona-style showcase spin: only the focused pod's logo turns in place */
+  .pod.selected .logo svg { animation: podSpin 3.1s linear infinite; }
+  @keyframes podSpin {
+    from { transform: rotateY(0deg); }
+    to   { transform: rotateY(360deg); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pod.selected .logo svg { animation: none; }
   }
   .pod .name { font-size: 12px; font-weight: 700; color: rgba(0,0,0,.7); letter-spacing: .5px; }
   .pod.selected { box-shadow: 0 20px 44px -8px color-mix(in srgb, var(--c) 75%, transparent), 0 0 0 3px color-mix(in srgb, var(--c) 90%, white); }
@@ -167,21 +181,30 @@
     border-radius: 50%;
     background: radial-gradient(closest-side, color-mix(in srgb, var(--ride-color) 35%, transparent), transparent 75%);
     filter: blur(1px);
+    transform-origin: 50% 50%;
+    animation: groundPulse var(--rock-speed, 1.7s) ease-in-out infinite;
+  }
+  @keyframes groundPulse {
+    0%, 100% { transform: scaleX(1); opacity: .9; }
+    50%      { transform: scaleX(1.1); opacity: .55; }
   }
 
   .toy {
     position: relative;
     transform-origin: 50% 100%;
-    animation: rock 1.7s ease-in-out infinite;
+    animation: rock var(--rock-speed, 1.7s) ease-in-out infinite;
     margin-bottom: 22px;
+    cursor: grab;
+    touch-action: none;
   }
+  .toy.grabbing { cursor: grabbing; }
   @keyframes rock {
-    0%   { transform: rotate(-7deg); }
-    50%  { transform: rotate(7deg); }
-    100% { transform: rotate(-7deg); }
+    0%   { transform: rotate(calc(var(--rock-amp, 7deg) * -1)); }
+    50%  { transform: rotate(var(--rock-amp, 7deg)); }
+    100% { transform: rotate(calc(var(--rock-amp, 7deg) * -1)); }
   }
   @media (prefers-reduced-motion: reduce) {
-    .toy { animation: none; }
+    .toy, .ground, .spring { animation: none; }
   }
 
   .rockers { display: block; }
@@ -203,10 +226,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 40px;
-    font-weight: 800;
     color: rgba(0,0,0,.5);
   }
+  .mount .glyph-big svg { width: 46px; height: 46px; display: block; }
   .ear {
     position: absolute;
     top: -14px;
@@ -260,6 +282,14 @@
     background: repeating-linear-gradient(0deg, #666 0 4px, #999 4px 8px);
     border-radius: 6px;
     opacity: .85;
+    transform-origin: 50% 100%;
+    animation: springSquash var(--rock-speed, 1.7s) ease-in-out infinite;
+  }
+  @keyframes springSquash {
+    0%, 100% { transform: scaleY(1); }
+    25%      { transform: scaleY(.86); }
+    50%      { transform: scaleY(1); }
+    75%      { transform: scaleY(.86); }
   }
 
   .ride-caption { margin-top: 8px; font-size: 20px; font-weight: 800; text-align: center; }
@@ -347,6 +377,7 @@
 
     <p class="ride-caption">riding <b id="rideName">Claude</b> gently</p>
     <p class="ride-tagline" id="rideTagline"></p>
+    <p class="hint">grab the toy and give it a push</p>
 
     <div class="ride-actions">
       <button id="switchBtn">switch rides</button>
@@ -365,16 +396,45 @@
 
 <script>
 (() => {
+  // Official brand marks (Simple Icons where the maker's icon is available
+  // there; Wikimedia Commons brand-icon SVGs for the three makers Simple
+  // Icons has pulled — OpenAI, xAI, Cohere). Cropped to their own icon-only
+  // glyph (no wordmark) and recolored via currentColor so they sit on any
+  // pod's brand-color badge the same way the old letter glyphs did.
+  const LOGOS = {
+    claude: '<svg role="img" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><title>Claude</title><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg>',
+    gemini: '<svg role="img" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><title>Gemini</title><path d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/></svg>',
+    gpt: '<svg role="img" viewBox="1.68 1.75 16.65 16.5" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><title>OpenAI</title><path d="M11.248 18.25q-.825 0-1.568-.314a4.3 4.3 0 0 1-1.32-.874 4 4 0 0 1-1.304.214 4 4 0 0 1-2.046-.544 4.27 4.27 0 0 1-1.518-1.485 4 4 0 0 1-.56-2.095q0-.48.131-1.04A4.4 4.4 0 0 1 2.04 10.71a4.07 4.07 0 0 1 .017-3.4 4.2 4.2 0 0 1 1.056-1.418 3.8 3.8 0 0 1 1.6-.842 3.9 3.9 0 0 1 .76-1.683q.593-.759 1.451-1.188a4.04 4.04 0 0 1 1.832-.429q.825 0 1.567.313.742.314 1.32.875a4 4 0 0 1 1.304-.215q1.106 0 2.046.545a4.14 4.14 0 0 1 1.501 1.485q.578.941.578 2.095 0 .48-.132 1.04.66.61 1.023 1.419.363.792.363 1.666 0 .892-.38 1.717a4.3 4.3 0 0 1-1.072 1.435 3.8 3.8 0 0 1-1.584.825 3.8 3.8 0 0 1-.775 1.683 4.06 4.06 0 0 1-1.436 1.188 4.04 4.04 0 0 1-1.832.429m-4.076-2.062q.825 0 1.435-.347l3.103-1.782a.36.36 0 0 0 .164-.313v-1.42L7.881 14.62a.67.67 0 0 1-.726 0l-3.118-1.798a.5.5 0 0 1-.017.115v.198q0 .841.396 1.551.413.693 1.139 1.089a3.2 3.2 0 0 0 1.617.412m.165-2.69a.4.4 0 0 0 .181.05q.083 0 .165-.05l1.238-.71-3.977-2.31a.7.7 0 0 1-.363-.643v-3.58q-.825.362-1.32 1.122a2.9 2.9 0 0 0-.495 1.65q0 .809.413 1.55.412.743 1.072 1.123zm3.91 3.663q.875 0 1.585-.396a2.96 2.96 0 0 0 1.534-2.64v-3.564a.32.32 0 0 0-.165-.297l-1.254-.726v4.604a.7.7 0 0 1-.363.643l-3.119 1.799a3 3 0 0 0 1.783.577m.627-6.039V8.878L10.01 7.822 8.129 8.878v2.244l1.881 1.056zM7.057 5.859a.7.7 0 0 1 .363-.644l3.119-1.798a3 3 0 0 0-1.782-.578q-.874 0-1.584.396A2.96 2.96 0 0 0 6.05 4.324a3.07 3.07 0 0 0-.396 1.551v3.547q0 .199.165.314l1.237.726zm8.383 7.887q.825-.364 1.303-1.123.495-.758.495-1.65a3.15 3.15 0 0 0-.412-1.55q-.413-.743-1.073-1.123l-3.086-1.782q-.099-.065-.181-.049a.3.3 0 0 0-.165.05l-1.238.692 3.993 2.327a.6.6 0 0 1 .264.264.64.64 0 0 1 .1.363zm-3.317-8.382a.63.63 0 0 1 .726 0l3.135 1.831v-.297q0-.792-.396-1.501a2.86 2.86 0 0 0-1.105-1.155q-.71-.43-1.65-.43-.825 0-1.436.347L8.294 5.941a.36.36 0 0 0-.165.314v1.418z"/></svg>',
+    llama: '<svg role="img" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><title>Meta</title><path d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z"/></svg>',
+    grok: '<svg role="img" viewBox="185 40 470 515" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><title>xAI</title><g><polygon points="557.09,211.99 565.4,538.36 631.96,538.36 640.28,93.18"/><polygon points="640.28,56.91 538.72,56.91 379.35,284.53 430.13,357.05"/><polygon points="201.61,538.36 303.17,538.36 353.96,465.84 303.17,393.31"/><polygon points="201.61,211.99 430.13,538.36 531.69,538.36 303.17,211.99"/></g></svg>',
+    mistral: '<svg role="img" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><title>Mistral AI</title><path d="M17.143 3.429v3.428h-3.429v3.429h-3.428V6.857H6.857V3.43H3.43v13.714H0v3.428h10.286v-3.428H6.857v-3.429h3.429v3.429h3.429v-3.429h3.428v3.429h-3.428v3.428H24v-3.428h-3.43V3.429z"/></svg>',
+    deepseek: '<svg role="img" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><title>DeepSeek</title><path d="M23.748 4.651c-.254-.124-.364.113-.512.233-.051.04-.094.09-.137.137-.372.397-.806.657-1.373.626-.829-.046-1.537.214-2.163.848-.133-.782-.575-1.248-1.247-1.548-.352-.155-.708-.311-.955-.65-.172-.24-.219-.509-.305-.774-.055-.16-.11-.323-.293-.35-.2-.031-.278.136-.356.276-.313.572-.434 1.202-.422 1.84.027 1.436.633 2.58 1.838 3.393.137.094.172.187.129.323-.082.28-.18.553-.266.833-.055.179-.137.218-.328.14a5.5 5.5 0 0 1-1.737-1.179c-.857-.828-1.631-1.743-2.597-2.46a12 12 0 0 0-.689-.47c-.985-.957.13-1.743.387-1.836.27-.098.094-.433-.778-.428-.872.003-1.67.295-2.687.685a3 3 0 0 1-.465.136 9.6 9.6 0 0 0-2.883-.101c-1.885.21-3.39 1.1-4.497 2.622C.082 8.776-.231 10.854.152 13.02c.403 2.284 1.568 4.175 3.36 5.653 1.857 1.533 3.997 2.284 6.438 2.14 1.482-.085 3.132-.284 4.994-1.86.47.234.962.328 1.78.398.629.058 1.235-.031 1.705-.129.735-.155.684-.836.418-.961-2.155-1.004-1.682-.595-2.112-.926 1.095-1.295 2.768-3.598 3.284-6.733.05-.346.115-.834.108-1.114-.004-.171.035-.238.23-.257a4.2 4.2 0 0 0 1.545-.475c1.397-.763 1.96-2.016 2.093-3.517.02-.23-.004-.467-.247-.588M11.58 18.168c-2.088-1.642-3.101-2.183-3.52-2.16-.39.024-.32.472-.234.763.09.288.207.487.371.74.114.167.192.416-.113.603-.673.416-1.842-.14-1.897-.168-1.361-.801-2.5-1.86-3.301-3.306-.775-1.393-1.225-2.888-1.299-4.482-.02-.385.094-.522.477-.592a4.7 4.7 0 0 1 1.53-.038c2.131.311 3.946 1.264 5.467 2.774.868.86 1.525 1.887 2.202 2.89.72 1.066 1.494 2.082 2.48 2.915.348.291.626.513.892.677-.802.09-2.14.109-3.055-.615zm1.001-6.44a.306.306 0 0 1 .415-.287.3.3 0 0 1 .113.074.3.3 0 0 1 .086.214c0 .17-.136.307-.308.307a.303.303 0 0 1-.306-.307m3.11 1.596c-.2.081-.4.151-.591.16a1.25 1.25 0 0 1-.798-.254c-.274-.23-.47-.358-.551-.758a1.7 1.7 0 0 1 .015-.588c.07-.327-.007-.537-.238-.727-.188-.156-.426-.199-.689-.199a.6.6 0 0 1-.254-.078.253.253 0 0 1-.114-.358 1 1 0 0 1 .192-.21c.356-.202.767-.136 1.146.016.352.144.618.408 1.001.782.392.451.462.576.685.915.176.264.336.536.446.848.066.194-.02.353-.25.45"/></svg>',
+    command: '<svg role="img" viewBox="0 0 20.5 20.5" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><title>Cohere</title><path d="M6.81969 11.9081C7.34472 11.9081 8.3891 11.8785 9.8327 11.2692C11.5149 10.559 14.8619 9.2699 17.2762 7.94576C18.9648 7.01963 19.7049 5.79474 19.7049 4.14523C19.705 1.85589 17.8949 0 15.6621 0H6.30704C3.09989 0 0.5 2.66571 0.5 5.95406C0.5 9.2424 2.93427 11.9081 6.81969 11.9081Z"/><path d="M8.40234 16.0108C8.40234 14.3989 9.34877 12.9456 10.8008 12.3277L13.7469 11.0741C16.7269 9.80599 20.0069 12.0514 20.0069 15.3595C20.0069 17.9226 17.9801 20.0001 15.4803 19.9994L12.2906 19.9985C10.143 19.998 8.40234 18.2128 8.40234 16.0108Z"/><path d="M3.8476 12.6914H3.84753C1.99874 12.6914 0.5 14.2281 0.5 16.1237V16.5683C0.5 18.4639 1.99874 20.0005 3.84753 20.0005H3.8476C5.69639 20.0005 7.19513 18.4639 7.19513 16.5683V16.1237C7.19513 14.2281 5.69639 12.6914 3.8476 12.6914Z"/></svg>',
+  };
+
+  // Riding personality per model — tunes the idle rock (CSS custom
+  // properties) and the spring-physics response when someone grabs and
+  // pushes the toy (see the pointer handlers below). Pulled from each
+  // ride's blurb: Claude settles fast and barely swings, Grok swings hard
+  // and takes its time calming down, etc.
   const RIDES = [
-    { id: "claude",   name: "Claude",     maker: "Anthropic",  glyph: "C", color: "#d9744f", blurb: "gentle, thoughtful, will absolutely refuse to go too fast" },
-    { id: "gemini",   name: "Gemini",     maker: "Google",     glyph: "G", color: "#4f6df3", blurb: "twins riding tandem, somehow still one horse" },
-    { id: "gpt",      name: "GPT",        maker: "OpenAI",     glyph: "P", color: "#12b886", blurb: "the original pony, still the one everyone asks for by name" },
-    { id: "llama",    name: "Llama",      maker: "Meta",       glyph: "L", color: "#66c25a", blurb: "open pasture, open weights, open saddle" },
-    { id: "grok",     name: "Grok",       maker: "xAI",        glyph: "X", color: "#ef4444", blurb: "rides like it's got something to prove" },
-    { id: "mistral",  name: "Mistral",    maker: "Mistral AI", glyph: "M", color: "#f5a524", blurb: "small, fast, faintly windswept" },
-    { id: "deepseek", name: "DeepSeek",   maker: "DeepSeek",   glyph: "D", color: "#8b5cf6", blurb: "came out of nowhere, now everyone wants a turn" },
-    { id: "command",  name: "Command R",  maker: "Cohere",     glyph: "R", color: "#ec4899", blurb: "the quiet one, very good at fetching things" },
-  ];
+    { id: "claude",   name: "Claude",     maker: "Anthropic",  color: "#d9744f", blurb: "gentle, thoughtful, will absolutely refuse to go too fast",
+      rock: { speed: "2.1s", amp: "5deg", stiffness: .16, damping: .90 } },
+    { id: "gemini",   name: "Gemini",     maker: "Google",     color: "#4f6df3", blurb: "twins riding tandem, somehow still one horse",
+      rock: { speed: "1.55s", amp: "7deg", stiffness: .12, damping: .84 } },
+    { id: "gpt",      name: "GPT",        maker: "OpenAI",     color: "#12b886", blurb: "the original pony, still the one everyone asks for by name",
+      rock: { speed: "1.7s", amp: "7deg", stiffness: .12, damping: .85 } },
+    { id: "llama",    name: "Llama",      maker: "Meta",       color: "#66c25a", blurb: "open pasture, open weights, open saddle",
+      rock: { speed: "1.9s", amp: "9deg", stiffness: .10, damping: .80 } },
+    { id: "grok",     name: "Grok",       maker: "xAI",        color: "#ef4444", blurb: "rides like it's got something to prove",
+      rock: { speed: "1.05s", amp: "12deg", stiffness: .09, damping: .68 } },
+    { id: "mistral",  name: "Mistral",    maker: "Mistral AI", color: "#f5a524", blurb: "small, fast, faintly windswept",
+      rock: { speed: "1.15s", amp: "6deg", stiffness: .18, damping: .88 } },
+    { id: "deepseek", name: "DeepSeek",   maker: "DeepSeek",   color: "#8b5cf6", blurb: "came out of nowhere, now everyone wants a turn",
+      rock: { speed: "1.4s", amp: "10deg", stiffness: .11, damping: .78 } },
+    { id: "command",  name: "Command R",  maker: "Cohere",     color: "#ec4899", blurb: "the quiet one, very good at fetching things",
+      rock: { speed: "2.3s", amp: "4deg", stiffness: .20, damping: .93 } },
+  ].map((r) => ({ ...r, logo: LOGOS[r.id] }));
   const N = RIDES.length;
 
   const track = document.getElementById("track");
@@ -387,6 +447,7 @@
     nextBtn: document.getElementById("nextBtn"),
     rideBtn: document.getElementById("rideBtn"),
     switchBtn: document.getElementById("switchBtn"),
+    rink: document.querySelector(".rink"),
     toy: document.getElementById("toy"),
     mount: document.getElementById("mount"),
     mountGlyph: document.getElementById("mountGlyph"),
@@ -401,7 +462,7 @@
     pod.className = "pod";
     pod.style.setProperty("--c", r.color);
     pod.dataset.index = String(i);
-    pod.innerHTML = '<div class="glyph">' + r.glyph + '</div><div class="name">' + r.name + "</div>";
+    pod.innerHTML = '<div class="logo">' + r.logo + '</div><div class="name">' + r.name + "</div>";
     pod.addEventListener("click", () => {
       if (selected === i) { ride(); } else { select(i); }
     });
@@ -455,10 +516,13 @@
     else if (e.key === "Enter" || e.key === " ") { e.preventDefault(); ride(); }
   });
 
+  let currentRide = RIDES[0];
+
   function ride() {
     const r = RIDES[selected];
+    currentRide = r;
     document.documentElement.style.setProperty("--ride-color", r.color);
-    els.mountGlyph.textContent = r.glyph;
+    els.mountGlyph.innerHTML = r.logo;
     els.rideName.textContent = r.name;
     els.rideTagline.textContent = r.blurb + " — " + r.maker + ".";
     document.title = "ridegently: riding " + r.name + " gently";
@@ -467,8 +531,15 @@
     const shareText = "riding " + r.name + " gently 🐑 " + shareUrl;
     els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
 
+    els.rink.style.setProperty("--rock-speed", r.rock.speed);
+    els.rink.style.setProperty("--rock-amp", r.rock.amp);
+
     els.selectScreen.hidden = true;
     els.rideScreen.hidden = false;
+    stopPhysics();
+    angle = 0;
+    angVel = 0;
+    els.toy.style.transform = "";
     els.toy.style.animation = "none";
     // restart the rock animation cleanly on every new ride
     void els.toy.offsetWidth;
@@ -476,10 +547,76 @@
   }
 
   els.switchBtn.addEventListener("click", () => {
+    stopPhysics();
     els.rideScreen.hidden = true;
     els.selectScreen.hidden = false;
     document.title = "ridegently — pick an LLM, ride it gently";
   });
+
+  // ---- riding mechanics: grab the toy and push it, spring-physics release ----
+  let angle = 0, angVel = 0, dragging = false, dragLastX = 0, dragLastT = 0, physicsFrame = null;
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function stopPhysics() {
+    if (physicsFrame !== null) { cancelAnimationFrame(physicsFrame); physicsFrame = null; }
+  }
+
+  function setAngle(a) {
+    angle = a;
+    els.toy.style.transform = "rotate(" + angle.toFixed(2) + "deg)";
+  }
+
+  els.toy.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    stopPhysics();
+    els.toy.style.animation = "none";
+    els.toy.classList.add("grabbing");
+    if (els.toy.setPointerCapture) els.toy.setPointerCapture(e.pointerId);
+    dragLastX = e.clientX;
+    dragLastT = performance.now();
+  });
+
+  els.toy.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const now = performance.now();
+    const dt = Math.max(1, now - dragLastT);
+    const dx = e.clientX - dragLastX;
+    const target = clamp(angle + dx * 0.35, -48, 48);
+    angVel = ((target - angle) / dt) * 16;
+    setAngle(target);
+    dragLastX = e.clientX;
+    dragLastT = now;
+  });
+
+  function endDrag(e) {
+    if (!dragging) return;
+    dragging = false;
+    els.toy.classList.remove("grabbing");
+    releasePhysics();
+  }
+  els.toy.addEventListener("pointerup", endDrag);
+  els.toy.addEventListener("pointercancel", endDrag);
+
+  function releasePhysics() {
+    const spring = currentRide.rock;
+    function step() {
+      const restoring = -angle * spring.stiffness;
+      angVel = (angVel + restoring) * spring.damping;
+      angle += angVel;
+      els.toy.style.transform = "rotate(" + angle.toFixed(2) + "deg)";
+      if (Math.abs(angVel) > 0.04 || Math.abs(angle) > 0.3) {
+        physicsFrame = requestAnimationFrame(step);
+      } else {
+        physicsFrame = null;
+        angle = 0;
+        angVel = 0;
+        els.toy.style.transform = "";
+        els.toy.style.animation = ""; // hand back to the idle rock keyframes
+      }
+    }
+    physicsFrame = requestAnimationFrame(step);
+  }
 
   // ---- share card (canvas, downloadable / native share) ----
   function canShareFiles() {
@@ -492,7 +629,18 @@
     }
   }
 
-  function buildShareCard() {
+  function loadLogoImage(svgMarkup, color) {
+    return new Promise((resolve, reject) => {
+      const styled = svgMarkup.replace("<svg ", '<svg style="color:' + color + '" ');
+      const url = URL.createObjectURL(new Blob([styled], { type: "image/svg+xml" }));
+      const img = new Image();
+      img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+      img.src = url;
+    });
+  }
+
+  async function buildShareCard() {
     const r = RIDES[selected];
     const cv = document.getElementById("shareCanvas");
     const ctx = cv.getContext("2d");
@@ -512,7 +660,7 @@
     ctx.font = "20px 'JetBrains Mono', monospace";
     ctx.fillText("riding " + r.name + " gently", 64, 150);
 
-    // mount blob
+    // mount blob, with the real brand mark on top
     const cx = 300, cy = 420;
     ctx.save();
     ctx.translate(cx, cy);
@@ -520,12 +668,12 @@
     ctx.beginPath();
     ctx.ellipse(0, 0, 150, 120, 0, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = "rgba(0,0,0,.45)";
-    ctx.font = "800 96px 'JetBrains Mono', monospace";
-    ctx.textAlign = "center";
-    ctx.fillText(r.glyph, 0, 34);
+    try {
+      const img = await loadLogoImage(r.logo, "rgba(0,0,0,.5)");
+      const size = 140;
+      ctx.drawImage(img, -size / 2, -size / 2, size, size);
+    } catch (_) { /* skip the mark if it fails to rasterize, blob still reads fine */ }
     ctx.restore();
-    ctx.textAlign = "left";
 
     ctx.fillStyle = "#f1f0ff";
     ctx.font = "700 30px 'JetBrains Mono', monospace";
@@ -559,7 +707,7 @@
 
   els.shareCardBtn.addEventListener("click", async () => {
     const r = RIDES[selected];
-    const cv = buildShareCard();
+    const cv = await buildShareCard();
     cv.toBlob(async (blob) => {
       if (!blob) return;
       const shareUrl = location.origin + "/r/" + r.id;
