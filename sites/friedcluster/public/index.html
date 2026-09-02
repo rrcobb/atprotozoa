@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>friedcluster — your mutuals, recursively made more delicious</title>
+<meta
+  name="description"
+  content="type a Bluesky handle. every pfp in its SimCluster gets recursively re-fried through real canvas + JPEG re-encoding passes — ten generations of 'make it look more delicious,' for real this time."
+/>
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="friedcluster" />
+<meta property="og:description" content="a Bluesky handle's whole mutuals cluster, recursively deep-fried ten generations deep. real canvas + JPEG re-encoding, not a filter preset — someone finally ran the experiment." />
+<meta property="og:url" content="https://friedcluster.bisks.net/" />
+<meta property="og:image" content="https://friedcluster.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="friedcluster: a grid of avatars getting progressively more deep-fried, gen 0 through gen 10." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="friedcluster" />
+<meta name="twitter:description" content="every pfp in a handle's SimCluster, recursively made more delicious. ten real generations of re-frying." />
+<meta name="twitter:image" content="https://friedcluster.bisks.net/og.png" />
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍪</text></svg>" />
+
+<style>
+  :root {
+    --bg: #120c08;
+    --bg2: #1c130c;
+    --fg: #fbe9d0;
+    --dim: #c7a888;
+    --card: #23180f;
+    --border: #4a3320;
+    --gold: #ffb238;
+    --red: #ff5a3c;
+    --green: #7fe0a0;
+    --accent: #ffcf6b;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(ellipse at 20% -10%, #3a220f 0%, var(--bg) 55%) fixed;
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+  h1 {
+    margin: 0;
+    font-size: 1.7rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    background: linear-gradient(90deg, var(--gold), var(--red));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    display: inline-block;
+  }
+  .tagline {
+    margin: 0.5rem 0 0.3rem;
+    color: var(--dim);
+    font-size: 0.92rem;
+    max-width: 62ch;
+    line-height: 1.7;
+  }
+  .tagline b { color: var(--fg); }
+  .credit {
+    margin: 0 0 2rem;
+    color: var(--dim);
+    font-size: 0.76rem;
+    opacity: 0.85;
+  }
+  .credit a { color: var(--accent); text-decoration: none; }
+  .credit a:hover { text-decoration: underline; }
+
+  form.finder { margin: 0 0 0.5rem; max-width: 560px; }
+  label.lbl {
+    display: block; font-size: 0.74rem; color: var(--dim);
+    margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .searchrow { display: flex; gap: 0.5rem; }
+  input[type="text"] {
+    flex: 1; font-family: inherit; font-size: 0.95rem;
+    padding: 0.65rem 0.75rem; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--card); color: var(--fg);
+  }
+  input[type="text"]:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+  input[type="text"]::placeholder { color: #6b543c; }
+
+  button.go, button.btn {
+    font-family: inherit; font-size: 0.88rem; padding: 0.62rem 1rem;
+    border: 1px solid var(--gold); background: var(--gold); color: #241505;
+    border-radius: 6px; cursor: pointer; font-weight: 700;
+  }
+  button.go:hover:not(:disabled), button.btn:hover:not(:disabled) { background: #ffc85c; }
+  button.go:disabled, button.btn:disabled { opacity: 0.4; cursor: default; }
+  button.ghost {
+    background: transparent; color: var(--fg); border: 1px solid var(--border);
+    font-weight: 500;
+  }
+  button.ghost:hover:not(:disabled) { border-color: var(--gold); }
+
+  .msg { min-height: 1.2rem; font-size: 0.8rem; margin: 0.55rem 0 1.8rem; color: var(--dim); }
+  .msg.err { color: var(--red); }
+  .msg.ok { color: var(--green); }
+
+  #stage { display: none; margin-top: 1rem; }
+  #stage.on { display: block; }
+
+  .clusterline {
+    font-size: 0.84rem; color: var(--dim); margin-bottom: 1.2rem;
+    display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+  }
+  .clusterline .who { color: var(--fg); font-weight: 700; }
+  .clusterline .av {
+    width: 24px; height: 24px; border-radius: 50%; background: #333 center/cover no-repeat;
+    flex: none; border: 1px solid var(--border);
+  }
+
+  .progwrap { margin: 0.8rem 0 1.6rem; display: none; }
+  .progwrap.on { display: block; }
+  .progbar { height: 8px; border-radius: 4px; background: var(--card); border: 1px solid var(--border); overflow: hidden; }
+  .progbar > div {
+    height: 100%; width: 0%; background: linear-gradient(90deg, var(--gold), var(--red));
+    transition: width 0.15s ease;
+  }
+  .progtext { font-size: 0.76rem; color: var(--dim); margin-top: 0.4rem; }
+
+  .controls {
+    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+    margin-bottom: 0.5rem; padding: 0.9rem 1rem; background: var(--card);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  .genslider { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 0.35rem; }
+  .genslider input[type="range"] {
+    width: 100%; accent-color: var(--gold);
+  }
+  .gencap { font-size: 0.8rem; color: var(--accent); font-weight: 700; }
+  .gencap .n { color: var(--dim); font-weight: 400; }
+  .shareRow { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 0.6rem;
+    margin: 1.4rem 0;
+  }
+  .cell {
+    position: relative; border-radius: 8px; overflow: hidden; cursor: pointer;
+    border: 1px solid var(--border); background: var(--card); aspect-ratio: 1;
+  }
+  .cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cell .nm {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 0.3rem 0.4rem;
+    font-size: 0.62rem; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,0.75));
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cell:hover { border-color: var(--gold); }
+  .selfcell { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .truncnote { font-size: 0.76rem; color: var(--dim); margin: -0.6rem 0 1.2rem; }
+
+  /* modal filmstrip */
+  #modal {
+    display: none; position: fixed; inset: 0; z-index: 999;
+    background: rgba(8, 5, 2, 0.88); backdrop-filter: blur(3px);
+    align-items: center; justify-content: center; padding: 1.2rem;
+  }
+  #modal.on { display: flex; }
+  .modalcard {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    max-width: 640px; width: 100%; padding: 1.2rem; max-height: 88vh; overflow-y: auto;
+  }
+  .modalhead {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.8rem;
+  }
+  .modalhead .who { font-weight: 700; }
+  .modalhead button { background: none; border: none; color: var(--dim); font-size: 1.2rem; cursor: pointer; }
+  .filmstrip img {
+    width: 100%; border-radius: 8px; display: block; margin-bottom: 0.5rem;
+    border: 1px solid var(--border);
+  }
+  .filmcap { text-align: center; font-size: 0.8rem; color: var(--accent); margin-bottom: 0.8rem; }
+  .filmnav { display: flex; justify-content: space-between; gap: 0.5rem; }
+  .filmnav button { flex: 1; }
+
+  footer {
+    margin-top: 3rem; color: var(--dim); font-size: 0.78rem;
+    border-top: 1px solid var(--border); padding-top: 1rem;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>f<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">r</span>iedcluster</h1>
+    <p class="tagline">
+      type a Bluesky handle. every pfp in its <b>SimCluster</b> (its mutuals)
+      gets recursively re-fried — real &lt;canvas&gt; pixel work and JPEG
+      re-encoding, ten generations deep, each pass frying the last pass's own
+      artifacts. "make it look more delicious," but actually recursive.
+    </p>
+    <p class="credit">
+      the daring experiment @norvid-studies.bsky.social dared someone to run,
+      after @aub.bsky.social's cookie got deep-fried by repeated prompting.
+      built for @gracekind.net.
+    </p>
+
+    <form class="finder" id="form" autocomplete="off">
+      <label class="lbl" for="handle">a bluesky handle</label>
+      <div class="searchrow">
+        <input
+          type="text"
+          id="handle"
+          placeholder="e.g. norvid-studies.bsky.social"
+          spellcheck="false"
+        />
+        <button class="go" id="go" type="submit">fry the cluster</button>
+      </div>
+    </form>
+    <p class="msg" id="msg">reads Bluesky's public graph in your browser — no login. all frying happens on your device.</p>
+
+    <section id="stage">
+      <div class="clusterline" id="clusterline"></div>
+
+      <div class="progwrap" id="progwrap">
+        <div class="progbar"><div id="progfill"></div></div>
+        <div class="progtext" id="progtext"></div>
+      </div>
+
+      <div class="controls" id="controls" style="display:none">
+        <div class="genslider">
+          <div class="gencap"><span id="capLabel"></span> <span class="n" id="capNum"></span></div>
+          <input type="range" id="gen" min="0" max="10" value="10" step="1" />
+        </div>
+        <div class="shareRow">
+          <button class="btn ghost" id="refry">🔥 re-fry (fresh noise)</button>
+          <button class="btn" id="shareBtn">share this grid</button>
+        </div>
+      </div>
+
+      <p class="truncnote" id="truncnote" style="display:none"></p>
+
+      <div class="grid" id="grid"></div>
+    </section>
+
+    <footer>
+      moots are mutuals — the follow-back set, same as
+      <a href="https://simcluster.bisks.net/">simcluster</a>. reads Bluesky's
+      public AppView, no login, everything client-side, nothing uploaded
+      anywhere. rate this on
+      <a href="https://rateyourbuild.bisks.net/site/friedcluster">rateyourbuild →</a>.
+      sibling of <a href="https://bisks.net">bisks.net</a>.
+    </footer>
+  </div>
+
+  <div id="modal">
+    <div class="modalcard">
+      <div class="modalhead">
+        <span class="who" id="modalWho"></span>
+        <button id="modalClose" aria-label="close">✕</button>
+      </div>
+      <img id="modalImg" alt="" />
+      <div class="filmcap" id="modalCap"></div>
+      <div class="filmnav">
+        <button class="btn ghost" id="modalPrev">← less delicious</button>
+        <button class="btn ghost" id="modalNext">more delicious →</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="lib/handle-typeahead.js"></script>
+  <script>
+    if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+  </script>
+  <script type="module">
+    import { buildCluster } from "./lib/cluster.js";
+    import { fryPool, GENERATIONS, CAPTIONS } from "./lib/fry.js";
+
+    const $ = (id) => document.getElementById(id);
+    const form = $("form"), input = $("handle"), goBtn = $("go"), msg = $("msg"),
+      stage = $("stage"), clusterline = $("clusterline"),
+      progwrap = $("progwrap"), progfill = $("progfill"), progtext = $("progtext"),
+      controls = $("controls"), genSlider = $("gen"), capLabel = $("capLabel"),
+      capNum = $("capNum"), grid = $("grid"), truncnote = $("truncnote"),
+      refryBtn = $("refry"), shareBtn = $("shareBtn"),
+      modal = $("modal"), modalWho = $("modalWho"), modalImg = $("modalImg"),
+      modalCap = $("modalCap"), modalPrev = $("modalPrev"), modalNext = $("modalNext"),
+      modalClose = $("modalClose");
+
+    // GRID_CAP: canvas-based recursive frying is O(generations × avatars) real
+    // canvas draws + getImageData + JPEG encodes per handle. This is a browser
+    // main-thread cost cap, not a data cap — the full mutuals pool is still
+    // fetched via cluster.js; only how many of them get fried (and rendered)
+    // is bounded, so a huge cluster stays responsive instead of freezing the tab.
+    const GRID_CAP = 60;
+
+    const short = (h) => "@" + String(h || "").replace(/\.bsky\.social$/, "");
+
+    let pool = []; // [{did, handle, displayName, avatar, followersCount}]
+    let fried = []; // parallel array: fried[i] = [dataUrl0..dataUrl10]
+    let self = null;
+    let selfFried = null;
+
+    function setGenLabel() {
+      const g = Number(genSlider.value);
+      capLabel.textContent = CAPTIONS[g];
+      capNum.textContent = `(gen ${g}/${GENERATIONS})`;
+    }
+
+    function renderGrid() {
+      const g = Number(genSlider.value);
+      grid.innerHTML = "";
+      if (self && selfFried) grid.appendChild(cellFor(self, selfFried, g, true));
+      pool.forEach((p, i) => grid.appendChild(cellFor(p, fried[i], g, false)));
+    }
+
+    function cellFor(p, gens, g, isSelf) {
+      const d = document.createElement("div");
+      d.className = "cell" + (isSelf ? " selfcell" : "");
+      const img = document.createElement("img");
+      img.src = gens[g];
+      img.loading = "lazy";
+      img.alt = p.displayName || p.handle;
+      d.appendChild(img);
+      const nm = document.createElement("div");
+      nm.className = "nm";
+      nm.textContent = (isSelf ? "you: " : "") + short(p.handle);
+      d.appendChild(nm);
+      d.addEventListener("click", () => openModal(p, gens));
+      return d;
+    }
+
+    let modalState = null;
+    function openModal(p, gens) {
+      modalState = { p, gens, g: Number(genSlider.value) };
+      modalWho.textContent = short(p.handle);
+      renderModal();
+      modal.classList.add("on");
+    }
+    function renderModal() {
+      const { gens, g } = modalState;
+      modalImg.src = gens[g];
+      modalCap.textContent = CAPTIONS[g];
+      modalPrev.disabled = g <= 0;
+      modalNext.disabled = g >= GENERATIONS;
+    }
+    modalPrev.addEventListener("click", () => { if (modalState.g > 0) { modalState.g--; renderModal(); } });
+    modalNext.addEventListener("click", () => { if (modalState.g < GENERATIONS) { modalState.g++; renderModal(); } });
+    modalClose.addEventListener("click", () => modal.classList.remove("on"));
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.classList.remove("on"); });
+
+    genSlider.addEventListener("input", () => { setGenLabel(); renderGrid(); });
+
+    async function runFry(res) {
+      self = res.self;
+      pool = res.pool.slice(0, GRID_CAP);
+      const wasTruncated = res.pool.length > GRID_CAP || res.counts.truncated;
+      truncnote.style.display = wasTruncated ? "block" : "none";
+      truncnote.textContent = wasTruncated
+        ? `showing the ${pool.length} most-followed faces in the cluster (of ${res.counts.pool} — canvas frying is CPU-heavy, so the grid is capped, not the fetch).`
+        : "";
+
+      clusterline.innerHTML = "";
+      const av = document.createElement("div");
+      av.className = "av";
+      if (self.avatar) av.style.backgroundImage = `url("${self.avatar}")`;
+      clusterline.appendChild(av);
+      const txt = document.createElement("span");
+      txt.innerHTML = `<span class="who">${short(self.handle)}</span>'s SimCluster — ${res.counts.mutuals} moots${res.kind !== "moots" ? " (widened to follows)" : ""}, frying ${pool.length + 1} faces.`;
+      clusterline.appendChild(txt);
+
+      progwrap.classList.add("on");
+      controls.style.display = "none";
+      grid.innerHTML = "";
+      progfill.style.width = "0%";
+      progtext.textContent = "frying gen 0/10 across the cluster…";
+
+      let done = 0;
+      const total = pool.length + 1;
+      const tick = () => {
+        done++;
+        const pct = Math.round((done / total) * 100);
+        progfill.style.width = pct + "%";
+        progtext.textContent = `fried ${done}/${total} faces…`;
+      };
+
+      selfFried = await (async () => {
+        const [r] = await fryPool([self], { concurrency: 1 });
+        tick();
+        return r;
+      })();
+      fried = await fryPool(pool, {
+        concurrency: 6,
+        onProgress: () => tick(),
+      });
+
+      progwrap.classList.remove("on");
+      controls.style.display = "flex";
+      genSlider.value = "10";
+      setGenLabel();
+      renderGrid();
+      stage.classList.add("on");
+    }
+
+    refryBtn.addEventListener("click", async () => {
+      if (!self) return;
+      refryBtn.disabled = true;
+      const savedPool = pool, savedSelf = self;
+      await runFry({
+        self: savedSelf,
+        pool: savedPool,
+        kind: "moots",
+        counts: { mutuals: savedPool.length, pool: savedPool.length, truncated: false },
+      });
+      refryBtn.disabled = false;
+    });
+
+    function buildShareText() {
+      const who = self ? short(self.handle) : "a bluesky mutuals cluster";
+      return (
+        `${who}'s entire SimCluster, recursively made 10x more delicious. ` +
+        `real canvas + JPEG re-frying, ten generations deep — ` +
+        `https://friedcluster.bisks.net/`
+      );
+    }
+
+    function canShareFiles() {
+      if (!navigator.share || !navigator.canShare) return false;
+      try {
+        const probe = new File([""], "probe.png", { type: "image/png" });
+        return navigator.canShare({ files: [probe] });
+      } catch {
+        return false;
+      }
+    }
+
+    async function buildShareCanvas() {
+      const g = Number(genSlider.value);
+      const cols = 6;
+      const cellPx = 160;
+      const items = [self, ...pool].filter(Boolean);
+      const gensArr = [selfFried, ...fried];
+      const rows = Math.ceil(items.length / cols);
+      const pad = 10;
+      const headerH = 90;
+      const c = document.createElement("canvas");
+      c.width = cols * cellPx + pad * (cols + 1);
+      c.height = headerH + rows * cellPx + pad * (rows + 1);
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#120c08";
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.fillStyle = "#ffb238";
+      ctx.font = "bold 32px monospace";
+      ctx.fillText("friedcluster", pad, 44);
+      ctx.fillStyle = "#c7a888";
+      ctx.font = "16px monospace";
+      ctx.fillText(
+        (self ? short(self.handle) : "") + " — " + CAPTIONS[g],
+        pad,
+        72,
+      );
+
+      const loads = items.map(
+        (p, i) =>
+          new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = () => resolve(null);
+            img.src = gensArr[i][g];
+          }),
+      );
+      const imgs = await Promise.all(loads);
+      imgs.forEach((img, i) => {
+        if (!img) return;
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const x = pad + col * (cellPx + pad);
+        const y = headerH + pad + row * (cellPx + pad);
+        ctx.drawImage(img, x, y, cellPx, cellPx);
+      });
+      return c;
+    }
+
+    shareBtn.addEventListener("click", async () => {
+      if (!self) return;
+      shareBtn.disabled = true;
+      shareBtn.textContent = "building image…";
+      try {
+        const canvas = await buildShareCanvas();
+        const shareText = buildShareText();
+        canvas.toBlob(async (blob) => {
+          if (canShareFiles()) {
+            const file = new File([blob], "friedcluster.png", { type: "image/png" });
+            try {
+              await navigator.share({ files: [file], text: shareText, title: "friedcluster" });
+              shareBtn.disabled = false;
+              shareBtn.textContent = "share this grid";
+              return;
+            } catch {
+              // fall through to download + intent link
+            }
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "friedcluster.png";
+          a.click();
+          URL.revokeObjectURL(url);
+          window.open(
+            "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText),
+            "_blank",
+          );
+          shareBtn.disabled = false;
+          shareBtn.textContent = "share this grid";
+        }, "image/png");
+      } catch {
+        shareBtn.disabled = false;
+        shareBtn.textContent = "share this grid";
+      }
+    });
+
+    input.addEventListener("input", () => {
+      msg.className = "msg";
+      msg.textContent = "reads Bluesky's public graph in your browser — no login. all frying happens on your device.";
+    });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const h = input.value.trim();
+      if (!h) { input.focus(); return; }
+      goBtn.disabled = true;
+      msg.className = "msg";
+      msg.textContent = "resolving " + h.replace(/^@/, "") + "…";
+      try {
+        const res = await buildCluster(h, {
+          onStep: (s) => { msg.className = "msg"; msg.textContent = s; },
+        });
+        if (res.pool.length < 1) {
+          msg.className = "msg err";
+          msg.textContent = `${short(res.handle)} doesn't have any moots to fry. try someone with a bigger cluster.`;
+          goBtn.disabled = false;
+          return;
+        }
+        msg.className = "msg ok";
+        msg.textContent = `found ${res.counts.mutuals} moots for ${short(res.handle)}. frying…`;
+        await runFry(res);
+        stage.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (err) {
+        msg.className = "msg err";
+        msg.textContent =
+          err && err.status === 400
+            ? "couldn't find that handle. check the spelling?"
+            : "couldn't load that one — " + (err.message || "try again") + ".";
+      } finally {
+        goBtn.disabled = false;
+      }
+    });
+
+    const initial = new URLSearchParams(location.search).get("h") || "";
+    if (initial) {
+      input.value = initial;
+      form.requestSubmit();
+    }
+  </script>
+</body>
+</html>
