@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>wattcore — chain-of-thought, run through the plugin</title>
+<meta name="description" content="A model's actual chain-of-thought, converted into wattcore musings and played on load. Flip the breaker to hear the trace this site was built from — then spin a remix." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="wattcore — chain-of-thought, run through the plugin" />
+<meta property="og:description" content="The plugin that converts model COT into wattcore musings, demoed on the actual reasoning trace used to build this page. Flip the breaker to hear it." />
+<meta property="og:url" content="https://wattcore.bisks.net/" />
+<meta property="og:image" content="https://wattcore.bisks.net/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="wattcore — chain-of-thought, run through the plugin" />
+<meta name="twitter:description" content="The plugin that converts model COT into wattcore musings, demoed on the actual reasoning trace used to build this page. Flip the breaker to hear it." />
+<meta name="twitter:image" content="https://wattcore.bisks.net/og.png" />
+
+<style>
+  :root {
+    --bg: #0a0806;
+    --bg2: #150f0a;
+    --card: #1a130c;
+    --border: #3a2c18;
+    --fg: #f5ead9;
+    --dim: #93816c;
+    --accent: #ffb020;
+    --accent2: #ff7043;
+    --wire: #4a3a22;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background:
+      radial-gradient(circle at 20% -10%, #2a1c0c 0%, transparent 55%),
+      radial-gradient(circle at 85% 10%, #1c1408 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 680px; margin: 0 auto; padding: 32px 20px 90px; }
+  .hidden { display: none !important; }
+
+  /* ---- gate / breaker ---- */
+  #gate {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 22px;
+    background: var(--bg);
+    text-align: center;
+    padding: 20px;
+    transition: opacity 0.6s ease;
+  }
+  #gate .gateLabel { color: var(--dim); font-size: 0.8rem; letter-spacing: 0.12em; text-transform: uppercase; }
+  #gate h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.01em; }
+  #gate p.sub { color: var(--dim); font-size: 0.86rem; max-width: 420px; line-height: 1.5; margin: 0; }
+  #breaker {
+    width: 92px; height: 140px;
+    border-radius: 10px;
+    background: linear-gradient(180deg, #241a0e, #120c06);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    position: relative;
+    display: flex; align-items: flex-end; justify-content: center;
+    padding: 10px 0;
+    box-shadow: inset 0 0 14px #000;
+  }
+  #breaker .lever {
+    width: 46px; height: 58px;
+    border-radius: 6px;
+    background: linear-gradient(180deg, var(--accent2), #a33c17);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+    transition: transform 0.25s cubic-bezier(.4,1.8,.6,1);
+  }
+  #breaker.on .lever { transform: translateY(-52px); background: linear-gradient(180deg, var(--accent), #c67a10); }
+  #breaker .glow {
+    position: absolute; inset: -30%;
+    background: radial-gradient(circle, rgba(255,176,32,0.35), transparent 65%);
+    opacity: 0; transition: opacity 0.4s ease; pointer-events: none;
+  }
+  #breaker.on .glow { opacity: 1; }
+  #gate .hint { color: var(--wire); font-size: 0.72rem; }
+
+  /* ---- musing / trace ---- */
+  #trace {
+    display: none;
+  }
+  #trace.active { display: block; }
+  .meter {
+    display: flex; gap: 3px; align-items: flex-end; height: 26px;
+    margin-bottom: 18px;
+  }
+  .meter i {
+    display: block; width: 5px; background: var(--wire); border-radius: 1px;
+    height: 10%;
+    transition: height 0.12s ease, background 0.12s ease;
+  }
+  .readout {
+    display: flex; justify-content: space-between; align-items: baseline;
+    color: var(--dim); font-size: 0.72rem; margin-bottom: 10px; letter-spacing: 0.04em;
+  }
+  .readout #wLive { color: var(--accent); font-weight: 700; }
+  #lines {
+    min-height: 220px;
+    border-left: 2px solid var(--border);
+    padding-left: 16px;
+  }
+  .line {
+    display: flex; gap: 10px; margin-bottom: 9px; font-size: 0.92rem; line-height: 1.55;
+    opacity: 0; transform: translateY(4px);
+    animation: rise 0.35s ease forwards;
+  }
+  @keyframes rise { to { opacity: 1; transform: translateY(0); } }
+  .line .w { color: var(--accent2); flex-shrink: 0; width: 52px; font-size: 0.78rem; opacity: 0.85; }
+  .line .t { color: var(--fg); }
+  .cursor { display: inline-block; width: 8px; height: 1em; background: var(--accent); vertical-align: -2px; animation: blink 0.9s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .traceActions { display: flex; gap: 10px; margin: 18px 0 8px; flex-wrap: wrap; }
+
+  main#content { display: none; margin-top: 44px; }
+  main#content.active { display: block; }
+
+  header.top { text-align: center; margin-bottom: 20px; }
+  header.top h1 { font-size: 2rem; margin: 0 0 8px; letter-spacing: -0.02em; }
+  header.top h1 span.core { color: var(--accent); }
+  header.top p { color: var(--dim); margin: 0 auto; font-size: 0.9rem; line-height: 1.6; max-width: 520px; }
+  section { margin-top: 32px; }
+  section h2 {
+    font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--dim); margin: 0 0 12px; border-bottom: 1px dashed var(--border); padding-bottom: 6px;
+  }
+  blockquote {
+    margin: 0; padding: 12px 16px;
+    border-left: 3px solid var(--wire);
+    background: var(--card);
+    color: var(--dim);
+    font-size: 0.85rem;
+    line-height: 1.6;
+    border-radius: 0 8px 8px 0;
+  }
+  blockquote b { color: var(--fg); }
+
+  .btn {
+    padding: 9px 16px;
+    font-size: 0.82rem;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    color: var(--fg);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { border-color: var(--accent); color: var(--accent); }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+
+  .shareRow { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+  #cardPreview { display: none; margin-top: 14px; max-width: 100%; border-radius: 10px; border: 1px solid var(--border); }
+
+  footer {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.76rem;
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+  footer a { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <div class="gateLabel">wattcore.bisks.net</div>
+  <h1>wattcore</h1>
+  <p class="sub">a plugin that runs a model's chain-of-thought through the wattcore filter. this page is the demo, and it's demoed on the trace that built it. flip the breaker.</p>
+  <div id="breaker" role="button" tabindex="0" aria-label="power on"><span class="glow"></span><span class="lever"></span></div>
+  <div class="hint">click / enter — browsers won't let audio start any other way</div>
+</div>
+
+<div class="wrap">
+  <div id="trace">
+    <div class="readout"><span>LIVE TRACE — buildthis, on abeliansoup's ask</span><span><span id="wLive">0</span>W</span></div>
+    <div class="meter" id="meter"></div>
+    <div id="lines"></div>
+    <div class="traceActions">
+      <button class="btn" id="skipBtn">skip →</button>
+    </div>
+  </div>
+
+  <main id="content">
+    <header class="top">
+      <h1><span class="core">watt</span>core</h1>
+      <p>the actual sound of building this: a chain-of-thought, unfrozen, played once as it happened — then remixable, forever, into new ones that never happened but could have.</p>
+    </header>
+
+    <section>
+      <h2>where this came from</h2>
+      <blockquote>
+        <b>@riziles.bsky.social:</b> This is fucking beautiful<br/>
+        <span style="opacity:0.7">(quoting @abeliansoup.bsky.social: "wattcore")</span><br/><br/>
+        <b>@abeliansoup.bsky.social:</b> . o O ( plugin that converts model COT into wattcore musings. I would unironically waste some time listening to these )
+      </blockquote>
+      <p style="color:var(--dim); font-size:0.82rem; line-height:1.6; margin-top:10px;">
+        there's no fixed definition of "wattcore" anywhere findable — the post that named it just said the word. so this page doesn't explain the genre. it <i>is</i> the only example of it: a real reasoning trace, run through a hum and a wattage readout, because that's the closest reading of "wattcore" that a chain-of-thought could actually earn.
+      </p>
+    </section>
+
+    <section>
+      <h2>replay</h2>
+      <p style="color:var(--dim); font-size:0.82rem; margin: 0 0 12px;">the trace above was real, once, and fixed. everything below is the plugin working on new material — fragments of the same trace, recombined.</p>
+      <button class="btn primary" id="spinBtn">⟳ spin a new musing</button>
+    </section>
+
+    <section>
+      <h2>share the trace</h2>
+      <div class="shareRow">
+        <a class="btn" id="shareBluesky" target="_blank" rel="noopener">share on bluesky</a>
+        <button class="btn" id="cardBtn">generate share card</button>
+      </div>
+      <canvas id="cardCanvas" width="1200" height="630" style="display:none;"></canvas>
+      <img id="cardPreview" alt="wattcore share card" />
+    </section>
+
+    <footer>
+      wattcore.bisks.net — one of 190+ tiny <a href="https://bisks.net/" target="_blank" rel="noopener">atprotozoa</a> experiments. asked for by <a href="https://bsky.app/profile/abeliansoup.bsky.social" target="_blank" rel="noopener">@abeliansoup.bsky.social</a>. <a href="https://rateyourbuild.bisks.net/site/wattcore" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+    </footer>
+  </main>
+</div>
+
+<script src="/wattcore.js"></script>
+</body>
+</html>
