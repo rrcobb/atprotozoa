@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>brewpaint — a tiny paint.net tribute</title>
+<meta name="description" content="A little browser paint app with layers, undo, and shape tools — built in honor of Rick Brewer (@rickbrew.bsky.social) and Paint.NET. Draw something, share it." />
+<meta property="og:title" content="brewpaint — a tiny paint.net tribute" />
+<meta property="og:description" content="A little browser paint app with layers, undo, and shape tools — built in honor of Rick Brewer (@rickbrew.bsky.social) and Paint.NET." />
+<meta property="og:url" content="https://brewpaint.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://brewpaint.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="brewpaint: a minimal browser paint app with a toolbox, color swatches, and a layers panel." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="brewpaint — a tiny paint.net tribute" />
+<meta name="twitter:description" content="A little browser paint app with layers, undo, and shape tools — built in honor of Rick Brewer (@rickbrew.bsky.social) and Paint.NET." />
+<meta name="twitter:image" content="https://brewpaint.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #1e1f22;
+    --panel: #2b2d31;
+    --panel2: #313338;
+    --border: #454851;
+    --fg: #eceef0;
+    --dim: #9a9ea6;
+    --accent: #5aa9ff;
+    --accent2: #ffb454;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 1.5rem 1rem 3rem; }
+  .wrap { width: 100%; max-width: 1080px; }
+  h1 {
+    font-size: 1.5rem;
+    margin: 0 0 0.15rem;
+    letter-spacing: -0.01em;
+  }
+  h1 .brew { color: var(--accent2); }
+  .tag { color: var(--dim); font-size: 0.85rem; margin: 0 0 1.1rem; line-height: 1.5; }
+  .tag a { color: var(--accent); }
+
+  .app {
+    display: flex;
+    gap: 0.75rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .toolbox {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 168px;
+    flex-shrink: 0;
+  }
+  .tools-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+  }
+  .tool-btn {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 6px;
+    padding: 0.4rem 0;
+    font-size: 1.05rem;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .tool-btn:hover { border-color: var(--accent); }
+  .tool-btn.active { background: var(--accent); border-color: var(--accent); color: #101317; }
+  .tool-btn[disabled] { opacity: 0.4; cursor: default; }
+
+  .section-label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+    margin: 0.35rem 0 0.1rem;
+  }
+
+  .colors {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .swatch-stack {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+  }
+  .swatch-stack input[type="color"] {
+    position: absolute;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 2px solid var(--panel);
+    border-radius: 4px;
+    cursor: pointer;
+    background: none;
+  }
+  #primaryColor { top: 0; left: 0; z-index: 2; }
+  #secondaryColor { bottom: 0; right: 0; z-index: 1; }
+  #swapColors {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 6px;
+    width: 28px; height: 28px;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .palette {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 3px;
+  }
+  .palette button {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.15);
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .slider-row { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.72rem; color: var(--dim); }
+  .slider-row input[type="range"] { width: 100%; }
+  .slider-row .val { color: var(--fg); }
+
+  .layers {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 150px;
+    overflow-y: auto;
+  }
+  .layer-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 3px 5px;
+    font-size: 0.75rem;
+  }
+  .layer-row.active { border-color: var(--accent); }
+  .layer-row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .layer-row button {
+    background: none;
+    border: none;
+    color: var(--dim);
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 1px 3px;
+  }
+  .layer-row button:hover { color: var(--fg); }
+  .layer-actions { display: flex; gap: 3px; }
+
+  .canvas-area {
+    flex: 1;
+    min-width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .canvas-scroll {
+    background:
+      linear-gradient(45deg, #3a3c42 25%, transparent 25%),
+      linear-gradient(-45deg, #3a3c42 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #3a3c42 75%),
+      linear-gradient(-45deg, transparent 75%, #3a3c42 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+    background-color: #2a2c30;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem;
+    overflow: auto;
+  }
+  #view {
+    max-width: 100%;
+    height: auto;
+    touch-action: none;
+    cursor: crosshair;
+    display: block;
+  }
+  .canvas-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+  }
+  .canvas-toolbar button, .canvas-toolbar .shape-mode {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 6px;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .canvas-toolbar button:hover { border-color: var(--accent); }
+  .canvas-toolbar .spacer { flex: 1; }
+  kbd {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 4px;
+    font-size: 0.72rem;
+  }
+
+  .share {
+    margin-top: 1.25rem;
+    border-top: 1px dashed var(--border);
+    padding-top: 1rem;
+  }
+  #shareCanvas { display: none; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-actions a, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+    border: none;
+  }
+  #shareBluesky { background: linear-gradient(90deg, var(--accent), #7ecbff); color: #0b1a2b; }
+  #shareDownload, #shareNative { background: var(--panel2); border: 1px solid var(--border); color: var(--fg); }
+
+  footer {
+    margin-top: 2rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.7;
+  }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1><span class="brew">brew</span>paint</h1>
+    <p class="tag">
+      A tiny <a href="https://www.getpaint.net/" target="_blank" rel="noopener">Paint.NET</a> tribute,
+      built in honor of its creator Rick
+      Brewer (<a href="https://bsky.app/profile/rickbrew.bsky.social" target="_blank" rel="noopener">@rickbrew.bsky.social</a>).
+      Brush, shapes, layers, undo — all in your browser, nothing saved anywhere but your own download.
+    </p>
+
+    <div class="app">
+      <div class="toolbox">
+        <div class="section-label">tools</div>
+        <div class="tools-grid" id="toolButtons">
+          <button class="tool-btn active" data-tool="brush" title="Brush (B)">🖌️</button>
+          <button class="tool-btn" data-tool="eraser" title="Eraser (E)">🧽</button>
+          <button class="tool-btn" data-tool="line" title="Line (L)">╱</button>
+          <button class="tool-btn" data-tool="rect" title="Rectangle (R)">▭</button>
+          <button class="tool-btn" data-tool="ellipse" title="Ellipse (O)">⬭</button>
+          <button class="tool-btn" data-tool="fill" title="Bucket fill (G)">🪣</button>
+          <button class="tool-btn" data-tool="eyedropper" title="Eyedropper (I)">💧</button>
+          <button class="tool-btn" id="shapeFillToggle" title="Toggle filled/outline shapes">▢</button>
+        </div>
+
+        <div class="section-label">color</div>
+        <div class="colors">
+          <div class="swatch-stack">
+            <input type="color" id="primaryColor" value="#111111" title="Primary color (left click / drag)" />
+            <input type="color" id="secondaryColor" value="#ffffff" title="Secondary color (shift/right click / drag)" />
+          </div>
+          <button id="swapColors" title="Swap colors">⇄</button>
+        </div>
+        <div class="palette" id="palette"></div>
+
+        <div class="section-label">brush</div>
+        <div class="slider-row">
+          <span>size: <span class="val" id="sizeVal">6</span>px</span>
+          <input type="range" id="sizeRange" min="1" max="60" value="6" />
+        </div>
+        <div class="slider-row">
+          <span>opacity: <span class="val" id="opacityVal">100</span>%</span>
+          <input type="range" id="opacityRange" min="1" max="100" value="100" />
+        </div>
+
+        <div class="section-label">layers</div>
+        <div class="layers" id="layers"></div>
+        <div class="canvas-toolbar">
+          <button id="addLayer" title="Add layer">+ layer</button>
+          <button id="delLayer" title="Delete active layer">🗑</button>
+        </div>
+      </div>
+
+      <div class="canvas-area">
+        <div class="canvas-toolbar">
+          <button id="undoBtn" title="Undo (Ctrl+Z)">↶ undo</button>
+          <button id="redoBtn" title="Redo (Ctrl+Shift+Z)">↷ redo</button>
+          <button id="clearBtn" title="Clear active layer">clear layer</button>
+          <span class="spacer"></span>
+          <button id="downloadBtn">⬇ download PNG</button>
+        </div>
+        <div class="canvas-scroll">
+          <canvas id="view" width="900" height="600"></canvas>
+        </div>
+        <p class="tag" style="margin:0;">
+          <kbd>B</kbd> brush · <kbd>E</kbd> eraser · <kbd>L</kbd> line · <kbd>R</kbd> rect · <kbd>O</kbd> ellipse ·
+          <kbd>G</kbd> fill · <kbd>I</kbd> eyedropper · <kbd>[</kbd>/<kbd>]</kbd> size · <kbd>Ctrl+Z</kbd> undo
+        </p>
+      </div>
+    </div>
+
+    <div class="share">
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+      <div class="share-actions">
+        <button id="shareNative" type="button" style="display:none;">📤 share</button>
+        <a id="shareBluesky" target="_blank" rel="noopener">🦋 share on Bluesky</a>
+        <button id="shareDownload" type="button">🖼️ save share card</button>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> for
+      <a href="https://bsky.app/profile/angussoftware.dev" target="_blank" rel="noopener">@angussoftware.dev</a> ·
+      rate it on <a href="https://rateyourbuild.bisks.net/site/brewpaint">rateyourbuild →</a>
+    </footer>
+  </div>
+
+<script src="app.js"></script>
+</body>
+</html>
