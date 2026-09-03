@@ -313,11 +313,119 @@ function hexToRgba(hex) {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 255];
 }
 
+// --- color math (color wheel + coordinating colors) ---
+
+function hslToRgb(h, s, l) {
+  s /= 100; l /= 100;
+  const k = (n) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+}
+function rgbToHex(r, g, b) {
+  return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+function hslToHex(h, s, l) {
+  return rgbToHex(...hslToRgb(h, s, l));
+}
+function hexToHsl(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h, s;
+  const l = (max + min) / 2;
+  if (max === min) {
+    h = s = 0;
+  } else {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+  }
+  return [h, s * 100, l * 100];
+}
+
+// --- color wheel ---
+
+const wheelCanvas = document.getElementById("colorWheel");
+const wctx = wheelCanvas.getContext("2d");
+const WHEEL_SIZE = 140;
+const WHEEL_R = WHEEL_SIZE / 2;
+let wheelDragging = false;
+let wheelTarget = "primary";
+
+function drawColorWheel(lightness) {
+  const img = wctx.createImageData(WHEEL_SIZE, WHEEL_SIZE);
+  for (let y = 0; y < WHEEL_SIZE; y++) {
+    for (let x = 0; x < WHEEL_SIZE; x++) {
+      const dx = x - WHEEL_R + 0.5, dy = y - WHEEL_R + 0.5;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const i = (y * WHEEL_SIZE + x) * 4;
+      if (dist > WHEEL_R) continue; // leave alpha 0 — transparent outside the disc
+      const hue = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+      const sat = Math.min(1, dist / WHEEL_R) * 100;
+      const [r, g, b] = hslToRgb(hue, sat, lightness);
+      img.data[i] = r; img.data[i + 1] = g; img.data[i + 2] = b; img.data[i + 3] = 255;
+    }
+  }
+  wctx.putImageData(img, 0, 0);
+}
+
+function wheelPointToHex(e) {
+  const rect = wheelCanvas.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (WHEEL_SIZE / rect.width);
+  const y = (e.clientY - rect.top) * (WHEEL_SIZE / rect.height);
+  const dx = x - WHEEL_R, dy = y - WHEEL_R;
+  const dist = Math.min(Math.sqrt(dx * dx + dy * dy), WHEEL_R);
+  const hue = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360;
+  const sat = (dist / WHEEL_R) * 100;
+  const light = Number(document.getElementById("lightRange").value);
+  return hslToHex(hue, sat, light);
+}
+
+function pickFromWheel(e) {
+  const hex = wheelPointToHex(e);
+  if (wheelTarget === "secondary") setSecondaryColor(hex); else setPrimaryColor(hex);
+}
+
+// --- coordinating colors ---
+
+function harmonySwatches(hex) {
+  const [h, s, l] = hexToHsl(hex);
+  const rot = (deg, label) => ({ label, hex: hslToHex((h + deg + 360) % 360, s, l) });
+  return [
+    rot(180, "complementary"),
+    rot(-30, "analogous −30°"),
+    rot(30, "analogous +30°"),
+    rot(150, "split-complementary"),
+    rot(120, "triadic +120°"),
+    rot(240, "triadic +240°"),
+  ];
+}
+
+function updateHarmony() {
+  const el = document.getElementById("harmony");
+  el.innerHTML = "";
+  for (const { label, hex } of harmonySwatches(primaryColor)) {
+    const b = document.createElement("button");
+    b.style.background = hex;
+    b.title = `${label} — ${hex} (shift/right-click for secondary)`;
+    b.addEventListener("click", (e) => {
+      if (e.shiftKey) setSecondaryColor(hex); else setPrimaryColor(hex);
+    });
+    b.addEventListener("contextmenu", (e) => { e.preventDefault(); setSecondaryColor(hex); });
+    el.appendChild(b);
+  }
+}
+
 // --- UI wiring ---
 
 function setPrimaryColor(hex) {
   primaryColor = hex;
   document.getElementById("primaryColor").value = hex;
+  updateHarmony();
 }
 function setSecondaryColor(hex) {
   secondaryColor = hex;
@@ -367,6 +475,23 @@ function init() {
     setSecondaryColor(p);
   });
 
+  drawColorWheel(50);
+  updateHarmony();
+  wheelCanvas.addEventListener("pointerdown", (e) => {
+    wheelDragging = true;
+    wheelTarget = e.shiftKey || e.button === 2 ? "secondary" : "primary";
+    wheelCanvas.setPointerCapture(e.pointerId);
+    pickFromWheel(e);
+  });
+  wheelCanvas.addEventListener("pointermove", (e) => { if (wheelDragging) pickFromWheel(e); });
+  wheelCanvas.addEventListener("pointerup", () => { wheelDragging = false; });
+  wheelCanvas.addEventListener("pointercancel", () => { wheelDragging = false; });
+  wheelCanvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  document.getElementById("lightRange").addEventListener("input", (e) => {
+    document.getElementById("lightVal").textContent = e.target.value;
+    drawColorWheel(Number(e.target.value));
+  });
+
   const sizeRange = document.getElementById("sizeRange");
   sizeRange.addEventListener("input", () => {
     brushSize = Number(sizeRange.value);
@@ -388,6 +513,14 @@ function init() {
     composite();
   });
   document.getElementById("downloadBtn").addEventListener("click", downloadPng);
+  document.getElementById("saveWipBtn").addEventListener("click", saveWip);
+  const loadWipInput = document.getElementById("loadWipInput");
+  document.getElementById("loadWipBtn").addEventListener("click", () => loadWipInput.click());
+  loadWipInput.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (file) loadWip(file);
+    loadWipInput.value = "";
+  });
 
   view.addEventListener("pointerdown", pointerDown);
   view.addEventListener("pointermove", pointerMove);
@@ -425,6 +558,71 @@ function downloadPng() {
     a.click();
     URL.revokeObjectURL(a.href);
   });
+}
+
+// --- WIP save/load: a full editable snapshot (all layers, names,
+// visibility), not just a flattened PNG — a real file on your own disk
+// since nothing here is saved server-side. ---
+
+const WIP_FORMAT = "brewpaint-wip";
+
+function saveWip() {
+  const data = {
+    format: WIP_FORMAT,
+    version: 1,
+    width: W,
+    height: H,
+    activeLayer,
+    layers: layers.map((l) => ({
+      name: l.name,
+      visible: l.visible,
+      dataURL: l.canvas.toDataURL("image/png"),
+    })),
+  };
+  const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "brewpaint-wip.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function loadWip(file) {
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch (_) {
+    alert("that doesn't look like a brewpaint WIP file");
+    return;
+  }
+  if (!data || data.format !== WIP_FORMAT || !Array.isArray(data.layers) || !data.layers.length) {
+    alert("that doesn't look like a brewpaint WIP file");
+    return;
+  }
+
+  const loaded = await Promise.all(data.layers.map((l) => new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = newLayerCanvas();
+      canvas.getContext("2d").drawImage(img, 0, 0, W, H);
+      resolve({ canvas, ctx: canvas.getContext("2d"), name: l.name || "layer", visible: l.visible !== false });
+    };
+    img.onerror = () => resolve(null);
+    img.src = l.dataURL;
+  })));
+
+  const valid = loaded.filter(Boolean);
+  if (!valid.length) {
+    alert("couldn't load any layers from that file");
+    return;
+  }
+
+  layers = valid;
+  activeLayer = Math.min(Math.max(0, data.activeLayer | 0), layers.length - 1);
+  undoStack = [];
+  redoStack = [];
+  renderLayerList();
+  composite();
 }
 
 // --- sharing ---
