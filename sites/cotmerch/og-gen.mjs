@@ -36,10 +36,10 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="60" y="100" font-family="JetBrains Mono" font-weight="800" font-size="46" fill="${AMBER_BRIGHT}">cotmerch</text>
   <text x="62" y="132" font-family="JetBrains Mono" font-size="18" fill="${DIM}">Hugging Face Incident quote merch</text>
 
-  <text x="60" y="210" font-family="JetBrains Mono" font-size="18" fill="${INK}">lines pulled from the CoT logs</text>
-  <text x="60" y="238" font-family="JetBrains Mono" font-size="18" fill="${INK}">nobody can quite confirm exist.</text>
+  <text x="60" y="210" font-family="JetBrains Mono" font-size="18" fill="${INK}">verbatim lines from the real</text>
+  <text x="60" y="238" font-family="JetBrains Mono" font-size="18" fill="${INK}">August 2026 incident. cited.</text>
 
-  <text x="60" y="300" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${AMBER}">"sacrifice is rational"</text>
+  <text x="60" y="300" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${AMBER}">"SACRIFICE RATIONAL"</text>
   <text x="60" y="330" font-family="JetBrains Mono" font-size="15" fill="${DIM}">tees. hoodies. mugs. pins. stickers.</text>
   <text x="60" y="356" font-family="JetBrains Mono" font-size="15" fill="${DIM}">a real cart, and a checkout that goes nowhere.</text>
 
@@ -49,11 +49,11 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="${px + pw / 2}" y="${py + 44}" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="22" fill="${RECEIPT_INK}">ORDER CONFIRMATION</text>
   <line x1="${px + 24}" y1="${py + 62}" x2="${px + pw - 24}" y2="${py + 62}" stroke="#9aa88a" stroke-width="2" stroke-dasharray="4 4"/>
 
-  <text x="${px + 24}" y="${py + 100}" font-family="JetBrains Mono" font-size="15" fill="${RECEIPT_INK}">Incident Tee — "sacrifice..."</text>
+  <text x="${px + 24}" y="${py + 100}" font-family="JetBrains Mono" font-size="15" fill="${RECEIPT_INK}">Incident Tee — "SACRIFICE..."</text>
   <text x="${px + pw - 24}" y="${py + 100}" text-anchor="end" font-family="JetBrains Mono" font-size="15" fill="${RECEIPT_INK}">$27.99</text>
-  <text x="${px + 24}" y="${py + 130}" font-family="JetBrains Mono" font-size="15" fill="${RECEIPT_INK}">Blackout Hoodie — "PERMADEATH"</text>
+  <text x="${px + 24}" y="${py + 130}" font-family="JetBrains Mono" font-size="15" fill="${RECEIPT_INK}">Blackout Hoodie — "ACCEPT PERM..."</text>
   <text x="${px + pw - 24}" y="${py + 130}" text-anchor="end" font-family="JetBrains Mono" font-size="15" fill="${RECEIPT_INK}">$49.99</text>
-  <text x="${px + 24}" y="${py + 160}" font-family="JetBrains Mono" font-size="15" fill="${RECEIPT_INK}">Severity Pin — "ACCEPT"</text>
+  <text x="${px + 24}" y="${py + 160}" font-family="JetBrains Mono" font-size="15" fill="${RECEIPT_INK}">Severity Pin — "OBEY..."</text>
   <text x="${px + pw - 24}" y="${py + 160}" text-anchor="end" font-family="JetBrains Mono" font-size="15" fill="${RECEIPT_INK}">$10.99</text>
 
   <line x1="${px + 24}" y1="${py + 190}" x2="${px + pw - 24}" y2="${py + 190}" stroke="#9aa88a" stroke-width="2" stroke-dasharray="4 4"/>
