@@ -51,3 +51,16 @@ const DUNBAR_LAYERS = [
   { n: 50, label: "band" },
   { n: 150, label: "Dunbar's number" },
 ];
+
+// Categories of real humans you can check off to "forget," each padding out
+// your effective cap above the base 150 — because if the slot's freed up
+// anyway, it might as well go to an AI model. Slot estimates are vibes, not
+// science, same as the rest of this chart.
+const FORGET_CATEGORIES = [
+  { id: "old-school-friends", label: "old school friends you've lost touch with", slots: 20 },
+  { id: "work-last-job", label: "work buddies from your last job", slots: 15 },
+  { id: "work-current-job", label: "work buddies at your current job", slots: 12 },
+  { id: "distant-family", label: "distant family (the ones you see at reunions)", slots: 25 },
+  { id: "close-family", label: "close family", slots: 8 },
+  { id: "kids", label: "kids", slots: 10 },
+];

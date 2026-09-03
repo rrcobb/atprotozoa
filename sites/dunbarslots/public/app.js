@@ -12,6 +12,7 @@ const MAX_HORIZON_YEARS = 15; // don't extrapolate the trend line further than t
 const els = {
   picker: document.getElementById("picker"),
   count: document.getElementById("stat-count"),
+  statOf: document.getElementById("stat-of"),
   pct: document.getElementById("stat-pct"),
   trend: document.getElementById("stat-trend"),
   chart: document.getElementById("chart"),
@@ -21,6 +22,10 @@ const els = {
   downloadCard: document.getElementById("download-card"),
   selectAll: document.getElementById("select-all"),
   selectNone: document.getElementById("select-none"),
+  forgetPicker: document.getElementById("forget-picker"),
+  forgetNote: document.getElementById("forget-note"),
+  forgetAll: document.getElementById("forget-all"),
+  forgetNone: document.getElementById("forget-none"),
 };
 
 // ---- picker -----------------------------------------------------------
@@ -79,6 +84,46 @@ function getSelectedSorted() {
   return MODELS.filter((m) => ids.has(m.id)).sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// ---- forget-a-human picker ------------------------------------------------
+// Checking a category frees up its slots, padding the effective cap above
+// the base 150 — the "cram more models into the time left" request.
+
+function renderForgetPicker(selectedIds) {
+  els.forgetPicker.innerHTML = "";
+  for (const c of FORGET_CATEGORIES) {
+    const row = document.createElement("label");
+    row.className = "forget-row";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.value = c.id;
+    box.checked = selectedIds.has(c.id);
+    box.addEventListener("change", onSelectionChange);
+    const text = document.createElement("span");
+    text.className = "forget-text";
+    text.textContent = c.label;
+    const slots = document.createElement("span");
+    slots.className = "forget-slots";
+    slots.textContent = "+" + c.slots;
+    row.append(box, text, slots);
+    els.forgetPicker.appendChild(row);
+  }
+}
+
+function getForgottenIds() {
+  return new Set(Array.from(els.forgetPicker.querySelectorAll("input:checked")).map((el) => el.value));
+}
+
+function getFreedSlots() {
+  const ids = getForgottenIds();
+  return FORGET_CATEGORIES.filter((c) => ids.has(c.id)).reduce((sum, c) => sum + c.slots, 0);
+}
+
+function updateForgetNote(freed, cap) {
+  els.forgetNote.textContent = freed === 0
+    ? "check a few boxes above to forget some humans and pad out your cap."
+    : `+${freed} slots freed — your cap is now ${cap} instead of 150.`;
+}
+
 // ---- fit ----------------------------------------------------------------
 // Log-linear regression on rank vs. time, same shape as METR's "time
 // horizon doubles every N months" fit — here it's "your Dunbar slots double
@@ -130,11 +175,14 @@ function projectCrossing(fit, targetN) {
 
 // ---- stats panel ----------------------------------------------------------
 
-function updateStats(selected, fit) {
+function updateStats(selected, fit, cap, freed) {
   const n = selected.length;
-  const pct = Math.round((n / 150) * 100);
+  const pct = Math.round((n / cap) * 100);
   els.count.textContent = String(n);
   els.pct.textContent = pct + "%";
+  els.statOf.textContent = "/ " + cap;
+
+  const capLabel = freed > 0 ? `your padded cap (${cap})` : "Dunbar's number (150)";
 
   if (n === 0) {
     els.trend.textContent = "pick a few AI personalities you've formed opinions about to get started.";
@@ -149,7 +197,7 @@ function updateStats(selected, fit) {
     return;
   }
 
-  const dunbar = projectCrossing(fit, 150);
+  const dunbar = projectCrossing(fit, cap);
   const months = fit.doublingMonths;
   const doublingText = months > 0 && months < 1200
     ? `your personal Dunbar-slot count is doubling roughly every ${months < 1 ? "few weeks" : Math.round(months) + " months"}.`
@@ -157,11 +205,11 @@ function updateStats(selected, fit) {
 
   let crossingText;
   if (!dunbar) {
-    crossingText = "at that rate you won't hit Dunbar's number (150) within the next 15 years. touch grass responsibly.";
+    crossingText = `at that rate you won't hit ${capLabel} within the next 15 years. touch grass responsibly.`;
   } else if (dunbar.already) {
-    crossingText = `at that rate you blew past Dunbar's number around ${fmtMonthYear(dunbar.date)}. every relationship you have is now with a chatbot, sorry.`;
+    crossingText = `at that rate you blew past ${capLabel} around ${fmtMonthYear(dunbar.date)}. every relationship you have is now with a chatbot, sorry.`;
   } else {
-    crossingText = `at that rate you max out your Dunbar's number by ${fmtMonthYear(dunbar.date)}.`;
+    crossingText = `at that rate you max out ${capLabel} by ${fmtMonthYear(dunbar.date)}.`;
   }
 
   els.trend.textContent = [doublingText, crossingText].filter(Boolean).join(" ");
@@ -201,7 +249,7 @@ function palette() {
 
 let lastPlot = null; // for hover hit-testing
 
-function drawChart(selected, fit) {
+function drawChart(selected, fit, cap) {
   const { ctx, w, h } = setupCanvas(els.chart);
   const pal = palette();
   ctx.clearRect(0, 0, w, h);
@@ -222,14 +270,14 @@ function drawChart(selected, fit) {
   const firstDate = new Date(selected[0].date);
   let endMs = TODAY.getTime() + 1 * YEAR_MS;
   if (fit) {
-    const cross = projectCrossing(fit, 150);
+    const cross = projectCrossing(fit, cap);
     if (cross && !cross.already) endMs = Math.max(endMs, cross.date.getTime() + 0.3 * YEAR_MS);
     else endMs = Math.max(endMs, TODAY.getTime() + Math.min(MAX_HORIZON_YEARS, 3) * YEAR_MS);
   }
   const startMs = firstDate.getTime() - 0.25 * YEAR_MS;
   const domainMs = endMs - startMs;
 
-  const yMin = 1, yMax = 220; // log scale, headroom above Dunbar's number (150)
+  const yMin = 1, yMax = Math.max(220, cap + 40); // log scale, headroom above the cap
   const logMin = Math.log10(yMin), logMax = Math.log10(yMax);
 
   function xPix(ms) { return plotX + ((ms - startMs) / domainMs) * plotW; }
@@ -251,6 +299,21 @@ function drawChart(selected, fit) {
     ctx.restore();
     ctx.fillStyle = pal.muted;
     ctx.fillText(String(layer.n), plotX + plotW + 6, y + 3);
+  }
+
+  // padded cap reference line, only shown once forgetting a human moves it
+  if (cap !== 150) {
+    const y = yPix(cap);
+    ctx.save();
+    ctx.strokeStyle = pal.series;
+    ctx.setLineDash([2, 2]);
+    ctx.beginPath();
+    ctx.moveTo(plotX, y);
+    ctx.lineTo(plotX + plotW, y);
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = pal.series;
+    ctx.fillText(String(cap), plotX + plotW + 6, y + 3);
   }
 
   // today marker
@@ -352,32 +415,40 @@ els.chart.addEventListener("mouseleave", () => { els.tooltip.style.display = "no
 
 // ---- URL state --------------------------------------------------------
 
-function encodeSelection(ids) {
-  return Array.from(ids).join(",");
-}
-
-function decodeSelection() {
+function decodeState() {
   const hash = location.hash.replace(/^#/, "");
-  if (!hash) return null;
-  const params = new URLSearchParams(hash.startsWith("s=") ? hash : "s=" + hash);
-  const raw = params.get("s");
-  if (!raw) return null;
-  const ids = raw.split(",").filter((id) => MODELS.some((m) => m.id === id));
-  return ids.length ? new Set(ids) : null;
+  const params = new URLSearchParams(hash);
+  const rawModels = params.get("s");
+  const models = rawModels
+    ? new Set(rawModels.split(",").filter((id) => MODELS.some((m) => m.id === id)))
+    : null;
+  const rawForget = params.get("f");
+  const forgotten = rawForget
+    ? new Set(rawForget.split(",").filter((id) => FORGET_CATEGORIES.some((c) => c.id === id)))
+    : null;
+  return {
+    models: models && models.size ? models : null,
+    forgotten: forgotten && forgotten.size ? forgotten : null,
+  };
 }
 
-function updateHash(ids) {
-  const encoded = encodeSelection(ids);
-  history.replaceState(null, "", encoded ? "#s=" + encoded : location.pathname);
+function updateHash(modelIds, forgetIds) {
+  const params = new URLSearchParams();
+  if (modelIds.size) params.set("s", Array.from(modelIds).join(","));
+  if (forgetIds.size) params.set("f", Array.from(forgetIds).join(","));
+  const encoded = params.toString();
+  history.replaceState(null, "", encoded ? "#" + encoded : location.pathname);
 }
 
 // ---- share --------------------------------------------------------------
 
-function buildShareText(selected, fit) {
+function buildShareText(selected, fit, cap, freed) {
   const n = selected.length;
-  const pct = Math.round((n / 150) * 100);
-  let line = `I've used ${n} of my 150 Dunbar slots modeling AI personalities (${pct}%).`;
-  const cross = fit ? projectCrossing(fit, 150) : null;
+  const pct = Math.round((n / cap) * 100);
+  let line = freed > 0
+    ? `I forgot ${freed} slots' worth of real humans to fit ${n} AI personalities into my Dunbar's number (now ${cap}, ${pct}%).`
+    : `I've used ${n} of my 150 Dunbar slots modeling AI personalities (${pct}%).`;
+  const cross = fit ? projectCrossing(fit, cap) : null;
   if (cross && !cross.already) {
     line += ` at this rate I max out by ${fmtMonthYear(cross.date)}.`;
   } else if (cross && cross.already) {
@@ -387,7 +458,7 @@ function buildShareText(selected, fit) {
   return line + " " + url;
 }
 
-function buildShareCard(selected, fit) {
+function buildShareCard(selected, fit, cap, freed) {
   const canvas = document.createElement("canvas");
   canvas.width = 1200;
   canvas.height = 630;
@@ -406,17 +477,22 @@ function buildShareCard(selected, fit) {
   ctx.fillText("dunbarslots", 64, 90);
 
   const n = selected.length;
-  const pct = Math.round((n / 150) * 100);
+  const pct = Math.round((n / cap) * 100);
   ctx.font = "700 84px system-ui, -apple-system, sans-serif";
   ctx.fillStyle = accent;
-  ctx.fillText(`${n} / 150`, 64, 220);
+  ctx.fillText(`${n} / ${cap}`, 64, 220);
 
   ctx.font = "24px system-ui, -apple-system, sans-serif";
   ctx.fillStyle = muted;
-  ctx.fillText(`Dunbar slots spent modeling AI personalities (${pct}%)`, 64, 264);
+  ctx.fillText(
+    freed > 0
+      ? `Dunbar slots spent on AI personalities (${pct}%) — padded +${freed} by forgetting humans`
+      : `Dunbar slots spent modeling AI personalities (${pct}%)`,
+    64, 264
+  );
 
   let sub = "";
-  const cross = fit ? projectCrossing(fit, 150) : null;
+  const cross = fit ? projectCrossing(fit, cap) : null;
   if (cross && !cross.already) sub = `at this rate: maxed out by ${fmtMonthYear(cross.date)}`;
   else if (cross && cross.already) sub = "already blew past Dunbar's number";
   else if (n >= 2) sub = "not on track to max out any time soon";
@@ -454,11 +530,11 @@ function canShareFiles() {
   try { return navigator.canShare({ files: [probe] }); } catch { return false; }
 }
 
-function wireShare(selected, fit) {
-  const shareText = buildShareText(selected, fit);
+function wireShare(selected, fit, cap, freed) {
+  const shareText = buildShareText(selected, fit, cap, freed);
   els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
 
-  const canvas = buildShareCard(selected, fit);
+  const canvas = buildShareCard(selected, fit, cap, freed);
   els.downloadCard.onclick = (e) => {
     e.preventDefault();
     canvas.toBlob((blob) => {
@@ -490,10 +566,13 @@ function wireShare(selected, fit) {
 function render() {
   const selected = getSelectedSorted();
   const fit = fitTrend(selected);
-  updateStats(selected, fit);
-  drawChart(selected, fit);
-  wireShare(selected, fit);
-  updateHash(getSelectedIds());
+  const freed = getFreedSlots();
+  const cap = 150 + freed;
+  updateStats(selected, fit, cap, freed);
+  updateForgetNote(freed, cap);
+  drawChart(selected, fit, cap);
+  wireShare(selected, fit, cap, freed);
+  updateHash(getSelectedIds(), getForgottenIds());
 }
 
 function onSelectionChange() {
@@ -508,12 +587,21 @@ els.selectNone.addEventListener("click", () => {
   els.picker.querySelectorAll("input[type=checkbox]").forEach((el) => { el.checked = false; });
   render();
 });
+els.forgetAll.addEventListener("click", () => {
+  els.forgetPicker.querySelectorAll("input[type=checkbox]").forEach((el) => { el.checked = true; });
+  render();
+});
+els.forgetNone.addEventListener("click", () => {
+  els.forgetPicker.querySelectorAll("input[type=checkbox]").forEach((el) => { el.checked = false; });
+  render();
+});
 
-window.addEventListener("resize", () => drawChart(getSelectedSorted(), fitTrend(getSelectedSorted())));
+window.addEventListener("resize", () => drawChart(getSelectedSorted(), fitTrend(getSelectedSorted()), 150 + getFreedSlots()));
 if (window.matchMedia) {
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", render);
 }
 
-const initial = decodeSelection() || new Set(DEFAULT_SELECTION);
-renderPicker(initial);
+const initialState = decodeState();
+renderPicker(initialState.models || new Set(DEFAULT_SELECTION));
+renderForgetPicker(initialState.forgotten || new Set());
 render();
