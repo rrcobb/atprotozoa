@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>game of bisk — gridify a Bluesky post, then run cellular automata on it</title>
+    <meta
+      name="description"
+      content="Pick a bisk (a Bluesky post), watch it get rasterized into a grid, then run Conway's Life, Langton's Ant, Brian's Brain, and more cellular automata on it."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="game of bisk" />
+    <meta property="og:url" content="https://gameofbisk.bisks.net/" />
+    <meta
+      property="og:description"
+      content="Pick a bisk, gridify it, then run Conway's Life, Langton's Ant, Brian's Brain and more cellular automata on it."
+    />
+    <meta property="og:image" content="https://gameofbisk.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="game of bisk" />
+    <meta
+      name="twitter:description"
+      content="Pick a bisk, gridify it, then run Conway's Life, Langton's Ant, Brian's Brain and more cellular automata on it."
+    />
+    <meta name="twitter:image" content="https://gameofbisk.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #17180f;
+        --muted: #6b6b60;
+        --faint: #e2e2d6;
+        --faintbg: #f6f6ef;
+        --accent: #3f7d3a;
+        --accent2: #d1495b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 2.2rem 1.25rem 5rem; }
+
+      header { margin-bottom: 1.4rem; }
+      h1 {
+        margin: 0 0 0.4rem;
+        font-size: 1.8rem;
+        letter-spacing: -0.01em;
+      }
+      h1 .life { color: var(--accent); }
+      .tagline { color: var(--muted); margin: 0; font-size: 0.92rem; max-width: 56ch; }
+      .tagline b { color: var(--ink); }
+
+      form.finder { display: flex; gap: 0.5rem; margin: 1.2rem 0 0.5rem; }
+      input[type="text"] {
+        flex: 1; font-family: inherit; font-size: 0.95rem;
+        padding: 0.55rem 0.7rem; border: 1px solid var(--ink);
+        border-radius: 4px; background: var(--bg); color: var(--ink); min-width: 0;
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button {
+        font-family: inherit; font-size: 0.88rem; cursor: pointer;
+        padding: 0.55rem 0.85rem; border: 1px solid var(--ink);
+        background: var(--bg); color: var(--ink); border-radius: 4px;
+      }
+      button:hover:not(:disabled) { background: var(--faintbg); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.solid { background: var(--ink); color: #fff; font-weight: 700; }
+      button.solid:hover:not(:disabled) { background: #000; }
+
+      .msg { font-size: 0.82rem; color: var(--muted); min-height: 1.2rem; margin: 0.4rem 0 1rem; }
+      .msg.err { color: var(--accent2); }
+      .msg.ok { color: var(--accent); }
+
+      #picker[hidden], #biskCard[hidden], #sim[hidden] { display: none; }
+      #pickerList { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: 0.4rem; }
+      .pickBtn {
+        width: 100%; display: flex; align-items: center; gap: 0.6rem;
+        text-align: left; padding: 0.5rem 0.65rem;
+      }
+      .pickBtn img, .pickBtn .ph {
+        width: 26px; height: 26px; border-radius: 50%; flex: none; object-fit: cover;
+        background: var(--faintbg); display: flex; align-items: center; justify-content: center;
+        font-size: 0.7rem; font-weight: 700; color: var(--muted);
+      }
+      .pickBtn .ptext { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+      #biskCard {
+        display: flex; gap: 0.7rem; border: 1px solid var(--faint); border-radius: 8px;
+        padding: 0.8rem 0.9rem; margin-bottom: 1.3rem; background: var(--faintbg);
+      }
+      #biskCard .avatar { width: 42px; height: 42px; border-radius: 50%; flex: none; object-fit: cover; background: var(--faint); }
+      #biskCard .meta { min-width: 0; }
+      #biskCard .who { font-size: 0.85rem; margin-bottom: 0.25rem; }
+      #biskCard .handle { color: var(--muted); }
+      #biskCard .text { font-size: 0.92rem; white-space: pre-wrap; word-break: break-word; margin-bottom: 0.35rem; }
+      #biskCard .link { font-size: 0.78rem; color: var(--accent); text-decoration: none; }
+      #biskCard .link:hover { text-decoration: underline; }
+
+      #sim { border-top: 1px solid var(--faint); padding-top: 1.2rem; }
+      .simRow { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin-bottom: 0.7rem; }
+      select {
+        font-family: inherit; font-size: 0.85rem; padding: 0.5rem 0.6rem;
+        border: 1px solid var(--ink); border-radius: 4px; background: var(--bg); color: var(--ink);
+      }
+      #ruleControls[hidden] { display: none; }
+      #ruleControls { display: flex; align-items: center; gap: 0.5rem; }
+      #ruleNumber { width: 4.2rem; font-family: inherit; font-size: 0.85rem; padding: 0.45rem 0.5rem; border: 1px solid var(--ink); border-radius: 4px; }
+      #rulePresets button { padding: 0.4rem 0.55rem; font-size: 0.78rem; }
+
+      .canvasWrap { border: 1px solid var(--ink); border-radius: 6px; overflow: hidden; margin-bottom: 0.7rem; display: inline-block; background: #f6f3ea; }
+      canvas { display: block; image-rendering: pixelated; }
+
+      .simControls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.6rem; }
+      .speedWrap { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: var(--muted); }
+      #speed { width: 8rem; }
+      #genCounter { font-size: 0.8rem; color: var(--muted); margin-left: auto; }
+
+      .legend { font-size: 0.8rem; color: var(--muted); margin: 0 0 1.2rem; }
+
+      .shareRow { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span onclick='var e=document.getElementById("handleInput");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">g</span>ame of b<span class="life">i</span>sk</h1>
+        <p class="tagline">
+          Pick a <b>bisk</b> (a Bluesky post) and it gets rasterized — text and
+          avatar — into a grid. Then run Conway's <b>Life</b>, <b>Langton's Ant</b>,
+          <b>Brian's Brain</b>, or a handful of others on it and watch the bisk
+          dissolve into something else.
+        </p>
+      </header>
+
+      <form class="finder" id="findForm" autocomplete="off">
+        <input type="text" id="handleInput" placeholder="a handle, or a bsky.app post link" spellcheck="false" />
+        <button class="solid" id="findBtn" type="submit">find bisks</button>
+      </form>
+      <p class="msg" id="msg">reads Bluesky's public API in your browser — no login.</p>
+
+      <div id="picker" hidden>
+        <ul id="pickerList"></ul>
+      </div>
+
+      <div id="biskCard" hidden></div>
+
+      <div id="sim" hidden>
+        <div class="simRow">
+          <label for="automatonSelect" style="font-size:0.8rem;color:var(--muted)">automaton</label>
+          <select id="automatonSelect">
+            <optgroup label="life-like">
+              <option value="life">Conway's Life</option>
+              <option value="highlife">HighLife</option>
+              <option value="seeds">Seeds</option>
+              <option value="daynight">Day &amp; Night</option>
+              <option value="maze">Maze</option>
+              <option value="replicator">Replicator</option>
+            </optgroup>
+            <optgroup label="other">
+              <option value="brain">Brian's Brain</option>
+              <option value="ant">Langton's Ant</option>
+              <option value="elementary">Elementary CA (Wolfram)</option>
+            </optgroup>
+          </select>
+          <div id="ruleControls" hidden>
+            <label for="ruleNumber" style="font-size:0.8rem;color:var(--muted)">rule #</label>
+            <input type="number" id="ruleNumber" min="0" max="255" value="30" />
+            <span id="rulePresets">
+              <button type="button" data-rule="30">30</button>
+              <button type="button" data-rule="90">90</button>
+              <button type="button" data-rule="110">110</button>
+              <button type="button" data-rule="184">184</button>
+            </span>
+          </div>
+        </div>
+
+        <div class="canvasWrap"><canvas id="gridCanvas"></canvas></div>
+
+        <div class="simControls">
+          <button id="playBtn" type="button">▶ play</button>
+          <button id="stepBtn" type="button">step</button>
+          <button id="resetBtn" type="button">reset to bisk</button>
+          <button id="randomBtn" type="button">randomize</button>
+          <div class="speedWrap">
+            speed
+            <input type="range" id="speed" min="1" max="60" value="10" />
+          </div>
+          <span id="genCounter">gen 0</span>
+        </div>
+
+        <p class="legend" id="legend"></p>
+
+        <div class="shareRow">
+          <button id="shareBtn" type="button">share on bluesky →</button>
+          <button id="downloadBtn" type="button">download grid as png</button>
+        </div>
+      </div>
+
+      <footer>
+        reads Bluesky's public AppView, no login required. picker + typeahead
+        borrow from <a href="https://biskshow.bisks.net">biskshow</a> · sibling of
+        <a href="https://bisks.net">bisks.net</a> ·
+        <a href="https://rateyourbuild.bisks.net/site/gameofbisk">rate this on rateyourbuild →</a>
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
