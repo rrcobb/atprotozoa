@@ -30,6 +30,10 @@ const els = {
 let session = null;
 let sessionScore = { correct: 0, total: 0 };
 const pdsCache = new Map();
+// A streak to beat, parsed off a shared /s/<actor>/<correct>/<total> link
+// (see src/index.ts's renderShare) — shown as a target in the round header,
+// null for an ordinary visit.
+let beatTarget = null;
 
 const shelfIndex = new GlobalIndex(SHELF_COLLECTION, {
   normalize: normalizeShelf,
@@ -115,6 +119,7 @@ els.playBtn.onclick = () => {
     setSetupErr("type a handle, or sign in first.");
     return;
   }
+  beatTarget = null; // a manually-chosen cluster isn't the one a shared link's streak was set on
   playCluster(actor);
 };
 els.clusterHandleInput.addEventListener("keydown", (e) => {
@@ -280,13 +285,27 @@ function renderGame(loadingStep) {
       chips = r.options.map((c) => candidateChip(c)).join("");
     }
 
+    const beatChip = beatTarget
+      ? ` <span class="score-pill" style="background:var(--paper-dark);color:var(--ink)">beat ${beatTarget.correct}/${beatTarget.total} (${Math.round((beatTarget.correct / beatTarget.total) * 100)}%)</span>`
+      : "";
+
     els.gameCard.innerHTML = `
-      <p><span class="score-pill">${sessionScore.correct}/${sessionScore.total} this session</span> · playing @${esc(state.clusterActor)}'s SimCluster · <button class="btn secondary" id="backBtn" style="padding:3px 8px;font-size:11px">switch</button></p>
+      <p><span class="score-pill">${sessionScore.correct}/${sessionScore.total} this session</span>${beatChip} · playing @${esc(state.clusterActor)}'s SimCluster · <button class="btn secondary" id="backBtn" style="padding:3px 8px;font-size:11px">switch</button></p>
       <div class="shelf-photo-wrap">${photo}</div>
       <p style="margin:0 0 8px;font-weight:bold">whose shelf is this?</p>
       ${banner}
       <div class="candidate-grid">${chips}</div>
-      ${r.resolved ? `<p style="margin-top:16px"><button class="btn" id="nextBtn">next round →</button> <a class="btn secondary" id="shareBtn" href="#">share your streak</a></p>` : ""}
+      ${r.resolved ? `
+        <p style="margin-top:16px"><button class="btn" id="nextBtn">next round →</button></p>
+        <div class="share-card">
+          <canvas id="shareCanvas" width="1200" height="630"></canvas>
+          <div class="share-actions">
+            <a class="btn" id="shareBtn" target="_blank" rel="noopener">share your streak 🦋</a>
+            <button class="btn secondary" id="shareDownloadBtn" type="button">⬇ download card</button>
+            <button class="btn secondary" id="shareNativeBtn" type="button" style="display:none">📤 share card</button>
+          </div>
+        </div>
+      ` : ""}
     `;
 
     if (!r.resolved) {
@@ -297,15 +316,134 @@ function renderGame(loadingStep) {
       document.getElementById("nextBtn").onclick = () => nextRound();
       const backBtn = document.getElementById("backBtn");
       if (backBtn) backBtn.onclick = resetToSetup;
-      const shareBtn = document.getElementById("shareBtn");
-      if (shareBtn) {
-        const shareText = `I just guessed ${sessionScore.correct}/${sessionScore.total} bookshelves right playing @${state.clusterActor}'s SimCluster on shelfguessr 📚 https://shelfguessr.bisks.net/`;
-        shareBtn.href = `https://bsky.app/intent/compose?text=${encodeURIComponent(shareText)}`;
-        shareBtn.target = "_blank";
-        shareBtn.rel = "noopener";
-      }
+      wireShareCard();
     }
     return;
+  }
+}
+
+// --- sharing --------------------------------------------------------------
+// A per-session streak is a real "result worth showing off" (notes/45-sharing
+// -and-virality.md tier 3/4): draw a card, offer it to the OS share sheet
+// where supported, and point the Bluesky intent link at a real per-result URL
+// (/s/<actor>/<correct>/<total>, handled server-side by src/index.ts) instead
+// of just the bare homepage, so the shared post's own unfurl shows the score.
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+
+function drawShareCard(canvas, { actor, correct, total, pct }) {
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const PAPER = "#f4ecd8", PAPER_DARK = "#e6dabd", FOREST = "#234d38", FOREST_DARK = "#16332a", GOLD = "#c9922e", INK = "#2c2416", CARD = "#fffaf0";
+  const SPINES = ["#a5382e", "#2f6e42", "#c9922e", "#3a5a8c", "#7a4a9c", "#b06a2e", "#234d38"];
+
+  ctx.clearRect(0, 0, W, H);
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, PAPER);
+  bg.addColorStop(1, PAPER_DARK);
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.font = `800 58px ${mono}`;
+  ctx.fillStyle = FOREST_DARK;
+  ctx.fillText("shelf", 60, 100);
+  const shelfW = ctx.measureText("shelf").width;
+  ctx.fillStyle = GOLD;
+  ctx.fillText("guessr", 60 + shelfW, 100);
+
+  ctx.fillStyle = INK;
+  ctx.font = `700 24px ${mono}`;
+  ctx.fillText(`playing @${actor}'s SimCluster`, 60, 148);
+
+  const cardX = 60, cardY = 200, cardW = W - 120, cardH = H - 320;
+  ctx.fillStyle = CARD;
+  ctx.strokeStyle = FOREST;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = FOREST;
+  ctx.font = `800 140px ${mono}`;
+  ctx.fillText(`${correct}/${total}`, W / 2, cardY + 175);
+
+  ctx.fillStyle = INK;
+  ctx.font = `700 30px ${mono}`;
+  ctx.fillText(`${pct}% correct`, W / 2, cardY + 222);
+
+  let cx = 60;
+  const shelfY = H - 90;
+  let i = 0;
+  while (cx < W - 60 - 10) {
+    const bw = 16 + ((i * 37) % 22);
+    const bh = 50 + ((i * 53) % 34);
+    ctx.fillStyle = SPINES[i % SPINES.length];
+    ctx.fillRect(cx, shelfY - bh, bw, bh);
+    cx += bw + 4;
+    i++;
+  }
+  ctx.fillStyle = FOREST_DARK;
+  ctx.fillRect(60, shelfY, W - 120, 8);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = FOREST_DARK;
+  ctx.font = `700 22px ${mono}`;
+  ctx.fillText("shelfguessr.bisks.net", 60, H - 40);
+}
+
+function wireShareCard() {
+  const canvas = document.getElementById("shareCanvas");
+  const shareBtn = document.getElementById("shareBtn");
+  const downloadBtn = document.getElementById("shareDownloadBtn");
+  const nativeBtn = document.getElementById("shareNativeBtn");
+  if (!canvas) return;
+
+  const correct = sessionScore.correct;
+  const total = sessionScore.total;
+  const pct = total ? Math.round((correct / total) * 100) : 0;
+  const actor = state.clusterActor;
+  drawShareCard(canvas, { actor, correct, total, pct });
+
+  const shareUrl = `https://shelfguessr.bisks.net/s/${encodeURIComponent(actor)}/${correct}/${total}`;
+  const shareText = `I just guessed ${correct}/${total} bookshelves right playing @${actor}'s SimCluster on shelfguessr 📚 ${shareUrl}`;
+  shareBtn.href = `https://bsky.app/intent/compose?text=${encodeURIComponent(shareText)}`;
+
+  downloadBtn.onclick = () => {
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `shelfguessr-${correct}-${total}.png`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  };
+
+  if (canShareFiles()) {
+    nativeBtn.style.display = "";
+    nativeBtn.onclick = () => {
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], `shelfguessr-${correct}-${total}.png`, { type: "image/png" });
+        try {
+          await navigator.share({ files: [file], text: shareText, title: "shelfguessr" });
+        } catch (_) {
+          // user cancelled the share sheet, or it failed silently — no-op
+        }
+      }, "image/png");
+    };
   }
 }
 
@@ -314,6 +452,7 @@ function resetToSetup() {
   state.clusterActor = null;
   state.profileByDid = null;
   state.round = null;
+  beatTarget = null;
   els.gameCard.style.display = "none";
   els.gameCard.innerHTML = "";
   els.clusterHandleInput.value = "";
@@ -334,4 +473,15 @@ function resetToSetup() {
     els.clusterHandleInput.placeholder = `@${session.handle} (your own cluster)`;
   }
   shelfIndex.start();
+
+  // Landed on a shared streak link (/s/<actor>/<correct>/<total>, stamped
+  // server-side by src/index.ts's renderShare) — jump straight into that
+  // cluster with the streak to beat shown in the round header.
+  const shareMatch = location.pathname.match(/^\/s\/([^/]+)\/(\d{1,4})\/(\d{1,4})\/?$/);
+  if (shareMatch) {
+    const sharedActor = decodeURIComponent(shareMatch[1]);
+    beatTarget = { correct: Number(shareMatch[2]), total: Number(shareMatch[3]) };
+    els.clusterHandleInput.value = sharedActor;
+    playCluster(sharedActor);
+  }
 })();

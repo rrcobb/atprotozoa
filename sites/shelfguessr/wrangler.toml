@@ -17,15 +17,23 @@ compatibility_date = "2025-01-01"
 # network-wide into the /leaderboard standings — same pattern as skymash's
 # vote -> elo.js, just a plain correct/total tally instead of Elo. No KV, no
 # Durable Object, no server-side game state: every write lives in the
-# writer's own PDS, this Worker only ever serves static assets.
+# writer's own PDS. The Worker (src/index.ts) is still just a static-asset
+# passthrough plus one dynamic route, /s/<actor>/<correct>/<total>, that
+# stamps a shared streak's score onto the page's OG tags for link unfurls.
 #
 # Brand-new site — served at the root of its own hostname, no
 # bisks.net/<name> path route and no prefix-stripping needed.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
 routes = [
   { pattern = "shelfguessr.bisks.net/*", zone_name = "bisks.net" },
 ]
 
+# run_worker_first: /s/<actor>/<correct>/<total> (per-streak OG unfurl,
+# src/index.ts) is dynamic and matches no static file, so the Worker must run
+# BEFORE the static-asset router, same as sites/didscope and sites/logs.
 [assets]
 directory = "./public"
 binding = "ASSETS"
-run_worker_first = false
+run_worker_first = true
