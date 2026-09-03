@@ -68,9 +68,13 @@ export async function rasterizeBisk(bisk, cols, rows) {
   }
 
   ctx.fillStyle = "#000000";
-  ctx.font = `800 ${CELL_PX * 3}px ui-monospace, "JetBrains Mono", monospace`;
+  // Font height is set in multiples of CELL_PX, the same block size the
+  // 1-bit threshold pass below averages down to one grid cell — so this
+  // multiplier IS "how many grid rows tall is a letter" (3 used to mean
+  // 3 rows, an unreadable smear; 6 gives roughly dot-matrix-legible glyphs).
+  ctx.font = `800 ${CELL_PX * 6}px ui-monospace, "JetBrains Mono", monospace`;
   ctx.textBaseline = "top";
-  const lineHeight = CELL_PX * 3.6;
+  const lineHeight = CELL_PX * 7;
   const lines = wrapText(ctx, bisk.text || "(no text)", w - pad * 2);
   let y = textTop;
   for (const line of lines) {

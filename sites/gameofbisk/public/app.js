@@ -2,8 +2,8 @@ import { parsePostLink, getPostByLink, getRecentPosts } from "./lib/bisks.js";
 import { rasterizeBisk } from "./lib/rasterize.js";
 import { LIFE_PRESETS, lifeLikeStep, brainStep, antStep, elementaryStep } from "./lib/automata.js";
 
-const COLS = 72;
-const ROWS = 44;
+const COLS = 96;
+const ROWS = 64;
 
 const els = {
   form: document.getElementById("findForm"),
@@ -131,10 +131,32 @@ function currentKey() {
   return els.automatonSelect.value;
 }
 
+// The elementary CA reads only its *bottom* row as the seed it keeps
+// growing from (see automata.js). A bisk's text/avatar sit near the top of
+// the grid, so the literal bottom row is usually blank dead space — with
+// nothing there to grow from, the bisk just scrolls up and off, leaving an
+// empty board (this was the actual bug: "randomize works, bisks don't" —
+// randomize fills every row, so it never hits this empty-bottom-row case).
+// Fix: give elementary mode a bottom row that's a silhouette of the WHOLE
+// bisk (any column with ink anywhere becomes 1), so there's always
+// something for the rule to chew on.
+function biskProfileRow(seed) {
+  const row = new Uint8Array(COLS);
+  for (let x = 0; x < COLS; x++) {
+    for (let y = 0; y < ROWS; y++) {
+      if (seed[y * COLS + x]) { row[x] = 1; break; }
+    }
+  }
+  return row;
+}
+
 function resetToSeed() {
   stop();
   gen = 0;
   grid = seedGrid.slice();
+  if (currentKey() === "elementary") {
+    grid.set(biskProfileRow(seedGrid), (ROWS - 1) * COLS);
+  }
   brainGrid = Uint8Array.from(seedGrid); // 1 -> firing, 0 -> off
   ants = [
     { x: Math.floor(COLS / 2), y: Math.floor(ROWS / 2), dir: 0 },
@@ -198,20 +220,16 @@ function updateLegend() {
 // ---- rendering ----------------------------------------------------------
 
 function fitCanvas() {
-  // Measure a sibling that spans the page column on its own (the header),
-  // not the canvas's own inline-block wrapper or .wrap itself — .wrap's
-  // clientWidth includes its horizontal padding, and the canvas wrapper's
-  // width is determined by the canvas's current size, so either would be
-  // wrong or circular. header's content width already nets out .wrap's
-  // padding and doesn't depend on the canvas at all.
-  const wrapWidth = (document.querySelector("header") || document.body).clientWidth - 2;
-  const cellPx = Math.max(4, Math.min(10, Math.floor(wrapWidth / COLS)));
+  // The raster resolution is fixed, not derived from the container's
+  // width — the CSS box (.canvasWrap/canvas at width:100%) is what actually
+  // resizes to fit the screen, scaling the fixed-resolution raster up or
+  // down with image-rendering:pixelated so cell edges stay crisp at any
+  // size instead of being capped at whatever a narrow viewport allows.
+  const INTERNAL_PX = 8;
   const dpr = window.devicePixelRatio || 1;
-  els.canvas.style.width = `${cellPx * COLS}px`;
-  els.canvas.style.height = `${cellPx * ROWS}px`;
-  els.canvas.width = cellPx * COLS * dpr;
-  els.canvas.height = cellPx * ROWS * dpr;
-  ctx.setTransform(dpr * cellPx, 0, 0, dpr * cellPx, 0, 0);
+  els.canvas.width = COLS * INTERNAL_PX * dpr;
+  els.canvas.height = ROWS * INTERNAL_PX * dpr;
+  ctx.setTransform(INTERNAL_PX * dpr, 0, 0, INTERNAL_PX * dpr, 0, 0);
 }
 
 const COLOR_DEAD = "#f6f3ea";
