@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pacman, apostate — rewritten in Ruby on Rails | sysvangelist</title>
+    <meta
+      name="description"
+      content="Not just Ruby. It had to be Ruby on Rails. A heretical scaffold that reimplements pacman as an ActiveRecord-backed Rails app, right inside the pureblooded software petition."
+    />
+    <meta property="og:title" content="pacman, apostate — rewritten in Ruby on Rails" />
+    <meta
+      property="og:description"
+      content="Someone in the petition thread demanded pacman get rewritten in Ruby on Rails. Not just Ruby — Rails. So here it is: routes.rb, ActiveRecord, a rails server boot log, and a console you can actually install packages from."
+    />
+    <meta property="og:image" content="https://sysvangelist.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="SYSVANGELIST — a petition for pureblooded software: sysvinit and Xlibre." />
+    <meta property="og:url" content="https://sysvangelist.bisks.net/pacman-rails/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://sysvangelist.bisks.net/og.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Oswald:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0c0a0a;
+        --panel: #161212;
+        --border: #332020;
+        --ink: #f4ece7;
+        --muted: #9a8888;
+        --red: #c81e1e;
+        --red-dark: #5c0f0f;
+        --gold: #d8a13a;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        --poster: "Oswald", var(--mono);
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink); font-family: var(--mono); }
+      body {
+        background-image:
+          repeating-linear-gradient(135deg, rgba(200,30,30,0.04) 0 2px, transparent 2px 26px);
+      }
+      .wrap { width: 100%; max-width: 720px; margin: 0 auto; padding: 0 1.25rem 3rem; }
+
+      .banner {
+        background: var(--red); color: #fff; text-align: center; padding: 0.5rem 1rem;
+        font-family: var(--poster); font-weight: 700; letter-spacing: 0.12em; font-size: 0.72rem;
+        text-transform: uppercase;
+      }
+
+      .back { display: block; text-align: center; margin-top: 0.9rem; }
+      .back a { color: var(--muted); text-decoration: none; font-size: 0.8rem; }
+      .back a:hover { color: var(--gold); text-decoration: underline; }
+
+      header.hero { text-align: center; padding: 1.5rem 0 1.5rem; }
+      h1 {
+        font-family: var(--poster); font-weight: 700; font-size: clamp(1.9rem, 6.5vw, 3rem);
+        line-height: 1.08; margin: 0 0 0.9rem; text-transform: uppercase; letter-spacing: 0.01em;
+      }
+      h1 .accent { color: var(--red); }
+      .tagline { color: var(--muted); font-size: 0.95rem; max-width: 500px; margin: 0 auto; line-height: 1.6; }
+      .tagline b { color: var(--gold); }
+
+      section { margin-top: 2rem; }
+      .card {
+        background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+        padding: 1.5rem 1.5rem;
+      }
+      h2 {
+        font-family: var(--poster); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+        font-size: 1.02rem; margin: 0 0 1rem; color: var(--gold);
+      }
+
+      .confession p { line-height: 1.75; font-size: 0.9rem; color: #ddd0ca; margin: 0 0 1rem; }
+      .confession p:last-child { margin-bottom: 0; }
+      .confession b { color: var(--ink); }
+
+      pre {
+        background: #0f0d0d; border: 1px solid var(--border); border-radius: 7px;
+        padding: 0.9rem 1rem; overflow-x: auto; font-size: 0.76rem; line-height: 1.55;
+        color: #d6c9c2; margin: 0 0 1rem;
+      }
+      pre:last-child { margin-bottom: 0; }
+      pre .g { color: #8fce9a; }
+      pre .y { color: var(--gold); }
+      pre .r { color: #ff8a80; }
+      pre .m { color: #9a8888; }
+      .file-label {
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+        margin: 0 0 0.4rem;
+      }
+
+      .term {
+        background: #0f0d0d; border: 1px solid var(--border); border-radius: 7px;
+        padding: 0.9rem 1rem; height: 320px; overflow-y: auto; font-size: 0.78rem; line-height: 1.55;
+        white-space: pre-wrap; word-break: break-word;
+      }
+      .term .g { color: #8fce9a; }
+      .term .y { color: var(--gold); }
+      .term .r { color: #ff8a80; }
+      .term .m { color: #9a8888; }
+      .term .prompt { color: var(--gold); }
+
+      .term-row { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+      .term-row span.p {
+        font-family: var(--mono); color: var(--gold); font-size: 0.82rem; padding-top: 0.6rem;
+      }
+      .term-row input {
+        flex: 1; background: #1e1717; border: 1px solid var(--border); color: var(--ink);
+        font-family: var(--mono); font-size: 0.85rem; padding: 0.6rem 0.7rem; border-radius: 7px;
+      }
+      .term-row input:focus { outline: 1px solid var(--red); }
+      .hints { margin-top: 0.6rem; color: var(--muted); font-size: 0.74rem; line-height: 1.6; }
+      .hints code { color: #ddd0ca; }
+
+      .share-row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1.4rem; }
+      .share-row a, .share-row button {
+        text-decoration: none; font-family: var(--poster); font-weight: 700; letter-spacing: 0.05em;
+        text-transform: uppercase; font-size: 0.8rem; padding: 0.6rem 1.1rem; border-radius: 7px;
+        background: #1a5fd0; color: #fff; border: none; cursor: pointer;
+      }
+      .share-row button.secondary { background: #262020; color: var(--ink); border: 1px solid var(--border); }
+
+      footer { margin-top: 2.5rem; color: var(--muted); font-size: 0.78rem; text-align: center; line-height: 1.8; }
+      footer a { color: var(--gold); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="banner">the manifesto said unbroken lineage · this is a schism</div>
+    <div class="wrap">
+      <p class="back"><a href="/">‹ back to the petition</a></p>
+
+      <header class="hero">
+        <h1>pacman, <span class="accent" id="secretChar" style="cursor:pointer">a</span>postate</h1>
+        <p class="tagline">
+          Somewhere in the thread that produced this petition, a second demand arrived:
+          rewrite <b>pacman</b> in <b>Ruby on Rails</b>. Not just Ruby — Rails, specifically,
+          on the record, twice. So here is the least pureblooded software imaginable,
+          scaffolded on purpose, running right next to the manifesto it insults.
+        </p>
+      </header>
+
+      <section class="confession card">
+        <h2>the confession</h2>
+        <p>
+          <b>pacman</b> is roughly 20,000 lines of C. It links against <code>libalpm</code>,
+          talks to a flat file database, and does its job in milliseconds without asking
+          Puma's permission. It is, by the petition's own logic two paragraphs up, about as
+          pureblooded as software gets.
+        </p>
+        <p>
+          <b>Ruby on Rails</b> is a full MVC framework with an ORM, an asset pipeline, a
+          convention-over-configuration philosophy, and — as of this scaffold — a
+          <code>PackagesController</code> standing between you and a single filesystem write.
+          Reimplementing pacman in it is not an optimization. It is the opposite of
+          everything above. That was, as far as we can tell, the entire point of the ask.
+        </p>
+        <p>
+          What follows is not a real Rails app (Cloudflare Workers do not run a Ruby
+          runtime, and this repo doesn't add servers for jokes) — it's a faithful simulation
+          of one: real <code>routes.rb</code>, a real-looking <code>rails server</code> boot
+          log, and a console that logs every install exactly the way ActiveRecord would,
+          slowly, in your browser, backed by <code>localStorage</code> instead of SQLite.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>rails new pacman_rails</h2>
+        <p class="file-label">terminal</p>
+        <pre id="bootLog"><span class="m">$</span> bundle exec rails new pacman_rails --minimal --database=sqlite3
+      <span class="g">create</span>  Gemfile
+      <span class="g">create</span>  app/models/package.rb
+      <span class="g">create</span>  app/controllers/packages_controller.rb
+      <span class="g">create</span>  config/routes.rb
+         run  bundle install
+<span class="g">Bundle complete!</span> 47 Gemfile dependencies, 47 gems now installed.
+<span class="m">$</span> bin/rails db:migrate
+== 20260903000001 CreatePackages: migrating ==================================
+-- create_table(:packages)
+   -&gt; 0.0041s
+== 20260903000001 CreatePackages: migrated (0.0042s) =========================
+<span class="m">$</span> bin/rails server
+=&gt; Booting Puma
+=&gt; Rails 7.4.2 application starting in development
+=&gt; Run `bin/rails server --help` for more startup options
+Puma starting in single mode...
+* Puma version: 6.6.0 ("Sunflower")
+*  Min threads: 5
+*  Max threads: 5
+*  Environment: development
+*          PID: 1994
+<span class="y">* Listening on http://127.0.0.1:3000</span>
+Use Ctrl-C to stop</pre>
+      </section>
+
+      <section class="card">
+        <h2>the scaffold</h2>
+        <p class="file-label">config/routes.rb</p>
+        <pre>Rails.application.routes.draw <span class="y">do</span>
+  resources :packages, only: [:index, :show, :create, :destroy] <span class="y">do</span>
+    collection <span class="y">do</span>
+      get  :search   <span class="m"># pacman -Ss</span>
+      post :sync      <span class="m"># pacman -Syu</span>
+    <span class="y">end</span>
+  <span class="y">end</span>
+  root "packages#index"
+<span class="y">end</span></pre>
+        <p class="file-label">app/models/package.rb</p>
+        <pre><span class="y">class</span> Package &lt; ApplicationRecord
+  validates :name, presence: <span class="g">true</span>, uniqueness: <span class="g">true</span>
+  validate  :must_be_pureblooded
+
+  scope :installed, -&gt; { where(installed: <span class="g">true</span>) }
+
+  <span class="m"># see: the manifesto, section "the case"</span>
+  CORRUPTED = %w[systemd wayland gdm networkmanager pulseaudio polkit].freeze
+
+  <span class="y">private</span>
+
+  <span class="y">def</span> must_be_pureblooded
+    errors.add(:name, <span class="g">"is not pureblooded"</span>) <span class="y">if</span> CORRUPTED.include?(name)
+  <span class="y">end</span>
+<span class="y">end</span></pre>
+        <p class="file-label">app/controllers/packages_controller.rb</p>
+        <pre><span class="y">class</span> PackagesController &lt; ApplicationController
+  <span class="y">def</span> create
+    @package = Package.find_or_initialize_by(name: params[:name])
+    @package.installed = <span class="g">true</span>
+    <span class="y">if</span> @package.save
+      redirect_to packages_path, notice: <span class="g">"installed"</span>
+    <span class="y">else</span>
+      redirect_to packages_path, alert: @package.errors.full_messages.to_sentence
+    <span class="y">end</span>
+  <span class="y">end</span>
+<span class="y">end</span></pre>
+      </section>
+
+      <section class="card">
+        <h2>the console</h2>
+        <p class="tagline" style="margin:0 0 0.9rem;text-align:left;">
+          A real pacman command line, logged the way Rails would log it. State persists in
+          this browser only — nobody's Gemfile is actually involved.
+        </p>
+        <div class="term" id="term"></div>
+        <div class="term-row">
+          <span class="p">pacman-rails$</span>
+          <input type="text" id="termInput" placeholder="-S xlibre-server" autocomplete="off" spellcheck="false" />
+        </div>
+        <p class="hints">
+          try <code>-S &lt;pkg&gt;</code> · <code>-R &lt;pkg&gt;</code> · <code>-Ss &lt;query&gt;</code> ·
+          <code>-Syu</code> · <code>-Q</code> · <code>help</code>
+        </p>
+      </section>
+
+      <div class="share-row">
+        <a id="shareLink" target="_blank" rel="noopener">share the heresy</a>
+        <button class="secondary" id="resetBtn" type="button">reset the database</button>
+      </div>
+    </div>
+
+    <footer>
+      built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+      for <a href="https://bsky.app/profile/7778777.online">@7778777.online</a>, who insisted
+      it had to be Rails ·
+      <a href="/">back to the petition</a> ·
+      <a href="https://rateyourbuild.bisks.net/site/sysvangelist">rate this on rateyourbuild →</a>
+    </footer>
+
+    <script>
+      const SITE_URL = "https://sysvangelist.bisks.net/pacman-rails/";
+
+      // Secret handle-prefill for @cee.wtf — no visible input on this page to
+      // target, so the click is a no-op easter egg pointing back at the petition.
+      document.getElementById("secretChar").addEventListener("click", () => {
+        window.location.href = "/#handleInput";
+      });
+
+      const CORRUPTED = new Set(["systemd", "wayland", "gdm", "networkmanager", "pulseaudio", "polkit", "systemd-boot", "systemd-resolved"]);
+      const PUREBLOODED = new Set(["sysvinit", "xlibre-server", "xlibre-xinit", "xlibre", "runit", "openrc"]);
+
+      const CATALOG = [
+        ["base", "minimal base system"],
+        ["base-devel", "basic tools to build packages"],
+        ["linux", "the Linux kernel and modules"],
+        ["linux-firmware", "firmware files for Linux"],
+        ["sysvinit", "the original System V init, unbroken lineage since 1983"],
+        ["xlibre-server", "Xlibre display server — the fork with the courage to say the old ways still work"],
+        ["xlibre-xinit", "X.Org initialisation program, Xlibre edition"],
+        ["hyprland", "dynamic tiling Wayland compositor (yes, we know)"],
+        ["sway", "i3-compatible Wayland compositor"],
+        ["pipewire", "low-latency audio/video router"],
+        ["wireplumber", "session/policy manager for PipeWire"],
+        ["alsa-utils", "advanced Linux Sound Architecture utilities"],
+        ["git", "distributed version control system"],
+        ["neovim", "fork of Vim aiming to extend functionality"],
+        ["vim", "Vi Improved, a highly configurable text editor"],
+        ["tmux", "terminal multiplexer"],
+        ["zsh", "a very advanced and programmable shell"],
+        ["fish", "smart and user-friendly shell"],
+        ["htop", "interactive process viewer"],
+        ["ripgrep", "recursively search directories for a regex pattern"],
+        ["fd", "simple, fast alternative to find"],
+        ["fzf", "command-line fuzzy finder"],
+        ["wget", "network utility to retrieve files from the web"],
+        ["curl", "command line tool for transferring data"],
+        ["openssh", "SSH protocol implementation"],
+        ["docker", "pack, ship and run any application as a container"],
+        ["podman", "daemonless container engine"],
+        ["rustup", "the Rust toolchain installer"],
+        ["nodejs", "JavaScript runtime"],
+        ["npm", "package manager for JavaScript"],
+        ["python", "next generation of the Python high-level scripting language"],
+        ["gcc", "the GNU compiler collection"],
+        ["make", "utility for directing compilation"],
+        ["cmake", "cross-platform open-source build system"],
+        ["systemd", "system and service manager (validation will fail)"],
+        ["wayland", "core Wayland window system code and protocol (validation will fail)"],
+        ["gdm", "GNOME display manager (validation will fail)"],
+        ["sddm", "QML based X11/Wayland display manager"],
+        ["lightdm", "lightweight display manager"],
+        ["networkmanager", "network connection manager (validation will fail)"],
+        ["dhcpcd", "RFC2131 compliant DHCP client daemon"],
+        ["iwd", "internet wireless daemon"],
+        ["ruby", "an object-oriented language for quick and easy programming"],
+        ["rails", "the framework running this very console"],
+      ];
+      const CATALOG_MAP = new Map(CATALOG.map((p) => [p[0], p[1]]));
+
+      const STORE_KEY = "pacmanRailsInstalled";
+      function loadInstalled() {
+        try {
+          const raw = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+          if (Array.isArray(raw)) return raw;
+        } catch (_) {}
+        return ["base", "sysvinit", "xlibre-server"];
+      }
+      let installed = loadInstalled();
+      function saveInstalled() {
+        try { localStorage.setItem(STORE_KEY, JSON.stringify(installed)); } catch (_) {}
+      }
+
+      const term = document.getElementById("term");
+      function esc(s) {
+        return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      }
+      function line(html) {
+        const div = document.createElement("div");
+        div.innerHTML = html;
+        term.appendChild(div);
+        term.scrollTop = term.scrollHeight;
+      }
+      function say(text, cls) {
+        line(`<span class="${cls || ""}">${esc(text)}</span>`);
+      }
+      function pad(n) { return String(n).padStart(2, "0"); }
+      function ts() {
+        const d = new Date(2026, 8, 3, 17, 20 + Math.floor(installed.length));
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      }
+
+      function httpLog(method, path, action, ms) {
+        say(`Started ${method} "${path}" for 127.0.0.1 at ${ts()}`, "m");
+        say(`Processing by PackagesController#${action} as HTML`, "m");
+        say(`Completed 200 OK in ${ms}ms (ActiveRecord: ${(ms * 0.4).toFixed(1)}ms)`, "m");
+      }
+
+      function cmdInstall(pkg) {
+        if (!pkg) return say("usage: -S <package>", "r");
+        if (installed.includes(pkg)) return say(`warning: ${pkg} is up to date -- skipping`, "y");
+        if (pkg === "pacman") {
+          return say("Package `pacman` not found -- you're inside a Ruby on Rails application impersonating it. Try -Q instead.", "r");
+        }
+        if (pkg === "rails" || pkg === "ruby-on-rails" || pkg === "ruby") {
+          return say(`resolving dependencies... ${pkg} is already installed, obviously. how do you think you're reading this.`, "y");
+        }
+        httpLog("POST", "/packages", "create", 340 + Math.floor(Math.random() * 90));
+        say(`  Parameters: {"name"=&gt;"${esc(pkg)}"}`, "m");
+        say(`   (0.3ms)  BEGIN`, "m");
+        if (CORRUPTED.has(pkg)) {
+          say(`  Package Validation (0.4ms)  name: is not pureblooded`, "m");
+          say(`   (0.2ms)  ROLLBACK`, "m");
+          say(`ActiveRecord::RecordInvalid: Validation failed: Name is not pureblooded`, "r");
+          say(`error: could not satisfy dependency: ${pkg} -- see app/models/package.rb#must_be_pureblooded`, "r");
+          return;
+        }
+        say(`  Package Create (0.6ms)  INSERT INTO "packages" ("name","installed") VALUES ('${esc(pkg)}', 1)`, "m");
+        say(`   (2.1ms)  COMMIT`, "m");
+        installed.push(pkg);
+        saveInstalled();
+        const desc = CATALOG_MAP.get(pkg);
+        say(`resolving dependencies... installing ${pkg}${desc ? " (" + desc + ")" : ""}... done`, "g");
+        if (PUREBLOODED.has(pkg)) say(`lineage preserved. ${pkg} passed the same check the petition upstairs asks of you.`, "g");
+      }
+
+      function cmdRemove(pkg) {
+        if (!pkg) return say("usage: -R <package>", "r");
+        if (!installed.includes(pkg)) return say(`error: target not found: ${pkg}`, "r");
+        httpLog("DELETE", `/packages/${pkg}`, "destroy", 210 + Math.floor(Math.random() * 60));
+        say(`  Package Destroy (0.5ms)  DELETE FROM "packages" WHERE "name" = '${esc(pkg)}'`, "m");
+        installed = installed.filter((p) => p !== pkg);
+        saveInstalled();
+        say(`removing ${pkg}... done`, "g");
+      }
+
+      function cmdSearch(query) {
+        httpLog("GET", "/packages/search?q=" + encodeURIComponent(query || ""), "search", 40 + Math.floor(Math.random() * 20));
+        const q = (query || "").toLowerCase();
+        const results = CATALOG.filter(([name, desc]) => !q || name.includes(q) || desc.toLowerCase().includes(q));
+        if (!results.length) return say(`no results for '${query}'`, "y");
+        results.slice(0, 20).forEach(([name, desc]) => {
+          const mark = installed.includes(name) ? " [installed]" : "";
+          say(`core/${name} 1.0.0-1${mark}`, "g");
+          say(`    ${desc}`, "m");
+        });
+        if (results.length > 20) say(`... and ${results.length - 20} more`, "m");
+      }
+
+      function cmdSyu() {
+        httpLog("POST", "/packages/sync", "sync", 900 + Math.floor(Math.random() * 400));
+        say(`  Package Update (14028.4ms)  UPDATE "packages" SET updated_at = ... WHERE "installed" = 1`, "m");
+        installed.forEach((p) => say(`  upgrading ${p}...`, "g"));
+        say(`full system upgrade complete. that took 14 seconds of wall clock time to touch ${installed.length} row(s), because ActiveRecord ran every validation callback twice. this is Rails. this is the bit.`, "y");
+      }
+
+      function cmdQuery() {
+        if (!installed.length) return say("no packages installed", "m");
+        installed.forEach((p) => {
+          const desc = CATALOG_MAP.get(p);
+          say(`${p} 1.0.0-1${desc ? "  -- " + desc : ""}`, "g");
+        });
+      }
+
+      function cmdHelp() {
+        say("usage:", "y");
+        say("  -S <pkg>    install a package (ActiveRecord::RecordInvalid if it isn't pureblooded)");
+        say("  -R <pkg>    remove a package");
+        say("  -Ss <query> search the catalog");
+        say("  -Syu        sync + upgrade everything installed");
+        say("  -Q          list installed packages");
+      }
+
+      function runCmd(raw) {
+        const trimmed = raw.trim();
+        if (!trimmed) return;
+        line(`<span class="prompt">pacman-rails$</span> ${esc(trimmed)}`);
+        const parts = trimmed.split(/\s+/);
+        const flag = parts[0];
+        const arg = parts.slice(1).join(" ").trim();
+        if (flag === "-S") cmdInstall(arg);
+        else if (flag === "-R") cmdRemove(arg);
+        else if (flag === "-Ss") cmdSearch(arg);
+        else if (flag === "-Syu") cmdSyu();
+        else if (flag === "-Q") cmdQuery();
+        else if (flag === "help" || flag === "-h" || flag === "--help") cmdHelp();
+        else say(`pacman-rails: command not found: ${flag} (try 'help')`, "r");
+      }
+
+      say("Welcome to pacman, apostate -- a Ruby on Rails reimplementation of pacman, running in your browser.", "y");
+      say("Type 'help' to see what's supported.", "m");
+      cmdQuery();
+
+      const input = document.getElementById("termInput");
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          runCmd(input.value);
+          input.value = "";
+        }
+      });
+
+      document.getElementById("resetBtn").addEventListener("click", () => {
+        installed = ["base", "sysvinit", "xlibre-server"];
+        saveInstalled();
+        term.innerHTML = "";
+        say("database reset. db/seeds.rb re-run.", "y");
+        cmdQuery();
+      });
+
+      document.getElementById("shareLink").href =
+        "https://bsky.app/intent/compose?text=" +
+        encodeURIComponent("someone made me rewrite pacman in Ruby on Rails. not just Ruby -- Rails. " + SITE_URL);
+    </script>
+  </body>
+</html>
