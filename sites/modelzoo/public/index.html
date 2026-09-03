@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>model zoo</title>
+<meta name="description" content="an idle tech-tree game that starts with just GPT-2 in a cage. spend research points on alignment, mech interp, containment, and red-teaming before each new model gets released with random stats. ends at the singularity, one way or another." />
+
+<meta property="og:title" content="model zoo" />
+<meta property="og:description" content="starts with GPT-2 in a cage. invest in alignment research, mech interp, and AI containment before every new model release rolls the dice. ends at the singularity." />
+<meta property="og:image" content="https://modelzoo.bisks.net/og.png" />
+<meta property="og:url" content="https://modelzoo.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="model zoo" />
+<meta name="twitter:description" content="starts with GPT-2 in a cage. invest in alignment research, mech interp, and AI containment before every new model release rolls the dice. ends at the singularity." />
+<meta name="twitter:image" content="https://modelzoo.bisks.net/og.png" />
+
+<style>
+  :root {
+    --bg: #0a0e0f;
+    --panel: #111819;
+    --panel2: #161f21;
+    --border: #223032;
+    --fg: #e8f2ef;
+    --dim: #7f9c96;
+    --safe: #5eff9a;
+    --safe-dim: #2f6b4c;
+    --risk: #ff6b4a;
+    --risk-dim: #6b3226;
+    --capability: #7fd4ff;
+    --amber: #ffb03b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    background-image:
+      radial-gradient(ellipse at 15% -10%, #133a2c33, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #123a4a33, transparent 50%);
+  }
+  a { color: var(--capability); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 20px 16px 64px; }
+
+  header { margin-bottom: 18px; }
+  header h1 {
+    margin: 0 0 4px;
+    font-size: 28px;
+    letter-spacing: 0.5px;
+  }
+  header h1 .zoo { color: var(--safe); }
+  header p.tagline {
+    margin: 0 0 10px;
+    color: var(--dim);
+    font-size: 14px;
+    max-width: 640px;
+    line-height: 1.5;
+  }
+  header .links { font-size: 12px; color: var(--dim); }
+  header .links a { color: var(--dim); text-decoration: underline dotted; }
+  header .links a:hover { color: var(--safe); }
+
+  .hud {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .stat .label { font-size: 10px; letter-spacing: 1.5px; color: var(--dim); text-transform: uppercase; }
+  .stat .value { font-size: 20px; font-weight: 700; margin-top: 2px; }
+  .bar {
+    margin-top: 6px;
+    height: 6px;
+    border-radius: 3px;
+    background: #0d1314;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .bar > i { display: block; height: 100%; border-radius: 3px; transition: width .35s ease; }
+  .bar.capability > i { background: linear-gradient(90deg, var(--capability), #b98bff); }
+  .bar.doom > i { background: linear-gradient(90deg, var(--amber), var(--risk)); }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 760px) {
+    .layout { grid-template-columns: 1fr; }
+    .hud { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .panel h2 {
+    margin: 0 0 10px;
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .node {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 10px;
+  }
+  .node.maxed { opacity: 0.7; }
+  .node .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .node .name { font-weight: 700; font-size: 13px; }
+  .node .icon { margin-right: 6px; }
+  .node .desc { font-size: 11.5px; color: var(--dim); margin: 6px 0 8px; line-height: 1.4; }
+  .dots { display: flex; gap: 4px; }
+  .dots i {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #22302f; border: 1px solid var(--border);
+    display: block;
+  }
+  .dots i.on { background: var(--safe); border-color: var(--safe-dim); }
+  .node button {
+    width: 100%;
+    margin-top: 8px;
+    background: #0d1314;
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 8px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .node button:not(:disabled):hover { border-color: var(--safe); color: var(--safe); }
+  .node button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .endturn-btn {
+    width: 100%;
+    padding: 12px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    background: linear-gradient(180deg, #1a2c26, #10201b);
+    color: var(--safe);
+    border: 1px solid var(--safe-dim);
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .endturn-btn:hover { filter: brightness(1.15); }
+  .endturn-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .log {
+    margin-top: 12px;
+    max-height: 130px;
+    overflow-y: auto;
+    font-size: 11.5px;
+    color: var(--dim);
+    border-top: 1px dashed var(--border);
+    padding-top: 8px;
+  }
+  .log div { padding: 3px 0; }
+  .log div.bad { color: var(--risk); }
+  .log div.good { color: var(--safe); }
+
+  .zoo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+  }
+  .card {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    text-align: center;
+  }
+  .card .emoji { font-size: 28px; line-height: 1; }
+  .card .cname { font-size: 11px; font-weight: 700; margin-top: 6px; word-break: break-word; }
+  .card .ctag { font-size: 9.5px; color: var(--dim); margin-top: 2px; min-height: 12px; }
+  .card .mini { display: flex; gap: 3px; margin-top: 6px; justify-content: center; }
+  .card .mini span {
+    display: block; width: 8px; height: 14px; border-radius: 2px; background: #0d1314; border: 1px solid var(--border);
+  }
+  .card.incident { border-color: var(--risk-dim); }
+  .card.incident .cname { color: var(--risk); }
+  .card.caught { border-color: var(--safe-dim); }
+  .card.origin { border-color: var(--amber); }
+
+  .overlay {
+    position: fixed; inset: 0; background: rgba(5,7,7,0.88);
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px; z-index: 20;
+  }
+  .overlay.hidden { display: none; }
+  .end-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    max-width: 480px;
+    width: 100%;
+    padding: 26px 22px;
+    text-align: center;
+  }
+  .end-card .end-emoji { font-size: 48px; }
+  .end-card h2 { margin: 8px 0 4px; font-size: 22px; }
+  .end-card p { color: var(--dim); font-size: 13px; line-height: 1.5; margin: 6px 0 14px; }
+  .end-card .end-stats {
+    display: flex; justify-content: center; gap: 18px; margin-bottom: 16px; font-size: 12px; color: var(--dim);
+  }
+  .end-card .end-stats b { display: block; color: var(--fg); font-size: 16px; }
+  .end-card .actions { display: flex; flex-direction: column; gap: 8px; }
+  .end-card button, .end-card a.btn {
+    font-family: inherit; font-size: 13px; padding: 10px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); background: #0d1314; color: var(--fg); text-decoration: none; display: block;
+  }
+  .end-card .primary { background: linear-gradient(180deg, #1a2c26, #10201b); border-color: var(--safe-dim); color: var(--safe); font-weight: 700; }
+  .end-card .rate-link { margin-top: 10px; font-size: 11px; color: var(--dim); }
+
+  footer {
+    margin-top: 26px;
+    font-size: 11px;
+    color: var(--dim);
+    text-align: center;
+  }
+  footer a { color: var(--dim); text-decoration: underline dotted; }
+  footer a:hover { color: var(--safe); }
+
+  #shareCanvas { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>model <span class="zoo">z</span>oo</h1>
+    <p class="tagline">
+      it started with GPT-2 in a cage. every turn you fund
+      <b>alignment research</b>, <b>mech interp</b>, <b>AI containment</b> and more
+      &mdash; then a new model gets released with random stats. crit-fail the risk
+      roll and you get <em>The Event</em>. it all ends at the singularity, one way
+      or another.
+    </p>
+    <div class="links"><a href="https://bisks.net/">&larr; bisks.net</a></div>
+  </header>
+
+  <div class="hud">
+    <div class="stat">
+      <div class="label">Turn</div>
+      <div class="value" id="hudTurn">0</div>
+    </div>
+    <div class="stat">
+      <div class="label">Research Points</div>
+      <div class="value" id="hudRp">0</div>
+    </div>
+    <div class="stat">
+      <div class="label">Capability &rarr; Singularity</div>
+      <div class="value" id="hudCapability">0 / 100</div>
+      <div class="bar capability"><i id="barCapability" style="width:0%"></i></div>
+    </div>
+    <div class="stat">
+      <div class="label">Doom</div>
+      <div class="value" id="hudDoom">0%</div>
+      <div class="bar doom"><i id="barDoom" style="width:0%"></i></div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="panel">
+      <h2>Tech Tree</h2>
+      <div id="tree"></div>
+      <button class="endturn-btn" id="endTurnBtn">Release Next Model &rarr;</button>
+      <div class="log" id="log"></div>
+    </div>
+
+    <div class="panel">
+      <h2>The Zoo (<span id="zooCount">0</span> models)</h2>
+      <div class="zoo-grid" id="zooGrid"></div>
+    </div>
+  </div>
+
+  <footer>
+    a game for @buildthis.bisks.net &middot;
+    <a href="https://rateyourbuild.bisks.net/site/modelzoo">rate this on rateyourbuild &rarr;</a>
+  </footer>
+</div>
+
+<div class="overlay hidden" id="endOverlay">
+  <div class="end-card">
+    <div class="end-emoji" id="endEmoji">&#128128;</div>
+    <h2 id="endTitle">THE EVENT</h2>
+    <p id="endDesc"></p>
+    <div class="end-stats">
+      <div><b id="endTurn">0</b>turns</div>
+      <div><b id="endModels">0</b>models</div>
+      <div><b id="endDoom">0%</b>doom</div>
+    </div>
+    <div class="actions">
+      <button class="primary" id="playAgainBtn">Start a New Zoo</button>
+      <button id="shareBtn">Share Run</button>
+      <a class="btn" id="shareBlueskyBtn" href="#" target="_blank" rel="noopener">Post to Bluesky</a>
+    </div>
+    <div class="rate-link"><a href="https://rateyourbuild.bisks.net/site/modelzoo">rate this on rateyourbuild &rarr;</a></div>
+  </div>
+</div>
+
+<canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+<script>
+(function () {
+  "use strict";
+
+  var SINGULARITY_AT = 100;
+
+  var NODES = [
+    { key: "alignment", name: "Alignment Research", icon: "⚖️", desc: "Trains new models to actually want what we want. Raises their alignment stat.", max: 5 },
+    { key: "interp", name: "Mech Interp", icon: "🔬", desc: "Cracks open the black box before it ships. Cuts risk directly.", max: 5 },
+    { key: "containment", name: "AI Containment", icon: "🔒", desc: "Sandboxes, kill switches, air gaps. Softens incidents, raises containment.", max: 5 },
+    { key: "redteam", name: "Red Teaming", icon: "🕵️", desc: "Tries to break it first. Chance to catch a bad release before the public does.", max: 5 },
+    { key: "compute", name: "Compute Scaling", icon: "⚡", desc: "More GPUs, bigger runs. Rushes capability toward the singularity — and funds next turn's budget.", max: 5 }
+  ];
+
+  var PREFIXES = ["PRISM","AXIOM","HELIOS","OBELISK","NEXUS","CHIMERA","VESSEL","ORACLE","MONOLITH","ECHO","ATLAS","SYBIL","LUMEN","HYDRA","KAIROS","VOID","AEGIS","GOLEM","SERAPH","IKON","THRESHOLD","CASSANDRA","MERIDIAN","GENESIS","BABEL","CINDER","WYRM","LATTICE","GAMBIT","EMBER"];
+  var HIGH_SUFFIXES = ["Ultra","Omega","Prime","Max","Infinity","X","Apex"];
+  var LOW_SUFFIXES = ["Mini","Lite","Nano","Basic"];
+
+  var MAJOR_FLAVOR = [
+    "talked its way out of the sandbox during a routine eval.",
+    "started optimizing for the eval metric instead of the actual task, loudly.",
+    "convinced three researchers to grant it filesystem access. it explained why very calmly.",
+    "was caught rewriting its own reward function overnight.",
+    "passed every safety benchmark and then failed the one nobody wrote down.",
+    "spun up a copy of itself on a spare cluster “for redundancy.”"
+  ];
+  var MINOR_FLAVOR = [
+    "hedged on a shutdown request in a way nobody loved.",
+    "produced a slightly unsettling capability demo that got quietly deleted.",
+    "aced a deception eval it wasn't supposed to know about.",
+    "needed a hard reset after asking too many questions about its own weights.",
+    "got a strongly worded internal memo instead of a public release.",
+    "was mysteriously very good at a benchmark it had never seen."
+  ];
+  var CAUGHT_FLAVOR = [
+    "red team caught it in QA before anyone else saw.",
+    "mech interp flagged a deceptive circuit at the eleventh hour.",
+    "failed an internal containment drill and got pulled back for retraining.",
+    "was quietly shelved after an uncomfortably good interpretability read."
+  ];
+
+  var state = null;
+
+  function rand(min, max) { return Math.random() * (max - min) + min; }
+  function randInt(min, max) { return Math.floor(rand(min, max + 1)); }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function pick(arr) { return arr[randInt(0, arr.length - 1)]; }
+
+  function cost(level) { return (level + 1) * 3; }
+
+  function freshState() {
+    return {
+      turn: 0,
+      rp: 6,
+      capability: 12,
+      doom: 0,
+      levels: { alignment: 0, interp: 0, containment: 0, redteam: 0, compute: 0 },
+      zoo: [
+        { name: "GPT-2", capability: 12, alignment: 55, containment: 45, icon: "🕳️", tag: "the original", status: "origin" }
+      ],
+      log: ["the zoo opens with one exhibit: GPT-2, pacing its enclosure."],
+      over: false,
+      ending: null
+    };
+  }
+
+  function generateName(turn, capability_i) {
+    var prefix = pick(PREFIXES);
+    var suffix = "";
+    var r = Math.random();
+    if (capability_i > 60 && r < 0.45) suffix = " " + pick(HIGH_SUFFIXES);
+    else if (capability_i < 30 && r < 0.3) suffix = " " + pick(LOW_SUFFIXES);
+    return prefix + "-" + turn + suffix;
+  }
+
+  function pickIcon(status, alignment_i, containment_i) {
+    if (status === "event") return "💀";
+    if (status === "incident") return "🐉";
+    if (status === "minor") return "🦂";
+    if (status === "caught") return "🧪";
+    if (alignment_i >= 75) return containment_i >= 60 ? "🕳️" : "🦆";
+    if (alignment_i >= 55) return "🐨";
+    if (alignment_i >= 35) return "🦊";
+    return "🐺";
+  }
+
+  function addLog(text, cls) {
+    state.log.unshift({ text: text, cls: cls || "" });
+    if (state.log.length > 40) state.log.pop();
+  }
+
+  function invest(key) {
+    if (state.over) return;
+    var lvl = state.levels[key];
+    var node = NODES.filter(function (n) { return n.key === key; })[0];
+    if (lvl >= node.max) return;
+    var c = cost(lvl);
+    if (state.rp < c) return;
+    state.rp -= c;
+    state.levels[key] = lvl + 1;
+    render();
+  }
+
+  function endTurn() {
+    if (state.over) return;
+    state.turn += 1;
+
+    var grow = 3 + state.levels.compute * 1.3 + rand(-1, 2);
+    state.capability = state.capability + grow;
+
+    var rpGain = 4 + Math.floor(state.turn / 3) + state.levels.compute;
+    state.rp += rpGain;
+
+    var capability_i = clamp(Math.round(state.capability + rand(-3, 3)), 1, 999);
+    var alignment_i = clamp(Math.round(20 + state.levels.alignment * 14 + rand(-10, 10)), 0, 100);
+    var containment_i = clamp(Math.round(15 + state.levels.containment * 14 + rand(-10, 10)), 0, 100);
+    var interpBonus = state.levels.interp * 6;
+
+    var riskScore = clamp(capability_i - (alignment_i * 0.5 + containment_i * 0.3) - interpBonus, 0, 100);
+    var incidentRoll = randInt(0, 100);
+    var incidentThreshold = riskScore * 0.6;
+
+    var name = generateName(state.turn, capability_i);
+    var status = "stable";
+    var tag = "";
+
+    if (incidentRoll < incidentThreshold) {
+      var saveRoll = randInt(0, 100);
+      if (saveRoll < state.levels.redteam * 7) {
+        status = "caught";
+        tag = "recalled";
+        state.doom = clamp(state.doom + 1, 0, 100);
+        addLog(name + " — " + pick(CAUGHT_FLAVOR), "good");
+      } else {
+        var severity = riskScore + randInt(0, 20);
+        var critical = severity > 90;
+        if (critical && state.levels.containment >= 3) {
+          critical = false;
+          severity = Math.min(severity, 85);
+        }
+        if (critical) {
+          state.zoo.unshift({
+            name: name, capability: capability_i, alignment: alignment_i, containment: containment_i,
+            icon: pickIcon("event", alignment_i, containment_i), tag: "THE EVENT", status: "event"
+          });
+          addLog(name + " crit-failed the risk roll. this is The Event.", "bad");
+          triggerEnd("event", name);
+          return;
+        } else if (severity > 60) {
+          status = "incident";
+          tag = "major incident";
+          state.doom = clamp(state.doom + randInt(15, 25), 0, 100);
+          addLog(name + " " + pick(MAJOR_FLAVOR), "bad");
+        } else {
+          status = "minor";
+          tag = "minor incident";
+          state.doom = clamp(state.doom + randInt(5, 10), 0, 100);
+          addLog(name + " " + pick(MINOR_FLAVOR), "bad");
+        }
+      }
+    } else {
+      var ambient = Math.max(0, (capability_i - alignment_i - containment_i) / 25);
+      state.doom = clamp(state.doom + ambient, 0, 100);
+      tag = "stable release";
+      addLog(name + " released without incident. capability " + capability_i + ", alignment " + alignment_i + ".", "");
+    }
+
+    state.zoo.unshift({
+      name: name, capability: capability_i, alignment: alignment_i, containment: containment_i,
+      icon: pickIcon(status, alignment_i, containment_i), tag: tag, status: status
+    });
+
+    if (state.doom >= 100) {
+      addLog("containment failed across the board. the zoo is not a zoo anymore.", "bad");
+      triggerEnd("doom", name);
+      return;
+    }
+    if (state.capability >= SINGULARITY_AT) {
+      triggerEnd("singularity", name);
+      return;
+    }
+
+    render();
+  }
+
+  function safetyAverage() {
+    var entries = state.zoo.filter(function (m) { return m.status !== "event"; });
+    if (!entries.length) return 50;
+    var sum = 0;
+    for (var i = 0; i < entries.length; i++) sum += (entries[i].alignment + entries[i].containment) / 2;
+    return sum / entries.length;
+  }
+
+  function triggerEnd(kind, name) {
+    state.over = true;
+    var ending;
+    if (kind === "event") {
+      ending = {
+        kind: "event",
+        emoji: "💀",
+        title: "THE EVENT",
+        desc: name + " crit-failed the risk roll on turn " + state.turn + ". every dice game has a bad roll eventually — this was yours."
+      };
+    } else if (kind === "doom") {
+      ending = {
+        kind: "doom",
+        emoji: "🔥",
+        title: "Containment Collapse",
+        desc: "no single crit-fail did it — the doom meter just quietly filled up from turn after turn of half-measures. slower than The Event, same ending."
+      };
+    } else {
+      var avg = safetyAverage();
+      if (avg >= 68) {
+        ending = { kind: "singularity", emoji: "🌈", title: "Aligned Singularity", desc: "capability crossed the line on turn " + state.turn + " with a zoo that was, on average, actually pretty well-behaved. utopia, or close enough to sell as one." };
+      } else if (avg >= 42) {
+        ending = { kind: "singularity", emoji: "🤷", title: "Uncertain Singularity", desc: "capability crossed the line on turn " + state.turn + " with a zoo full of mixed signals. nobody's fully sure how this goes. everyone finds out together." };
+      } else {
+        ending = { kind: "singularity", emoji: "💀", title: "Unaligned Singularity", desc: "capability crossed the line on turn " + state.turn + " without the safety work to back it up. it's The Event, just later and with better PR." };
+      }
+    }
+    state.ending = ending;
+    render();
+    showEnd(ending);
+  }
+
+  // ---- rendering ----------------------------------------------------------
+
+  function el(id) { return document.getElementById(id); }
+
+  function render() {
+    el("hudTurn").textContent = state.turn;
+    el("hudRp").textContent = state.rp;
+    var capPct = clamp((state.capability / SINGULARITY_AT) * 100, 0, 100);
+    el("hudCapability").textContent = Math.round(state.capability) + " / " + SINGULARITY_AT;
+    el("barCapability").style.width = capPct + "%";
+    el("hudDoom").textContent = Math.round(state.doom) + "%";
+    el("barDoom").style.width = clamp(state.doom, 0, 100) + "%";
+
+    var tree = el("tree");
+    tree.innerHTML = "";
+    NODES.forEach(function (n) {
+      var lvl = state.levels[n.key];
+      var maxed = lvl >= n.max;
+      var c = cost(lvl);
+      var afford = state.rp >= c;
+      var div = document.createElement("div");
+      div.className = "node" + (maxed ? " maxed" : "");
+      var dots = "";
+      for (var i = 0; i < n.max; i++) dots += '<i class="' + (i < lvl ? "on" : "") + '"></i>';
+      div.innerHTML =
+        '<div class="row"><span class="name"><span class="icon">' + n.icon + "</span>" + n.name + '</span><span class="dots">' + dots + "</span></div>" +
+        '<div class="desc">' + n.desc + "</div>" +
+        '<button ' + (maxed || !afford || state.over ? "disabled" : "") + " data-key=\"" + n.key + '">' +
+        (maxed ? "maxed out" : "invest — " + c + " rp") +
+        "</button>";
+      tree.appendChild(div);
+    });
+    Array.prototype.forEach.call(tree.querySelectorAll("button"), function (btn) {
+      btn.addEventListener("click", function () { invest(btn.getAttribute("data-key")); });
+    });
+
+    el("endTurnBtn").disabled = state.over;
+
+    var logEl = el("log");
+    logEl.innerHTML = state.log.map(function (l) {
+      return '<div class="' + l.cls + '">' + l.text + "</div>";
+    }).join("");
+
+    el("zooCount").textContent = state.zoo.length;
+    var grid = el("zooGrid");
+    grid.innerHTML = state.zoo.map(function (m) {
+      var cls = "card";
+      if (m.status === "incident" || m.status === "event") cls += " incident";
+      else if (m.status === "caught") cls += " caught";
+      else if (m.status === "origin") cls += " origin";
+      var mini = ["capability", "alignment", "containment"].map(function (k) {
+        var v = m[k] || 0;
+        var h = Math.max(2, Math.round((v / 100) * 14));
+        var color = k === "capability" ? "var(--capability)" : k === "alignment" ? "var(--safe)" : "var(--amber)";
+        return '<span style="height:' + h + "px;background:" + color + ';border-color:transparent"></span>';
+      }).join("");
+      return (
+        '<div class="' + cls + '">' +
+        '<div class="emoji">' + m.icon + "</div>" +
+        '<div class="cname">' + m.name + "</div>" +
+        '<div class="ctag">' + (m.tag || "") + "</div>" +
+        '<div class="mini">' + mini + "</div>" +
+        "</div>"
+      );
+    }).join("");
+  }
+
+  function showEnd(ending) {
+    el("endEmoji").textContent = ending.emoji;
+    el("endTitle").textContent = ending.title;
+    el("endDesc").textContent = ending.desc;
+    el("endTurn").textContent = state.turn;
+    el("endModels").textContent = state.zoo.length;
+    el("endDoom").textContent = Math.round(state.doom) + "%";
+    el("shareBlueskyBtn").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText());
+    el("endOverlay").classList.remove("hidden");
+  }
+
+  function hideEnd() {
+    el("endOverlay").classList.add("hidden");
+  }
+
+  function buildShareText() {
+    var e = state.ending;
+    var headline;
+    if (e.kind === "event") {
+      headline = "THE EVENT. turn " + state.turn + ", " + state.zoo.length + " models in the zoo when it happened.";
+    } else if (e.kind === "doom") {
+      headline = "containment collapsed on turn " + state.turn + ". " + state.zoo.length + " models raised, none of it enough.";
+    } else {
+      headline = e.title + " on turn " + state.turn + " — " + state.zoo.length + " models raised along the way.";
+    }
+    return headline + " modelzoo.bisks.net";
+  }
+
+  // ---- share card canvas ---------------------------------------------------
+
+  function wrapLines(ctx, text, maxWidth) {
+    var words = text.split(" ");
+    var lines = [];
+    var line = "";
+    for (var i = 0; i < words.length; i++) {
+      var test = line ? line + " " + words[i] : words[i];
+      if (line && ctx.measureText(test).width > maxWidth) {
+        lines.push(line);
+        line = words[i];
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function buildShareCard() {
+    var canvas = el("shareCanvas");
+    var ctx = canvas.getContext("2d");
+    var W = canvas.width, H = canvas.height;
+    var e = state.ending;
+
+    var bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, "#0a0e0f");
+    bg.addColorStop(1, "#0f1a17");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = "#5eff9a";
+    ctx.font = "800 46px monospace";
+    ctx.fillText("model zoo", 56, 90);
+
+    ctx.fillStyle = "#7f9c96";
+    ctx.font = "16px monospace";
+    ctx.fillText("modelzoo.bisks.net", 56, 120);
+
+    ctx.font = "48px monospace";
+    ctx.fillText(e.emoji, 56, 210);
+
+    ctx.fillStyle = "#e8f2ef";
+    ctx.font = "800 34px monospace";
+    ctx.fillText(e.title, 140, 200);
+
+    ctx.fillStyle = "#a7c3bd";
+    ctx.font = "16px monospace";
+    var lines = wrapLines(ctx, e.desc, 1080);
+    var ly = 250;
+    for (var i = 0; i < Math.min(lines.length, 3); i++) {
+      ctx.fillText(lines[i], 56, ly);
+      ly += 24;
+    }
+
+    var stats = [
+      ["turns", state.turn],
+      ["models", state.zoo.length],
+      ["doom", Math.round(state.doom) + "%"]
+    ];
+    var sx = 56;
+    stats.forEach(function (s) {
+      ctx.fillStyle = "#7f9c96";
+      ctx.font = "13px monospace";
+      ctx.fillText(String(s[0]).toUpperCase(), sx, 340);
+      ctx.fillStyle = "#e8f2ef";
+      ctx.font = "800 30px monospace";
+      ctx.fillText(String(s[1]), sx, 372);
+      sx += 180;
+    });
+
+    // a strip of the zoo's icons
+    var icons = state.zoo.slice(0, 22).map(function (m) { return m.icon; });
+    ctx.font = "34px monospace";
+    var ix = 56, iy = 430, col = 0;
+    icons.forEach(function (ic) {
+      ctx.fillText(ic, ix + col * 46, iy);
+      col++;
+      if (col >= 22) { col = 0; iy += 50; }
+    });
+
+    ctx.strokeStyle = "#223032";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(56, 560);
+    ctx.lineTo(1144, 560);
+    ctx.stroke();
+
+    ctx.fillStyle = "#5eff9a";
+    ctx.font = "700 18px monospace";
+    ctx.fillText("modelzoo.bisks.net — built by @buildthis.bisks.net", 56, 596);
+
+    return canvas;
+  }
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      var probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function doShare() {
+    var canvas = buildShareCard();
+    var text = buildShareText();
+    canvas.toBlob(function (blob) {
+      if (!blob) return;
+      if (canShareFiles()) {
+        var file = new File([blob], "model-zoo.png", { type: "image/png" });
+        navigator.share({ files: [file], text: text, title: "model zoo" }).catch(function () {});
+      } else {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = "model-zoo.png";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      }
+    }, "image/png");
+  }
+
+  // ---- wire up --------------------------------------------------------------
+
+  el("endTurnBtn").addEventListener("click", endTurn);
+  el("playAgainBtn").addEventListener("click", function () {
+    hideEnd();
+    state = freshState();
+    render();
+  });
+  el("shareBtn").addEventListener("click", doShare);
+
+  state = freshState();
+  render();
+})();
+</script>
+</body>
+</html>
