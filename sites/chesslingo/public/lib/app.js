@@ -553,7 +553,16 @@
     const count = unitQuestionCount(unit);
     const chosen = shuffle(items).slice(0, count);
     return chosen.map((item) => {
-      const distractorPool = shuffle(items.filter((x) => x !== item));
+      // Some units (e.g. "check") have more than one item sharing the exact
+      // same label (two different boards both correctly called "Checkmate").
+      // Picking a same-label item as a distractor makes two choices read as
+      // equally correct while only one gets marked right — prefer distinct
+      // labels for the 3 distractor slots, and only fall back to a same-label
+      // item if a unit genuinely doesn't have 3 distinct-labeled alternatives.
+      const rest = shuffle(items.filter((x) => x !== item));
+      const distractorPool = rest
+        .filter((x) => x.label !== item.label)
+        .concat(rest.filter((x) => x.label === item.label));
       const choices = shuffle([item, ...distractorPool.slice(0, 3)]);
       return { item, choices };
     });
@@ -598,10 +607,14 @@
 
   function answerQuestion(choice, btnEl) {
     const q = lesson.questions[lesson.qi];
-    const correct = choice === q.item;
+    // Graded by label, not object identity: if a same-labeled distractor
+    // ever does slip through (see buildQuestions), it's just as correct an
+    // answer as the exact item chosen for the question.
+    const correct = choice.label === q.item.label;
     for (const b of els.qChoices.querySelectorAll(".choice")) {
       b.disabled = true;
-      if (b.dataset.itemId === q.item.id) b.classList.add("correct");
+      const c = q.choices.find((x) => x.id === b.dataset.itemId);
+      if (c && c.label === q.item.label) b.classList.add("correct");
       else if (b === btnEl) b.classList.add("wrong");
     }
     if (correct) {
