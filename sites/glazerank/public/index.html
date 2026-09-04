@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>glazerank — the atproto glazer score</title>
+<meta name="description" content="Enter a Bluesky handle and glazerank reads their whole post history for goat, iconic, no notes, hire her, and everything in between — 0 to 1000, ranked on a live leaderboard." />
+<meta property="og:title" content="glazerank — the atproto glazer score" />
+<meta property="og:description" content="Enter a Bluesky handle and glazerank reads their whole post history for goat, iconic, no notes, hire her, and everything in between — 0 to 1000, ranked on a live leaderboard." />
+<meta property="og:url" content="https://glazerank.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://glazerank.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="glazerank: a score meter running from 0 to 1000, measuring how much an account glazes." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="glazerank — the atproto glazer score" />
+<meta name="twitter:description" content="Enter a Bluesky handle and glazerank reads their whole post history for goat, iconic, no notes, hire her, and everything in between — 0 to 1000, ranked on a live leaderboard." />
+<meta name="twitter:image" content="https://glazerank.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #fffaf2;
+    --card: #ffffff;
+    --ink: #241c12;
+    --dim: #8a7a63;
+    --border: #ecdfc7;
+    --accent: #d98e2b;
+    --accent2: #e8562f;
+    --good: #4a9a5a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #fdeecb 0%, transparent 55%),
+      radial-gradient(ellipse at 100% 0%, #fde3d4 0%, transparent 50%),
+      var(--bg);
+    color: var(--ink);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3.5rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 620px; }
+  h1 {
+    font-size: 2rem;
+    margin: 0 0 0.3rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 1.75rem; line-height: 1.5; max-width: 54ch; }
+  .tag code { background: var(--border); padding: 0 0.25em; border-radius: 3px; }
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  input {
+    flex: 1; font: inherit; padding: 0.65rem 0.8rem; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--card); color: var(--ink);
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    font: inherit; padding: 0.65rem 1rem; border-radius: 8px; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff; cursor: pointer; font-weight: 600;
+  }
+  button:disabled { opacity: 0.55; cursor: default; }
+  button.secondary { background: transparent; color: var(--ink); border-color: var(--border); font-weight: 500; }
+  .status { min-height: 1.4em; font-size: 0.85rem; color: var(--dim); margin: 0.4rem 0 1.5rem; }
+  .status.err { color: var(--accent2); }
+
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 1.5rem; margin-bottom: 2.5rem;
+  }
+  .card .who { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 1rem; }
+  .card .who img { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border); }
+  .card .who .name { font-weight: 700; }
+  .card .who .handle { color: var(--dim); font-size: 0.85rem; }
+  .score-row { display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.3rem; }
+  .score-num { font-size: 3rem; font-weight: 800; line-height: 1; }
+  .score-max { color: var(--dim); font-size: 1.1rem; }
+  .score-title { font-size: 1rem; font-weight: 600; color: var(--accent2); margin-bottom: 0.9rem; }
+  .meter { height: 10px; border-radius: 6px; background: var(--border); overflow: hidden; margin-bottom: 0.9rem; }
+  .meter > i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .meta-line { font-size: 0.85rem; color: var(--dim); margin-bottom: 1rem; }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+  .chip {
+    font-size: 0.78rem; padding: 0.2rem 0.55rem; border-radius: 999px;
+    background: #fdf1de; border: 1px solid var(--border); color: #7a5a20;
+  }
+  .quotes { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1.2rem; }
+  .quote {
+    font-size: 0.85rem; color: var(--ink); background: #fffdf8; border-left: 3px solid var(--accent);
+    padding: 0.5rem 0.7rem; border-radius: 0 6px 6px 0; font-style: italic;
+  }
+  .share-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .share-post {
+    display: inline-flex; align-items: center; padding: 0.55rem 0.9rem; border-radius: 8px;
+    background: #1d3b53; color: #fff; text-decoration: none; font-weight: 600; font-size: 0.85rem;
+  }
+
+  .board { margin-top: 1rem; }
+  .board h2 { font-size: 1.15rem; margin: 0 0 0.6rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 0.45rem 0.4rem; border-bottom: 1px solid var(--border); }
+  th { color: var(--dim); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  td.rank { color: var(--dim); width: 2.2em; }
+  td.score { font-weight: 700; text-align: right; }
+  tr.you td { background: #fdf1de; }
+  .board-handle { display: flex; align-items: center; gap: 0.45rem; }
+  .board-handle img { width: 20px; height: 20px; border-radius: 50%; }
+  .board-handle a { color: var(--ink); text-decoration: none; }
+  .board-handle a:hover { text-decoration: underline; }
+
+  footer { margin-top: 3rem; font-size: 0.8rem; color: var(--dim); text-align: center; }
+  footer a { color: var(--dim); }
+  a { color: var(--accent2); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>gl<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">a</span>zerank</h1>
+  <p class="tag">
+    Type a Bluesky handle. glazerank pulls their <em>entire</em> post history straight off their PDS
+    and scores it 0–1000 on pure glaze energy — <code>goat</code>, <code>iconic</code>, <code>no notes</code>,
+    <code>hire her</code>, and forty-some other tells. Ranked live against everyone else who's been scored.
+  </p>
+
+  <form id="f">
+    <input id="handle" type="text" placeholder="you.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <button id="go" type="submit">compute score</button>
+  </form>
+  <div id="status" class="status"></div>
+
+  <div id="result" class="card" hidden>
+    <div class="who">
+      <img id="rAvatar" alt="" />
+      <div>
+        <div class="name" id="rName"></div>
+        <div class="handle" id="rHandle"></div>
+      </div>
+    </div>
+    <div class="score-row">
+      <div class="score-num" id="rScore">0</div>
+      <div class="score-max">/ 1000</div>
+    </div>
+    <div class="score-title" id="rTitle"></div>
+    <div class="meter"><i id="rMeter" style="width:0%"></i></div>
+    <div class="meta-line" id="rMeta"></div>
+    <div class="chips" id="rChips"></div>
+    <div class="quotes" id="rQuotes"></div>
+    <div class="share-row">
+      <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share score</a>
+      <button id="shareDownload" type="button" class="secondary">⬇ download card</button>
+      <button id="shareNative" type="button" class="secondary" style="display:none">📤 share</button>
+    </div>
+    <canvas id="shareCanvas" width="1200" height="630" hidden></canvas>
+  </div>
+
+  <div class="board">
+    <h2>leaderboard</h2>
+    <div id="boardStatus" class="status">loading…</div>
+    <table id="boardTable" hidden>
+      <thead><tr><th>#</th><th>who</th><th style="text-align:right">score</th><th style="text-align:right">posts</th></tr></thead>
+      <tbody id="boardBody"></tbody>
+    </table>
+  </div>
+
+  <footer>
+    part of <a href="https://bisks.net">atprotozoa</a> ·
+    built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+    <a href="https://rateyourbuild.bisks.net/site/glazerank">rate this on rateyourbuild →</a>
+  </footer>
+</div>
+
+<script>
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  result: document.getElementById("result"),
+  rAvatar: document.getElementById("rAvatar"),
+  rName: document.getElementById("rName"),
+  rHandle: document.getElementById("rHandle"),
+  rScore: document.getElementById("rScore"),
+  rTitle: document.getElementById("rTitle"),
+  rMeter: document.getElementById("rMeter"),
+  rMeta: document.getElementById("rMeta"),
+  rChips: document.getElementById("rChips"),
+  rQuotes: document.getElementById("rQuotes"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+  shareNative: document.getElementById("shareNative"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  boardStatus: document.getElementById("boardStatus"),
+  boardTable: document.getElementById("boardTable"),
+  boardBody: document.getElementById("boardBody"),
+};
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function glazeTitle(score) {
+  if (score >= 900) return "certified ATProto glazer";
+  if (score >= 750) return "professional hype account";
+  if (score >= 550) return "generous with the compliments";
+  if (score >= 350) return "keeps it warm but honest";
+  if (score >= 150) return "measured, occasionally kind";
+  return "certified hater";
+}
+
+let lastResult = null;
+let lastShareText = "";
+
+async function scoreHandle(rawHandle) {
+  const handle = rawHandle.trim();
+  if (!handle) return;
+  els.go.disabled = true;
+  setStatus("resolving @" + handle.replace(/^@/, "") + " and downloading their post history — big accounts can take a few seconds…");
+  els.result.hidden = true;
+  try {
+    const res = await fetch("/api/score", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ handle }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "couldn't score that account");
+    lastResult = data;
+    renderResult(data);
+    setStatus("scanned " + data.postCount + " posts via " + (data.fetchMethod === "repo" ? "a full repo download" : "the public feed") + ".");
+    loadLeaderboard(data.did);
+  } catch (err) {
+    setStatus(err.message || "something went wrong", true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+function renderResult(data) {
+  els.result.hidden = false;
+  els.rAvatar.src = data.avatar || "";
+  els.rAvatar.style.visibility = data.avatar ? "visible" : "hidden";
+  els.rName.textContent = data.displayName;
+  els.rHandle.textContent = "@" + data.handle;
+  els.rScore.textContent = data.score;
+  els.rTitle.textContent = glazeTitle(data.score);
+  els.rMeter.style.width = (data.score / 10) + "%";
+  els.rMeta.textContent = "#" + data.rank + " of " + data.totalScored + " scored so far · " + data.postCount + " posts scanned";
+
+  els.rChips.innerHTML = "";
+  if (!data.topTerms.length) {
+    const c = document.createElement("span");
+    c.className = "chip";
+    c.textContent = "no glaze terms found — refreshingly normal";
+    els.rChips.appendChild(c);
+  }
+  for (const t of data.topTerms) {
+    const c = document.createElement("span");
+    c.className = "chip";
+    c.textContent = t.label + " ×" + t.count;
+    els.rChips.appendChild(c);
+  }
+
+  els.rQuotes.innerHTML = "";
+  for (const q of data.topQuotes) {
+    const d = document.createElement("div");
+    d.className = "quote";
+    d.textContent = "“" + q + "”";
+    els.rQuotes.appendChild(d);
+  }
+
+  const url = "https://glazerank.bisks.net/u/" + encodeURIComponent(data.handle);
+  const text = "@" + data.handle + " scores " + data.score + "/1000 on the atproto glazer index (#" + data.rank + ") — " + url;
+  lastShareText = text.length <= 300 ? text : ("@" + data.handle + " scores " + data.score + "/1000 on the atproto glazer index — " + url);
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+
+  buildShareCard(data);
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+async function buildShareCard(data) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "'JetBrains Mono', ui-monospace, monospace";
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#fffaf2";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.85, H * 0.05, 0, W * 0.85, H * 0.05, W * 0.6);
+  glow.addColorStop(0, "#fde3d4");
+  glow.addColorStop(1, "rgba(255,250,242,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "#d98e2b";
+  ctx.font = "700 34px " + mono;
+  ctx.fillText("glazerank.bisks.net", 64, 84);
+
+  const avatar = await loadImg(data.avatar);
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(130, 190, 60, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 70, 130, 120, 120);
+    ctx.restore();
+  }
+  ctx.fillStyle = "#241c12";
+  ctx.font = "700 30px " + mono;
+  ctx.fillText(data.displayName, 210, 178);
+  ctx.fillStyle = "#8a7a63";
+  ctx.font = "22px " + mono;
+  ctx.fillText("@" + data.handle, 210, 212);
+
+  ctx.fillStyle = "#241c12";
+  ctx.font = "800 150px " + mono;
+  ctx.fillText(String(data.score), 64, 420);
+  ctx.fillStyle = "#8a7a63";
+  ctx.font = "36px " + mono;
+  const scoreWidth = ctx.measureText(String(data.score)).width;
+  ctx.font = "800 150px " + mono;
+  const bigWidth = ctx.measureText(String(data.score)).width;
+  ctx.font = "36px " + mono;
+  ctx.fillText("/ 1000", 64 + bigWidth + 14, 420);
+
+  ctx.fillStyle = "#e8562f";
+  ctx.font = "700 32px " + mono;
+  ctx.fillText(glazeTitle(data.score), 64, 470);
+
+  roundRect(ctx, 64, 500, W - 128, 16, 8);
+  ctx.fillStyle = "#ecdfc7";
+  ctx.fill();
+  roundRect(ctx, 64, 500, (W - 128) * (data.score / 1000), 16, 8);
+  const barGrad = ctx.createLinearGradient(64, 0, W - 64, 0);
+  barGrad.addColorStop(0, "#d98e2b");
+  barGrad.addColorStop(1, "#e8562f");
+  ctx.fillStyle = barGrad;
+  ctx.fill();
+
+  ctx.fillStyle = "#8a7a63";
+  ctx.font = "24px " + mono;
+  const quote = data.topQuotes[0];
+  if (quote) {
+    const line = "“" + (quote.length > 70 ? quote.slice(0, 70) + "…" : quote) + "”";
+    ctx.fillText(line, 64, 560);
+  } else {
+    ctx.fillText("#" + data.rank + " of " + data.totalScored + " scored on glazerank", 64, 560);
+  }
+}
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "glazerank-" + (lastResult ? lastResult.handle : "card").replace(/[^a-z0-9.-]/gi, "_") + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "glazerank-" + (lastResult ? lastResult.handle : "card") + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "glazerank" });
+      } catch (_) {}
+    }, "image/png");
+  });
+}
+
+async function loadLeaderboard(highlightDid) {
+  try {
+    const res = await fetch("/api/leaderboard");
+    const data = await res.json();
+    const entries = data.entries || [];
+    if (!entries.length) {
+      els.boardStatus.textContent = "nobody's been scored yet — be the first.";
+      els.boardTable.hidden = true;
+      return;
+    }
+    els.boardStatus.textContent = "";
+    els.boardTable.hidden = false;
+    els.boardBody.innerHTML = "";
+    entries.forEach((e, i) => {
+      const tr = document.createElement("tr");
+      if (highlightDid && e.did === highlightDid) tr.className = "you";
+      const rank = document.createElement("td");
+      rank.className = "rank";
+      rank.textContent = String(i + 1);
+      const who = document.createElement("td");
+      const wrap = document.createElement("div");
+      wrap.className = "board-handle";
+      if (e.avatar) {
+        const img = document.createElement("img");
+        img.src = e.avatar;
+        img.alt = "";
+        wrap.appendChild(img);
+      }
+      const a = document.createElement("a");
+      a.href = "https://bsky.app/profile/" + e.handle;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.textContent = "@" + e.handle;
+      wrap.appendChild(a);
+      who.appendChild(wrap);
+      const score = document.createElement("td");
+      score.className = "score";
+      score.textContent = String(e.score);
+      const posts = document.createElement("td");
+      posts.style.textAlign = "right";
+      posts.style.color = "var(--dim)";
+      posts.textContent = String(e.postCount);
+      tr.append(rank, who, score, posts);
+      els.boardBody.appendChild(tr);
+    });
+  } catch (_) {
+    els.boardStatus.textContent = "couldn't load the leaderboard.";
+    els.boardTable.hidden = true;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  scoreHandle(els.input.value);
+});
+
+loadLeaderboard();
+
+const pathHandle = (location.pathname.match(/^\/u\/([^/]+)\/?$/) || [])[1];
+const queryHandle = new URLSearchParams(location.search).get("h");
+const initHandle = queryHandle || (pathHandle && decodeURIComponent(pathHandle));
+if (initHandle) {
+  els.input.value = initHandle;
+  scoreHandle(initHandle);
+}
+</script>
+</body>
+</html>

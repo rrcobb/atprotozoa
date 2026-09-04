@@ -1,0 +1,33 @@
+name = "atprotozoa-glazerank"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# @mfzx.net asked for a site that reads an account's own post history and
+# scores them 0-1000 on "atproto glazer" energy (superlatives, hype,
+# recommend-a-friend posts), off a thread where @demigirlboss.bsky.social's
+# bio jokes about being "ATProto's 19th biggest glazer." Scoring runs
+# server-side (POST /api/score) rather than in the browser: it downloads the
+# account's whole repo as one CAR (com.atproto.sync.getRepo — see
+# notes/40-new-site-playbook.md's cee.wtf thread), which needs no auth, but
+# keeping it server-side means the leaderboard can trust a score actually
+# came from that account's real posts instead of a client-forged POST body.
+# One KV blob holds the leaderboard (same single-snapshot pattern as
+# sites/chickenjack's TABLE_STATE) and doubles as the cache /u/<handle>'s
+# personalized OG unfurl reads from (sites/didscope's renderShare pattern) —
+# no fresh CAR download on every link-preview fetch.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
+routes = [
+  { pattern = "glazerank.bisks.net/*", zone_name = "bisks.net" },
+]
+
+# run_worker_first: /api/* and /u/<handle> are dynamic, so the Worker must
+# run before the static-asset router, same as sites/didscope and chickenjack.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[kv_namespaces]]
+binding = "LEADERBOARD"
