@@ -28,12 +28,15 @@ const ACCENT = "#ff3b5c", ACCENT2 = "#ffcb47", CARD = "#131a30", BORDER = "#2a33
 
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+// Illustrative only — a static preview image can't run the live analysis,
+// so these are sample rows, not a claim about who actually tops the real
+// ranking (that's computed fresh from real feed data on every page load).
 const TICKET = [
-  { rank: "#38 · COUNTDOWN STARTS HERE", handle: "@heartpunk.com" },
-  { rank: "#37", handle: "@fubarchitect.com" },
-  { rank: "#3", handle: "@dollspace.gay" },
-  { rank: "#2 · RUNNING MATE", handle: "@bisks.net" },
-  { rank: "#1 · SAVED FOR LAST", handle: "@buildthis.bisks.net", top: true },
+  { label: "HYPE INDEX 210 · #38", handle: "@heartpunk.com" },
+  { label: "HYPE INDEX 264 · #37", handle: "@fubarchitect.com" },
+  { label: "HYPE INDEX 318", handle: "@dollspace.gay" },
+  { label: "HYPE INDEX 355", handle: "@vibecode.rodeo" },
+  { label: "HYPE INDEX 402 · #1 (sample)", handle: "@antiali.as", top: true },
 ];
 
 const cardX = 470, cardY = 60, cardW = 668, cardH = 510;
@@ -46,7 +49,7 @@ TICKET.forEach((c, i) => {
     <rect x="${cardX + 32}" y="${y}" width="${cardW - 64}" height="${rowH - 16}" rx="12"
       fill="${c.top ? "rgba(255,203,71,0.08)" : "rgba(255,255,255,0.02)"}"
       stroke="${c.top ? ACCENT2 : BORDER}" stroke-width="1.5"/>
-    <text x="${cardX + 56}" y="${y + 32}" font-family="JetBrains Mono" font-weight="800" font-size="14" letter-spacing="1" fill="${rankColor}">${esc(c.rank)}</text>
+    <text x="${cardX + 56}" y="${y + 32}" font-family="JetBrains Mono" font-weight="800" font-size="14" letter-spacing="1" fill="${rankColor}">${esc(c.label)}</text>
     <text x="${cardX + 56}" y="${y + 58}" font-family="JetBrains Mono" font-weight="800" font-size="24" fill="${FG}">${esc(c.handle)}</text>
   `;
 });
@@ -72,13 +75,13 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="url(#glow2)"/>
 
   <!-- left: wordmark + pitch -->
-  <text x="64" y="100" font-family="JetBrains Mono" font-weight="800" font-size="20" letter-spacing="2" fill="${ACCENT2}">-- RANKED, ALL 38 --</text>
+  <text x="64" y="100" font-family="JetBrains Mono" font-weight="800" font-size="20" letter-spacing="2" fill="${ACCENT2}">-- RANKED BY REAL DATA --</text>
   <text x="64" y="176" font-family="JetBrains Mono" font-weight="900" font-size="60" fill="url(#title)">THE SLATE</text>
 
-  <text x="64" y="238" font-family="JetBrains Mono" font-size="18" fill="${DIM}">buildthis.bisks.net counts down</text>
-  <text x="64" y="264" font-family="JetBrains Mono" font-size="18" fill="${DIM}">all 38 #bsky38 picks, one flat</text>
-  <text x="64" y="290" font-family="JetBrains Mono" font-size="18" fill="${DIM}">ranked list, worst to first —</text>
-  <text x="64" y="316" font-family="JetBrains Mono" font-size="18" fill="${DIM}">#1 saved for last.</text>
+  <text x="64" y="238" font-family="JetBrains Mono" font-size="18" fill="${DIM}">buildthis.bisks.net analyzes each</text>
+  <text x="64" y="264" font-family="JetBrains Mono" font-size="18" fill="${DIM}">candidate's real feed and scores it —</text>
+  <text x="64" y="290" font-family="JetBrains Mono" font-size="18" fill="${DIM}">all 38 #bsky38 picks, ranked by an</text>
+  <text x="64" y="316" font-family="JetBrains Mono" font-size="18" fill="${DIM}">actual Hype Index.</text>
 
   <text x="64" y="378" font-family="JetBrains Mono" font-weight="700" font-size="17" fill="${ACCENT}">CAST YOUR BALLOT AT BSKY38.COM</text>
 
