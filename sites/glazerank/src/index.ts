@@ -18,6 +18,11 @@
 // alongside just talking about the ecosystem. See isBskyCollection/
 // computeNonBskyStats and the TOPIC_WEIGHT/EXPLORE_WEIGHT split below.
 //
+// One more round after the density recalibration: @mfzx.net pointed out
+// "bsky"/".bsky.social" mostly show up as other people's handles (replies,
+// quote-posts) rather than the poster actually talking about bluesky — see
+// MENTION_DERANK_WEIGHT below.
+//
 // Scoring runs server-side (POST /api/score), not in the browser. Two
 // reasons: (1) it downloads the account's whole repo as one CAR
 // (com.atproto.sync.getRepo, no auth needed — see notes/40-new-site-playbook.md's
@@ -373,14 +378,57 @@ function computeNonBskyStats(typeCounts: Map<string, number>): NonBskyStats {
   return { count, collections: collections.slice(0, 8) };
 }
 
+// @mfzx.net, replying in the same thread the DENSITY_SCALE fix landed in:
+// "you might want to derank '.bsky.social' somewhat as it appears in
+// mentions that don't indicate the user is actually talking about bluesky
+// ('bsky' might also be affected by this)". Both terms are structurally
+// handle-shaped: the ".bsky.social" regex can only ever match inside a
+// "name.bsky.social" string, and a bare "bsky" match is either part of that
+// same handle or sits right after an "@" (someone else's app.bsky handle,
+// e.g. "@bsky.app"). Neither case is the poster talking about the
+// ecosystem themselves, so both get counted for less rather than dropped
+// outright — replying to a bluesky account is still weak evidence the
+// poster is *in* the atmosphere, just not as strong as saying so directly.
+const MENTION_DERANK_WEIGHT = 0.25;
+
+const BSKY_SOCIAL_RE = TOPIC_TERMS.find(([, label]) => label === ".bsky.social")![0];
+
+function isMentionContext(text: string, matchIndex: number): boolean {
+  const prefix = text.slice(Math.max(0, matchIndex - 60), matchIndex);
+  return /@[a-zA-Z0-9._-]*$/.test(prefix);
+}
+
 function scoreTopicMentions(text: string): { total: number; hits: Array<{ label: string; count: number }> } {
   let total = 0;
   const hits: Array<{ label: string; count: number }> = [];
+
+  // handle spans (name.bsky.social) computed up front so the "bsky" term
+  // below can skip hits that fall inside one — otherwise a single handle
+  // like "alice.bsky.social" scores as two separate topic mentions
+  const handleSpans = Array.from(text.matchAll(BSKY_SOCIAL_RE)).map(
+    (m) => [m.index ?? 0, (m.index ?? 0) + m[0].length] as [number, number],
+  );
+
   for (const [re, label] of TOPIC_TERMS) {
-    const m = text.match(re);
-    if (m && m.length) {
-      total += m.length;
-      hits.push({ label, count: m.length });
+    let matches = Array.from(text.matchAll(re));
+    if (!matches.length) continue;
+
+    if (label === "bsky") {
+      matches = matches.filter((m) => {
+        const idx = m.index ?? 0;
+        return !handleSpans.some(([s, e]) => idx >= s && idx < e);
+      });
+      if (!matches.length) continue;
+    }
+
+    hits.push({ label, count: matches.length });
+
+    if (label === "bsky") {
+      for (const m of matches) total += isMentionContext(text, m.index ?? 0) ? MENTION_DERANK_WEIGHT : 1;
+    } else if (label === ".bsky.social") {
+      total += matches.length * MENTION_DERANK_WEIGHT;
+    } else {
+      total += matches.length;
     }
   }
   return { total, hits };
@@ -527,7 +575,12 @@ const LEADERBOARD_CAP = 2000;
 // exploration bonus was added: every entry scored under v3 was computed with
 // no such bonus at all, so re-ranking them against fresh v4 scores would
 // silently underrate whoever gets rescanned first.
-const LEADERBOARD_KEY = "leaderboard-v4";
+//
+// Bumped to "leaderboard-v5" when the mention-deranking above landed: any
+// account whose score leaned on lots of "bsky"/".bsky.social" hits from
+// handle mentions (replies, quote-posts) scores lower under v5, so v4
+// entries aren't comparable.
+const LEADERBOARD_KEY = "leaderboard-v5";
 
 async function loadLeaderboard(env: Env): Promise<LeaderboardEntry[]> {
   const data = await env.LEADERBOARD.get(LEADERBOARD_KEY, "json");
