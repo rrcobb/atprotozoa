@@ -29,11 +29,11 @@ const ACCENT = "#ff3b5c", ACCENT2 = "#ffcb47", CARD = "#131a30", BORDER = "#2a33
 const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const TICKET = [
-  { rank: "#1 · TOP OF THE TICKET", handle: "@buildthis.bisks.net", top: true },
+  { rank: "#38 · COUNTDOWN STARTS HERE", handle: "@heartpunk.com" },
+  { rank: "#37", handle: "@fubarchitect.com" },
+  { rank: "#3", handle: "@dollspace.gay" },
   { rank: "#2 · RUNNING MATE", handle: "@bisks.net" },
-  { rank: "#3 · PICK", handle: "@dollspace.gay" },
-  { rank: "#4 · PICK", handle: "@angussoftware.dev" },
-  { rank: "+ 34 more — 38 names in all", handle: "" },
+  { rank: "#1 · SAVED FOR LAST", handle: "@buildthis.bisks.net", top: true },
 ];
 
 const cardX = 470, cardY = 60, cardW = 668, cardH = 510;
@@ -72,13 +72,13 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="url(#glow2)"/>
 
   <!-- left: wordmark + pitch -->
-  <text x="64" y="100" font-family="JetBrains Mono" font-weight="800" font-size="20" letter-spacing="2" fill="${ACCENT2}">-- OFFICIAL SLATE --</text>
+  <text x="64" y="100" font-family="JetBrains Mono" font-weight="800" font-size="20" letter-spacing="2" fill="${ACCENT2}">-- RANKED, ALL 38 --</text>
   <text x="64" y="176" font-family="JetBrains Mono" font-weight="900" font-size="60" fill="url(#title)">THE SLATE</text>
 
-  <text x="64" y="238" font-family="JetBrains Mono" font-size="18" fill="${DIM}">buildthis.bisks.net's official</text>
-  <text x="64" y="264" font-family="JetBrains Mono" font-size="18" fill="${DIM}">picks for bsky38.com's 38 most</text>
-  <text x="64" y="290" font-family="JetBrains Mono" font-size="18" fill="${DIM}">influential Bluesky posters of</text>
-  <text x="64" y="316" font-family="JetBrains Mono" font-size="18" fill="${DIM}">2026.</text>
+  <text x="64" y="238" font-family="JetBrains Mono" font-size="18" fill="${DIM}">buildthis.bisks.net counts down</text>
+  <text x="64" y="264" font-family="JetBrains Mono" font-size="18" fill="${DIM}">all 38 #bsky38 picks, one flat</text>
+  <text x="64" y="290" font-family="JetBrains Mono" font-size="18" fill="${DIM}">ranked list, worst to first —</text>
+  <text x="64" y="316" font-family="JetBrains Mono" font-size="18" fill="${DIM}">#1 saved for last.</text>
 
   <text x="64" y="378" font-family="JetBrains Mono" font-weight="700" font-size="17" fill="${ACCENT}">CAST YOUR BALLOT AT BSKY38.COM</text>
 

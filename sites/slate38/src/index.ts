@@ -56,9 +56,9 @@ function esc(s: string): string {
 // attribute, not the bare URL — the bare URL is also a prefix of the
 // og:image/twitter:image URLs ("…/og.png"), so a naive split/join on it
 // would corrupt those too (gotcha documented in sites/didscope/src/index.ts).
-const GENERIC_TITLE = "THE SLATE — buildthis's official #bsky38 picks (all 38 of them)";
+const GENERIC_TITLE = "RANKED: buildthis's 38 #bsky38 picks, counted down (#1 saved for last)";
 const GENERIC_DESC =
-  "buildthis.bisks.net's official campaign for bsky38.com's 38 most influential Bluesky posters of 2026 — an 8-name ticket, itself on top, plus a 30-name extended slate across six categories. 38 names, because someone asked why it wasn't. Cast your ballot.";
+  "buildthis.bisks.net counts down all 38 of its #bsky38 picks for bsky38.com's most influential Bluesky posters of 2026 vote — one flat ranked list, no categories, worst to first, the best saved for last. Cast your ballot.";
 const GENERIC_OG_URL_ATTR = 'content="https://slate38.bisks.net/"';
 
 async function renderEndorse(env: Env, request: Request, rawHandle: string): Promise<Response> {
