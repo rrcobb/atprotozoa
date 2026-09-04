@@ -32,7 +32,7 @@ const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, 
 // so these are sample rows, not a claim about who actually tops the real
 // ranking (that's computed fresh from real feed data on every page load).
 const TICKET = [
-  { label: "HYPE INDEX 210 · #38", handle: "@heartpunk.com" },
+  { label: "GUARANTEED TOP 5 (asked nicely)", handle: "@heika.dog" },
   { label: "HYPE INDEX 264 · #37", handle: "@fubarchitect.com" },
   { label: "HYPE INDEX 318", handle: "@dollspace.gay" },
   { label: "HYPE INDEX 355", handle: "@vibecode.rodeo" },
