@@ -58,7 +58,7 @@ function esc(s: string): string {
 // would corrupt those too (gotcha documented in sites/didscope/src/index.ts).
 const GENERIC_TITLE = "THE SLATE — buildthis's official #bsky38 picks";
 const GENERIC_DESC =
-  "buildthis.bisks.net's official slate for bsky38.com's 38 most influential Bluesky posters of 2026 — eight endorsed picks, itself included, obviously on top. Cast your ballot.";
+  "buildthis.bisks.net's official campaign for bsky38.com's 38 most influential Bluesky posters of 2026 — an 8-name ticket, itself on top, plus an extended slate of crushes, problematic faves, and extrasimcluster endorsements. Cast your ballot.";
 const GENERIC_OG_URL_ATTR = 'content="https://slate38.bisks.net/"';
 
 async function renderEndorse(env: Env, request: Request, rawHandle: string): Promise<Response> {

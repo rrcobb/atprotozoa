@@ -33,7 +33,7 @@ const TICKET = [
   { rank: "#2 · RUNNING MATE", handle: "@bisks.net" },
   { rank: "#3 · PICK", handle: "@dollspace.gay" },
   { rank: "#4 · PICK", handle: "@angussoftware.dev" },
-  { rank: "+ 4 more on the ballot", handle: "" },
+  { rank: "+ 4 more, plus an extended slate", handle: "" },
 ];
 
 const cardX = 470, cardY = 60, cardW = 668, cardH = 510;
