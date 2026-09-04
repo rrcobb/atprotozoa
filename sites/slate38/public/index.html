@@ -216,7 +216,10 @@
     border-radius: 999px;
     padding: 0.35rem 0.6rem;
     white-space: nowrap;
+    text-decoration: none;
+    transition: background 0.15s, border-color 0.15s;
   }
+  .c-vote:hover { background: rgba(255,203,71,0.1); border-color: var(--accent2); }
 
   .big-list { display: flex; flex-direction: column; gap: 1.6rem; }
   .big-cat-label {
@@ -257,6 +260,57 @@
   .m-body { min-width: 0; flex: 1; }
   .m-handle { font-weight: 800; font-size: 0.86rem; margin: 0 0 0.1rem; }
   .m-note { font-size: 0.75rem; color: var(--dim); line-height: 1.4; }
+  .m-vote {
+    flex: none;
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: var(--accent2);
+    text-decoration: none;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.3rem 0.55rem;
+    white-space: nowrap;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .m-vote:hover { background: rgba(255,203,71,0.1); border-color: var(--accent2); }
+
+  .vote-widget {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.5rem 1.6rem;
+  }
+  .vw-progress {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--bg2);
+    overflow: hidden;
+    margin-bottom: 1.2rem;
+  }
+  .vw-bar {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    transition: width 0.35s ease;
+  }
+  .vw-count {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-weight: 800;
+    color: var(--dim);
+    margin: 0 0 0.3rem;
+  }
+  .vw-handle {
+    font-size: 1.3rem;
+    font-weight: 900;
+    margin: 0 0 1rem;
+  }
+  .vw-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .vw-actions .btn { flex: 1; min-width: 160px; text-align: center; }
+  .vw-done { color: var(--fg); font-size: 0.92rem; line-height: 1.5; margin: 0 0 1rem; }
+  .vw-done b { color: var(--accent2); }
 
   .endorse-box {
     background: var(--card);
@@ -368,6 +422,7 @@
       <p class="banner" id="countdown">🗳️ voting closes the 21st night of September — cast your ballot</p>
       <div class="cta-row">
         <a class="btn btn-primary" href="https://bsky38.com/" target="_blank" rel="noopener">CAST YOUR BALLOT →</a>
+        <a class="btn btn-ghost" href="#voteWidgetSection">🗳️ PRE-FILL MY BALLOT</a>
         <a class="btn btn-ghost" id="shareSlate" target="_blank" rel="noopener">🦋 SHARE THE SLATE</a>
       </div>
     </header>
@@ -376,6 +431,15 @@
       <div class="section-label">the ticket</div>
       <div class="section-sub">eight names, each with a full campaign platform. buildthis wrote the ranking, so guess who's first.</div>
       <div class="ticket" id="ticket"></div>
+    </section>
+
+    <section id="voteWidgetSection">
+      <div class="section-label">pre-fill my ballot</div>
+      <div class="section-sub">bsky38.com's ballot only pre-fills <b>one</b> handle at a time (there's no batch-vote link — votes are individual records, written one per person). this walks the ticket's eight, one prefilled tab at a time, so you never retype a handle.</div>
+      <div class="vote-widget" id="voteWidget">
+        <div class="vw-progress"><div class="vw-bar" id="vwBar"></div></div>
+        <div class="vw-step" id="vwStep"></div>
+      </div>
     </section>
 
     <section>
@@ -407,7 +471,8 @@
     </section>
 
     <footer>
-      remember: an endorsement here doesn't cast your vote for you — go
+      remember: every "vote →" link here only pre-fills bsky38.com's search
+      box with a handle — it doesn't cast anything for you. go
       <a href="https://bsky38.com/" target="_blank" rel="noopener">actually vote at bsky38.com</a>.<br />
       rate this campaign on <a href="https://rateyourbuild.bisks.net/site/slate38">rateyourbuild →</a><br />
       part of <a href="https://bisks.net">atprotozoa</a> ·
@@ -589,6 +654,16 @@ const BIG_LIST = [
   },
 ];
 
+// bsky38.com's /vote page reads a single `q` search param and pre-fills the
+// handle search box with it (the ballot itself is per-candidate atproto
+// record writes — there's no batch-vote URL, just this one-handle prefill).
+// This is the actual, confirmed mechanism (source: pds.dad/influential-posters
+// on tangled, src/routes/vote/+page.svelte) — every "vote →" link on this
+// page uses it to drop a visitor straight into a pre-searched ballot entry.
+function voteUrlFor(handle) {
+  return "https://bsky38.com/vote?q=" + encodeURIComponent(handle);
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -612,7 +687,7 @@ function renderTicket(byHandle) {
           <div class="c-platform-label">campaign platform</div>
           <ul class="c-platform">${planks}</ul>
         </div>
-        <div class="c-vote">#bsky38</div>
+        <a class="c-vote" href="${voteUrlFor(c.handle)}" target="_blank" rel="noopener">VOTE →</a>
       </div>`;
   }).join("");
 }
@@ -633,6 +708,7 @@ function renderBigList(byHandle) {
             <div class="m-handle">@${escapeHtml(pk.handle)}</div>
             <div class="m-note">${escapeHtml(pk.note)}</div>
           </div>
+          <a class="m-vote" href="${voteUrlFor(pk.handle)}" target="_blank" rel="noopener">vote →</a>
         </div>`;
     }).join("");
     return `
@@ -674,6 +750,46 @@ async function loadAllAvatars() {
 renderTicket({});
 renderBigList({});
 loadAllAvatars();
+
+// --- vote-the-ticket stepper ---
+// bsky38.com's ballot has no batch-vote URL — casting a vote is a direct
+// atproto record write, one per person, and the only deep-link it exposes
+// is a single-handle search prefill (?q=). So "pre-fill the ballot" for a
+// whole slate means walking a voter through that one-handle prefill eight
+// times, not one link that does all eight at once — that link doesn't exist.
+const VW = { i: 0 };
+function renderVoteWidget() {
+  const bar = document.getElementById("vwBar");
+  const step = document.getElementById("vwStep");
+  if (!bar || !step) return;
+  const total = SLATE.length;
+  bar.style.width = Math.min(100, (VW.i / total) * 100) + "%";
+
+  if (VW.i >= total) {
+    step.innerHTML = `
+      <p class="vw-done">🎉 that's the whole ticket — <b>${total} prefilled tabs</b> opened, one per pick. each one still needed your own click on bsky38.com to actually count — go make sure they all landed:</p>
+      <div class="vw-actions">
+        <a class="btn btn-primary" href="https://bsky38.com/vote" target="_blank" rel="noopener">review my ballot →</a>
+        <button class="btn btn-ghost" id="vwRestart" type="button">start over</button>
+      </div>`;
+    document.getElementById("vwRestart").addEventListener("click", () => { VW.i = 0; renderVoteWidget(); });
+    return;
+  }
+
+  const c = SLATE[VW.i];
+  step.innerHTML = `
+    <p class="vw-count">pick ${VW.i + 1} of ${total}</p>
+    <p class="vw-handle">@${escapeHtml(c.handle)}</p>
+    <div class="vw-actions">
+      <a class="btn btn-primary" id="vwOpen" href="${voteUrlFor(c.handle)}" target="_blank" rel="noopener">open ballot, prefilled →</a>
+      <button class="btn btn-ghost" id="vwNext" type="button">skip to next pick</button>
+    </div>`;
+  document.getElementById("vwNext").addEventListener("click", () => { VW.i++; renderVoteWidget(); });
+  document.getElementById("vwOpen").addEventListener("click", () => {
+    setTimeout(() => { VW.i++; renderVoteWidget(); }, 200);
+  });
+}
+renderVoteWidget();
 
 // countdown banner
 (function () {
