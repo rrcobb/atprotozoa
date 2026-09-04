@@ -4,7 +4,13 @@
 // bio joking she's "ATProto's 19th biggest glazer") for a site with an
 // account input that computes an "atproto glazer" score 0-1000 off that
 // account's own posts, going back as far as the site can fetch, plus a
-// leaderboard.
+// leaderboard. Originally scored hype-superlative keyword hits (goat,
+// iconic, no notes...) gated on the post being atproto-related; @mfzx.net
+// came back and asked for a better indicator — "how much does this account
+// talk about atproto/bluesky/other atmosphere apps" — so the score is now
+// pure topic-mention density, see TOPIC_TERMS below. Same ask reset the
+// leaderboard (old entries were scored under the old metric and aren't
+// comparable), done by bumping the KV key, see LEADERBOARD_KEY.
 //
 // Scoring runs server-side (POST /api/score), not in the browser. Two
 // reasons: (1) it downloads the account's whole repo as one CAR
@@ -278,96 +284,61 @@ async function walkFeedFallback(did: string): Promise<string[]> {
   return texts;
 }
 
-// ---- glaze scoring -------------------------------------------------------
+// ---- topic scoring --------------------------------------------------------
 //
-// A weighted grep over each post's text, same "no LLM judgment, just grep"
-// spirit as sites/griftindex and sites/unpalatable: transparent, and every
-// visitor can see exactly what phrases moved the number. Weight is roughly
-// "how load-bearing is this phrase as pure hype" — a bare compliment scores
-// low, a full glaze-tier superlative scores high.
-const GLAZE_TERMS: Array<[RegExp, number, string]> = [
-  [/\bthe\s+goat\b/gi, 3, "the goat"],
-  [/\bgoated\b/gi, 3, "goated"],
-  [/\biconic\b/gi, 3, "iconic"],
-  [/\blegend(?:ary)?\b/gi, 3, "legend(ary)"],
-  [/\bunmatched\b/gi, 3, "unmatched"],
-  [/\bnational treasure\b/gi, 3, "national treasure"],
-  [/\bhire (?:her|him|them)\b/gi, 3, "hire her/him/them"],
-  [/\bunderstood the assignment\b/gi, 3, "understood the assignment"],
-  [/\bno notes\b/gi, 3, "no notes"],
-  [/\b(?:she|he|they) ate\b(?!\s+(?:breakfast|lunch|dinner|food|pizza))/gi, 3, "[x] ate"],
-  [/\bleft no crumbs\b/gi, 3, "left no crumbs"],
-  [/\bwe don'?t deserve\b/gi, 3, "we don't deserve [x]"],
-  [/\bblessed to witness\b/gi, 3, "blessed to witness"],
-  [/\bchef'?s kiss\b/gi, 3, "chef's kiss"],
-  [/\bgive (?:her|him|them)(?: your)? money\b/gi, 3, "give them money"],
-  [/\bs[\s-]?tier\b/gi, 2, "S tier"],
-  [/\btop tier\b/gi, 2, "top tier"],
-  [/\bamazing\b/gi, 2, "amazing"],
-  [/\bincredible\b/gi, 2, "incredible"],
-  [/\bphenomenal\b/gi, 2, "phenomenal"],
-  [/\bbrilliant\b/gi, 2, "brilliant"],
-  [/\bgenius\b/gi, 2, "genius"],
-  [/\bso talented\b/gi, 2, "so talented"],
-  [/\binsanely talented\b/gi, 2, "insanely talented"],
-  [/\bso good\b/gi, 2, "so good"],
-  [/\btoo good\b/gi, 2, "too good"],
-  [/\bobsessed with\b/gi, 2, "obsessed with"],
-  [/\bin awe of\b/gi, 2, "in awe of"],
-  [/\bgo follow\b/gi, 2, "go follow"],
-  [/\byou should follow\b/gi, 2, "you should follow"],
-  [/\beveryone should follow\b/gi, 2, "everyone should follow"],
-  [/\bcriminally underrated\b/gi, 2, "criminally underrated"],
-  [/\bqueen\b/gi, 2, "queen"],
-  [/\bsuch an icon\b/gi, 2, "such an icon"],
-  [/\bslay(?:ed|ing)?\b/gi, 2, "slay"],
-  [/\bimmaculate\b/gi, 2, "immaculate"],
-  [/\bflawless\b/gi, 2, "flawless"],
-  [/\bmasterpiece\b/gi, 2, "masterpiece"],
-  [/\bso proud of\b/gi, 2, "so proud of"],
-  [/\b10\/10\b/g, 2, "10/10"],
-  [/\bunderrated\b/gi, 1, "underrated"],
-  [/\blove (?:this|that)\b/gi, 1, "love this/that"],
-  [/\bgreat job\b/gi, 1, "great job"],
-  [/\bwell deserved\b/gi, 1, "well deserved"],
-  [/\byesss+\b/gi, 1, "yesss"],
-  [/\bs+o{3,}\b/gi, 1, "soooo"],
-  [/\bso happy for\b/gi, 1, "so happy for"],
-  [/\bso cool\b/gi, 1, "so cool"],
-  [/🔥/g, 1, "🔥"],
-  [/👑/g, 1, "👑"],
-  [/💯/g, 1, "💯"],
-  [/✨/g, 1, "✨"],
-  [/🙏/g, 1, "🙏"],
-  [/😭😭/g, 1, "😭😭"],
-  [/!{3,}/g, 1, "!!! (emphasis)"],
+// @mfzx.net, replying to their own original ask: "a better indicator than
+// 'keyword-searching for the few positive-valence terms you've picked out'
+// would just be 'how much does this account talk about atproto/bluesky/other
+// atmosphere apps'" — this replaces the old hype-superlative grep (goat,
+// iconic, no notes...) entirely. It no longer matters *how* someone talks
+// about the ecosystem, just how much of their posting is about it at all.
+// Same "no LLM judgment, just grep" spirit as before (and as
+// sites/griftindex and sites/unpalatable): transparent, and every visitor
+// can see exactly which terms moved the number — just counting topic
+// mentions now instead of praise words.
+const TOPIC_TERMS: Array<[RegExp, string]> = [
+  [/\bat\s?protocol\b/gi, "at protocol"],
+  [/\bat-proto\b/gi, "at-proto"],
+  [/\batproto\b/gi, "atproto"],
+  [/\batprotozoa\b/gi, "atprotozoa"],
+  [/\bbluesky\b/gi, "bluesky"],
+  [/\bbsky\b/gi, "bsky"],
+  [/\.bsky\.social\b/gi, ".bsky.social"],
+  [/\bpds\b/gi, "pds"],
+  [/\bappview\b/gi, "appview"],
+  [/\blexicons?\b/gi, "lexicon(s)"],
+  [/\bjetstream\b/gi, "jetstream"],
+  [/\bfirehose\b/gi, "firehose"],
+  [/\bxrpc\b/gi, "xrpc"],
+  [/\bdid:plc\b/gi, "did:plc"],
+  [/\bdid:web\b/gi, "did:web"],
+  [/\bdecentralized social\b/gi, "decentralized social"],
+  [/\bskeeted?\b/gi, "skeet(ed)"],
+  [/\bwhitewind\b/gi, "whitewind"],
+  [/\bsmoke ?signal\b/gi, "smokesignal"],
+  [/\bfrontpage\.fyi\b/gi, "frontpage.fyi"],
+  [/\bleaflet\.pub\b/gi, "leaflet.pub"],
+  [/\bstatusphere\b/gi, "statusphere"],
+  [/\btangled\.sh\b/gi, "tangled.sh"],
+  [/\bozone\b/gi, "ozone"],
+  [/\blabelers?\b/gi, "labeler(s)"],
+  [/\bcustom feeds?\b/gi, "custom feed(s)"],
+  [/\bcom\.atproto\b/gi, "com.atproto"],
+  [/\bapp\.bsky\b/gi, "app.bsky"],
+  [/\bchat\.bsky\b/gi, "chat.bsky"],
 ];
 
-// @mfzx.net, replying to their own original ask: "not for glazing in
-// general, just for atproto" — the score was crediting any hype post
-// (goat, iconic, hire her...) regardless of subject. This gates each post's
-// glaze hits on the post itself also being about the atproto ecosystem, so
-// "she's the goat" about a musician no longer counts but "atproto's goat"
-// or a compliment aimed at a bluesky/atproto project does. Same grep-only
-// spirit as GLAZE_TERMS: no LLM judgment, just a second keyword pass.
-const ATPROTO_TERMS =
-  /\b(atproto|at protocol|at-proto|bluesky|bsky|\.bsky\.social|pds|appview|lexicons?|jetstream|firehose|xrpc|did:plc|did:web|decentralized social|skeet|skeeted|whitewind|smoke ?signal|frontpage\.fyi|leaflet\.pub|statusphere|tangled\.sh|ozone|labeler|custom feed|com\.atproto|app\.bsky|chat\.bsky|atprotozoa)\b/i;
-
-function isAtprotoContext(text: string): boolean {
-  return ATPROTO_TERMS.test(text);
-}
-
-function scoreText(text: string): { weighted: number; hits: Array<{ label: string; count: number }> } {
-  let weighted = 0;
+function scoreTopicMentions(text: string): { total: number; hits: Array<{ label: string; count: number }> } {
+  let total = 0;
   const hits: Array<{ label: string; count: number }> = [];
-  for (const [re, weight, label] of GLAZE_TERMS) {
+  for (const [re, label] of TOPIC_TERMS) {
     const m = text.match(re);
     if (m && m.length) {
-      weighted += m.length * weight;
+      total += m.length;
       hits.push({ label, count: m.length });
     }
   }
-  return { weighted, hits };
+  return { total, hits };
 }
 
 function truncate(s: string, max: number): string {
@@ -380,50 +351,47 @@ interface GlazeResult {
   score: number;
   postCount: number;
   atprotoPostCount: number;
-  totalWeighted: number;
+  totalMentions: number;
   topTerms: Array<{ label: string; count: number }>;
   topQuotes: string[];
 }
 
-// density = average weighted hit-score per post. Mapped through a saturating
-// curve (1 - e^-x) rather than a linear scale so an account that glazes
-// once in a while doesn't cap out at 1000 alongside someone who does it in
-// nearly every post — the curve has to be worked for the whole top half of
-// the range.
-const DENSITY_SCALE = 0.9;
+// density = average atmosphere-topic mentions per post, spread over the
+// *whole* post history (not just the on-topic subset) — someone who only
+// ever posts about atproto scores higher than someone who mentions it once
+// a month, even at the same per-mention rate. Mapped through a saturating
+// curve (1 - e^-x) rather than linear so an account that brings it up
+// occasionally doesn't cap out at 1000 alongside someone who talks about
+// nothing else — the curve has to be worked for the whole top half of the
+// range.
+const DENSITY_SCALE = 1.4;
 
 function computeGlazeScore(texts: string[]): GlazeResult {
-  let totalWeighted = 0;
+  let totalMentions = 0;
   let atprotoPostCount = 0;
   const termCounts = new Map<string, number>();
-  const scored: Array<{ text: string; weighted: number }> = [];
+  const scored: Array<{ text: string; mentions: number }> = [];
   for (const text of texts) {
     if (!text || !text.trim()) continue;
-    if (!isAtprotoContext(text)) continue; // glazing about something else doesn't count
+    const { total, hits } = scoreTopicMentions(text);
+    if (total === 0) continue;
     atprotoPostCount++;
-    const { weighted, hits } = scoreText(text);
-    totalWeighted += weighted;
-    if (weighted > 0) {
-      scored.push({ text, weighted });
-      for (const h of hits) termCounts.set(h.label, (termCounts.get(h.label) || 0) + h.count);
-    }
+    totalMentions += total;
+    scored.push({ text, mentions: total });
+    for (const h of hits) termCounts.set(h.label, (termCounts.get(h.label) || 0) + h.count);
   }
   const postCount = texts.length;
-  // density is still spread over the *whole* post history, not just the
-  // atproto-tagged subset — someone who only ever posts about atproto and
-  // glazes constantly should still outscore someone who mentions atproto
-  // once a month with the same enthusiasm.
-  const density = totalWeighted / Math.max(1, postCount);
+  const density = totalMentions / Math.max(1, postCount);
   const score = Math.max(0, Math.min(1000, Math.round(1000 * (1 - Math.exp(-density / DENSITY_SCALE)))));
 
-  scored.sort((a, b) => b.weighted - a.weighted || a.text.length - b.text.length);
+  scored.sort((a, b) => b.mentions - a.mentions || a.text.length - b.text.length);
   const topQuotes = scored.slice(0, 3).map((s) => truncate(s.text, 220));
   const topTerms = Array.from(termCounts.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
     .map(([label, count]) => ({ label, count }));
 
-  return { score, postCount, atprotoPostCount, totalWeighted, topTerms, topQuotes };
+  return { score, postCount, atprotoPostCount, totalMentions, topTerms, topQuotes };
 }
 
 // ---- leaderboard (one KV blob, same pattern as sites/chickenjack) --------
@@ -446,13 +414,21 @@ interface LeaderboardEntry {
 // tiny — this is a storage-size backstop, not a "some limit felt safer" cap.
 const LEADERBOARD_CAP = 2000;
 
+// @mfzx.net asked to reset the leaderboard when the scoring metric changed
+// (old entries were scored under the retired hype-keyword algorithm and
+// aren't comparable to topic-mention scores). This build agent has no
+// credentials to touch the live KV store directly, so the reset is a code
+// change instead: bumping the key means the old "leaderboard" blob is simply
+// never read again, and everyone starts fresh under "leaderboard-v2".
+const LEADERBOARD_KEY = "leaderboard-v2";
+
 async function loadLeaderboard(env: Env): Promise<LeaderboardEntry[]> {
-  const data = await env.LEADERBOARD.get("leaderboard", "json");
+  const data = await env.LEADERBOARD.get(LEADERBOARD_KEY, "json");
   return Array.isArray(data) ? data : [];
 }
 
 async function saveLeaderboard(env: Env, entries: LeaderboardEntry[]): Promise<void> {
-  await env.LEADERBOARD.put("leaderboard", JSON.stringify(entries));
+  await env.LEADERBOARD.put(LEADERBOARD_KEY, JSON.stringify(entries));
 }
 
 async function upsertLeaderboard(env: Env, entry: LeaderboardEntry): Promise<{ entries: LeaderboardEntry[]; rank: number }> {
@@ -518,16 +494,16 @@ function esc(s: string): string {
 
 const GENERIC_TITLE = "glazerank — the atproto glazer score";
 const GENERIC_DESC =
-  "Enter a Bluesky handle and glazerank reads their whole post history for goat, iconic, no notes, hire her, and everything in between — but only the ones actually about atproto/bluesky — 0 to 1000, ranked on a live leaderboard.";
+  "Enter a Bluesky handle and glazerank reads their whole post history and scores how much of it is actually about atproto, bluesky, and the rest of the atmosphere — 0 to 1000, ranked on a live leaderboard.";
 const GENERIC_OG_URL_ATTR = 'content="https://glazerank.bisks.net/"';
 
 function glazeTitle(score: number): string {
-  if (score >= 900) return "certified ATProto glazer";
-  if (score >= 750) return "professional hype account";
-  if (score >= 550) return "generous with the compliments";
-  if (score >= 350) return "keeps it warm but honest";
-  if (score >= 150) return "measured, occasionally kind";
-  return "certified hater";
+  if (score >= 900) return "posts about nothing else";
+  if (score >= 750) return "certified ATProto poster";
+  if (score >= 550) return "brings it up constantly";
+  if (score >= 350) return "mentions it regularly";
+  if (score >= 150) return "brings it up occasionally";
+  return "barely talks about it";
 }
 
 async function renderShare(env: Env, request: Request, rawHandle: string): Promise<Response> {

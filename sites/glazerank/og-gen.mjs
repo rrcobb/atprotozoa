@@ -49,12 +49,12 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   <text x="64" y="330" font-family="JetBrains Mono" font-weight="800" font-size="200" fill="${INK}">${SCORE}</text>
   <text x="574" y="330" font-family="JetBrains Mono" font-weight="500" font-size="46" fill="${MUTED}">/ 1000</text>
-  <text x="66" y="378" font-family="JetBrains Mono" font-weight="700" font-size="38" fill="${ACCENT2}">certified ATProto glazer</text>
+  <text x="66" y="378" font-family="JetBrains Mono" font-weight="700" font-size="38" fill="${ACCENT2}">posts about nothing else</text>
 
   <rect x="64" y="420" width="1072" height="26" rx="13" fill="#ecdfc7"/>
   <rect x="64" y="420" width="${1072 * (SCORE / 1000)}" height="26" rx="13" fill="url(#bar)"/>
 
-  <text x="64" y="500" font-family="JetBrains Mono" font-weight="500" font-size="30" fill="${MUTED}">“she's the goat, no notes, hire her honestly”</text>
+  <text x="64" y="500" font-family="JetBrains Mono" font-weight="500" font-size="30" fill="${MUTED}">&#8220;my pds, my rules &#8212; atproto atproto atproto&#8221;</text>
 
   <text x="64" y="580" font-family="JetBrains Mono" font-weight="600" font-size="26" fill="${MUTED}">enter a handle · read their whole post history · rank them on the board</text>
 </svg>`;
