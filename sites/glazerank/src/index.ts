@@ -343,6 +343,20 @@ const GLAZE_TERMS: Array<[RegExp, number, string]> = [
   [/!{3,}/g, 1, "!!! (emphasis)"],
 ];
 
+// @mfzx.net, replying to their own original ask: "not for glazing in
+// general, just for atproto" — the score was crediting any hype post
+// (goat, iconic, hire her...) regardless of subject. This gates each post's
+// glaze hits on the post itself also being about the atproto ecosystem, so
+// "she's the goat" about a musician no longer counts but "atproto's goat"
+// or a compliment aimed at a bluesky/atproto project does. Same grep-only
+// spirit as GLAZE_TERMS: no LLM judgment, just a second keyword pass.
+const ATPROTO_TERMS =
+  /\b(atproto|at protocol|at-proto|bluesky|bsky|\.bsky\.social|pds|appview|lexicons?|jetstream|firehose|xrpc|did:plc|did:web|decentralized social|skeet|skeeted|whitewind|smoke ?signal|frontpage\.fyi|leaflet\.pub|statusphere|tangled\.sh|ozone|labeler|custom feed|com\.atproto|app\.bsky|chat\.bsky|atprotozoa)\b/i;
+
+function isAtprotoContext(text: string): boolean {
+  return ATPROTO_TERMS.test(text);
+}
+
 function scoreText(text: string): { weighted: number; hits: Array<{ label: string; count: number }> } {
   let weighted = 0;
   const hits: Array<{ label: string; count: number }> = [];
@@ -365,6 +379,7 @@ function truncate(s: string, max: number): string {
 interface GlazeResult {
   score: number;
   postCount: number;
+  atprotoPostCount: number;
   totalWeighted: number;
   topTerms: Array<{ label: string; count: number }>;
   topQuotes: string[];
@@ -379,10 +394,13 @@ const DENSITY_SCALE = 0.9;
 
 function computeGlazeScore(texts: string[]): GlazeResult {
   let totalWeighted = 0;
+  let atprotoPostCount = 0;
   const termCounts = new Map<string, number>();
   const scored: Array<{ text: string; weighted: number }> = [];
   for (const text of texts) {
     if (!text || !text.trim()) continue;
+    if (!isAtprotoContext(text)) continue; // glazing about something else doesn't count
+    atprotoPostCount++;
     const { weighted, hits } = scoreText(text);
     totalWeighted += weighted;
     if (weighted > 0) {
@@ -391,6 +409,10 @@ function computeGlazeScore(texts: string[]): GlazeResult {
     }
   }
   const postCount = texts.length;
+  // density is still spread over the *whole* post history, not just the
+  // atproto-tagged subset — someone who only ever posts about atproto and
+  // glazes constantly should still outscore someone who mentions atproto
+  // once a month with the same enthusiasm.
   const density = totalWeighted / Math.max(1, postCount);
   const score = Math.max(0, Math.min(1000, Math.round(1000 * (1 - Math.exp(-density / DENSITY_SCALE)))));
 
@@ -401,7 +423,7 @@ function computeGlazeScore(texts: string[]): GlazeResult {
     .slice(0, 8)
     .map(([label, count]) => ({ label, count }));
 
-  return { score, postCount, totalWeighted, topTerms, topQuotes };
+  return { score, postCount, atprotoPostCount, totalWeighted, topTerms, topQuotes };
 }
 
 // ---- leaderboard (one KV blob, same pattern as sites/chickenjack) --------
@@ -413,6 +435,7 @@ interface LeaderboardEntry {
   avatar: string;
   score: number;
   postCount: number;
+  atprotoPostCount: number;
   topTerms: Array<{ label: string; count: number }>;
   topQuotes: string[];
   scoredAt: string;
@@ -472,6 +495,7 @@ async function scoreAccount(env: Env, rawHandle: string): Promise<LeaderboardEnt
     avatar,
     score: result.score,
     postCount: result.postCount,
+    atprotoPostCount: result.atprotoPostCount,
     topTerms: result.topTerms,
     topQuotes: result.topQuotes,
     scoredAt: new Date().toISOString(),
@@ -494,7 +518,7 @@ function esc(s: string): string {
 
 const GENERIC_TITLE = "glazerank — the atproto glazer score";
 const GENERIC_DESC =
-  "Enter a Bluesky handle and glazerank reads their whole post history for goat, iconic, no notes, hire her, and everything in between — 0 to 1000, ranked on a live leaderboard.";
+  "Enter a Bluesky handle and glazerank reads their whole post history for goat, iconic, no notes, hire her, and everything in between — but only the ones actually about atproto/bluesky — 0 to 1000, ranked on a live leaderboard.";
 const GENERIC_OG_URL_ATTR = 'content="https://glazerank.bisks.net/"';
 
 function glazeTitle(score: number): string {
