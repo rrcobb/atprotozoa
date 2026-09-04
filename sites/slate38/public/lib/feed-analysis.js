@@ -4,14 +4,22 @@
 // pitch, not a request for someone's whole history, so a single 100-post
 // page is the right scope; see notes on bulk reads for when a full
 // getRepo download would actually be warranted instead) and turns it into
-// a "hype pitch": a headline, a Hype Index score, and campaign planks that
-// lead with an actual tea-read of the feed — the real best- and worst-
-// performing post, quoted with their real numbers — instead of only a
-// stat-line template (per @antiali.as: "better than a simple statistical
-// analysis," 2026-09-04). No hand-written jokes about any specific
-// account — every quote and number here comes straight from that
-// account's own feed, so the Hype Index itself isn't rigged (the slate's
-// #1 slot is pinned separately, in index.html — see the comment there).
+// a "hype pitch": a headline, a Hype Index score, and campaign planks.
+//
+// The Hype Index score is still computed live, right here, from real
+// engagement numbers — unrigged (the slate's #1 slot is pinned separately,
+// in index.html — see the comment there).
+//
+// The planks (the actual "tea") are a different story as of 2026-09-04: per
+// @antiali.as — "this is just another statistics run; i'm looking for
+// *your* read, be personal and excellent" — sorting posts by an engagement
+// formula and quoting the extremes was still statistics wearing a tea
+// costume. So buildthis actually read every candidate's feed by hand ahead
+// of time and wrote a real take for each one; see my-read.js. buildPitch()
+// below uses that hand-written take when one exists and only falls back to
+// the algorithmic highlight/low-point selection (still real quotes, still
+// real numbers, just formula-picked instead of person-picked) for a handle
+// nobody's actually read yet.
 (function (global) {
   const API = "https://public.api.bsky.app/xrpc/";
 
@@ -225,8 +233,21 @@
     return `Keeps posts to about ${Math.round(stats.avgLen)} characters apiece. Concision as a civic virtue.`;
   }
 
-  function buildPitch(stats) {
+  // My actual take, hand-written after reading the feed myself — see
+  // my-read.js. Takes precedence over the algorithmic highlight/low-point
+  // selection below whenever one exists; the score stays live either way.
+  function myRead(handle) {
+    const table = global.SLATE_MY_READ;
+    return table ? table[handle.toLowerCase()] : null;
+  }
+
+  function buildPitch(stats, handle) {
+    const mine = handle ? myRead(handle) : null;
+
     if (!stats) {
+      if (mine) {
+        return { headline: `${mine.tagline} · Hype Index 1`, planks: mine.planks, score: 1, stats: null };
+      }
       return {
         headline: "no public post history to run — a blank slate, and therefore unimpeachable",
         planks: [
@@ -238,17 +259,22 @@
       };
     }
 
-    // Lead with a real read of the feed — an actual highlight and an actual
-    // low point, quoted — instead of only a stat-line template. The third
-    // plank keeps one grounded data point so the pitch isn't pure vibes.
-    const planks = [
-      highlightLine(stats.highlightPost),
-      stats.lowPointPost ? lowPointLine(stats.lowPointPost) : groundingLineA(stats),
-      groundingLineB(stats),
-    ];
+    // Lead with a real read of the feed. If I've actually sat down and read
+    // this handle myself (my-read.js), that take wins — it's specific and
+    // personal instead of an engagement formula's pick of "best" and
+    // "worst." Otherwise fall back to the algorithmic highlight/low-point
+    // read below, which is still a real quote, just chosen by a formula
+    // instead of a person.
+    const planks = mine
+      ? mine.planks
+      : [
+          highlightLine(stats.highlightPost),
+          stats.lowPointPost ? lowPointLine(stats.lowPointPost) : groundingLineA(stats),
+          groundingLineB(stats),
+        ];
 
     return {
-      headline: `${stats.n} posts read · Hype Index ${stats.hypeScore}`,
+      headline: mine ? `${mine.tagline} · Hype Index ${stats.hypeScore}` : `${stats.n} posts read · Hype Index ${stats.hypeScore}`,
       planks,
       score: stats.hypeScore,
       stats,
@@ -258,9 +284,9 @@
   async function analyzeHandle(handle) {
     try {
       const items = await fetchOwnFeed(handle, 100);
-      return buildPitch(analyzeItems(items));
+      return buildPitch(analyzeItems(items), handle);
     } catch (_) {
-      return buildPitch(null);
+      return buildPitch(null, handle);
     }
   }
 
