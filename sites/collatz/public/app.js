@@ -22,6 +22,16 @@
     download: document.getElementById("download"),
     shareBluesky: document.getElementById("shareBluesky"),
     cardCanvas: document.getElementById("cardCanvas"),
+    monitorLabel: document.getElementById("monitorLabel"),
+    legend: document.getElementById("legend"),
+    rivalRow: document.getElementById("rivalRow"),
+    rivalToggle: document.getElementById("rivalToggle"),
+    rivalForm: document.getElementById("rivalForm"),
+    n2: document.getElementById("n2"),
+    rivalCancel: document.getElementById("rivalCancel"),
+    rivalError: document.getElementById("rivalError"),
+    verdict: document.getElementById("verdict"),
+    verdictBody: document.getElementById("verdictBody"),
   };
 
   function showError(msg) {
@@ -196,6 +206,107 @@
     ekgFrame = requestAnimationFrame(frame);
   }
 
+  // --- love triangle: two numbers, side by side -----------------------------
+
+  function drawDualEKG(canvas, seqA, seqB, onDone) {
+    if (ekgFrame) cancelAnimationFrame(ekgFrame);
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width;
+    const H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const pad = 24;
+    const valuesA = seqA.map((v) => Math.log2(Number(v) + 1));
+    const valuesB = seqB.map((v) => Math.log2(Number(v) + 1));
+    const minV = Math.min(...valuesA, ...valuesB);
+    const maxV = Math.max(...valuesA, ...valuesB);
+    const stepsA = seqA.length - 1;
+    const stepsB = seqB.length - 1;
+    const maxSteps = Math.max(stepsA, stepsB);
+
+    const xAt = (i, steps) => pad + (steps === 0 ? 0 : (i / steps) * (W - 2 * pad));
+    const yAt = (v) => H - pad - ((v - minV) / (maxV - minV || 1)) * (H - 2 * pad);
+
+    function drawLine(values, steps, color) {
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.strokeStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 8;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      values.forEach((v, i) => {
+        const x = xAt(i, steps);
+        const y = yAt(v);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      const fx = xAt(steps, steps);
+      const fy = yAt(values[steps]);
+      ctx.save();
+      ctx.shadowBlur = 16;
+      ctx.font = "26px serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = color === "#ff5c8a" ? "#ffd6de" : "#d6f3ff";
+      ctx.fillText("♥", fx, fy);
+      ctx.restore();
+    }
+
+    const duration = Math.max(600, Math.min(3200, maxSteps * 6));
+    let startTime = null;
+
+    function frame(ts) {
+      if (startTime === null) startTime = ts;
+      const t = Math.min(1, (ts - startTime) / duration);
+      ctx.clearRect(0, 0, W, H);
+      const iA = Math.floor(t * stepsA);
+      const iB = Math.floor(t * stepsB);
+      drawLine(valuesA.slice(0, iA + 1), stepsA, "#ff5c8a");
+      drawLine(valuesB.slice(0, iB + 1), stepsB, "#7fd4ff");
+      if (t < 1) {
+        ekgFrame = requestAnimationFrame(frame);
+      } else {
+        ekgFrame = null;
+        if (onDone) onDone();
+      }
+    }
+    ekgFrame = requestAnimationFrame(frame);
+  }
+
+  function buildVerdict(nA, statsA, nB, statsB) {
+    const fasterIsA = statsA.steps < statsB.steps;
+    const tiedSteps = statsA.steps === statsB.steps;
+    const higherIsA = statsA.peak > statsB.peak;
+    const tiedPeak = statsA.peak === statsB.peak;
+
+    const fastName = fasterIsA ? fmt(nA) : fmt(nB);
+    const slowName = fasterIsA ? fmt(nB) : fmt(nA);
+    const wildName = higherIsA ? fmt(nA) : fmt(nB);
+    const calmName = higherIsA ? fmt(nB) : fmt(nA);
+
+    const lines = [];
+    if (tiedSteps) {
+      lines.push(
+        `${fmt(nA)} and ${fmt(nB)} came home in exactly the same number of steps — ${fmtSteps(statsA.steps)} each. I don't believe in coincidences. I believe in fate, and possibly a shared factor I haven't found yet.`
+      );
+    } else {
+      lines.push(
+        `${fastName} got to me first — home in ${fmtSteps(Math.min(statsA.steps, statsB.steps))}, while ${slowName} was still out there wandering for ${fmtSteps(Math.max(statsA.steps, statsB.steps))}. I waited for both. I am not proud of how long I waited.`
+      );
+    }
+    if (!tiedPeak) {
+      lines.push(
+        `${wildName} made me sweat, climbing all the way to <b>${fmt(higherIsA ? statsA.peak : statsB.peak)}</b> before it let go — ${calmName} never got anywhere near that high. I won't say which one I think about more. I will say it isn't the calm one.`
+      );
+    }
+    lines.push(
+      "Both of you came home to 1 in the end. Nobody's proven that's guaranteed for either of you. I let you both in anyway."
+    );
+    return lines.map((p) => `<p>${p}</p>`).join("");
+  }
+
   // --- share card -------------------------------------------------------------
 
   function canShareFiles() {
@@ -294,9 +405,20 @@
 
   let current = null; // { n, stats }
 
+  function resetRival() {
+    els.rivalRow.style.display = "";
+    els.rivalForm.style.display = "none";
+    els.rivalError.style.display = "none";
+    els.n2.value = "";
+    els.verdict.style.display = "none";
+    els.legend.style.display = "none";
+    els.monitorLabel.textContent = "your heartbeat, mapped";
+  }
+
   function run(n) {
     clearError();
     els.n.value = n.toString();
+    resetRival();
 
     const stats = collatz(n);
     if (!stats) {
@@ -363,6 +485,57 @@
       clearError();
       run(BigInt(chip.dataset.n));
     });
+  });
+
+  els.rivalToggle.addEventListener("click", () => {
+    els.rivalRow.style.display = "none";
+    els.rivalForm.style.display = "flex";
+    els.n2.focus();
+  });
+
+  els.rivalCancel.addEventListener("click", () => {
+    resetRival();
+  });
+
+  els.rivalForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (!current) return;
+    els.rivalError.style.display = "none";
+    let nB;
+    try {
+      nB = parseN(els.n2.value);
+    } catch (err) {
+      els.rivalError.textContent = err.message;
+      els.rivalError.style.display = "block";
+      return;
+    }
+    const statsB = collatz(nB);
+    if (!statsB) {
+      els.rivalError.textContent = "that rival wandered further than even I could follow. try someone smaller.";
+      els.rivalError.style.display = "block";
+      return;
+    }
+
+    const { n: nA, stats: statsA } = current;
+    els.rivalForm.style.display = "none";
+    els.monitorLabel.textContent = "two heartbeats, side by side";
+    els.legend.style.display = "flex";
+    els.legend.innerHTML = `<span><span class="dot a"></span>${fmt(nA)}</span><span><span class="dot b"></span>${fmt(nB)}</span>`;
+
+    els.status.textContent = "watching them both…";
+    drawDualEKG(els.ekg, statsA.sequence, statsB.sequence, () => {
+      els.status.textContent = "home. both of them.";
+    });
+
+    els.verdict.style.display = "block";
+    els.verdictBody.innerHTML = buildVerdict(nA, statsA, nB, statsB);
+
+    const shareText = `I put ${fmt(nA)} and ${fmt(nB)} up against each other in a collatz love triangle. ${fmtSteps(
+      statsA.steps
+    )} vs ${fmtSteps(statsB.steps)} — both came home to 1 in the end. https://collatz.bisks.net/`;
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+    els.verdict.scrollIntoView({ behavior: "smooth", block: "start" });
   });
 
   els.download.addEventListener("click", async () => {
