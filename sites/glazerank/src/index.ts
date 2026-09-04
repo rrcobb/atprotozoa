@@ -364,7 +364,22 @@ interface GlazeResult {
 // occasionally doesn't cap out at 1000 alongside someone who talks about
 // nothing else — the curve has to be worked for the whole top half of the
 // range.
-const DENSITY_SCALE = 1.4;
+//
+// Recalibrated 2026-09-04: @mfzx.net reported the score looked "way off" —
+// their account had 500+ posts mentioning atproto terms (167 "bluesky", 142
+// "atproto", 111 "bsky"...) but scored 85/1000, "barely talks about it".
+// Root cause was this constant, not the density formula itself: at the old
+// value (1.4), climbing to "brings it up constantly" (550+) required a
+// density of ~1.0 — i.e. every single post across an account's *entire*
+// history, years of unrelated chatter included, averaging a full topic
+// mention. That's a bar only a single-purpose bot could clear, so any real
+// long-time poster capped out in the bottom tier regardless of how much of
+// their posting was actually on-topic. Retuned so an account whose posts
+// mention the topic roughly a third of the time lands in "certified ATProto
+// poster" territory and one that does so about half the time is "posts about
+// nothing else" — matches mfzx.net's own 523-of-5596-posts (~9%) landing in
+// "mentions it regularly" instead of "barely talks about it".
+const DENSITY_SCALE = 0.16;
 
 function computeGlazeScore(texts: string[]): GlazeResult {
   let totalMentions = 0;
@@ -420,7 +435,11 @@ const LEADERBOARD_CAP = 2000;
 // credentials to touch the live KV store directly, so the reset is a code
 // change instead: bumping the key means the old "leaderboard" blob is simply
 // never read again, and everyone starts fresh under "leaderboard-v2".
-const LEADERBOARD_KEY = "leaderboard-v2";
+//
+// Bumped again to "leaderboard-v3" on 2026-09-04 alongside the DENSITY_SCALE
+// recalibration above — same reasoning as the first bump, scores computed
+// under the old scale aren't comparable to scores under the new one.
+const LEADERBOARD_KEY = "leaderboard-v3";
 
 async function loadLeaderboard(env: Env): Promise<LeaderboardEntry[]> {
   const data = await env.LEADERBOARD.get(LEADERBOARD_KEY, "json");
