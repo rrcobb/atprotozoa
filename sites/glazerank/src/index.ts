@@ -12,6 +12,12 @@
 // leaderboard (old entries were scored under the old metric and aren't
 // comparable), done by bumping the KV key, see LEADERBOARD_KEY.
 //
+// Same thread, one more round: @mfzx.net asked to also count non-bsky
+// records in the repo — actually having used another atproto app (a blog
+// post on whitewind, a status, a calendar event...) as a second signal
+// alongside just talking about the ecosystem. See isBskyCollection/
+// computeNonBskyStats and the TOPIC_WEIGHT/EXPLORE_WEIGHT split below.
+//
 // Scoring runs server-side (POST /api/score), not in the browser. Two
 // reasons: (1) it downloads the account's whole repo as one CAR
 // (com.atproto.sync.getRepo, no auth needed — see notes/40-new-site-playbook.md's
@@ -160,12 +166,15 @@ function cborDecode(bytes: Uint8Array): any {
   return cborValue({ bytes, pos: 0 });
 }
 
-// Downloads `pds`'s repo CAR for `did` and walks its MST to pull out every
-// record whose $type matches `wanted`, returning just the record bodies
-// (this site never needs the rkey — a share link points at the handle, not
-// an individual post). Throws on network/oversize/malformed-CAR failure;
-// caller falls back to a paginated getAuthorFeed walk.
-async function fetchRepoRecords(pds: string, did: string, wantedType: string): Promise<any[]> {
+// Downloads `pds`'s repo CAR for `did` and walks its MST once, pulling out
+// every post's text (for the topic-density score) AND tallying every
+// record's $type (for the non-bsky exploration score below) in the same
+// pass — a repo CAR is one bulk download, so it's free to read what's
+// already in hand rather than re-fetching to answer a second question.
+// Throws on network/oversize/malformed-CAR failure; caller falls back to a
+// paginated getAuthorFeed walk (which can only ever see app.bsky.feed.post,
+// so the exploration count is unavailable in that fallback path).
+async function fetchRepoData(pds: string, did: string): Promise<{ postTexts: string[]; typeCounts: Map<string, number> }> {
   const res = await fetch(pds.replace(/\/$/, "") + "/xrpc/com.atproto.sync.getRepo?did=" + encodeURIComponent(did));
   if (!res.ok) {
     let msg = res.statusText;
@@ -192,7 +201,8 @@ async function fetchRepoRecords(pds: string, did: string, wantedType: string): P
   const rootMstKey = commit.data && commit.data[CID_LINK];
   if (!rootMstKey) throw new Error("commit missing MST root");
 
-  const out: any[] = [];
+  const postTexts: string[] = [];
+  const typeCounts = new Map<string, number>();
   function walk(nodeKey: string | undefined) {
     if (!nodeKey) return;
     const nodeBytes = blockMap.get(nodeKey);
@@ -206,13 +216,16 @@ async function fetchRepoRecords(pds: string, did: string, wantedType: string): P
       if (recBytes) {
         let rec;
         try { rec = cborDecode(recBytes); } catch { rec = null; }
-        if (rec && rec.$type === wantedType) out.push(rec);
+        if (rec && typeof rec.$type === "string") {
+          typeCounts.set(rec.$type, (typeCounts.get(rec.$type) || 0) + 1);
+          if (rec.$type === "app.bsky.feed.post" && typeof rec.text === "string") postTexts.push(rec.text);
+        }
       }
       if (entry.t && entry.t[CID_LINK]) walk(entry.t[CID_LINK]);
     }
   }
   walk(rootMstKey);
-  return out;
+  return { postTexts, typeCounts };
 }
 
 // ---- identity resolution (copy of sites/backscroll/public/lib/identity.js) ---
@@ -328,6 +341,38 @@ const TOPIC_TERMS: Array<[RegExp, string]> = [
   [/\bchat\.bsky\b/gi, "chat.bsky"],
 ];
 
+// ---- non-bsky record scoring ----------------------------------------------
+//
+// @mfzx.net, in the same thread, asked to fold in "the amount of non-bsky
+// records in the account's repo" as a sign of having explored the atmosphere
+// beyond bsky — someone whose repo also holds a com.whtwnd.blog.entry or a
+// pub.leaflet.document has actually gone and used another atproto app, which
+// no amount of *talking* about atproto in bsky posts can substitute for.
+// app.bsky.* and chat.bsky.* are Bluesky's own namespaces (posts, likes,
+// follows, DMs, profile...) so those don't count as "beyond bsky"; anything
+// else in the repo — a blog entry, a calendar event, a status, a repo on
+// tangled — does.
+function isBskyCollection(type: string): boolean {
+  return type.startsWith("app.bsky.") || type.startsWith("chat.bsky.");
+}
+
+interface NonBskyStats {
+  count: number;
+  collections: Array<{ label: string; count: number }>;
+}
+
+function computeNonBskyStats(typeCounts: Map<string, number>): NonBskyStats {
+  let count = 0;
+  const collections: Array<{ label: string; count: number }> = [];
+  for (const [type, n] of typeCounts) {
+    if (isBskyCollection(type)) continue;
+    count += n;
+    collections.push({ label: type, count: n });
+  }
+  collections.sort((a, b) => b.count - a.count);
+  return { count, collections: collections.slice(0, 8) };
+}
+
 function scoreTopicMentions(text: string): { total: number; hits: Array<{ label: string; count: number }> } {
   let total = 0;
   const hits: Array<{ label: string; count: number }> = [];
@@ -349,11 +394,16 @@ function truncate(s: string, max: number): string {
 
 interface GlazeResult {
   score: number;
+  topicScore: number;
+  exploreScore: number;
   postCount: number;
   atprotoPostCount: number;
   totalMentions: number;
   topTerms: Array<{ label: string; count: number }>;
   topQuotes: string[];
+  nonBskyRecordCount: number;
+  nonBskyCollections: Array<{ label: string; count: number }>;
+  nonBskyCounted: boolean;
 }
 
 // density = average atmosphere-topic mentions per post, spread over the
@@ -361,27 +411,42 @@ interface GlazeResult {
 // ever posts about atproto scores higher than someone who mentions it once
 // a month, even at the same per-mention rate. Mapped through a saturating
 // curve (1 - e^-x) rather than linear so an account that brings it up
-// occasionally doesn't cap out at 1000 alongside someone who talks about
-// nothing else — the curve has to be worked for the whole top half of the
-// range.
+// occasionally doesn't cap out alongside someone who talks about nothing
+// else — the curve has to be worked for the whole top half of the range.
 //
 // Recalibrated 2026-09-04: @mfzx.net reported the score looked "way off" —
 // their account had 500+ posts mentioning atproto terms (167 "bluesky", 142
 // "atproto", 111 "bsky"...) but scored 85/1000, "barely talks about it".
 // Root cause was this constant, not the density formula itself: at the old
-// value (1.4), climbing to "brings it up constantly" (550+) required a
-// density of ~1.0 — i.e. every single post across an account's *entire*
-// history, years of unrelated chatter included, averaging a full topic
-// mention. That's a bar only a single-purpose bot could clear, so any real
-// long-time poster capped out in the bottom tier regardless of how much of
-// their posting was actually on-topic. Retuned so an account whose posts
-// mention the topic roughly a third of the time lands in "certified ATProto
-// poster" territory and one that does so about half the time is "posts about
-// nothing else" — matches mfzx.net's own 523-of-5596-posts (~9%) landing in
-// "mentions it regularly" instead of "barely talks about it".
+// value (1.4), climbing to "brings it up constantly" required a density of
+// ~1.0 — i.e. every single post across an account's *entire* history,
+// years of unrelated chatter included, averaging a full topic mention.
+// That's a bar only a single-purpose bot could clear, so any real long-time
+// poster capped out in the bottom tier regardless of how much of their
+// posting was actually on-topic. Retuned so an account whose posts mention
+// the topic roughly a third of the time lands in "certified ATProto poster"
+// territory and one that does so about half the time is "posts about
+// nothing else".
 const DENSITY_SCALE = 0.16;
 
-function computeGlazeScore(texts: string[]): GlazeResult {
+// Same run, @mfzx.net asked to also fold in non-bsky repo records (see
+// isBskyCollection/computeNonBskyStats above) as a second, independent
+// signal: talking about the atmosphere isn't the same as having actually
+// used another app in it. Split as two additive, saturating components
+// rather than blended into one density figure, so both stay individually
+// legible (the UI shows "topic score" and "beyond-bsky bonus" separately)
+// and so a topic-talk-only account can still reach a respectable score
+// without ever having touched a second app. TOPIC_WEIGHT leaves headroom for
+// EXPLORE_WEIGHT so the two combined still saturate at 1000, same ceiling as
+// before this feature existed.
+const TOPIC_WEIGHT = 850;
+const EXPLORE_WEIGHT = 150;
+// Curve reaches ~63% of EXPLORE_WEIGHT at 6 non-bsky records, ~95% at 18 —
+// a handful of posts to a blog/status/calendar app already counts as real
+// exploration, it doesn't take dozens to matter.
+const EXPLORE_SCALE = 6;
+
+function computeGlazeScore(texts: string[], nonBsky: NonBskyStats & { counted: boolean }): GlazeResult {
   let totalMentions = 0;
   let atprotoPostCount = 0;
   const termCounts = new Map<string, number>();
@@ -397,7 +462,11 @@ function computeGlazeScore(texts: string[]): GlazeResult {
   }
   const postCount = texts.length;
   const density = totalMentions / Math.max(1, postCount);
-  const score = Math.max(0, Math.min(1000, Math.round(1000 * (1 - Math.exp(-density / DENSITY_SCALE)))));
+  const topicScore = TOPIC_WEIGHT * (1 - Math.exp(-density / DENSITY_SCALE));
+  const exploreScore = nonBsky.counted
+    ? EXPLORE_WEIGHT * (1 - Math.exp(-nonBsky.count / EXPLORE_SCALE))
+    : 0;
+  const score = Math.max(0, Math.min(1000, Math.round(topicScore + exploreScore)));
 
   scored.sort((a, b) => b.mentions - a.mentions || a.text.length - b.text.length);
   const topQuotes = scored.slice(0, 3).map((s) => truncate(s.text, 220));
@@ -406,7 +475,19 @@ function computeGlazeScore(texts: string[]): GlazeResult {
     .slice(0, 8)
     .map(([label, count]) => ({ label, count }));
 
-  return { score, postCount, atprotoPostCount, totalMentions, topTerms, topQuotes };
+  return {
+    score,
+    topicScore: Math.round(topicScore),
+    exploreScore: Math.round(exploreScore),
+    postCount,
+    atprotoPostCount,
+    totalMentions,
+    topTerms,
+    topQuotes,
+    nonBskyRecordCount: nonBsky.count,
+    nonBskyCollections: nonBsky.collections,
+    nonBskyCounted: nonBsky.counted,
+  };
 }
 
 // ---- leaderboard (one KV blob, same pattern as sites/chickenjack) --------
@@ -421,6 +502,8 @@ interface LeaderboardEntry {
   atprotoPostCount: number;
   topTerms: Array<{ label: string; count: number }>;
   topQuotes: string[];
+  nonBskyRecordCount: number;
+  nonBskyCollections: Array<{ label: string; count: number }>;
   scoredAt: string;
 }
 
@@ -439,7 +522,12 @@ const LEADERBOARD_CAP = 2000;
 // Bumped again to "leaderboard-v3" on 2026-09-04 alongside the DENSITY_SCALE
 // recalibration above — same reasoning as the first bump, scores computed
 // under the old scale aren't comparable to scores under the new one.
-const LEADERBOARD_KEY = "leaderboard-v3";
+//
+// Bumped once more to "leaderboard-v4" the same day, when the non-bsky
+// exploration bonus was added: every entry scored under v3 was computed with
+// no such bonus at all, so re-ranking them against fresh v4 scores would
+// silently underrate whoever gets rescanned first.
+const LEADERBOARD_KEY = "leaderboard-v4";
 
 async function loadLeaderboard(env: Env): Promise<LeaderboardEntry[]> {
   const data = await env.LEADERBOARD.get(LEADERBOARD_KEY, "json");
@@ -461,7 +549,9 @@ async function upsertLeaderboard(env: Env, entry: LeaderboardEntry): Promise<{ e
   return { entries, rank };
 }
 
-async function scoreAccount(env: Env, rawHandle: string): Promise<LeaderboardEntry & { rank: number; totalScored: number; fetchMethod: string }> {
+async function scoreAccount(env: Env, rawHandle: string): Promise<
+  LeaderboardEntry & { rank: number; totalScored: number; fetchMethod: string; topicScore: number; exploreScore: number; nonBskyCounted: boolean }
+> {
   const did = await resolveDid(rawHandle);
   const profile = await jget(`${PUB}/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`).catch(() => null);
   const handle = (profile && profile.handle) || rawHandle.replace(/^@/, "");
@@ -470,11 +560,13 @@ async function scoreAccount(env: Env, rawHandle: string): Promise<LeaderboardEnt
 
   let texts: string[] = [];
   let fetchMethod = "repo";
+  let nonBsky: NonBskyStats & { counted: boolean } = { count: 0, collections: [], counted: false };
   try {
     const pds = await resolvePds(did);
     if (!pds) throw new Error("no PDS found");
-    const records = await fetchRepoRecords(pds, did, "app.bsky.feed.post");
-    texts = records.map((r) => r.text).filter((t) => typeof t === "string");
+    const { postTexts, typeCounts } = await fetchRepoData(pds, did);
+    texts = postTexts;
+    nonBsky = { ...computeNonBskyStats(typeCounts), counted: true };
   } catch (_) {
     fetchMethod = "feed-fallback";
     texts = await walkFeedFallback(did);
@@ -482,7 +574,7 @@ async function scoreAccount(env: Env, rawHandle: string): Promise<LeaderboardEnt
 
   if (!texts.length) throw new Error("couldn't find any posts for that account");
 
-  const result = computeGlazeScore(texts);
+  const result = computeGlazeScore(texts, nonBsky);
   const entry: LeaderboardEntry = {
     did,
     handle,
@@ -493,10 +585,20 @@ async function scoreAccount(env: Env, rawHandle: string): Promise<LeaderboardEnt
     atprotoPostCount: result.atprotoPostCount,
     topTerms: result.topTerms,
     topQuotes: result.topQuotes,
+    nonBskyRecordCount: result.nonBskyRecordCount,
+    nonBskyCollections: result.nonBskyCollections,
     scoredAt: new Date().toISOString(),
   };
   const { entries, rank } = await upsertLeaderboard(env, entry);
-  return { ...entry, rank, totalScored: entries.length, fetchMethod };
+  return {
+    ...entry,
+    rank,
+    totalScored: entries.length,
+    fetchMethod,
+    topicScore: result.topicScore,
+    exploreScore: result.exploreScore,
+    nonBskyCounted: result.nonBskyCounted,
+  };
 }
 
 // ---- OG unfurl for /u/<handle> (copy of sites/didscope's renderShare) ----
@@ -513,7 +615,7 @@ function esc(s: string): string {
 
 const GENERIC_TITLE = "glazerank — the atproto glazer score";
 const GENERIC_DESC =
-  "Enter a Bluesky handle and glazerank reads their whole post history and scores how much of it is actually about atproto, bluesky, and the rest of the atmosphere — 0 to 1000, ranked on a live leaderboard.";
+  "Enter a Bluesky handle and glazerank reads their whole post history and repo, scoring how much they talk about atproto/bluesky/the atmosphere plus a bonus for records in non-bsky atproto apps — 0 to 1000, ranked on a live leaderboard.";
 const GENERIC_OG_URL_ATTR = 'content="https://glazerank.bisks.net/"';
 
 function glazeTitle(score: number): string {
