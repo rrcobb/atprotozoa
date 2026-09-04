@@ -149,6 +149,38 @@ new `sites/<name>: {}` (or similar) importer entry. If it's not there, run
 `notes/history/2026-08-pnpm-lockfile-outage.md` for the incident this traces
 back to (13 sites silently queued up undeployed before a human noticed).
 
+## A failed `check` job silently skips deploy for the whole push
+
+`deploy` `needs: [check, changes]` — if `check` fails (most often the
+`pnpm install --frozen-lockfile` step; see the lockfile note above), the
+`deploy` job is skipped **entirely**, for every dir in that push, not just
+whichever one caused the failure. A transient/soon-fixed lockfile mismatch on
+a brand-new site's build push means that site's Worker never deploys, even
+though its hostname is already `hidden: false` on the gallery and in
+receipts/rateyourbuild — it just 404s. Nothing alerts on this; a red X on one
+old commit is the only signal, and once a *later*, unrelated commit fixes
+whatever `check` was failing on (e.g. some other site's build running
+`pnpm install` at the repo root), every subsequent push deploys fine and
+looks healthy, masking that the original site never got its first real
+deploy. The only way to notice is to actually load the site.
+
+Caught 2026-09-04 (a daily-slot pass): six sites — turfwar, collatz,
+meowdoku, normalometer, meowsphere, timelane — had sat 404ing for between 2
+and 18 days despite being fully built, gallery-linked, and CI-green on every
+push since, because none of those later pushes happened to touch their own
+`sites/<name>/` dir and so never re-entered the deploy diff. Found by cross
+referencing `gh`/the GitHub API's list of failed `deploy` workflow runs
+against which pushes added a new `sites/*/site.json`, then checking whether
+that site's directory was touched by any commit since (if not, and the site
+still 404s, it's this bug). Fixed by making a real, tiny touch to each site's
+`wrangler.toml` (a dated note, no functional change) to force it back into
+the next push's diff now that `check` passes again.
+
+If you're ever unsure whether a site actually deployed, check its live URL —
+don't trust "the gallery links it" or "the last push was green." Worth an
+occasional sweep (the recipe above) rather than only checking sites you
+happen to visit.
+
 ## Retired sites
 
 `sites/catsofatproto` is a deliberate retirement stub and **must not be
