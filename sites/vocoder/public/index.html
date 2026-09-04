@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ELECTRO-VOCODER — a browser vocoder played from your keyboard</title>
+    <meta
+      name="description"
+      content="A live channel vocoder built from plain Web Audio: your microphone is the modulator, your computer keyboard plays a fully polyphonic carrier. Dressed up as a 1950s sci-fi ray-gun-lab control panel — oscilloscope, VU needle, an LED band meter for every frequency channel."
+    />
+    <meta property="og:title" content="ELECTRO-VOCODER" />
+    <meta property="og:description" content="Talk into your mic, play chords on your keyboard, sound like a 1950s movie robot. A live browser vocoder, fully polyphonic, no plugins." />
+    <meta property="og:image" content="https://vocoder.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A retro sci-fi control panel labeled ELECTRO-VOCODER with an oscilloscope, a VU meter and a row of channel LEDs." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://vocoder.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="ELECTRO-VOCODER" />
+    <meta name="twitter:description" content="A live browser vocoder: mic in, keyboard for the notes, fully polyphonic. Styled like a 1950s sci-fi control panel." />
+    <meta name="twitter:image" content="https://vocoder.bisks.net/og.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --bg: #0c0f10;
+        --panel: #1c2422;
+        --panel-2: #232b28;
+        --chrome-hi: #d8e0dd;
+        --chrome-lo: #6b7472;
+        --ink: #eef4f0;
+        --muted: #93a19b;
+        --phosphor: #3dff6e;
+        --amber: #ffb020;
+        --warn: #ffcc00;
+        --danger: #ff4d4d;
+        --display: #0e1a12;
+        --mono: "Share Tech Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        --display-font: "Audiowide", var(--mono);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(ellipse at 50% -10%, #182220 0%, var(--bg) 55%),
+          repeating-radial-gradient(circle at 20% 110%, rgba(255,255,255,0.015) 0 2px, transparent 2px 4px);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 14px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: var(--phosphor); }
+      .wrap { max-width: 780px; margin: 0 auto; padding: 1.75rem 1rem 5rem; }
+
+      /* ---- nameplate header ---- */
+      .stripes {
+        height: 10px;
+        background: repeating-linear-gradient(45deg, var(--warn) 0 14px, #1a1a1a 14px 28px);
+        border-radius: 4px 4px 0 0;
+        border: 1px solid #000;
+      }
+      header.plate {
+        background: linear-gradient(180deg, var(--panel-2), var(--panel));
+        border: 1px solid #000;
+        border-top: none;
+        border-radius: 0 0 8px 8px;
+        padding: 1.4rem 1.5rem 1.1rem;
+        margin-bottom: 1.1rem;
+        position: relative;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04), 0 10px 26px rgba(0,0,0,0.45);
+      }
+      .rivet {
+        position: absolute; width: 9px; height: 9px; border-radius: 50%;
+        background: radial-gradient(circle at 35% 30%, var(--chrome-hi), var(--chrome-lo) 70%, #222 100%);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.6);
+      }
+      .rivet.tl { top: 10px; left: 10px; }
+      .rivet.tr { top: 10px; right: 10px; }
+      .rivet.bl { bottom: 10px; left: 10px; }
+      .rivet.br { bottom: 10px; right: 10px; }
+      header .kicker {
+        color: var(--amber); font-size: 0.68rem; letter-spacing: 0.3em;
+        text-transform: uppercase; margin: 0 0 0.4rem;
+      }
+      header h1 {
+        font-family: var(--display-font); font-weight: 400;
+        font-size: 2rem; margin: 0 0 0.55rem; letter-spacing: 0.03em;
+        color: var(--phosphor); text-shadow: 0 0 14px rgba(61,255,110,0.45);
+      }
+      header p { color: var(--muted); margin: 0; font-size: 0.85rem; max-width: 62ch; }
+      header p code { color: var(--amber); font-size: 0.85em; }
+
+      /* ---- generic chassis panel ---- */
+      .chassis {
+        background: linear-gradient(180deg, #202826, #171d1b);
+        border: 1px solid #000;
+        border-radius: 8px;
+        padding: 1rem 1.1rem;
+        margin-bottom: 1rem;
+        position: relative;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), 0 8px 20px rgba(0,0,0,0.35);
+      }
+      .chassis-label {
+        color: var(--amber); font-size: 0.66rem; letter-spacing: 0.22em;
+        text-transform: uppercase; margin: 0 0 0.75rem;
+      }
+
+      /* ---- power + status ---- */
+      .power-row { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+      #power-btn {
+        font-family: var(--display-font); font-size: 0.85rem;
+        color: #180a0a; background: linear-gradient(180deg, #ff8a6a, #d94a2c);
+        border: 2px solid #000; border-radius: 999px;
+        padding: 0.65rem 1.3rem; cursor: pointer;
+        box-shadow: 0 3px 0 #7a2412, 0 6px 10px rgba(0,0,0,0.4);
+      }
+      #power-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 #7a2412; }
+      #power-btn.on {
+        background: linear-gradient(180deg, #6bffa0, #21c46a);
+        color: #06180d; box-shadow: 0 3px 0 #0e5a2e, 0 6px 10px rgba(0,0,0,0.4);
+      }
+      #status {
+        font-size: 0.78rem; color: var(--phosphor); letter-spacing: 0.05em;
+        background: var(--display); border: 1px solid #000; border-radius: 6px;
+        padding: 0.45rem 0.7rem; flex: 1; min-width: 200px;
+      }
+      #alert {
+        margin-top: 0.75rem; padding: 0.6rem 0.8rem; font-size: 0.78rem;
+        background: rgba(255,77,77,0.1); border: 1px solid var(--danger);
+        color: #ffb3b3; border-radius: 6px;
+      }
+      #alert[hidden] { display: none; }
+
+      /* ---- scope + VU row ---- */
+      .scope-row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: stretch; }
+      .scope-screen {
+        flex: 1 1 340px; background: #04120a; border-radius: 6px;
+        border: 3px solid #06231a; box-shadow: inset 0 0 24px rgba(0,0,0,0.85);
+        position: relative; overflow: hidden;
+      }
+      .scope-screen::after {
+        content: ""; position: absolute; inset: 0; pointer-events: none;
+        background: repeating-linear-gradient(0deg, rgba(0,0,0,0.35) 0 1px, transparent 1px 3px);
+      }
+      #scope { display: block; width: 100%; height: 140px; }
+      .vu-wrap {
+        flex: 0 0 150px; display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 0.4rem;
+      }
+      .vu-gauge {
+        width: 130px; height: 76px; position: relative; overflow: hidden;
+      }
+      .vu-face {
+        position: absolute; inset: 0; border-radius: 130px 130px 0 0 / 130px 130px 0 0;
+        background: radial-gradient(circle at 50% 100%, #e9ecea 0%, #cfd6d2 60%, #9aa39d 100%);
+        border: 2px solid #000; border-bottom: none;
+        box-shadow: inset 0 -6px 10px rgba(0,0,0,0.25);
+      }
+      .vu-face::before {
+        content: "SIGNAL"; position: absolute; top: 44px; left: 0; right: 0;
+        text-align: center; font-family: var(--mono); font-size: 0.55rem;
+        letter-spacing: 0.15em; color: #333;
+      }
+      #vu-needle {
+        position: absolute; left: 50%; bottom: 0; width: 2px; height: 68px;
+        background: #c0272d; transform-origin: bottom center; transform: rotate(-55deg);
+        transition: transform 0.05s linear;
+      }
+      #vu-needle::after {
+        content: ""; position: absolute; bottom: -4px; left: -4px; width: 10px; height: 10px;
+        border-radius: 50%; background: #222;
+      }
+
+      /* ---- band meters ---- */
+      #band-meters {
+        display: grid; grid-auto-flow: column; gap: 5px; height: 90px; align-items: end;
+      }
+      .meter {
+        width: 14px; height: 100%; background: #050b08; border: 1px solid #000;
+        border-radius: 2px; display: flex; align-items: flex-end; overflow: hidden;
+      }
+      .meter-bar {
+        width: 100%; height: 2%;
+        background: linear-gradient(0deg, var(--phosphor) 0%, var(--phosphor) 55%, var(--warn) 80%, var(--danger) 100%);
+        box-shadow: 0 0 6px rgba(61,255,110,0.5);
+      }
+      .meter-noise .meter-bar { background: linear-gradient(0deg, #8fd0ff 0%, #8fd0ff 60%, var(--warn) 100%); }
+
+      /* ---- controls ---- */
+      .controls-grid {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem;
+      }
+      .control label {
+        display: block; font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase;
+        color: var(--muted); margin-bottom: 0.4rem;
+      }
+      .control input[type="range"] { width: 100%; accent-color: var(--phosphor); }
+      .control select {
+        width: 100%; font-family: var(--mono); font-size: 0.8rem;
+        background: var(--display); color: var(--phosphor); border: 1px solid #000;
+        border-radius: 4px; padding: 0.4rem;
+      }
+      .root-control { display: flex; align-items: center; gap: 0.5rem; }
+      .root-control button {
+        font-family: var(--mono); font-size: 0.9rem; width: 2rem; height: 2rem;
+        background: linear-gradient(180deg, #3a4744, #262f2d); color: var(--ink);
+        border: 1px solid #000; border-radius: 5px; cursor: pointer;
+      }
+      .root-control button:hover { border-color: var(--phosphor); color: var(--phosphor); }
+      #root-readout {
+        flex: 1; text-align: center; font-size: 1rem; color: var(--phosphor);
+        background: var(--display); border: 1px solid #000; border-radius: 4px; padding: 0.35rem 0;
+      }
+
+      /* ---- keyboard ---- */
+      #key-rows { display: flex; flex-direction: column; gap: 0.35rem; }
+      .key-row { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+      .key-row-upper { padding-left: 1.1rem; }
+      .keycap {
+        font-family: var(--mono); font-size: 0.72rem; color: var(--ink);
+        background: linear-gradient(180deg, #333d3a, #1c2422);
+        border: 1px solid #000; border-bottom: 2px solid #000;
+        border-radius: 4px; width: 2rem; height: 2.1rem; cursor: pointer;
+        touch-action: none; user-select: none;
+      }
+      .keycap:hover { border-color: var(--phosphor); }
+      .keycap.active {
+        background: linear-gradient(180deg, var(--phosphor), #1f9e48);
+        color: #06180d; box-shadow: 0 0 10px rgba(61,255,110,0.6);
+      }
+      #chord-readout {
+        margin-top: 0.7rem; font-size: 0.9rem; color: var(--amber);
+        background: var(--display); border: 1px solid #000; border-radius: 4px;
+        padding: 0.45rem 0.7rem; min-height: 1.2em;
+      }
+      .kb-hint { color: var(--muted); font-size: 0.76rem; margin: 0.6rem 0 0; }
+
+      .share { display: flex; gap: 0.6rem; margin: 0 0 1.5rem; flex-wrap: wrap; }
+      .share a {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+        background: rgba(255,255,255,0.03); border: 1px solid #000; border-radius: 9px;
+        padding: 0.5rem 0.85rem; text-decoration: none;
+      }
+      .share a:hover { color: var(--ink); border-color: var(--phosphor); }
+
+      .about {
+        padding: 1rem 1.2rem; margin-bottom: 1.5rem;
+        background: var(--panel); border: 1px solid #000; border-radius: 8px;
+        color: var(--muted); font-size: 0.8rem; line-height: 1.7;
+      }
+      .about b { color: var(--ink); }
+
+      footer {
+        margin-top: 2rem; padding-top: 0.75rem; border-top: 1px solid #232b28;
+        color: var(--muted); font-size: 0.75rem;
+      }
+      footer a { color: var(--phosphor); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="stripes"></div>
+      <header class="plate">
+        <span class="rivet tl"></span><span class="rivet tr"></span>
+        <span class="rivet bl"></span><span class="rivet br"></span>
+        <p class="kicker">model MK-1 · atomic audio division</p>
+        <h1>ELECTRO-VOCODER</h1>
+        <p>
+          A real channel vocoder, live in your browser. Your <b>microphone</b>
+          is the modulator; your <b>computer keyboard</b> plays a fully
+          <b>polyphonic</b> carrier — hold down a chord and the vocoder sings
+          it. Twelve bandpass channels analyze your voice and reshape the
+          carrier's tone to match, the same trick behind every robot voice
+          and talkbox solo since the 1970s, running on nothing but oscillators
+          and filters.
+        </p>
+      </header>
+
+      <div class="chassis">
+        <p class="chassis-label">transport</p>
+        <div class="power-row">
+          <button id="power-btn">⚡ POWER ON</button>
+          <span id="status">STANDBY</span>
+        </div>
+        <div id="alert" hidden></div>
+      </div>
+
+      <div class="chassis">
+        <p class="chassis-label">analysis display</p>
+        <div class="scope-row">
+          <div class="scope-screen"><canvas id="scope" width="640" height="140"></canvas></div>
+          <div class="vu-wrap">
+            <div class="vu-gauge">
+              <div class="vu-face"></div>
+              <div id="vu-needle"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chassis">
+        <p class="chassis-label">channel bank (12 voiced + 1 unvoiced)</p>
+        <div id="band-meters"></div>
+      </div>
+
+      <div class="chassis">
+        <p class="chassis-label">controls</p>
+        <div class="controls-grid">
+          <div class="control">
+            <label for="mic-gain">mic gain</label>
+            <input type="range" id="mic-gain" min="0.2" max="6" step="0.1" value="2.2" />
+          </div>
+          <div class="control">
+            <label for="master-vol">master volume</label>
+            <input type="range" id="master-vol" min="0" max="1.2" step="0.01" value="0.85" />
+          </div>
+          <div class="control">
+            <label for="waveform">carrier tone</label>
+            <select id="waveform">
+              <option value="sawtooth" selected>buzzy (sawtooth)</option>
+              <option value="square">hollow (square)</option>
+              <option value="triangle">soft (triangle)</option>
+            </select>
+          </div>
+          <div class="control">
+            <label>root note <span style="opacity:0.7">(↑↓ octave · ←→ semitone)</span></label>
+            <div class="root-control">
+              <button id="octave-down" type="button" title="octave down">⏷</button>
+              <button id="root-down" type="button" title="semitone down">−</button>
+              <span id="root-readout">C3</span>
+              <button id="root-up" type="button" title="semitone up">+</button>
+              <button id="octave-up" type="button" title="octave up">⏶</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="chassis">
+        <p class="chassis-label">keyboard</p>
+        <div id="key-rows"></div>
+        <div id="chord-readout">—</div>
+        <p class="kb-hint">
+          Two rows, like a piano: <code>ZSXDCVGBHNJM,L.;/</code> is the lower
+          octave, <code>Q2W3ER5T6Y7UI9O0P</code> is one octave up. Hold
+          several keys at once for a chord — it's polyphonic. No mic? The keys
+          above are clickable/tappable too, but you'll need the mic on for the
+          vocoder to have anything to shape.
+        </p>
+      </div>
+
+      <div class="share">
+        <a id="share-link" target="_blank" rel="noopener">🦋 share this on Bluesky</a>
+        <a href="https://rateyourbuild.bisks.net/site/vocoder">rate this on rateyourbuild →</a>
+      </div>
+
+      <div class="about">
+        <p>
+          <b>How it works:</b> the mic signal is split into 12 logarithmically
+          spaced bandpass bands (160Hz–5.2kHz). Each band is rectified and
+          smoothed into a slow-moving envelope — how loud your voice is,
+          <i>in that frequency range</i>, right now. That envelope is fed
+          straight into the matching band of the carrier (your keyboard
+          notes, summed together so chords work for free), so the carrier's
+          spectrum tracks your voice's spectrum in real time. A 13th band runs
+          the same trick on filtered noise instead of your keyboard tone, so
+          "s" and "sh" sounds get a bit of hiss instead of going silent.
+        </p>
+        <p>
+          No samples, no AudioWorklet, no server — just <code>BiquadFilterNode</code>,
+          <code>WaveShaperNode</code> and <code>GainNode</code>, synthesized live
+          in your browser.
+        </p>
+      </div>
+
+      <footer>
+        built on <a href="https://atproto.com">atproto</a>'s house style of
+        small self-contained sites · a plain Web Audio channel vocoder, no
+        plugins, no server · a
+        <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+        build for <a href="https://bsky.app/profile/dulanyw.bsky.social">@dulanyw.bsky.social</a>
+        · <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
