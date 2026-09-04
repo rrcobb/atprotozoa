@@ -27,17 +27,26 @@ const els = {
   waveform: document.getElementById("waveform"),
   keyRows: document.getElementById("key-rows"),
   shareLink: document.getElementById("share-link"),
+  sourceChassis: document.getElementById("source-chassis"),
+  sourceMicBtn: document.getElementById("source-mic"),
+  sourceFileBtn: document.getElementById("source-file"),
+  filePicker: document.getElementById("file-picker"),
+  modFile: document.getElementById("mod-file"),
+  fileName: document.getElementById("file-name"),
 };
 
 let ctx = null;
 let vocoder = null;
 let masterGain = null;
-let micGainNode = null;
-let micAnalyser = null;
-let micBuf = null;
+let modGainNode = null; // feeds vocoder.modInput, regardless of source
+let modAnalyser = null;
+let modBuf = null;
 let scopeAnalyser = null;
 let scopeBuf = null;
 let micStream = null;
+let fileBuffer = null; // decoded AudioBuffer, once a file's been loaded
+let fileSourceNode = null;
+let modSourceType = "mic"; // "mic" | "file"
 let running = false;
 
 let rootSemis = 0;
@@ -90,21 +99,35 @@ function ensureGraph() {
   buildMeters();
 }
 
+// The modulator can be the mic or a decoded file; either way it lands on
+// the same gain node (for the gain slider + VU meter) before hitting
+// vocoder.modInput, so the rest of the graph doesn't care which it is.
+function connectModulator(sourceNode) {
+  modGainNode = ctx.createGain();
+  modGainNode.gain.value = parseFloat(els.micGain.value);
+  modAnalyser = ctx.createAnalyser();
+  modAnalyser.fftSize = 512;
+  modAnalyser.smoothingTimeConstant = 0.75;
+  modBuf = new Uint8Array(modAnalyser.fftSize);
+
+  sourceNode.connect(modGainNode);
+  modGainNode.connect(vocoder.modInput);
+  modGainNode.connect(modAnalyser);
+}
+
 async function startMic() {
   micStream = await navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
   });
-  const micSource = ctx.createMediaStreamSource(micStream);
-  micGainNode = ctx.createGain();
-  micGainNode.gain.value = parseFloat(els.micGain.value);
-  micAnalyser = ctx.createAnalyser();
-  micAnalyser.fftSize = 512;
-  micAnalyser.smoothingTimeConstant = 0.75;
-  micBuf = new Uint8Array(micAnalyser.fftSize);
+  connectModulator(ctx.createMediaStreamSource(micStream));
+}
 
-  micSource.connect(micGainNode);
-  micGainNode.connect(vocoder.modInput);
-  micGainNode.connect(micAnalyser);
+function startFilePlayback() {
+  fileSourceNode = ctx.createBufferSource();
+  fileSourceNode.buffer = fileBuffer;
+  fileSourceNode.loop = true;
+  connectModulator(fileSourceNode);
+  fileSourceNode.start();
 }
 
 function stopMic() {
@@ -114,34 +137,143 @@ function stopMic() {
   }
 }
 
+function stopFilePlayback() {
+  if (fileSourceNode) {
+    try {
+      fileSourceNode.stop();
+    } catch {}
+    fileSourceNode.disconnect();
+    fileSourceNode = null;
+  }
+}
+
+function stopModulator() {
+  stopMic();
+  stopFilePlayback();
+  if (modGainNode) modGainNode.disconnect();
+  if (modAnalyser) modAnalyser.disconnect();
+  modGainNode = null;
+  modAnalyser = null;
+  modBuf = null;
+}
+
+async function startSelectedSource() {
+  if (modSourceType === "mic") {
+    setStatus("REQUESTING MIC…");
+    await startMic();
+    setStatus("ONLINE — SPEAK INTO THE MIC AND PLAY THE KEYBOARD");
+  } else {
+    setStatus("PLAYING FILE…");
+    startFilePlayback();
+    setStatus("ONLINE — FILE LOOPING, PLAY THE KEYBOARD");
+  }
+}
+
 els.power.addEventListener("click", async () => {
   if (running) {
     running = false;
-    stopMic();
+    stopModulator();
     if (ctx) await ctx.suspend();
     els.power.textContent = "⚡ POWER ON";
     els.power.classList.remove("on");
     setStatus("STANDBY");
     return;
   }
+  if (modSourceType === "file" && !fileBuffer) {
+    showAlert("LOAD A WAV/MP3 FILE FIRST, OR SWITCH THE SOURCE TO MIC.");
+    return;
+  }
   try {
     ensureGraph();
     await ctx.resume();
-    setStatus("REQUESTING MIC…");
-    await startMic();
+    await startSelectedSource();
     running = true;
     els.power.textContent = "⏻ POWER OFF";
     els.power.classList.add("on");
-    setStatus("ONLINE — SPEAK INTO THE MIC AND PLAY THE KEYBOARD");
     clearAlert();
   } catch (err) {
     setStatus("STANDBY");
     showAlert(
       err && err.name === "NotAllowedError"
         ? "MIC ACCESS DENIED — allow microphone access and try again."
-        : "COULD NOT START MIC: " + (err && err.message ? err.message : err),
+        : "COULD NOT START: " + (err && err.message ? err.message : err),
     );
   }
+});
+
+// ---- modulator source: mic vs. a dropped-in/browsed audio file -----------
+
+function setSource(type) {
+  if (modSourceType === type) return;
+  modSourceType = type;
+  els.sourceMicBtn.classList.toggle("active", type === "mic");
+  els.sourceFileBtn.classList.toggle("active", type === "file");
+  els.filePicker.hidden = type !== "file";
+  if (!running) return;
+  stopModulator();
+  if (type === "file" && !fileBuffer) {
+    running = false;
+    els.power.textContent = "⚡ POWER ON";
+    els.power.classList.remove("on");
+    setStatus("STANDBY");
+    showAlert("LOAD A WAV/MP3 FILE FIRST, OR SWITCH THE SOURCE BACK TO MIC.");
+    return;
+  }
+  startSelectedSource().catch((err) => {
+    running = false;
+    els.power.textContent = "⚡ POWER ON";
+    els.power.classList.remove("on");
+    setStatus("STANDBY");
+    showAlert(
+      err && err.name === "NotAllowedError"
+        ? "MIC ACCESS DENIED — allow microphone access and try again."
+        : "COULD NOT START: " + (err && err.message ? err.message : err),
+    );
+  });
+}
+
+els.sourceMicBtn.addEventListener("click", () => setSource("mic"));
+els.sourceFileBtn.addEventListener("click", () => setSource("file"));
+
+async function loadFile(file) {
+  if (!file) return;
+  els.fileName.textContent = "decoding " + file.name + "…";
+  try {
+    ensureGraph(); // decodeAudioData needs a context, even a suspended one
+    const arrayBuffer = await file.arrayBuffer();
+    fileBuffer = await ctx.decodeAudioData(arrayBuffer);
+    els.fileName.textContent = file.name + " (" + fileBuffer.duration.toFixed(1) + "s)";
+    clearAlert();
+    if (running && modSourceType === "file") {
+      stopModulator();
+      await startSelectedSource();
+    }
+  } catch (err) {
+    fileBuffer = null;
+    els.fileName.textContent = "no file loaded";
+    showAlert("COULD NOT DECODE FILE: " + (err && err.message ? err.message : err));
+  }
+}
+
+els.modFile.addEventListener("change", () => loadFile(els.modFile.files && els.modFile.files[0]));
+
+// dropping a file anywhere on the source panel loads it and switches to it,
+// even if mic was still selected
+["dragenter", "dragover"].forEach((evt) =>
+  els.sourceChassis.addEventListener(evt, (e) => {
+    e.preventDefault();
+    els.sourceChassis.classList.add("drag-over");
+  }),
+);
+["dragleave", "drop"].forEach((evt) =>
+  els.sourceChassis.addEventListener(evt, () => els.sourceChassis.classList.remove("drag-over")),
+);
+els.sourceChassis.addEventListener("drop", (e) => {
+  e.preventDefault();
+  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (!file) return;
+  setSource("file");
+  loadFile(file);
 });
 
 // ---- keyboard: two-row musical typing layout, arrows set the root ---------
@@ -232,7 +364,7 @@ els.octaveUp.addEventListener("click", () => setRoot(rootSemis + 12));
 els.octaveDown.addEventListener("click", () => setRoot(rootSemis - 12));
 
 els.micGain.addEventListener("input", () => {
-  if (micGainNode) micGainNode.gain.linearRampToValueAtTime(parseFloat(els.micGain.value), ctx.currentTime + 0.05);
+  if (modGainNode) modGainNode.gain.linearRampToValueAtTime(parseFloat(els.micGain.value), ctx.currentTime + 0.05);
 });
 els.masterVol.addEventListener("input", () => {
   if (masterGain) masterGain.gain.linearRampToValueAtTime(parseFloat(els.masterVol.value), ctx.currentTime + 0.05);
@@ -324,14 +456,14 @@ function tick() {
       if (band._bar) band._bar.style.height = (lvl * 100).toFixed(1) + "%";
     }
   }
-  if (micAnalyser) {
-    micAnalyser.getByteTimeDomainData(micBuf);
+  if (modAnalyser) {
+    modAnalyser.getByteTimeDomainData(modBuf);
     let sumSq = 0;
-    for (let i = 0; i < micBuf.length; i++) {
-      const s = (micBuf[i] - 128) / 128;
+    for (let i = 0; i < modBuf.length; i++) {
+      const s = (modBuf[i] - 128) / 128;
       sumSq += s * s;
     }
-    const rms = Math.sqrt(sumSq / micBuf.length);
+    const rms = Math.sqrt(sumSq / modBuf.length);
     const deg = -55 + Math.min(1, rms * 4.5) * 110;
     els.needle.style.transform = `rotate(${deg}deg)`;
   }
