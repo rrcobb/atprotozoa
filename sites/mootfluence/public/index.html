@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mootfluence — your influential25 rank, among your moots</title>
+    <meta
+      name="description"
+      content="See where you rank on influential25's live nomination board — not against the whole network, just your own moots (mutual follows). Then turn your top-ranked moots into a real starter pack."
+    />
+    <meta property="og:title" content="mootfluence — your influential25 rank, among your moots" />
+    <meta
+      property="og:description"
+      content="See where you rank on influential25's live nomination board — not against the whole network, just your own moots (mutual follows). Then turn your top-ranked moots into a real starter pack."
+    />
+    <meta property="og:image" content="https://mootfluence.bisks.net/og.png" />
+    <meta property="og:url" content="https://mootfluence.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net/">bisks.net</a>
+        <h1>moot<span onclick='var e=document.getElementById("f-handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">f</span>luence</h1>
+        <p class="tag">
+          <a href="https://influential25.bisks.net/" target="_blank" rel="noopener">influential25</a>'s nomination
+          board, filtered down to just your moots (mutual follows) — where do you actually stand among the people
+          who follow you back? psingletary.com asked for this, bisks.net gave it the go-ahead.
+        </p>
+      </header>
+
+      <section id="session-section">
+        <label for="f-handle">whose moots?</label>
+        <div class="session-row">
+          <input id="f-handle" type="text" placeholder="you.bsky.social" autocomplete="off" />
+          <button id="btn-check">see my ranking</button>
+        </div>
+        <div class="session-row" id="signed-in-row" style="display: none">
+          <span>signed in as <strong id="who"></strong></span>
+          <button class="secondary" id="btn-signout">sign out</button>
+        </div>
+        <div class="session-row" id="signed-out-row">
+          <button class="secondary" id="btn-signin">sign in with bluesky</button>
+          <span class="status" style="margin: 0">— only needed to build a starter pack</span>
+        </div>
+        <p class="status" id="auth-status"></p>
+      </section>
+
+      <section id="result-section" style="display: none">
+        <h2 class="section-title" id="result-title">your ranking among your moots</h2>
+        <p class="status" id="rank-status">crunching…</p>
+
+        <div class="rank-hero" id="rank-hero" style="display: none">
+          <div class="big" id="rank-local">—</div>
+          <div class="sub" id="rank-local-sub"></div>
+          <div class="global" id="rank-global"></div>
+        </div>
+
+        <div id="moot-list"></div>
+
+        <div class="share-row" id="share-row" style="display: none">
+          <a class="btn" id="share-bluesky" target="_blank" rel="noopener"><button type="button">share to bluesky</button></a>
+          <button class="secondary" id="share-download" type="button">download card</button>
+          <button class="secondary" id="share-native" type="button" style="display: none">share…</button>
+        </div>
+        <canvas id="share-canvas" width="1200" height="630" style="display: none"></canvas>
+      </section>
+
+      <section id="pack-section" style="display: none">
+        <h2 class="section-title">make a starter pack of your top moots</h2>
+        <p class="section-note">
+          writes a real <code>app.bsky.graph.list</code> + <code>app.bsky.graph.starterpack</code> to your own PDS —
+          your top moots by influential25 nomination count, ready to hand someone a running start on who to follow.
+        </p>
+        <div class="pack-panel">
+          <label for="f-pack-name">pack name</label>
+          <input id="f-pack-name" type="text" />
+          <div class="pack-row">
+            <div class="field">
+              <label for="f-pack-count">how many moots</label>
+              <input id="f-pack-count" type="number" class="pack-count" min="1" max="150" value="10" />
+            </div>
+            <button id="btn-make-pack" type="button">make starter pack</button>
+          </div>
+          <p class="status" id="pack-status"></p>
+          <div id="pack-result" style="display: none">
+            <p>your starter pack is live: <a class="pack-link" id="pack-link" target="_blank" rel="noopener"></a></p>
+            <div class="share-row">
+              <a id="pack-share" target="_blank" rel="noopener"><button type="button" class="secondary">share it to bluesky</button></a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        ranking data is every <code>net.bisks.influential25.vote</code> record on the network — same board as
+        <a href="https://influential25.bisks.net/leaderboard/" target="_blank" rel="noopener">influential25</a>,
+        just filtered to your mutual-follow graph — found via a full-repo CAR download per voter plus a live
+        <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+        subscription, no server holding an index. moots are computed live too: your follows read straight from your
+        repo, your followers from
+        <a href="https://constellation.microcosm.blue/" target="_blank" rel="noopener">Constellation</a> where it's
+        up. rate this on
+        <a href="https://rateyourbuild.bisks.net/site/mootfluence" target="_blank" rel="noopener">rateyourbuild →</a>
+        built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
+      import { resolveDid, getProfile, getProfiles } from "/lib/identity.js";
+      import { mootsOf } from "/lib/moots.js";
+      import { board as influenceBoard, meta as influenceMeta } from "/lib/influence-client.js";
+      import { createStarterPack } from "/lib/starterpack.js";
+
+      const $ = (s) => document.querySelector(s);
+
+      let session = null;
+      let targetDid = null;
+      let targetHandle = null;
+      let rankedRows = []; // sorted [{ did, handle, displayName, avatar, votesReceived, globalRank }]
+      let mootDids = [];
+      let refreshTimer = null;
+      let lastShareText = "";
+
+      function esc(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+
+      // --- auth ------------------------------------------------------------
+
+      function renderAuthUI() {
+        $("#signed-in-row").style.display = session ? "" : "none";
+        $("#signed-out-row").style.display = session ? "none" : "";
+        if (session) $("#who").textContent = "@" + session.handle;
+        renderPackGate();
+      }
+
+      $("#btn-signin").addEventListener("click", async () => {
+        const h = $("#f-handle").value.trim();
+        if (!h) {
+          $("#auth-status").textContent = "type a handle first — that's who you'll sign in as.";
+          $("#auth-status").className = "status err";
+          return;
+        }
+        $("#auth-status").textContent = "redirecting to your PDS…";
+        $("#auth-status").className = "status";
+        try {
+          await login(h);
+        } catch (e) {
+          $("#auth-status").textContent = `sign-in failed: ${e.message}`;
+          $("#auth-status").className = "status err";
+        }
+      });
+      $("#btn-signout").addEventListener("click", async () => {
+        await clearSession();
+        session = null;
+        renderAuthUI();
+      });
+
+      // --- ranking -----------------------------------------------------------
+
+      function stopRefresh() {
+        if (refreshTimer) clearInterval(refreshTimer);
+        refreshTimer = null;
+      }
+
+      async function computeRanks() {
+        const full = await influenceBoard(); // [{did, votesReceived, rank}], accounts with >=1 nomination only
+        const byDid = new Map(full.map((r) => [r.did, r]));
+        const subjects = [targetDid, ...mootDids];
+        const rows = subjects.map((did) => ({
+          did,
+          votesReceived: byDid.get(did)?.votesReceived || 0,
+          globalRank: byDid.get(did)?.rank || null,
+        }));
+        rows.sort((a, b) => b.votesReceived - a.votesReceived || (a.did < b.did ? -1 : 1));
+        rows.forEach((r, i) => (r.localRank = i + 1));
+        return rows;
+      }
+
+      function renderRanking() {
+        const you = rankedRows.find((r) => r.did === targetDid);
+        $("#rank-hero").style.display = "";
+        $("#rank-local").textContent = `#${you.localRank} of ${rankedRows.length}`;
+        $("#rank-local-sub").textContent = `${you.votesReceived} nomination${you.votesReceived === 1 ? "" : "s"} — ranked among @${targetHandle} and their moots`;
+        $("#rank-global").textContent = you.globalRank
+          ? `#${you.globalRank} globally on influential25`
+          : `not yet nominated by anyone, network-wide`;
+
+        const list = $("#moot-list");
+        list.innerHTML = rankedRows
+          .slice(0, 100)
+          .map((r) => {
+            const p = r.profile || { handle: r.did, displayName: r.did, avatar: "" };
+            const mine = r.did === targetDid;
+            return `
+            <a class="board-row${mine ? " you" : ""}" href="https://bsky.app/profile/${encodeURIComponent(p.handle)}" target="_blank" rel="noopener">
+              <span class="board-rank">#${r.localRank}</span>
+              <img class="avatar" src="${esc(p.avatar || "")}" alt="" />
+              <span class="board-meta">
+                <div class="board-name">${esc(p.displayName)}${mine ? " (you)" : ""}</div>
+                <div class="board-handle">@${esc(p.handle)}</div>
+              </span>
+              <span class="board-score">${r.votesReceived} nom${r.votesReceived === 1 ? "" : "s"}</span>
+            </a>`;
+          })
+          .join("");
+        if (rankedRows.length > 100) {
+          list.innerHTML += `<p class="empty">…and ${rankedRows.length - 100} more moots below that.</p>`;
+        }
+
+        rebuildShare();
+      }
+
+      async function refreshRanking() {
+        rankedRows = await computeRanks();
+        await hydrateProfiles();
+        renderRanking();
+      }
+
+      async function hydrateProfiles() {
+        const need = rankedRows.filter((r) => !r.profile).map((r) => r.did);
+        if (!need.length) return;
+        const profiles = await getProfiles(need);
+        for (const r of rankedRows) {
+          if (!r.profile) r.profile = profiles.get(r.did) || { handle: r.did, displayName: r.did, avatar: "" };
+        }
+      }
+
+      async function runRanking(rawHandle) {
+        stopRefresh();
+        $("#result-section").style.display = "";
+        $("#pack-section").style.display = "none";
+        $("#rank-hero").style.display = "none";
+        $("#moot-list").innerHTML = "";
+        $("#share-row").style.display = "none";
+        const status = $("#rank-status");
+        status.className = "status";
+        try {
+          status.textContent = `resolving @${rawHandle}…`;
+          targetDid = await resolveDid(rawHandle);
+          const targetProfile = await getProfile(targetDid);
+          targetHandle = targetProfile.handle;
+          $("#result-title").textContent = `@${targetHandle}'s ranking among their moots`;
+
+          mootDids = await mootsOf(targetDid, (msg) => (status.textContent = msg));
+          if (!mootDids.length) {
+            status.textContent = "no mutual follows found — nothing to rank against.";
+            status.className = "status warn";
+            $("#pack-section").style.display = "none";
+            return;
+          }
+
+          status.textContent = `reading nomination counts across ${mootDids.length + 1} accounts…`;
+          rankedRows = await computeRanks();
+          await hydrateProfiles();
+          renderRanking();
+
+          const m = await influenceMeta();
+          status.textContent = m.globalBackfill && !m.globalBackfill.done
+            ? `showing live counts — still backfilling network history (${m.globalBackfill.scannedRepos} voters scanned so far, numbers may climb)`
+            : `network history backfilled (${m.globalBackfill ? m.globalBackfill.scannedRepos : m.totalVotes} voters scanned)`;
+          status.className = "status ok";
+
+          refreshTimer = setInterval(async () => {
+            if (document.visibilityState !== "visible") return;
+            await refreshRanking();
+            const mm = await influenceMeta();
+            status.textContent = mm.globalBackfill && !mm.globalBackfill.done
+              ? `showing live counts — still backfilling network history (${mm.globalBackfill.scannedRepos} voters scanned so far, numbers may climb)`
+              : `network history backfilled (${mm.globalBackfill ? mm.globalBackfill.scannedRepos : mm.totalVotes} voters scanned)`;
+          }, 5000);
+
+          setPackDefaults();
+          renderPackGate();
+        } catch (e) {
+          status.textContent = `couldn't rank that: ${e.message}`;
+          status.className = "status err";
+        }
+      }
+
+      $("#btn-check").addEventListener("click", () => {
+        const h = $("#f-handle").value.trim();
+        if (!h) return;
+        runRanking(h);
+        history.replaceState({}, "", "/?h=" + encodeURIComponent(h));
+      });
+      $("#f-handle").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("#btn-check").click();
+      });
+
+      // --- sharing -------------------------------------------------------------
+
+      function shareUrl() {
+        return "https://mootfluence.bisks.net/?h=" + encodeURIComponent(targetHandle || "");
+      }
+
+      function buildShareText() {
+        const you = rankedRows.find((r) => r.did === targetDid);
+        if (!you) return "";
+        return (
+          `I'm #${you.localRank} of ${rankedRows.length} on my own moots' influential25 board ` +
+          `(${you.votesReceived} nomination${you.votesReceived === 1 ? "" : "s"}). where do you rank among yours?\n\n` +
+          shareUrl()
+        );
+      }
+
+      function loadImg(url) {
+        if (!url) return Promise.resolve(null);
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        });
+      }
+
+      async function buildShareCard() {
+        const you = rankedRows.find((r) => r.did === targetDid);
+        if (!you) return;
+        const canvas = $("#share-canvas");
+        const ctx = canvas.getContext("2d");
+        const W = canvas.width, H = canvas.height;
+        const mono = "ui-monospace, monospace";
+        const avatar = await loadImg(you.profile && you.profile.avatar);
+
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = "#fffdf8";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#1083fe";
+        ctx.font = `800 48px ${mono}`;
+        ctx.fillText("mootfluence", 60, 96);
+
+        let textX = 60;
+        if (avatar) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(88, 148, 30, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          ctx.drawImage(avatar, 58, 118, 60, 60);
+          ctx.restore();
+          textX = 136;
+        }
+        ctx.fillStyle = "#0f1419";
+        ctx.font = `700 28px ${mono}`;
+        ctx.fillText("@" + (you.profile ? you.profile.handle : targetHandle), textX, 158);
+
+        ctx.strokeStyle = "#e1e8ed";
+        ctx.lineWidth = 1.5;
+        const cardX = 60, cardY = 220, cardW = W - 120, cardH = H - 280;
+        ctx.fillStyle = "#f7f9fa";
+        ctx.beginPath();
+        ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#1083fe";
+        ctx.font = `800 84px ${mono}`;
+        ctx.fillText(`#${you.localRank}`, W / 2, cardY + 130);
+
+        ctx.fillStyle = "#536471";
+        ctx.font = `600 22px ${mono}`;
+        ctx.fillText(`of ${rankedRows.length} moots`, W / 2, cardY + 172);
+
+        ctx.fillStyle = "#0f1419";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText(`${you.votesReceived} nomination${you.votesReceived === 1 ? "" : "s"} on influential25`, W / 2, cardY + 218);
+
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#1083fe";
+        ctx.font = `700 20px ${mono}`;
+        ctx.fillText("mootfluence.bisks.net", 60, H - 40);
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch {
+          return false;
+        }
+      }
+
+      async function rebuildShare() {
+        lastShareText = buildShareText();
+        $("#share-bluesky").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+        $("#share-row").style.display = "";
+        await buildShareCard();
+        if (canShareFiles()) $("#share-native").style.display = "";
+      }
+
+      $("#share-download").addEventListener("click", () => {
+        $("#share-canvas").toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "mootfluence-" + (targetHandle || "card").replace(/[^a-z0-9.-]/gi, "_") + ".png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+      $("#share-native").addEventListener("click", () => {
+        $("#share-canvas").toBlob(async (blob) => {
+          if (!blob) return;
+          const file = new File([blob], "mootfluence.png", { type: "image/png" });
+          try {
+            await navigator.share({ files: [file], text: lastShareText, title: "mootfluence" });
+          } catch {
+            // cancelled or unsupported — no-op
+          }
+        }, "image/png");
+      });
+
+      // --- starter pack --------------------------------------------------------
+
+      function setPackDefaults() {
+        $("#f-pack-name").value = `@${targetHandle}'s most influential moots`;
+        const count = Math.min(10, mootDids.length);
+        $("#f-pack-count").value = count;
+        $("#f-pack-count").max = Math.min(150, mootDids.length);
+      }
+
+      function renderPackGate() {
+        const gateOk = !!(session && targetDid && session.did === targetDid);
+        $("#pack-section").style.display = targetDid ? "" : "none";
+        $("#btn-make-pack").disabled = !gateOk;
+        if (targetDid && !gateOk) {
+          $("#pack-status").textContent = session
+            ? `signed in as @${session.handle} — sign in as @${targetHandle} to build their pack.`
+            : `sign in as @${targetHandle} above to build a starter pack of their moots.`;
+          $("#pack-status").className = "status warn";
+        } else if (gateOk) {
+          $("#pack-status").textContent = "";
+          $("#pack-status").className = "status";
+        }
+      }
+
+      $("#btn-make-pack").addEventListener("click", async () => {
+        const status = $("#pack-status");
+        const count = Math.max(1, Math.min(150, parseInt($("#f-pack-count").value, 10) || 10, mootDids.length));
+        const name = $("#f-pack-name").value.trim() || `@${targetHandle}'s most influential moots`;
+        const topMoots = rankedRows.filter((r) => r.did !== targetDid).slice(0, count).map((r) => r.did);
+
+        $("#btn-make-pack").disabled = true;
+        status.className = "status";
+        try {
+          const result = await createStarterPack(
+            session,
+            dpopFetch,
+            {
+              name,
+              description: `the top ${topMoots.length} of @${targetHandle}'s moots by influential25 nomination count — made with mootfluence.bisks.net.`,
+              memberDids: topMoots,
+            },
+            (step) => (status.textContent = step),
+          );
+          status.textContent = "starter pack created!";
+          status.className = "status ok";
+          $("#pack-result").style.display = "";
+          $("#pack-link").href = result.url;
+          $("#pack-link").textContent = result.url;
+          const packShareText = `made a starter pack of my top ${topMoots.length} moots by influential25 rank → ${result.url}\n\nbuilt with mootfluence.bisks.net`;
+          $("#pack-share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(packShareText);
+        } catch (e) {
+          status.textContent = `couldn't build the pack: ${e.message}`;
+          status.className = "status err";
+        } finally {
+          $("#btn-make-pack").disabled = !(session && targetDid && session.did === targetDid);
+        }
+      });
+
+      // --- boot ------------------------------------------------------------
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          $("#auth-status").textContent = e.message;
+          $("#auth-status").className = "status err";
+        }
+        renderAuthUI();
+
+        const params = new URLSearchParams(location.search);
+        const h = params.get("h") || (session && session.handle) || "";
+        if (h) {
+          $("#f-handle").value = h;
+          runRanking(h);
+        }
+      }
+      boot();
+    </script>
+  </body>
+</html>
