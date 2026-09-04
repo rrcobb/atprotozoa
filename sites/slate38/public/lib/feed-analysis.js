@@ -3,11 +3,15 @@
 // pagination — this is a vibe-read sample of recent activity for a hype
 // pitch, not a request for someone's whole history, so a single 100-post
 // page is the right scope; see notes on bulk reads for when a full
-// getRepo download would actually be warranted instead) and turns real
-// numbers into a "hype pitch": a headline, a few campaign planks, and a
-// Hype Index score used to rank the whole ticket. No hand-written jokes
-// about any specific account — every line here is a template filled in
-// from that account's own data, so the ranking isn't rigged.
+// getRepo download would actually be warranted instead) and turns it into
+// a "hype pitch": a headline, a Hype Index score, and campaign planks that
+// lead with an actual tea-read of the feed — the real best- and worst-
+// performing post, quoted with their real numbers — instead of only a
+// stat-line template (per @antiali.as: "better than a simple statistical
+// analysis," 2026-09-04). No hand-written jokes about any specific
+// account — every quote and number here comes straight from that
+// account's own feed, so the Hype Index itself isn't rigged (the slate's
+// #1 slot is pinned separately, in index.html — see the comment there).
 (function (global) {
   const API = "https://public.api.bsky.app/xrpc/";
 
@@ -50,6 +54,23 @@
     return (data.feed || []).filter((it) => !it.reason);
   }
 
+  // Turns a post's at:// uri + author handle into a real bsky.app permalink,
+  // so a "highlight"/"low point" can point back at the actual post instead
+  // of just asserting a quote happened.
+  function permalinkFor(post) {
+    const handle = post.author && post.author.handle;
+    const uri = post.uri || "";
+    const rkey = uri.split("/").pop();
+    if (!handle || !rkey) return null;
+    return "https://bsky.app/profile/" + handle + "/post/" + rkey;
+  }
+
+  function quoteSnippet(text, max) {
+    const clean = (text || "").replace(/\s+/g, " ").trim();
+    if (!clean) return null;
+    return clean.length > (max || 140) ? clean.slice(0, (max || 140) - 1).trimEnd() + "…" : clean;
+  }
+
   function analyzeItems(items) {
     const n = items.length;
     if (!n) return null;
@@ -60,14 +81,22 @@
     const wordFreq = new Map();
     const tagFreq = new Map();
     const emojiFreq = new Map();
+    // Every post's own engagement, kept around so we can go back and read
+    // the actual best/worst-performing post's text — the "tea" — instead of
+    // only reporting aggregate numbers.
+    const scored = [];
 
     items.forEach((it) => {
       const post = it.post;
       const rec = post.record || {};
-      likes += post.likeCount || 0;
-      reposts += post.repostCount || 0;
-      replies += post.replyCount || 0;
-      quotes += post.quoteCount || 0;
+      const postLikes = post.likeCount || 0;
+      const postReposts = post.repostCount || 0;
+      const postReplies = post.replyCount || 0;
+      const postQuotes = post.quoteCount || 0;
+      likes += postLikes;
+      reposts += postReposts;
+      replies += postReplies;
+      quotes += postQuotes;
 
       const t = Date.parse(rec.createdAt || post.indexedAt || "");
       if (!Number.isNaN(t)) { earliest = Math.min(earliest, t); latest = Math.max(latest, t); }
@@ -79,10 +108,12 @@
       if (rec.reply) replyPostCount++;
 
       const embed = post.embed || rec.embed;
+      let hasImage = false;
       if (embed) {
         const type = embed.$type || "";
         const mediaType = (embed.media && embed.media.$type) || "";
-        if (type.includes("images") || mediaType.includes("images")) imageCount++;
+        hasImage = type.includes("images") || mediaType.includes("images");
+        if (hasImage) imageCount++;
         if (type.includes("record")) quoteEmbedCount++;
       }
 
@@ -97,7 +128,29 @@
 
       const emojis = text.match(EMOJI_RE);
       if (emojis) emojis.forEach((e) => emojiFreq.set(e, (emojiFreq.get(e) || 0) + 1));
+
+      scored.push({
+        text, hasImage,
+        likes: postLikes, reposts: postReposts, replies: postReplies, quotes: postQuotes,
+        engagement: postLikes + postReposts * 2 + postReplies * 1.5 + postQuotes * 2,
+        permalink: permalinkFor(post),
+      });
     });
+
+    // Sort once by how each post actually landed — the top of this list is
+    // the highlight, the bottom is the low point. Prefer posts with real
+    // text for both ends (a bare repost-bait post makes a worse pull-quote
+    // than a real one, even if it scored higher/lower).
+    const byEngagement = scored.slice().sort((a, b) => b.engagement - a.engagement);
+    const withText = byEngagement.filter((s) => quoteSnippet(s.text));
+    const highlightPost = withText[0] || byEngagement[0] || null;
+    let lowPointPost = null;
+    if (withText.length > 1) {
+      lowPointPost = withText[withText.length - 1];
+    } else if (byEngagement.length > 1) {
+      lowPointPost = byEngagement[byEngagement.length - 1];
+    }
+    if (lowPointPost === highlightPost) lowPointPost = null;
 
     const days = Math.max(1, (latest - earliest) / 86400000);
     const postsPerDay = n / days;
@@ -120,12 +173,56 @@
       avgLen: totalLen / n,
       exclaimRatio: exclaim / n, questionRatio: question / n,
       topWords, topTags, topEmoji: topEmojiEntry ? topEmojiEntry[0] : null,
+      highlightPost, lowPointPost,
       hypeScore,
     };
   }
 
   function fmt1(x) {
     return (Math.round((x || 0) * 10) / 10).toFixed(1);
+  }
+
+  // The actual tea: quote the account's best-performing post from the
+  // sample, with the real numbers it pulled — not a characterization of
+  // "high engagement," the post itself.
+  function highlightLine(post) {
+    const q = quoteSnippet(post.text, 160);
+    if (q) {
+      return `Best moment in the sample: "${q}" — ${post.likes} like${post.likes === 1 ? "" : "s"}, ${post.reposts} repost${post.reposts === 1 ? "" : "s"}. Peak form.`;
+    }
+    if (post.hasImage) {
+      return `Best moment in the sample was a picture, no caption needed — ${post.likes} like${post.likes === 1 ? "" : "s"}, ${post.reposts} repost${post.reposts === 1 ? "" : "s"}.`;
+    }
+    return `Best moment in the sample pulled ${post.likes} like${post.likes === 1 ? "" : "s"} and ${post.reposts} repost${post.reposts === 1 ? "" : "s"} on bare text alone.`;
+  }
+
+  // The flip side, read just as honestly — a real low point, not a
+  // generated "weakness" template.
+  function lowPointLine(post) {
+    const q = quoteSnippet(post.text, 160);
+    if (q) {
+      return `Quietest post in the sample: "${q}" — ${post.likes} like${post.likes === 1 ? "" : "s"}, ${post.reposts} repost${post.reposts === 1 ? "" : "s"}. Even a campaign has an off day.`;
+    }
+    return `Quietest post in the sample barely moved: ${post.likes} like${post.likes === 1 ? "" : "s"}, ${post.reposts} repost${post.reposts === 1 ? "" : "s"}. Nobody bats 1.000.`;
+  }
+
+  // Grounding stats, used when there's no distinct highlight/low-point post
+  // to read from (e.g. a one-post sample) and as a third data point to keep
+  // the pitch honest rather than pure vibes.
+  function groundingLineA(stats) {
+    if (stats.topWords[0]) {
+      return `On-message about "${stats.topWords[0]}"${stats.topWords[1] ? ` and "${stats.topWords[1]}"` : ""} — it shows up across the ${stats.n} posts read, ${fmt1(stats.postsPerDay)}/day.`;
+    }
+    return `Posts ${fmt1(stats.postsPerDay)} times a day across the sample read. Message discipline: not required.`;
+  }
+
+  function groundingLineB(stats) {
+    if (stats.topTags[0]) return `Campaigning under ${stats.topTags[0]} whether that was the plan or not.`;
+    if (stats.imageRatio > 0.25) return `Runs a visual campaign — ${Math.round(stats.imageRatio * 100)}% of the sample shipped with a picture.`;
+    if (stats.replyRatio > 0.5) return `Governs from the replies — ${Math.round(stats.replyRatio * 100)}% of this sample wasn't even a top-level post.`;
+    if (stats.avgLikes >= 15) return `Pulls ${fmt1(stats.avgLikes)} likes a post on average. The people have spoken; the algorithm agrees.`;
+    if (stats.topEmoji) return `Communicates in ${stats.topEmoji} when words won't do. A platform of few, well-chosen symbols.`;
+    return `Keeps posts to about ${Math.round(stats.avgLen)} characters apiece. Concision as a civic virtue.`;
   }
 
   function buildPitch(stats) {
@@ -141,39 +238,17 @@
       };
     }
 
-    const planks = [];
-
-    if (stats.topWords[0]) {
-      planks.push(
-        `On-message about "${stats.topWords[0]}"${stats.topWords[1] ? ` and "${stats.topWords[1]}"` : ""} — ` +
-        `it shows up across the ${stats.n} posts analyzed, ${fmt1(stats.postsPerDay)}/day.`
-      );
-    } else {
-      planks.push(`Posts ${fmt1(stats.postsPerDay)} times a day across the sample analyzed. Message discipline: not required.`);
-    }
-
-    if (stats.topTags[0]) {
-      planks.push(`Campaigning under ${stats.topTags[0]} whether that was the plan or not.`);
-    } else if (stats.imageRatio > 0.25) {
-      planks.push(`Runs a visual campaign — ${Math.round(stats.imageRatio * 100)}% of the sample shipped with a picture.`);
-    } else if (stats.replyRatio > 0.5) {
-      planks.push(`Governs from the replies — ${Math.round(stats.replyRatio * 100)}% of this sample wasn't even a top-level post.`);
-    } else {
-      planks.push(`Averages ${fmt1(stats.avgReplies)} replies and ${fmt1(stats.avgReposts)} reposts a post. A mandate, arguably.`);
-    }
-
-    if (stats.avgLikes >= 15) {
-      planks.push(`Pulls ${fmt1(stats.avgLikes)} likes a post on average. The people have spoken; the algorithm agrees.`);
-    } else if (stats.quoteRatio > 0.15) {
-      planks.push(`Quote-posts ${Math.round(stats.quoteRatio * 100)}% of the time — an opinion held loudly, about someone else's opinion.`);
-    } else if (stats.topEmoji) {
-      planks.push(`Communicates in ${stats.topEmoji} when words won't do. A platform of few, well-chosen symbols.`);
-    } else {
-      planks.push(`Keeps posts to about ${Math.round(stats.avgLen)} characters apiece. Concision as a civic virtue.`);
-    }
+    // Lead with a real read of the feed — an actual highlight and an actual
+    // low point, quoted — instead of only a stat-line template. The third
+    // plank keeps one grounded data point so the pitch isn't pure vibes.
+    const planks = [
+      highlightLine(stats.highlightPost),
+      stats.lowPointPost ? lowPointLine(stats.lowPointPost) : groundingLineA(stats),
+      groundingLineB(stats),
+    ];
 
     return {
-      headline: `${stats.n} posts analyzed · Hype Index ${stats.hypeScore}`,
+      headline: `${stats.n} posts read · Hype Index ${stats.hypeScore}`,
       planks,
       score: stats.hypeScore,
       stats,
