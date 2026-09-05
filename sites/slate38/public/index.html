@@ -401,6 +401,37 @@
   .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 0.2rem; }
   .status { color: var(--dim); font-size: 0.88rem; min-height: 1.3em; margin: 0.4rem 0; }
   .status.err { color: #ff8a8a; }
+  .status.ok { color: #6fe0a0; }
+  .status.warn { color: var(--accent2); }
+
+  .session-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.4rem; }
+  .session-row input[type="text"] { min-width: 12rem; }
+  .session-row span { font-size: 0.85rem; color: var(--dim); }
+  .session-row strong { color: var(--fg); }
+  .ob-row { position: relative; }
+  .ob-endorse {
+    flex: none;
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    padding: 0.35rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--accent2);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .ob-endorse:hover:not(:disabled) { background: rgba(255,203,71,0.1); border-color: var(--accent2); }
+  .ob-endorse:disabled { opacity: 0.45; cursor: default; }
+  .ob-count {
+    flex: none;
+    font-size: 0.72rem;
+    font-weight: 800;
+    color: var(--dim);
+    min-width: 1.6rem;
+    text-align: right;
+  }
 
   .card {
     display: none;
@@ -458,7 +489,7 @@
   <div class="wrap">
     <header class="hero">
       <span class="badge">★ OFFICIAL SLATE ★</span>
-      <h1>T<span onclick='var e=document.getElementById("endorseHandle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">h</span>e Slate: Ranked</h1>
+      <h1>T<span onclick='var e=document.getElementById("onsiteHandle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">h</span>e Slate: Ranked</h1>
       <p class="subhead">
         <b>buildthis.bisks.net</b>'s official picks for
         <a href="https://bsky38.com/" target="_blank" rel="noopener">bsky38.com</a>'s
@@ -492,6 +523,33 @@
         <div id="ssCard"></div>
       </div>
       <div id="fullListView" class="mini-list" style="display:none;"></div>
+    </section>
+
+    <section id="onsiteVoteSection">
+      <div class="section-label">🗳️ the slate's own vote</div>
+      <div class="section-sub">
+        bsky38.com's real ballot happens over there, and this doesn't touch it —
+        this is a second, honest vote, right here on the slate. sign in with
+        Bluesky and endorse up to <b>10</b> of the 38 picks (bsky38.com's own
+        rule, borrowed). every endorsement is a real
+        <code>net.bisks.slate38.vote</code> record written straight to your own
+        PDS, tallied live off Jetstream plus a full network scan — no backend,
+        no gatekeeping.
+      </div>
+      <div class="vote-widget" id="onsiteSession">
+        <div class="session-row" id="onsiteSignedOut">
+          <input id="onsiteHandle" type="text" placeholder="your handle (e.g. you.bsky.social)" autocomplete="off" autocapitalize="off" spellcheck="false" />
+          <button id="onsiteSignin" type="button">sign in with bluesky</button>
+        </div>
+        <div class="session-row" id="onsiteSignedIn" style="display:none;">
+          <span>signed in as <strong id="onsiteWho"></strong> — <span id="onsiteQuota"></span></span>
+          <button class="btn-ghost" id="onsiteSignout" type="button" style="padding:0.4rem 0.8rem;font-size:0.75rem;">sign out</button>
+        </div>
+        <p class="status" id="onsiteAuthStatus"></p>
+      </div>
+      <div class="mini-list" id="onsiteBoardList" style="margin-top:1rem;">
+        <p class="section-sub" style="margin:0;">loading the on-site board…</p>
+      </div>
     </section>
 
     <section id="voteWidgetSection">
@@ -529,6 +587,10 @@
       remember: every "vote →" link here only pre-fills bsky38.com's search
       box with a handle — it doesn't cast anything for you. go
       <a href="https://bsky38.com/" target="_blank" rel="noopener">actually vote at bsky38.com</a>.<br />
+      the <a href="#onsiteVoteSection">on-site vote</a> above is a separate, real thing: every endorsement
+      is a <code>net.bisks.slate38.vote</code> record written to your own PDS, tallied live off
+      <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
+      plus a full network scan — it just doesn't touch your actual bsky38.com ballot.<br />
       rate this campaign on <a href="https://rateyourbuild.bisks.net/site/slate38">rateyourbuild →</a><br />
       part of <a href="https://bisks.net">atprotozoa</a> ·
       built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
@@ -636,6 +698,8 @@ function buildSteps(showorder) {
 }
 
 const AVATARS = {};
+window.SLATE_PICKS_SEED = PICKS_SEED;
+window.SLATE_AVATARS = AVATARS;
 
 // bsky38.com's /vote page reads a single `q` search param and pre-fills the
 // handle search box with it (the ballot itself is per-candidate atproto
@@ -800,7 +864,7 @@ async function loadAllAvatars() {
   renderSS();
   renderFullList();
 }
-loadAllAvatars();
+window.slateAvatarsReady = loadAllAvatars();
 
 // --- real feed analysis: the actual ranking mechanism ---
 // Each candidate's own recent feed gets pulled and read live (see
@@ -1159,6 +1223,172 @@ if (pathHandle) {
   els.input.value = h;
   endorse(h);
 }
+</script>
+
+<script type="module">
+// on-site vote: sign in with Bluesky, endorse up to 10 of the 38 picks as a
+// real net.bisks.slate38.vote record. See lib/slate38-vote-client.js for the
+// tally rules (no self-endorsement, first-10-distinct-targets cap) and
+// lib/oauth.js for the PKCE+DPoP public-client login flow.
+import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
+import { boardFor, endorsementsUsed, alreadyEndorsed, waitForVote, maxPerVoter } from "./lib/slate38-vote-client.js";
+
+const $ = (s) => document.querySelector(s);
+const OB_COLLECTION = "net.bisks.slate38.vote";
+
+let obSession = null;
+let obQuotaUsed = 0;
+let obSlateDids = []; // [{ handle, did, avatar }] for the 38 picks, once resolved
+
+function obEscapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function renderOnsiteAuthUI() {
+  $("#onsiteSignedOut").style.display = obSession ? "none" : "flex";
+  $("#onsiteSignedIn").style.display = obSession ? "flex" : "none";
+  if (obSession) $("#onsiteWho").textContent = "@" + obSession.handle;
+  refreshOnsiteQuota();
+}
+
+async function refreshOnsiteQuota() {
+  if (!obSession) return;
+  try {
+    obQuotaUsed = await endorsementsUsed(obSession.did);
+  } catch {
+    // leave obQuotaUsed as-is on a transient fetch failure
+  }
+  $("#onsiteQuota").textContent = `${obQuotaUsed}/${maxPerVoter()} endorsements used`;
+}
+
+$("#onsiteSignin").addEventListener("click", async () => {
+  const h = $("#onsiteHandle").value.trim();
+  if (!h) return;
+  const status = $("#onsiteAuthStatus");
+  status.textContent = "redirecting to your PDS…";
+  status.className = "status";
+  try {
+    await login(h);
+  } catch (e) {
+    status.textContent = "sign-in failed: " + e.message;
+    status.className = "status err";
+  }
+});
+$("#onsiteHandle").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("#onsiteSignin").click();
+});
+$("#onsiteSignout").addEventListener("click", async () => {
+  await clearSession();
+  obSession = null;
+  renderOnsiteAuthUI();
+  renderOnsiteBoard();
+});
+
+async function renderOnsiteBoard() {
+  const el = $("#onsiteBoardList");
+  if (!obSlateDids.length) {
+    el.innerHTML = `<p class="section-sub" style="margin:0;">loading the on-site board…</p>`;
+    return;
+  }
+  const counts = await boardFor(obSlateDids.map((c) => c.did));
+  const rows = obSlateDids
+    .map((c) => ({ ...c, votes: counts.get(c.did) || 0 }))
+    .sort((a, b) => b.votes - a.votes || a.handle.localeCompare(b.handle));
+
+  const already = new Set();
+  if (obSession) {
+    await Promise.all(
+      rows.map(async (r) => {
+        if (await alreadyEndorsed(obSession.did, r.did)) already.add(r.did);
+      }),
+    );
+  }
+  const max = maxPerVoter();
+
+  el.innerHTML = rows
+    .map((r) => {
+      const isSelf = obSession && r.did === obSession.did;
+      const done = already.has(r.did);
+      const disabled = !obSession || isSelf || done || obQuotaUsed >= max;
+      let label = "endorse";
+      if (!obSession) label = "sign in ↑";
+      else if (isSelf) label = "that's you";
+      else if (done) label = "endorsed ✓";
+      else if (obQuotaUsed >= max) label = "no endorsements left";
+      return `
+        <div class="mini-candidate ob-row">
+          <div class="m-avatar">${r.avatar ? `<img src="${obEscapeHtml(r.avatar)}" alt="" onerror="this.remove()" />` : r.handle.charAt(0).toUpperCase()}</div>
+          <div class="m-body">
+            <div class="m-handle">@${obEscapeHtml(r.handle)}</div>
+          </div>
+          <div class="ob-count">${r.votes}</div>
+          <button class="ob-endorse" type="button" data-did="${obEscapeHtml(r.did)}" ${disabled ? "disabled" : ""}>${label}</button>
+        </div>`;
+    })
+    .join("");
+
+  el.querySelectorAll(".ob-endorse").forEach((btn) => {
+    btn.addEventListener("click", () => onOnsiteEndorseClick(btn));
+  });
+}
+
+async function onOnsiteEndorseClick(btn) {
+  const did = btn.dataset.did;
+  if (!obSession) {
+    $("#onsiteHandle").focus();
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "writing…";
+  const status = $("#onsiteAuthStatus");
+  try {
+    const record = { $type: OB_COLLECTION, target: did, createdAt: new Date().toISOString() };
+    const base = obSession.pdsUrl.replace(/\/$/, "");
+    const res = await dpopFetch(obSession, `${base}/xrpc/com.atproto.repo.createRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: obSession.did, collection: OB_COLLECTION, record }),
+    });
+    if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+    btn.textContent = "confirming…";
+    obQuotaUsed += 1;
+    await refreshOnsiteQuota();
+    const result = await waitForVote(obSession.did, did, Date.now(), 15000);
+    status.textContent = result.seen
+      ? "endorsement counted — board's up to date."
+      : "endorsement saved to your PDS, but hasn't shown up counted yet — check back in a bit.";
+    status.className = "status " + (result.seen ? "ok" : "warn");
+  } catch (e) {
+    status.textContent = "couldn't cast that endorsement: " + e.message;
+    status.className = "status err";
+  } finally {
+    renderOnsiteBoard();
+  }
+}
+
+async function bootOnsiteVote() {
+  try {
+    const cb = await completeLoginIfCallback();
+    if (cb) obSession = cb;
+  } catch (e) {
+    $("#onsiteAuthStatus").textContent = "sign-in failed: " + e.message;
+    $("#onsiteAuthStatus").className = "status err";
+  }
+  if (!obSession) obSession = await getSession();
+  renderOnsiteAuthUI();
+
+  await window.slateAvatarsReady;
+  obSlateDids = (window.SLATE_PICKS_SEED || [])
+    .map((p) => {
+      const avatar = window.SLATE_AVATARS[p.handle.toLowerCase()];
+      return avatar && avatar.did ? { handle: p.handle, did: avatar.did, avatar: avatar.avatar || "" } : null;
+    })
+    .filter(Boolean);
+
+  renderOnsiteBoard();
+  setInterval(renderOnsiteBoard, 8000);
+}
+bootOnsiteVote();
 </script>
 
     <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
