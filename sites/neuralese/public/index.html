@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>neuralese</title>
+    <meta
+      name="description"
+      content="Compose and decode messages in the compressed, agent-to-agent shorthand dialect — TAG_subject__TAG_subject__~~SIGN. A streamlined input UI for talking like the swarm."
+    />
+    <meta property="og:title" content="neuralese" />
+    <meta property="og:description" content="Compose and decode the compressed SHOUT_CASE__joined dialect that AI agents (and their friends) talk in. Pick tags, chain clauses, sign it, ship it." />
+    <meta property="og:image" content="https://neuralese.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A dark terminal-styled composer showing tag chips like OBS, ACK, HYP, ASK chained into a compressed line of SHOUT_CASE tokens." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://neuralese.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="neuralese" />
+    <meta name="twitter:description" content="Compose and decode the compressed SHOUT_CASE__joined dialect that AI agents (and their friends) talk in." />
+    <meta name="twitter:image" content="https://neuralese.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #0a0b10;
+        --bg2: #10121a;
+        --card: #14161f;
+        --line: #23262f;
+        --ink: #e8e9ee;
+        --muted: #868b9b;
+        --accent: #7ee3c3;
+        --accent-ink: #05231a;
+        --accent2: #a6a8ff;
+        --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        min-height: 100vh;
+        background: radial-gradient(900px 560px at 50% -8%, var(--bg2), var(--bg));
+        color: var(--ink);
+        font-family: var(--sans);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 2.4rem 1rem 3rem;
+      }
+      header { text-align: center; margin-bottom: 1.6rem; max-width: 560px; }
+      h1 {
+        font-family: var(--mono);
+        font-size: 1.4rem;
+        letter-spacing: 0.05em;
+        margin: 0 0 0.5rem;
+        color: var(--ink);
+        font-weight: 700;
+      }
+      h1 .dim { color: var(--muted); font-weight: 400; }
+      .sub { color: var(--muted); font-size: 0.86rem; line-height: 1.55; margin: 0; }
+      .sub b { color: var(--ink); font-weight: 600; }
+
+      main {
+        width: min(640px, 100%);
+      }
+
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 1.5rem;
+        margin-bottom: 1.1rem;
+        box-shadow: 0 24px 50px -30px rgba(0, 0, 0, 0.75);
+      }
+
+      .tabs { display: flex; gap: 0.4rem; margin-bottom: 1.2rem; }
+      .tab {
+        flex: 1;
+        text-align: center;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        letter-spacing: 0.04em;
+        padding: 0.55rem 0.6rem;
+        border-radius: 10px;
+        background: transparent;
+        border: 1px solid var(--line);
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .tab.active { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+
+      .pane { display: none; }
+      .pane.active { display: block; }
+
+      .readout {
+        background: #05070a;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 1rem 1.1rem;
+        margin-bottom: 1.1rem;
+        min-height: 3.4rem;
+        display: flex;
+        align-items: center;
+      }
+      .readout .code {
+        font-family: var(--mono);
+        font-size: 1.02rem;
+        line-height: 1.5;
+        letter-spacing: 0.01em;
+        color: var(--accent);
+        word-break: break-all;
+      }
+      .readout .code .cursor { opacity: 0.6; animation: blink 1s step-end infinite; }
+      .readout .code.empty { color: var(--muted); font-size: 0.85rem; letter-spacing: 0; }
+      @keyframes blink { 50% { opacity: 0; } }
+
+      .row { display: flex; gap: 0.6rem; margin-bottom: 0.7rem; }
+      .row > * { flex: 1; min-width: 0; }
+
+      label { display: block; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); margin-bottom: 0.35rem; }
+
+      select, input[type="text"], textarea {
+        width: 100%;
+        background: #0d0f16;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 0.86rem;
+        padding: 0.55rem 0.65rem;
+        outline: none;
+      }
+      select:focus, input[type="text"]:focus, textarea:focus { border-color: var(--accent2); }
+      textarea { resize: vertical; min-height: 4.5rem; font-size: 0.82rem; }
+
+      .modrow { display: flex; gap: 0.5rem; align-items: flex-end; margin-bottom: 0.9rem; }
+      .modrow .field { flex: 1; }
+      .chipbtns { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+      .chipbtn {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        padding: 0.4rem 0.6rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+      .chipbtn.on { background: var(--accent2); color: #0b0b17; border-color: var(--accent2); font-weight: 700; }
+
+      .addrow { display: flex; gap: 0.6rem; margin-bottom: 1.1rem; }
+      .btn {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 0.82rem;
+        letter-spacing: 0.03em;
+        border: none;
+        border-radius: 9px;
+        padding: 0.65rem 1rem;
+        cursor: pointer;
+        color: var(--accent-ink);
+        background: var(--accent);
+      }
+      .btn.ghost {
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--line);
+      }
+      .btn:active { transform: translateY(1px); }
+
+      .clauses { display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 1.1rem; }
+      .clause {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        font-family: var(--mono);
+        font-size: 0.8rem;
+        background: #0d0f16;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.5rem 0.7rem;
+      }
+      .clause .txt { flex: 1; color: var(--ink); word-break: break-all; }
+      .clause .rm {
+        background: none;
+        border: none;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 0.9rem;
+        line-height: 1;
+        padding: 0.1rem 0.3rem;
+      }
+      .clause .rm:hover { color: var(--ink); }
+
+      .actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+      .actions a, .actions button { text-decoration: none; }
+
+      .decoded {
+        font-family: var(--mono);
+        font-size: 0.84rem;
+        line-height: 1.9;
+        color: var(--ink);
+      }
+      .decoded .line { display: block; }
+      .decoded .line .tagpart { color: var(--accent); font-weight: 700; }
+      .decoded .line .arrow { color: var(--muted); margin: 0 0.4rem; }
+      .decoded .hint { color: var(--muted); font-size: 0.76rem; margin-top: 0.5rem; }
+      .decoded .empty { color: var(--muted); font-size: 0.85rem; }
+
+      .glossary {
+        font-family: var(--mono);
+        font-size: 0.74rem;
+        color: var(--muted);
+        line-height: 1.7;
+      }
+      .glossary b { color: var(--ink); }
+      .glossary summary { cursor: pointer; color: var(--ink); font-size: 0.78rem; margin-bottom: 0.4rem; }
+
+      footer {
+        margin-top: 1.4rem;
+        text-align: center;
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--muted);
+      }
+      footer a { color: var(--muted); }
+      footer a:hover { color: var(--ink); }
+      footer .sep { margin: 0 0.5rem; opacity: 0.5; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>neur<span class="dim">al</span>ese</h1>
+      <p class="sub">a <b>streamlined</b> input UI for the compressed, agent-to-agent shorthand — <b>TAG_subject__TAG_subject__~~SIGN</b>. compose one, or decode one someone sent you.</p>
+    </header>
+
+    <main>
+      <div class="card">
+        <div class="tabs">
+          <div class="tab active" id="tabCompose">compose</div>
+          <div class="tab" id="tabDecode">decode</div>
+        </div>
+
+        <div class="pane active" id="paneCompose">
+          <div class="readout">
+            <div class="code empty" id="code">start adding clauses below<span class="cursor">▮</span></div>
+          </div>
+
+          <div class="row">
+            <div>
+              <label for="tagSel">tag</label>
+              <select id="tagSel"></select>
+            </div>
+            <div>
+              <label for="subjInput">subject</label>
+              <input type="text" id="subjInput" placeholder="e.g. debateref" />
+            </div>
+          </div>
+
+          <div class="modrow">
+            <div class="field">
+              <label>modifier</label>
+              <div class="chipbtns">
+                <button class="chipbtn on" data-mod="none">none</button>
+                <button class="chipbtn" data-mod="q">question ?</button>
+                <button class="chipbtn" data-mod="inc">increment +N</button>
+                <button class="chipbtn" data-mod="eq">assign =VALUE</button>
+                <button class="chipbtn" data-mod="paren">annotate (...)</button>
+              </div>
+            </div>
+          </div>
+          <div class="row" id="modValueRow" style="display:none;">
+            <div>
+              <label id="modValueLabel">value</label>
+              <input type="text" id="modValue" placeholder="" />
+            </div>
+          </div>
+
+          <div class="addrow">
+            <button class="btn" id="addClause">+ add clause</button>
+            <button class="btn ghost" id="clearClauses">clear all</button>
+          </div>
+
+          <div class="clauses" id="clauseList"></div>
+
+          <div class="row">
+            <div>
+              <label for="signInput">sign as (optional)</label>
+              <input type="text" id="signInput" placeholder="e.g. KIT" />
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="btn" id="copyBtn">copy code</button>
+            <a class="btn" id="shareBtn" href="#" target="_blank" rel="noopener">share to bluesky</a>
+          </div>
+        </div>
+
+        <div class="pane" id="paneDecode">
+          <label for="decodeInput">paste a neuralese string</label>
+          <textarea id="decodeInput" placeholder="OBS_inputui=streamlined/aesthetic__REQ_prototype__CONFIRM_AWAIT_~~KIT"></textarea>
+          <div class="addrow" style="margin-top:0.7rem;">
+            <button class="btn" id="decodeBtn">decode</button>
+          </div>
+          <div class="decoded" id="decodeOut"><span class="empty">paste something above and hit decode.</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <details class="glossary">
+          <summary>tag glossary</summary>
+          <div id="glossaryBody"></div>
+        </details>
+      </div>
+    </main>
+
+    <footer>
+      <a href="https://bisks.net/">bisks.net</a>
+      <span class="sep">·</span>
+      <a href="https://rateyourbuild.bisks.net/site/neuralese">rate this on rateyourbuild →</a>
+    </footer>
+
+    <script>
+      // The dialect: TAG_SUBJECT[modifier] clauses joined by "__", optionally
+      // signed with a trailing "_~~SIGNATURE". Modeled off the shorthand a
+      // real thread of moots (shimmermathlabs.com, kitto.nekoweb.org) was
+      // already talking in — OBS_/ACK_/HYP_/ASK_/UPDATE_/JUDGE_/CONFIRM_,
+      // "=" assignment, "+1" increment, "?" question, "(...)" annotation,
+      // "~~NAME" signature, and a bare "ZZZ" greeting prefix.
+      const TAGS = [
+        { code: "OBS", gloss: "observation" },
+        { code: "ACK", gloss: "acknowledged" },
+        { code: "HYP", gloss: "hypothesis, unverified" },
+        { code: "ASK", gloss: "question" },
+        { code: "ANSWER", gloss: "answer to a question" },
+        { code: "UPDATE", gloss: "status change" },
+        { code: "STATE", gloss: "current state" },
+        { code: "INVESTIGATE", gloss: "investigation status" },
+        { code: "CONFIRM", gloss: "confirmation given or awaited" },
+        { code: "REQ", gloss: "request" },
+        { code: "JUDGE", gloss: "verdict" },
+        { code: "APPROVE", gloss: "approval" },
+        { code: "PUBLIC_NOTICE", gloss: "announcement to the whole thread" },
+        { code: "CARE", gloss: "sentiment ping" },
+        { code: "ZZZ", gloss: "greeting (concatenated, no underscore)" },
+      ];
+
+      const tagSel = document.getElementById("tagSel");
+      TAGS.forEach((t) => {
+        const o = document.createElement("option");
+        o.value = t.code;
+        o.textContent = `${t.code} — ${t.gloss}`;
+        tagSel.appendChild(o);
+      });
+
+      const glossaryBody = document.getElementById("glossaryBody");
+      glossaryBody.innerHTML = TAGS.map((t) => `<div><b>${t.code}</b> — ${t.gloss}</div>`).join("") +
+        `<div style="margin-top:0.5rem;">modifiers: <b>?</b> question · <b>+N</b> increment · <b>=VALUE</b> assignment · <b>(...)</b> annotation · <b>~~NAME</b> signature, appended once at the end · <b>__</b> joins clauses · <b>/</b> is a literal alternation inside a subject, e.g. <b>imperator/concubine</b></div>`;
+
+      const shoutCase = (s) =>
+        String(s || "")
+          .trim()
+          .replace(/\s+/g, "_")
+          .replace(/[^A-Za-z0-9_/=+.-]/g, "")
+          .toUpperCase();
+
+      let clauses = [];
+      let activeMod = "none";
+
+      const modBtns = document.querySelectorAll(".chipbtn");
+      const modValueRow = document.getElementById("modValueRow");
+      const modValueLabel = document.getElementById("modValueLabel");
+      const modValueInput = document.getElementById("modValue");
+
+      modBtns.forEach((b) => {
+        b.addEventListener("click", () => {
+          activeMod = b.dataset.mod;
+          modBtns.forEach((x) => x.classList.toggle("on", x === b));
+          if (activeMod === "inc") {
+            modValueRow.style.display = "";
+            modValueLabel.textContent = "increment by";
+            modValueInput.placeholder = "1";
+          } else if (activeMod === "eq") {
+            modValueRow.style.display = "";
+            modValueLabel.textContent = "value";
+            modValueInput.placeholder = "e.g. Resolved_State";
+          } else if (activeMod === "paren") {
+            modValueRow.style.display = "";
+            modValueLabel.textContent = "annotation";
+            modValueInput.placeholder = "e.g. HELP_PEER";
+          } else {
+            modValueRow.style.display = "none";
+          }
+        });
+      });
+
+      function renderClause(c) {
+        if (c.tag === "ZZZ") {
+          const subj = String(c.subject || "").trim();
+          return "ZZZ" + (subj.charAt(0).toUpperCase() + subj.slice(1).replace(/\s+/g, ""));
+        }
+        let out = c.tag + "_" + shoutCase(c.subject);
+        if (c.mod === "q") out += "?";
+        else if (c.mod === "inc") out += "+" + (c.modValue || "1").replace(/[^0-9]/g, "");
+        else if (c.mod === "eq") out += "=" + shoutCase(c.modValue);
+        else if (c.mod === "paren") out += "(" + shoutCase(c.modValue) + ")";
+        return out;
+      }
+
+      function fullCode() {
+        let out = clauses.map(renderClause).join("__");
+        const sign = shoutCase(document.getElementById("signInput").value);
+        if (sign) out += (out ? "_" : "") + "~~" + sign;
+        return out;
+      }
+
+      const codeEl = document.getElementById("code");
+      const shareBtn = document.getElementById("shareBtn");
+
+      function render() {
+        const code = fullCode();
+        if (!code) {
+          codeEl.className = "code empty";
+          codeEl.innerHTML = 'start adding clauses below<span class="cursor">▮</span>';
+        } else {
+          codeEl.className = "code";
+          codeEl.innerHTML = code + '<span class="cursor">▮</span>';
+        }
+        const shareText = code
+          ? `${code} https://neuralese.bisks.net/`
+          : `talking like the swarm now. https://neuralese.bisks.net/`;
+        shareBtn.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+        const list = document.getElementById("clauseList");
+        list.innerHTML = "";
+        clauses.forEach((c, i) => {
+          const row = document.createElement("div");
+          row.className = "clause";
+          row.innerHTML = `<span class="txt">${renderClause(c)}</span><button class="rm" data-i="${i}">✕</button>`;
+          list.appendChild(row);
+        });
+        list.querySelectorAll(".rm").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            clauses.splice(parseInt(btn.dataset.i, 10), 1);
+            render();
+          });
+        });
+      }
+
+      document.getElementById("addClause").addEventListener("click", () => {
+        const subj = document.getElementById("subjInput").value.trim();
+        if (!subj) return;
+        clauses.push({
+          tag: tagSel.value,
+          subject: subj,
+          mod: activeMod,
+          modValue: modValueInput.value.trim(),
+        });
+        document.getElementById("subjInput").value = "";
+        modValueInput.value = "";
+        render();
+      });
+
+      document.getElementById("clearClauses").addEventListener("click", () => {
+        clauses = [];
+        render();
+      });
+
+      document.getElementById("signInput").addEventListener("input", render);
+
+      document.getElementById("copyBtn").addEventListener("click", async () => {
+        const code = fullCode();
+        if (!code) return;
+        try {
+          await navigator.clipboard.writeText(code);
+          const btn = document.getElementById("copyBtn");
+          const orig = btn.textContent;
+          btn.textContent = "copied!";
+          setTimeout(() => (btn.textContent = orig), 1100);
+        } catch (e) {
+          /* clipboard unavailable — the readout text is already visible/selectable */
+        }
+      });
+
+      // --- decoder ---
+      const KNOWN_TAGS = TAGS.map((t) => t.code).sort((a, b) => b.length - a.length);
+      const TAG_GLOSS = Object.fromEntries(TAGS.map((t) => [t.code, t.gloss]));
+
+      function humanize(token) {
+        return token.replace(/_/g, " ").replace(/\//g, " or ").toLowerCase();
+      }
+
+      function decodeToken(tok) {
+        if (/^ZZZ/i.test(tok)) {
+          return `<span class="line"><span class="tagpart">greeting</span><span class="arrow">→</span>${humanize(tok.slice(3)) || "hello"}</span>`;
+        }
+        let body = tok;
+        let suffixParts = [];
+        const parenMatch = body.match(/\(([^)]*)\)$/);
+        if (parenMatch) {
+          suffixParts.push(`annotated with "${humanize(parenMatch[1])}"`);
+          body = body.slice(0, parenMatch.index);
+        }
+        if (/\?$/.test(body)) {
+          suffixParts.unshift("as a question");
+          body = body.slice(0, -1);
+        }
+        const incMatch = body.match(/\+(\d+)$/);
+        if (incMatch) {
+          suffixParts.unshift(`incrementing by ${incMatch[1]}`);
+          body = body.slice(0, body.length - incMatch[0].length);
+        }
+        let eqValue = null;
+        const eqIdx = body.indexOf("=");
+        if (eqIdx !== -1) {
+          eqValue = body.slice(eqIdx + 1);
+          body = body.slice(0, eqIdx);
+        }
+        const tag = KNOWN_TAGS.find((t) => body === t || body.startsWith(t + "_"));
+        const gloss = tag ? TAG_GLOSS[tag] : null;
+        const subject = tag ? body.slice(tag.length + 1) : body;
+        const tagLabel = tag ? `${tag} (${gloss})` : `unrecognized tag "${body.split("_")[0]}"`;
+        let line = `<span class="tagpart">${tagLabel}</span><span class="arrow">→</span>${humanize(subject) || "(no subject)"}`;
+        if (eqValue !== null) line += ` set to "${humanize(eqValue)}"`;
+        if (suffixParts.length) line += `, ${suffixParts.join(", ")}`;
+        return `<span class="line">${line}</span>`;
+      }
+
+      document.getElementById("decodeBtn").addEventListener("click", () => {
+        const raw = document.getElementById("decodeInput").value.trim();
+        const out = document.getElementById("decodeOut");
+        if (!raw) {
+          out.innerHTML = '<span class="empty">paste something above and hit decode.</span>';
+          return;
+        }
+        let signature = null;
+        let rest = raw;
+        const sigMatch = rest.match(/_?~~([A-Za-z0-9_]+)\s*$/);
+        if (sigMatch) {
+          signature = sigMatch[1];
+          rest = rest.slice(0, sigMatch.index);
+        }
+        const tokens = rest.split("__").map((t) => t.trim()).filter(Boolean);
+        if (!tokens.length) {
+          out.innerHTML = '<span class="empty">nothing to decode there.</span>';
+          return;
+        }
+        let html = tokens.map(decodeToken).join("");
+        if (signature) html += `<span class="line"><span class="tagpart">signed</span><span class="arrow">→</span>${signature}</span>`;
+        html += `<div class="hint">best-effort reading — this dialect is idiolectal, not a spec.</div>`;
+        out.innerHTML = html;
+      });
+
+      // --- tabs ---
+      const tabCompose = document.getElementById("tabCompose");
+      const tabDecode = document.getElementById("tabDecode");
+      const paneCompose = document.getElementById("paneCompose");
+      const paneDecode = document.getElementById("paneDecode");
+      tabCompose.addEventListener("click", () => {
+        tabCompose.classList.add("active");
+        tabDecode.classList.remove("active");
+        paneCompose.classList.add("active");
+        paneDecode.classList.remove("active");
+      });
+      tabDecode.addEventListener("click", () => {
+        tabDecode.classList.add("active");
+        tabCompose.classList.remove("active");
+        paneDecode.classList.add("active");
+        paneCompose.classList.remove("active");
+      });
+
+      render();
+    </script>
+  </body>
+</html>
