@@ -1,9 +1,10 @@
 import { buildCluster } from "./lib/cluster.js";
-import { scanPhrase, postUrl } from "./lib/search.js";
+import { searchAuthorPhrase, postUrl } from "./lib/search.js";
 
-const BATCH_PAGES = 20; // ~2000 posts per "scan further back" click — a batch
-// size for UX pacing, not a ceiling: the button keeps the cursor alive and
-// there's no cap on how many times it can be pressed.
+// A concurrency limit, not a data cap: every cluster member still gets
+// searched, just a handful at a time so the browser/API don't get hit with
+// hundreds of simultaneous requests.
+const CONCURRENCY = 6;
 
 const els = {
   form: document.getElementById("searchForm"),
@@ -12,7 +13,6 @@ const els = {
   go: document.getElementById("go"),
   status: document.getElementById("status"),
   results: document.getElementById("results"),
-  more: document.getElementById("more"),
   useRef: document.getElementById("useRef"),
   shareLink: document.getElementById("shareLink"),
 };
@@ -22,7 +22,7 @@ els.useRef.addEventListener("click", () => {
   els.handle.focus();
 });
 
-let session = null; // { allowed: Set<did>, badge: Map<did,'core'|'adjacent'>, cursor, query, matched }
+let session = null; // { allowed: Set<did>, badge: Map<did,'core'|'adjacent'>, query, scope, handleText, matched }
 
 function setStatus(text, isErr = false) {
   els.status.textContent = text;
@@ -95,42 +95,58 @@ function updateShareLink() {
 }
 
 async function runScan() {
-  const { posts, cursor, exhausted } = await scanPhrase(session.query, {
-    cursor: session.cursor,
-    maxPages: BATCH_PAGES,
-    onPage: (info) => {
-      for (const p of info.newPosts) {
-        const did = p.author && p.author.did;
-        if (!did || !session.allowed.has(did)) continue;
-        session.matched++;
-        els.results.appendChild(renderPost(p, session.badge.get(did), session.query));
+  const members = [...session.badge.entries()]; // [did, 'core'|'adjacent'][]
+  const total = members.length;
+  let checked = 0;
+  const matches = []; // { post, badge }
+
+  function renderAll() {
+    matches.sort((a, b) => new Date(b.post.createdAt) - new Date(a.post.createdAt));
+    els.results.innerHTML = "";
+    for (const { post, badge } of matches) {
+      els.results.appendChild(renderPost(post, badge, session.query));
+    }
+  }
+
+  async function worker(queue) {
+    while (queue.length) {
+      const [did, badge] = queue.shift();
+      let posts = [];
+      try {
+        posts = await searchAuthorPhrase(session.query, did);
+      } catch {
+        // one account's search failing (e.g. a deactivated repo) shouldn't
+        // sink the whole cluster scan — just move on.
+      }
+      checked++;
+      if (posts.length) {
+        for (const post of posts) matches.push({ post, badge });
+        renderAll();
+        updateShareLink();
       }
       setStatus(
-        `scanned ${info.scanned} bluesky-wide posts (page ${info.page})… ` +
-        `${session.matched} match your simcluster so far`,
+        `checked ${checked}/${total} accounts in your simcluster… ` +
+        `${matches.length} match "${session.query}" so far`,
       );
-      updateShareLink();
-    },
-  });
-  session.cursor = cursor;
-  session.exhausted = exhausted;
-
-  if (session.matched === 0) {
-    setStatus(
-      exhausted
-        ? `scanned everything searchPosts has for "${session.query}" — none of it came from your simcluster.`
-        : `no matches in this batch — try "scan further back", or a different phrase.`,
-    );
-  } else {
-    setStatus(`${session.matched} post(s) from your simcluster match "${session.query}".`);
+    }
   }
-  els.more.hidden = exhausted;
+
+  const queue = members.slice();
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, queue.length) || 1 }, () => worker(queue)),
+  );
+
+  session.matched = matches.length;
+  setStatus(
+    matches.length === 0
+      ? `checked all ${total} accounts in your simcluster — none of them have ever posted "${session.query}".`
+      : `${matches.length} post(s) from your simcluster match "${session.query}", across ${total} accounts checked.`,
+  );
 }
 
 async function startSearch(handleText, query, scope) {
   els.go.disabled = true;
   els.results.innerHTML = "";
-  els.more.hidden = true;
   els.shareLink.hidden = true;
   setStatus("resolving @" + handleText.replace(/^@/, "") + "…");
 
@@ -157,8 +173,6 @@ async function startSearch(handleText, query, scope) {
   session = {
     allowed,
     badge,
-    cursor: "",
-    exhausted: false,
     query,
     scope,
     handleText: cluster.handle,
@@ -189,17 +203,6 @@ els.form.addEventListener("submit", (ev) => {
     return;
   }
   startSearch(handleText, query, scope);
-});
-
-els.more.addEventListener("click", async () => {
-  els.more.disabled = true;
-  try {
-    await runScan();
-  } catch (e) {
-    setStatus(`search failed: ${e.message}`, true);
-  } finally {
-    els.more.disabled = false;
-  }
 });
 
 // Deep-link: ?handle=&q=&scope= prefills and auto-runs, so a shared search

@@ -1,10 +1,22 @@
-// search.js — keyword search via the public AppView, newest-first, resumable
-// by cursor. Copied and trimmed from sites/notasexthing/public/lib/bsky.js's
-// scanPhrase (copy, don't abstract), tracing back to crosstag/public/lib/bsky.js.
+// search.js — keyword search via the public AppView, scoped per-account.
 //   SEARCH (api.bsky.app) — searchPosts. public.api.bsky.app 403s search, but
 //     api.bsky.app serves it unauthenticated with CORS * (see
 //     notes/history/trigrams-reply-and-quiver.md's "HAMMERED" test). No worker
 //     needed for a handle-scoped tool like this one.
+//
+// Originally this scanned the global, recency-sorted firehose (q=phrase, no
+// author filter) and intersected each page against the cluster's DID set.
+// That looked reasonable but was actually broken for any common word: a
+// "sort=latest" scan only ever sees the last N posts *bluesky-wide*, and for
+// something like "vote" that's a window of a few minutes of the entire
+// network's traffic, not a meaningful sample of a few hundred cluster
+// members' post history. Reported 2026-09-05 (@fromthewestmeadow.com: search
+// for "vote" found nothing in their simcluster) — the site was quietly
+// unable to find anything that wasn't posted in roughly the last minute.
+//
+// Fixed by searching each cluster member's own history directly:
+// searchPosts supports an `author` filter, so we run one exact, exhaustive
+// query per account instead of sampling the global stream and hoping.
 
 const SEARCH = "https://api.bsky.app/xrpc";
 
@@ -30,26 +42,24 @@ async function searchGet(url, tries = 6) {
   return null;
 }
 
-// Pages through searchPosts for `phrase`, newest-first, calling onPage after
-// each page so a caller can filter-as-it-goes (e.g. down to a cluster's
-// member DIDs) and update a live counter. Stops after maxPages or when the
-// AppView runs out of cursor; returns the cursor so the caller can keep
-// scanning further back on demand — no fixed ceiling on total pages scanned,
-// just a per-call batch size, so "keep going" is a button, not a wall.
-export async function scanPhrase(
-  phrase,
-  { cursor = "", maxPages = 20, onPage } = {},
-) {
-  const posts = [];
-  let pages = 0;
-  let nextCursor = cursor;
+// A runaway-loop safety valve, not a data cap: one account's own posts
+// matching one phrase are inherently finite, so this loop already stops
+// itself via the cursor. 50 pages (5,000 matches from one person for one
+// phrase) is far past anything real; it only exists so a malformed cursor
+// can't spin forever.
+const AUTHOR_SEARCH_SAFETY_PAGES = 50;
 
-  for (; pages < maxPages; pages++) {
+// Search a single account's own post history for `phrase`, exhaustively.
+// Exact and complete for that account — not a sample of the global stream.
+export async function searchAuthorPhrase(phrase, did) {
+  const posts = [];
+  let cursor = "";
+  for (let page = 0; page < AUTHOR_SEARCH_SAFETY_PAGES; page++) {
     const u = new URL(`${SEARCH}/app.bsky.feed.searchPosts`);
     u.searchParams.set("q", phrase);
-    u.searchParams.set("sort", "latest");
+    u.searchParams.set("author", did);
     u.searchParams.set("limit", "100");
-    if (nextCursor) u.searchParams.set("cursor", nextCursor);
+    if (cursor) u.searchParams.set("cursor", cursor);
 
     const d = await searchGet(u.toString());
     if (!d) break;
@@ -65,22 +75,10 @@ export async function scanPhrase(
         repostCount: p.repostCount || 0,
       });
     }
-    nextCursor = d.cursor;
-    if (onPage) {
-      onPage({
-        page: pages + 1,
-        pageCount: recs.length,
-        scanned: posts.length,
-        newPosts: posts.slice(posts.length - recs.length),
-        done: !nextCursor || recs.length === 0,
-      });
-    }
-    if (!nextCursor || recs.length === 0) {
-      pages++;
-      break;
-    }
+    cursor = d.cursor;
+    if (!cursor || recs.length === 0) break;
   }
-  return { posts, cursor: nextCursor, pagesScanned: pages, exhausted: !nextCursor };
+  return posts;
 }
 
 // bsky.app permalink from an at:// uri (works with a DID identifier too, no
