@@ -7,9 +7,13 @@
 //   - transient auth state → sessionStorage; the logged-in session → IndexedDB
 //
 // The client_id is the URL of our static client-metadata.json. Scope is
-// narrowed to our own net.bisks.slate38.vote collection, create-only — no
-// account-wide access, no update/delete (an endorsement is permanent once
-// cast). Must stay in lockstep with client-metadata.json.
+// narrowed to exactly two collections, both create-only — no account-wide
+// access, no update/delete (a vote is permanent once cast): our own
+// net.bisks.slate38.vote (this site's parallel endorsement), and
+// com.bsky38.influential.vote — bsky38.com's OWN real ballot collection,
+// added 2026-09-05 so a signed-in visitor can cast a genuine bsky38.com vote
+// straight from here (see lib/bsky38-vote-client.js). Must stay in lockstep
+// with client-metadata.json.
 
 import {
   generateDPoPKeyPair,
@@ -26,7 +30,8 @@ const ORIGIN = location.origin; // https://slate38.bisks.net (or localhost in de
 export const MOUNT = ""; // canonical host is slate38.bisks.net — no legacy path route
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-export const SCOPE = "atproto repo:net.bisks.slate38.vote?action=create";
+export const SCOPE =
+  "atproto repo:net.bisks.slate38.vote?action=create repo:com.bsky38.influential.vote?action=create";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";

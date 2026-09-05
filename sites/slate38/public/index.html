@@ -525,16 +525,18 @@
       <div id="fullListView" class="mini-list" style="display:none;"></div>
     </section>
 
-    <section id="onsiteVoteSection">
-      <div class="section-label">🗳️ the slate's own vote</div>
+    <section id="realVoteSection">
+      <div class="section-label">🗳️ the real ballot — live</div>
       <div class="section-sub">
-        bsky38.com's real ballot happens over there, and this doesn't touch it —
-        this is a second, honest vote, right here on the slate. sign in with
-        Bluesky and endorse up to <b>10</b> of the 38 picks (bsky38.com's own
-        rule, borrowed). every endorsement is a real
-        <code>net.bisks.slate38.vote</code> record written straight to your own
-        PDS, tallied live off Jetstream plus a full network scan — no backend,
-        no gatekeeping.
+        turns out bsky38.com's ballot really is atproto: every vote there is a
+        genuine <code>com.bsky38.influential.vote</code> record, written straight
+        to the voter's own PDS, keyed to the subject's DID — no backend proxy
+        (confirmed straight from pds.dad's source). so instead of only linking
+        out, this reads that real tally live off the network — Jetstream plus a
+        full network scan, same honest method as everything else on this site —
+        and, once you're signed in below, can write you a genuine bsky38.com vote
+        directly, up to their own <b>10</b>-vote cap. this is the actual ballot,
+        not a mirror of it.
       </div>
       <div class="vote-widget" id="onsiteSession">
         <div class="session-row" id="onsiteSignedOut">
@@ -542,10 +544,28 @@
           <button id="onsiteSignin" type="button">sign in with bluesky</button>
         </div>
         <div class="session-row" id="onsiteSignedIn" style="display:none;">
-          <span>signed in as <strong id="onsiteWho"></strong> — <span id="onsiteQuota"></span></span>
+          <span>signed in as <strong id="onsiteWho"></strong> — <span id="realQuota"></span></span>
           <button class="btn-ghost" id="onsiteSignout" type="button" style="padding:0.4rem 0.8rem;font-size:0.75rem;">sign out</button>
         </div>
         <p class="status" id="onsiteAuthStatus"></p>
+      </div>
+      <div class="mini-list" id="realBoardList" style="margin-top:1rem;">
+        <p class="section-sub" style="margin:0;">loading the real ballot…</p>
+      </div>
+    </section>
+
+    <section id="onsiteVoteSection">
+      <div class="section-label">🗳️ the slate's own vote, too</div>
+      <div class="section-sub">
+        separate from the real ballot above, this is a second, parallel vote —
+        the slate's own. same session, same sign-in: endorse up to <b>10</b> of
+        the 38 picks and every endorsement is a real
+        <code>net.bisks.slate38.vote</code> record written straight to your own
+        PDS, tallied live off Jetstream plus a full network scan — no backend,
+        no gatekeeping. it's a second opinion, not a substitute for the real one.
+      </div>
+      <div class="session-row" id="onsiteQuotaRow" style="margin-bottom:0.6rem;">
+        <span id="onsiteQuota"></span>
       </div>
       <div class="mini-list" id="onsiteBoardList" style="margin-top:1rem;">
         <p class="section-sub" style="margin:0;">loading the on-site board…</p>
@@ -584,13 +604,15 @@
     </section>
 
     <footer>
-      remember: every "vote →" link here only pre-fills bsky38.com's search
-      box with a handle — it doesn't cast anything for you. go
-      <a href="https://bsky38.com/" target="_blank" rel="noopener">actually vote at bsky38.com</a>.<br />
-      the <a href="#onsiteVoteSection">on-site vote</a> above is a separate, real thing: every endorsement
-      is a <code>net.bisks.slate38.vote</code> record written to your own PDS, tallied live off
+      every "vote →" link on the countdown above just pre-fills bsky38.com's search
+      box with a handle if you'd rather cast it over there yourself — go
+      <a href="https://bsky38.com/" target="_blank" rel="noopener">vote at bsky38.com</a>. but you don't have
+      to leave: the <a href="#realVoteSection">real ballot</a> section reads and writes bsky38.com's actual
+      <code>com.bsky38.influential.vote</code> records directly, right here.<br />
+      the <a href="#onsiteVoteSection">slate's own vote</a> below that is a separate, parallel thing: every
+      endorsement is a <code>net.bisks.slate38.vote</code> record written to your own PDS, tallied live off
       <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">Jetstream</a>
-      plus a full network scan — it just doesn't touch your actual bsky38.com ballot.<br />
+      plus a full network scan.<br />
       rate this campaign on <a href="https://rateyourbuild.bisks.net/site/slate38">rateyourbuild →</a><br />
       part of <a href="https://bisks.net">atprotozoa</a> ·
       built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
@@ -1226,18 +1248,38 @@ if (pathHandle) {
 </script>
 
 <script type="module">
-// on-site vote: sign in with Bluesky, endorse up to 10 of the 38 picks as a
-// real net.bisks.slate38.vote record. See lib/slate38-vote-client.js for the
-// tally rules (no self-endorsement, first-10-distinct-targets cap) and
-// lib/oauth.js for the PKCE+DPoP public-client login flow.
+// Two votes share one sign-in. Below the countdown:
+//   1. the REAL ballot — bsky38.com's own com.bsky38.influential.vote,
+//      read and (once signed in) written directly. See
+//      lib/bsky38-vote-client.js for the tally rules bsky38.com itself uses
+//      (no self-vote, first-10-distinct-subjects cap) and the 2026-09-05
+//      note on why this exists now.
+//   2. the slate's own parallel net.bisks.slate38.vote, same as before.
+// lib/oauth.js (PKCE+DPoP public-client login) now requests both scopes in
+// one session, so signing in once covers both boards.
 import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
-import { boardFor, endorsementsUsed, alreadyEndorsed, waitForVote, maxPerVoter } from "./lib/slate38-vote-client.js";
+import {
+  boardFor as obBoardFor,
+  endorsementsUsed,
+  alreadyEndorsed,
+  waitForVote,
+  maxPerVoter,
+} from "./lib/slate38-vote-client.js";
+import {
+  VOTE_COLLECTION as REAL_COLLECTION,
+  boardFor as realBoardFor,
+  votesUsed as realVotesUsed,
+  alreadyVoted,
+  waitForVote as realWaitForVote,
+  maxPerVoter as realMaxPerVoter,
+} from "./lib/bsky38-vote-client.js";
 
 const $ = (s) => document.querySelector(s);
 const OB_COLLECTION = "net.bisks.slate38.vote";
 
 let obSession = null;
 let obQuotaUsed = 0;
+let realQuotaUsed = 0;
 let obSlateDids = []; // [{ handle, did, avatar }] for the 38 picks, once resolved
 
 function obEscapeHtml(s) {
@@ -1249,16 +1291,31 @@ function renderOnsiteAuthUI() {
   $("#onsiteSignedIn").style.display = obSession ? "flex" : "none";
   if (obSession) $("#onsiteWho").textContent = "@" + obSession.handle;
   refreshOnsiteQuota();
+  refreshRealQuota();
 }
 
 async function refreshOnsiteQuota() {
-  if (!obSession) return;
+  const el = $("#onsiteQuota");
+  if (!obSession) {
+    el.textContent = "sign in above to endorse";
+    return;
+  }
   try {
     obQuotaUsed = await endorsementsUsed(obSession.did);
   } catch {
     // leave obQuotaUsed as-is on a transient fetch failure
   }
-  $("#onsiteQuota").textContent = `${obQuotaUsed}/${maxPerVoter()} endorsements used`;
+  el.textContent = `${obQuotaUsed}/${maxPerVoter()} slate endorsements used`;
+}
+
+async function refreshRealQuota() {
+  if (!obSession) return;
+  try {
+    realQuotaUsed = await realVotesUsed(obSession.did);
+  } catch {
+    // leave realQuotaUsed as-is on a transient fetch failure
+  }
+  $("#realQuota").textContent = `${realQuotaUsed}/${realMaxPerVoter()} real votes used`;
 }
 
 $("#onsiteSignin").addEventListener("click", async () => {
@@ -1282,7 +1339,96 @@ $("#onsiteSignout").addEventListener("click", async () => {
   obSession = null;
   renderOnsiteAuthUI();
   renderOnsiteBoard();
+  renderRealBoard();
 });
+
+// --- the real ballot (com.bsky38.influential.vote) --------------------------
+
+async function renderRealBoard() {
+  const el = $("#realBoardList");
+  if (!obSlateDids.length) {
+    el.innerHTML = `<p class="section-sub" style="margin:0;">loading the real ballot…</p>`;
+    return;
+  }
+  const counts = await realBoardFor(obSlateDids.map((c) => c.did));
+  const rows = obSlateDids
+    .map((c) => ({ ...c, votes: counts.get(c.did) || 0 }))
+    .sort((a, b) => b.votes - a.votes || a.handle.localeCompare(b.handle));
+
+  const already = new Set();
+  if (obSession) {
+    await Promise.all(
+      rows.map(async (r) => {
+        if (await alreadyVoted(obSession.did, r.did)) already.add(r.did);
+      }),
+    );
+  }
+  const max = realMaxPerVoter();
+
+  el.innerHTML = rows
+    .map((r) => {
+      const isSelf = obSession && r.did === obSession.did;
+      const done = already.has(r.did);
+      const disabled = !obSession || isSelf || done || realQuotaUsed >= max;
+      let label = "vote";
+      if (!obSession) label = "sign in ↑";
+      else if (isSelf) label = "that's you";
+      else if (done) label = "voted ✓";
+      else if (realQuotaUsed >= max) label = "no votes left";
+      return `
+        <div class="mini-candidate ob-row">
+          <div class="m-avatar">${r.avatar ? `<img src="${obEscapeHtml(r.avatar)}" alt="" onerror="this.remove()" />` : r.handle.charAt(0).toUpperCase()}</div>
+          <div class="m-body">
+            <div class="m-handle">@${obEscapeHtml(r.handle)}</div>
+          </div>
+          <div class="ob-count">${r.votes}</div>
+          <button class="ob-endorse" type="button" data-did="${obEscapeHtml(r.did)}" ${disabled ? "disabled" : ""}>${label}</button>
+        </div>`;
+    })
+    .join("");
+
+  el.querySelectorAll(".ob-endorse").forEach((btn) => {
+    btn.addEventListener("click", () => onRealVoteClick(btn));
+  });
+}
+
+async function onRealVoteClick(btn) {
+  const did = btn.dataset.did;
+  if (!obSession) {
+    $("#onsiteHandle").focus();
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = "writing…";
+  const status = $("#onsiteAuthStatus");
+  try {
+    // bsky38.com's own lexicon requires the record key to equal the subject
+    // DID — that's how it guarantees one vote per (voter, subject) pair.
+    const record = { $type: REAL_COLLECTION, subject: did, createdAt: new Date().toISOString() };
+    const base = obSession.pdsUrl.replace(/\/$/, "");
+    const res = await dpopFetch(obSession, `${base}/xrpc/com.atproto.repo.createRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: obSession.did, collection: REAL_COLLECTION, rkey: did, record }),
+    });
+    if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 200)}`);
+    btn.textContent = "confirming…";
+    realQuotaUsed += 1;
+    await refreshRealQuota();
+    const result = await realWaitForVote(obSession.did, did, Date.now(), 15000);
+    status.textContent = result.seen
+      ? "real vote counted — you just voted at bsky38.com from here."
+      : "real vote saved to your PDS, but hasn't shown up counted yet — check back in a bit.";
+    status.className = "status " + (result.seen ? "ok" : "warn");
+  } catch (e) {
+    status.textContent = "couldn't cast that real vote: " + e.message;
+    status.className = "status err";
+  } finally {
+    renderRealBoard();
+  }
+}
+
+// --- the slate's own parallel vote (net.bisks.slate38.vote) -----------------
 
 async function renderOnsiteBoard() {
   const el = $("#onsiteBoardList");
@@ -1290,7 +1436,7 @@ async function renderOnsiteBoard() {
     el.innerHTML = `<p class="section-sub" style="margin:0;">loading the on-site board…</p>`;
     return;
   }
-  const counts = await boardFor(obSlateDids.map((c) => c.did));
+  const counts = await obBoardFor(obSlateDids.map((c) => c.did));
   const rows = obSlateDids
     .map((c) => ({ ...c, votes: counts.get(c.did) || 0 }))
     .sort((a, b) => b.votes - a.votes || a.handle.localeCompare(b.handle));
@@ -1385,7 +1531,9 @@ async function bootOnsiteVote() {
     })
     .filter(Boolean);
 
+  renderRealBoard();
   renderOnsiteBoard();
+  setInterval(renderRealBoard, 8000);
   setInterval(renderOnsiteBoard, 8000);
 }
 bootOnsiteVote();
