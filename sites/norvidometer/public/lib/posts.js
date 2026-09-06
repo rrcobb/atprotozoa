@@ -10,12 +10,23 @@
 // (com.atproto.sync.getRepo, via sites/backscroll's car.js — see the standing
 // bulk-read order in notes/), kept every quote-post whose OWN commentary text
 // contains 'claim' or 'heuristic', then fetched the quoted post underneath to
-// use as the quiz prompt. Out of 57,959 posts, 13,397 were quote-posts, and 663
+// use as the quiz prompt. Out of 57,977 posts, 13,407 were quote-posts, and 640
 // of those were tagged 'claim' or 'heuristic' by norvid himself — turns out this
 // is a real, extremely long-running habit of his: quote something, then reply
-// with the single bare word as a genre marker (336 'claim', 128 'heuristic',
-// out of the 663). `answer` and `note` below are his real label and his real
-// QT text, not our guess — `permalink`/`norvidPermalink` link to both real posts.
+// with the single bare word as a genre marker. `answer` and `note` below are
+// his real label and his real QT text, not our guess — `permalink`/
+// `norvidPermalink` link to both real posts.
+//
+// The last 5 entries (answer: "neither") are @gracekind.net's control group,
+// added after they asked, replying to the "search his real history" thread:
+// "can you also mix in other quoted tweets that were neither claim nor
+// heuristic, as a control?" Same repo, same method — real QTs where norvid's
+// own one-or-few-word genre tag was something else entirely ("lifehack",
+// "til", "daily affirmations", "lol"), not a claim/heuristic mislabel. The
+// point: if flanderized "heuristic" swallows everything rule-of-thumb-shaped,
+// a control that's obviously neither should still get correctly recognized as
+// neither — forcing one anyway is itself a data point about the quiz-taker,
+// not just norvid.
 export const POSTS = [
   {
     text: "My rule of thumb: If it stresses me out, I switch to human-paced activity for a while.",
@@ -176,5 +187,45 @@ export const POSTS = [
     permalink: "https://bsky.app/profile/eikopf.com/post/3meyr4a6spc26",
     norvidPermalink: "https://bsky.app/profile/norvid-studies.bsky.social/post/3mezffzsrm22z",
     note: "norvid's real quote-tweet said exactly one word: “heuristic” — that's his whole genre tag.",
+  },
+  {
+    text: "kids never do acid and read windows internals",
+    author: "sichulu.bsky.social",
+    answer: "neither",
+    permalink: "https://bsky.app/profile/sichulu.bsky.social/post/3lbst43rmu22q",
+    norvidPermalink: "https://bsky.app/profile/norvid-studies.bsky.social/post/3lbsuaqlmss2y",
+    note: "control: norvid's real quote-tweet said exactly one word: “lifehack” — not claim, not heuristic.",
+  },
+  {
+    text: "Yeah, never write reviews because I am skeptical they'll be of use to others, but I should really write reviews just for myself given my terrible memory.",
+    author: "timfduffy.com",
+    answer: "neither",
+    permalink: "https://bsky.app/profile/timfduffy.com/post/3ld55mgwk522b",
+    norvidPermalink: "https://bsky.app/profile/norvid-studies.bsky.social/post/3ld55sxba4k22",
+    note: "control: norvid's real quote-tweet said exactly one word: “lifehack” — not claim, not heuristic.",
+  },
+  {
+    text: "In chrome, to generate text fragment links automatically, you can select some text, right click and select \"copy link to highlight.\" This is vastly preferable to screenshotting text if you want to highlight a particular passage (when you post on a website that doesn't hide links like this one.)",
+    author: "moultano.bsky.social",
+    answer: "neither",
+    permalink: "https://bsky.app/profile/moultano.bsky.social/post/3laouejqgoc23",
+    norvidPermalink: "https://bsky.app/profile/norvid-studies.bsky.social/post/3laovcc3krk2t",
+    note: "control: norvid's real quote-tweet said exactly one word: “til” — not claim, not heuristic.",
+  },
+  {
+    text: "it is wise to remember that your brain is the texture of tofu",
+    author: "tbabb.bsky.social",
+    answer: "neither",
+    permalink: "https://bsky.app/profile/tbabb.bsky.social/post/3lburzsinus2e",
+    norvidPermalink: "https://bsky.app/profile/norvid-studies.bsky.social/post/3lbusdr43rs2y",
+    note: "control: norvid's real quote-tweet said “daily affirmations” — not claim, not heuristic.",
+  },
+  {
+    text: "\"Memoryholed by Recep Tayyip Erdoğan\"",
+    author: "godoglyness.bsky.social",
+    answer: "neither",
+    permalink: "https://bsky.app/profile/godoglyness.bsky.social/post/3larhsug6rc2e",
+    norvidPermalink: "https://bsky.app/profile/norvid-studies.bsky.social/post/3larhtg4ks22t",
+    note: "control: norvid's real quote-tweet said exactly one word: “lol” — not claim, not heuristic.",
   },
 ];

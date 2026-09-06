@@ -28,11 +28,11 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="60" y="165" font-family="JetBrains Mono" font-size="24" fill="${MUTED}">how norvid are you?</text>
 
   <text x="60" y="250" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">a real post norvid actually quote-tweeted is on</text>
-  <text x="60" y="278" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">screen. did he tag it claim, or heuristic? all 20</text>
-  <text x="60" y="306" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">are pulled straight from his own quote-tweet</text>
-  <text x="60" y="334" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">history — no invented posts this time.</text>
+  <text x="60" y="278" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">screen. claim, heuristic, or neither? all 25 are</text>
+  <text x="60" y="306" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">pulled straight from his own quote-tweet history</text>
+  <text x="60" y="334" font-family="JetBrains Mono" font-size="19" fill="${MUTED}">— no invented posts this time.</text>
 
-  <text x="60" y="440" font-family="JetBrains Mono" font-weight="800" font-size="90" fill="${COOL}">?<tspan fill="${INK}"> / </tspan><tspan fill="${HOT}">20</tspan></text>
+  <text x="60" y="440" font-family="JetBrains Mono" font-weight="800" font-size="90" fill="${COOL}">?<tspan fill="${INK}"> / </tspan><tspan fill="${HOT}">25</tspan></text>
 
   <text x="60" y="560" font-family="JetBrains Mono" font-weight="700" font-size="24" fill="${INK}">norvidometer.bisks.net</text>
 </svg>`;

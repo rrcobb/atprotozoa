@@ -34,6 +34,9 @@ const els = {
 let order = [];
 let idx = 0;
 let score = 0;
+let controlTotal = 0;
+let controlCorrect = 0;
+let forcedControls = 0;
 let answered = false;
 
 function renderQuestion() {
@@ -51,6 +54,10 @@ function renderQuestion() {
     answered = true;
     const correct = pickedAnswer === q.answer;
     if (correct) score++;
+    if (q.answer === "neither") {
+      if (correct) controlCorrect++;
+      else if (pickedAnswer === "claim" || pickedAnswer === "heuristic") forcedControls++;
+    }
     const sourceLinks =
       '<a href="' + q.permalink + '" target="_blank" rel="noopener">real post, by @' + q.author + "</a> · " +
       '<a href="' + q.norvidPermalink + '" target="_blank" rel="noopener">norvid\'s actual QT</a>';
@@ -65,7 +72,7 @@ function renderQuestion() {
     els.nextWrap.style.display = "block";
   };
 
-  for (const opt of ["claim", "heuristic"]) {
+  for (const opt of ["claim", "heuristic", "neither"]) {
     const btn = document.createElement("button");
     btn.className = "opt " + opt;
     btn.dataset.answer = opt;
@@ -90,7 +97,7 @@ function shareUrlFor() {
 
 function shareTextFor(score, total, tier) {
   return (
-    score + "/" + total + " on the norvidometer — \"" + tier + "\". guess how norvid tagged 20 real quote-tweets from his own timeline. " +
+    score + "/" + total + " on the norvidometer — \"" + tier + "\". guess how norvid tagged " + total + " real quote-tweets from his own timeline (some are controls — neither). " +
     shareUrlFor()
   );
 }
@@ -175,7 +182,14 @@ function showResult() {
   const tier = tierFor(score, total);
   els.resultTitle.textContent = tier;
   els.resultScore.textContent = score + " / " + total;
-  els.resultSub.textContent = "every one of those was a real quote-tweet norvid actually tagged himself — no invented posts this time.";
+  let sub = "every one of those was a real quote-tweet norvid actually tagged himself — no invented posts this time.";
+  if (controlTotal > 0) {
+    sub += " " + controlCorrect + "/" + controlTotal + " controls correctly spotted as neither.";
+    if (forcedControls > 0) {
+      sub += " you flanderized " + forcedControls + " of them into claim or heuristic anyway.";
+    }
+  }
+  els.resultSub.textContent = sub;
 
   drawResultCard(score, total, tier);
 
@@ -207,6 +221,9 @@ function start() {
   order = shuffle(POSTS);
   idx = 0;
   score = 0;
+  controlTotal = order.filter((q) => q.answer === "neither").length;
+  controlCorrect = 0;
+  forcedControls = 0;
   els.start.style.display = "none";
   els.result.style.display = "none";
   els.quiz.style.display = "block";
