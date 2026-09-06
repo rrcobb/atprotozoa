@@ -18,6 +18,7 @@ const els = {
   postText: document.getElementById("postText"),
   contextLine: document.getElementById("contextLine"),
   optGrid: document.getElementById("optGrid"),
+  voteStats: document.getElementById("voteStats"),
   nextWrap: document.getElementById("nextWrap"),
   nextBtn: document.getElementById("nextBtn"),
   result: document.getElementById("result"),
@@ -29,6 +30,7 @@ const els = {
   shareNative: document.getElementById("shareNative"),
   shareDownload: document.getElementById("shareDownload"),
   restartBtn: document.getElementById("restartBtn"),
+  recap: document.getElementById("recap"),
 };
 
 let order = [];
@@ -38,6 +40,61 @@ let controlTotal = 0;
 let controlCorrect = 0;
 let forcedControls = 0;
 let answered = false;
+let answeredLog = [];
+let pendingVotes = [];
+
+// The quoted post's own rkey (unique per entry in POSTS) doubles as a stable
+// question id for the shared vote tally — no need to hand-assign ids.
+function qidFor(q) {
+  const parts = q.permalink.split("/");
+  return parts[parts.length - 1] || q.permalink;
+}
+
+async function submitVote(q, answer) {
+  try {
+    const res = await fetch("/api/vote", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ qid: qidFor(q), answer }),
+    });
+    if (!res.ok) throw new Error("bad status");
+    return await res.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+function pct(n, total) {
+  return total ? Math.round((n / total) * 100) : 0;
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function statsBarsHtml(tally, norvidAnswer) {
+  if (!tally || !tally.counts) {
+    return '<div class="stats-note">crowd stats unavailable right now.</div>';
+  }
+  const { counts, total } = tally;
+  const rows = ["claim", "heuristic", "neither"]
+    .map((opt) => {
+      const n = counts[opt] || 0;
+      const p = pct(n, total);
+      const isNorvid = opt === norvidAnswer;
+      return (
+        '<div class="stat-row' + (isNorvid ? " norvid" : "") + '">' +
+        '<span class="stat-label">' + opt + (isNorvid ? " ← norvid" : "") + "</span>" +
+        '<span class="stat-bar"><span class="stat-fill ' + opt + '" style="width:' + p + '%"></span></span>' +
+        '<span class="stat-pct">' + p + "%</span>" +
+        "</div>"
+      );
+    })
+    .join("");
+  return (
+    '<div class="stats-head">' + total + (total === 1 ? " answer" : " answers") + " submitted so far</div>" + rows
+  );
+}
 
 function renderQuestion() {
   answered = false;
@@ -48,6 +105,7 @@ function renderQuestion() {
   els.postText.textContent = q.text;
   els.contextLine.innerHTML = "";
   els.optGrid.innerHTML = "";
+  els.voteStats.innerHTML = "";
 
   const onPick = (pickedAnswer, btn) => {
     if (answered) return;
@@ -70,6 +128,19 @@ function renderQuestion() {
     });
     els.qScore.textContent = score + " matched";
     els.nextWrap.style.display = "block";
+
+    els.voteStats.innerHTML = '<div class="stats-loading">tallying votes…</div>';
+    // Tracked in pendingVotes so the "next" handler can wait for the final
+    // question's tally before rendering the recap, instead of racing it.
+    const vote = submitVote(q, pickedAnswer).then((tally) => {
+      answeredLog.push({ q, picked: pickedAnswer, tally });
+      // A slow reply could land after the user has already moved to the next
+      // question — only paint if this question is still the one on screen.
+      if (order[idx] === q) {
+        els.voteStats.innerHTML = statsBarsHtml(tally, q.answer);
+      }
+    });
+    pendingVotes.push(vote);
   };
 
   for (const opt of ["claim", "heuristic", "neither"]) {
@@ -191,6 +262,19 @@ function showResult() {
   }
   els.resultSub.textContent = sub;
 
+  els.recap.innerHTML = answeredLog
+    .map((entry, i) => {
+      const { q, picked, tally } = entry;
+      return (
+        '<div class="recap-item">' +
+        '<div class="recap-q">' + (i + 1) + '. “' + escapeHtml(q.text) + '”</div>' +
+        '<div class="recap-meta">you said <b>' + picked + "</b> · norvid said <b>" + q.answer + "</b></div>" +
+        statsBarsHtml(tally, q.answer) +
+        "</div>"
+      );
+    })
+    .join("");
+
   drawResultCard(score, total, tier);
 
   const text = shareTextFor(score, total, tier);
@@ -224,6 +308,8 @@ function start() {
   controlTotal = order.filter((q) => q.answer === "neither").length;
   controlCorrect = 0;
   forcedControls = 0;
+  answeredLog = [];
+  pendingVotes = [];
   els.start.style.display = "none";
   els.result.style.display = "none";
   els.quiz.style.display = "block";
@@ -232,8 +318,12 @@ function start() {
 
 els.startBtn.addEventListener("click", start);
 els.restartBtn.addEventListener("click", start);
-els.nextBtn.addEventListener("click", () => {
+els.nextBtn.addEventListener("click", async () => {
   idx++;
-  if (idx >= order.length) showResult();
-  else renderQuestion();
+  if (idx >= order.length) {
+    if (pendingVotes.length) await Promise.all(pendingVotes);
+    showResult();
+  } else {
+    renderQuestion();
+  }
 });
