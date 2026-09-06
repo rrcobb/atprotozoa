@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>mootvent — an advent calendar of your moots' best shots</title>
+<meta name="description" content="24 doors. Open one a day. Behind each: a highly-liked photo from your Bluesky mutuals, glitched out — or pure procedural glitch art when there's nothing left to steal. Saved right in your browser." />
+<meta property="og:title" content="mootvent — an advent calendar of your moots' best shots" />
+<meta property="og:description" content="24 doors. Open one a day. Behind each: a highly-liked photo from your moots, glitched out, or procedural glitch art. Lives in localStorage, not a server." />
+<meta property="og:url" content="https://mootvent.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://mootvent.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="mootvent: a grid of 24 numbered advent-calendar doors rendered in a glitch-art style." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="mootvent — an advent calendar of your moots' best shots" />
+<meta name="twitter:description" content="24 doors. Open one a day. Behind each: a highly-liked photo from your moots, glitched out, or procedural glitch art." />
+<meta name="twitter:image" content="https://mootvent.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #060608;
+    --bg2: #0d0d14;
+    --fg: #eef0ff;
+    --dim: #8b8fae;
+    --accent: #ff2f7e;
+    --accent2: #2fe2ff;
+    --accent3: #fff23f;
+    --card: #101018;
+    --border: #26263a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #2a0b2e 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #0a2436 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 3.5rem 1.1rem 5rem;
+    position: relative;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 3px);
+    z-index: 1;
+  }
+  .wrap { width: 100%; max-width: 720px; position: relative; z-index: 2; }
+  h1 {
+    font-size: 2.1rem;
+    line-height: 1.2;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    letter-spacing: -0.01em;
+  }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 1.75rem;
+    line-height: 1.55;
+    max-width: 56ch;
+  }
+  .tag code { color: var(--accent2); }
+
+  form.handleform {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+  }
+  input[type="text"] {
+    flex: 1;
+    min-width: 200px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.7rem 0.9rem;
+    font: inherit;
+    font-size: 0.92rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #c22bff);
+    color: #16041c;
+    border: none;
+    border-radius: 8px;
+    padding: 0.7rem 1.05rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.88rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  button.ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .row { display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 1.6rem; }
+  .status { color: var(--dim); font-size: 0.88rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: #ff8a8a; }
+
+  .cal {
+    display: none;
+    margin-top: 1.5rem;
+  }
+  .cal.show { display: block; }
+  .cal-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.9rem;
+    color: var(--dim);
+    font-size: 0.78rem;
+  }
+  .cal-meta b { color: var(--fg); }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 0.55rem;
+  }
+  @media (max-width: 520px) {
+    .grid { grid-template-columns: repeat(4, 1fr); }
+  }
+  .door {
+    aspect-ratio: 1;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: var(--dim);
+    cursor: default;
+    overflow: hidden;
+  }
+  .door .thumb {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.85;
+  }
+  .door .num {
+    position: relative;
+    z-index: 1;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+  }
+  .door.locked { opacity: 0.45; }
+  .door.unlocked:not(.opened) {
+    cursor: pointer;
+    color: var(--fg);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent) inset, 0 0 18px -6px var(--accent);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 1px var(--accent) inset, 0 0 14px -8px var(--accent); }
+    50% { box-shadow: 0 0 0 1px var(--accent) inset, 0 0 22px -4px var(--accent2); }
+  }
+  .door.opened { cursor: pointer; color: var(--fg); }
+  .door:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+  .door.opened::after {
+    content: "✓";
+    position: absolute;
+    top: 3px;
+    right: 5px;
+    z-index: 1;
+    font-size: 0.65rem;
+    color: var(--accent3);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+  }
+
+  .cal-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 1.1rem;
+  }
+  .cal-actions .row button { font-size: 0.78rem; padding: 0.5rem 0.8rem; }
+
+  .backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(4,4,8,0.82);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    padding: 1.2rem;
+  }
+  .backdrop.show { display: flex; }
+  .modal {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.4rem;
+    max-width: 480px;
+    width: 100%;
+    box-shadow: 0 0 60px -20px var(--accent);
+  }
+  .modal h2 { margin: 0 0 0.6rem; font-size: 1.1rem; color: var(--accent2); }
+  #giftCanvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1200/630;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 0.8rem;
+    background: #000;
+  }
+  .credit { color: var(--dim); font-size: 0.82rem; margin-bottom: 1rem; line-height: 1.5; }
+  .credit a { color: var(--accent2); }
+  .modal-actions {
+    display: flex;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+  }
+  .modal-actions a, .modal-actions button {
+    flex: 1;
+    min-width: 120px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .modal-actions a.primary {
+    background: linear-gradient(90deg, var(--accent), #c22bff);
+    color: #16041c;
+  }
+  .modal-actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+  }
+  .modal-close {
+    display: block;
+    text-align: center;
+    margin-top: 1rem;
+    color: var(--dim);
+    font-size: 0.78rem;
+    cursor: pointer;
+    background: none;
+    border: none;
+    width: 100%;
+  }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.7;
+    position: relative;
+    z-index: 2;
+  }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>m<span id="secretPrefill" style="cursor:pointer">o</span>otvent</h1>
+    <p class="tag">
+      24 doors. Open one a day. Behind each one: a highly-liked photo from
+      your Bluesky moots, run through a glitch filter — or, once your moots'
+      best shots run out, pure procedural glitch art seeded by the door
+      itself. Everything is stored right in this browser via
+      <code>localStorage</code>, nothing leaves your device except the public
+      reads needed to find your moots.
+    </p>
+
+    <form class="handleform" id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">build my calendar</button>
+    </form>
+    <div class="row" style="margin-bottom: 0.4rem;">
+      <button type="button" class="ghost" id="skipHandle">skip — glitch art only</button>
+    </div>
+    <p class="hint">door <b id="todayHint"></b> unlocks today. earlier doors stay open forever once you've opened them.</p>
+
+    <p id="status" class="status"></p>
+
+    <div class="cal" id="cal">
+      <div class="cal-meta">
+        <span>calendar for <b id="calWho">—</b></span>
+        <span id="calCounts"></span>
+      </div>
+      <div class="grid" id="grid"></div>
+      <div class="cal-actions">
+        <span class="hint" id="calHint" style="margin: 0;"></span>
+        <div class="row">
+          <button type="button" class="ghost" id="resync" style="display:none;">↻ resync gifts</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+      <a href="https://rateyourbuild.bisks.net/site/mootvent">rate this on rateyourbuild →</a>
+    </footer>
+  </div>
+
+  <div class="backdrop" id="backdrop">
+    <div class="modal">
+      <h2 id="modalTitle">door 1</h2>
+      <canvas id="giftCanvas" width="1200" height="630"></canvas>
+      <p class="credit" id="modalCredit"></p>
+      <div class="modal-actions">
+        <button type="button" id="shareNative" style="display:none;">📤 share</button>
+        <a id="shareBluesky" class="primary" target="_blank" rel="noopener">🦋 share on bluesky</a>
+        <button type="button" id="shareDownload">⬇ download</button>
+      </div>
+      <button type="button" class="modal-close" id="modalClose">close</button>
+    </div>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script type="module">
+import { resolveDid, moots, harvestPhotos } from "./lib/moots.js";
+import { drawGlitchArt, drawGlitchPhoto, seedFrom, mulberry32 } from "./lib/glitch.js";
+
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+
+const DOORS = 24;
+const SITE = "https://mootvent.bisks.net";
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  skip: document.getElementById("skipHandle"),
+  status: document.getElementById("status"),
+  todayHint: document.getElementById("todayHint"),
+  cal: document.getElementById("cal"),
+  calWho: document.getElementById("calWho"),
+  calCounts: document.getElementById("calCounts"),
+  calHint: document.getElementById("calHint"),
+  grid: document.getElementById("grid"),
+  resync: document.getElementById("resync"),
+  backdrop: document.getElementById("backdrop"),
+  modalTitle: document.getElementById("modalTitle"),
+  giftCanvas: document.getElementById("giftCanvas"),
+  modalCredit: document.getElementById("modalCredit"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+  modalClose: document.getElementById("modalClose"),
+};
+
+document.getElementById("secretPrefill").addEventListener("click", () => {
+  const e = els.input;
+  e.value = "@cee.wtf";
+  e.dispatchEvent(new Event("input", { bubbles: true }));
+  e.dispatchEvent(new Event("change", { bubbles: true }));
+  e.focus();
+});
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function todayDoor() {
+  return new Date().getDate(); // 1-indexed day of month — one new door unlocks per calendar day
+}
+els.todayHint.textContent = "#" + Math.min(todayDoor(), DOORS);
+
+function monthKey() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+}
+
+function anonId() {
+  let id = localStorage.getItem("mootvent:anonId");
+  if (!id) {
+    id = "anon-" + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem("mootvent:anonId", id);
+  }
+  return id;
+}
+
+function slugFor(handle) {
+  return handle ? handle.replace(/^@/, "").toLowerCase() : anonId();
+}
+
+function storageKey(slug, mkey) {
+  return `mootvent:v1:${slug}:${mkey}`;
+}
+
+function loadCal(slug, mkey) {
+  try {
+    const raw = localStorage.getItem(storageKey(slug, mkey));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveCal(cal) {
+  localStorage.setItem(storageKey(cal.slug, cal.monthKey), JSON.stringify(cal));
+}
+
+// Seeded Fisher-Yates: deterministic shuffle of an array, keyed by `seedStr`.
+function seededShuffle(arr, seedStr) {
+  const rnd = mulberry32(seedFrom(seedStr));
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function buildGifts(photos, slug, mkey, existingCal) {
+  const doorNums = seededShuffle(Array.from({ length: DOORS }, (_, i) => i + 1), `${slug}:${mkey}:order`);
+  const photoPool = photos.slice(0, DOORS);
+  const gifts = new Array(DOORS + 1); // 1-indexed
+  for (let i = 1; i <= DOORS; i++) {
+    // keep an already-opened door's original gift no matter what
+    if (existingCal && existingCal.opened && existingCal.opened[i] && existingCal.gifts && existingCal.gifts[i]) {
+      gifts[i] = existingCal.gifts[i];
+    }
+  }
+  let photoIdx = 0;
+  for (const n of doorNums) {
+    if (gifts[n]) continue; // already kept from an opened door
+    if (photoIdx < photoPool.length) {
+      gifts[n] = { type: "photo", ...photoPool[photoIdx++] };
+    } else {
+      gifts[n] = { type: "art" };
+    }
+  }
+  return gifts;
+}
+
+let currentCal = null;
+
+function render(cal) {
+  currentCal = cal;
+  els.calWho.textContent = cal.handle ? "@" + cal.handle : "you (no handle)";
+  const photoCount = cal.gifts.slice(1).filter((g) => g.type === "photo").length;
+  els.calCounts.textContent = `${photoCount}/${DOORS} doors have a real photo · ${DOORS - photoCount} pure glitch art`;
+  els.calHint.textContent = cal.handle
+    ? "click a glowing door to open it. gone through your moots' whole feeds already? hit resync for anything new."
+    : "click a glowing door to open it. add a handle above any time to start finding real photos.";
+  els.resync.style.display = cal.handle ? "" : "none";
+
+  els.grid.innerHTML = "";
+  const today = todayDoor();
+  for (let n = 1; n <= DOORS; n++) {
+    const div = document.createElement("div");
+    const unlocked = today >= n;
+    const opened = !!cal.opened[n];
+    div.className = "door" + (unlocked ? " unlocked" : " locked") + (opened ? " opened" : "");
+    div.title = unlocked ? (opened ? "opened" : "click to open") : `unlocks on the ${n}${ordinal(n)}`;
+    const gift = cal.gifts[n];
+    if (opened && gift.type === "photo" && gift.url) {
+      const img = document.createElement("img");
+      img.className = "thumb";
+      img.src = gift.url;
+      img.alt = "";
+      div.appendChild(img);
+    }
+    const num = document.createElement("span");
+    num.className = "num";
+    num.textContent = n;
+    div.appendChild(num);
+    if (unlocked) {
+      div.setAttribute("role", "button");
+      div.setAttribute("tabindex", "0");
+      div.addEventListener("click", () => openDoor(n));
+      div.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openDoor(n);
+        }
+      });
+    }
+    els.grid.appendChild(div);
+  }
+  els.cal.classList.add("show");
+}
+
+function ordinal(n) {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return s[(v - 20) % 10] || s[v] || s[0];
+}
+
+function openDoor(n) {
+  if (!currentCal.opened[n]) {
+    currentCal.opened[n] = true;
+    saveCal(currentCal);
+    render(currentCal);
+  }
+  showModal(n);
+}
+
+async function showModal(n) {
+  const gift = currentCal.gifts[n];
+  els.modalTitle.textContent = `door ${n}`;
+  const seedStr = `${currentCal.slug}:${currentCal.monthKey}:door:${n}`;
+
+  if (gift.type === "photo" && gift.url) {
+    els.modalCredit.innerHTML = `a glitched-out shot from <b>@${escapeHtml(gift.authorHandle)}</b> (${gift.likeCount} likes) — <a href="https://bsky.app/profile/${encodeURIComponent(gift.authorHandle)}/post/${encodeURIComponent((gift.postUri || "").split("/").pop() || "")}" target="_blank" rel="noopener">see the original</a>`;
+    const img = await loadImg(gift.url);
+    if (img) {
+      drawGlitchPhoto(els.giftCanvas, img, seedStr);
+    } else {
+      drawGlitchArt(els.giftCanvas, seedStr); // photo failed to load — fall back to art rather than a blank canvas
+    }
+  } else {
+    els.modalCredit.textContent = "pure procedural glitch art — generated just for this door.";
+    drawGlitchArt(els.giftCanvas, seedStr);
+  }
+
+  const desc =
+    gift.type === "photo" && gift.url
+      ? `a glitched shot from @${gift.authorHandle} (${gift.likeCount} likes)`
+      : "procedural glitch art";
+  const shareText = `Door ${n} of my mootvent advent calendar: ${desc}. Open your own → ${SITE}/`;
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+  els.shareDownload.onclick = () => {
+    els.giftCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `mootvent-door-${n}.png`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  };
+
+  if (canShareFiles()) {
+    els.shareNative.style.display = "";
+    els.shareNative.onclick = () => {
+      els.giftCanvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], `mootvent-door-${n}.png`, { type: "image/png" });
+        try {
+          await navigator.share({ files: [file], text: shareText, title: "mootvent" });
+        } catch {}
+      }, "image/png");
+    };
+  } else {
+    els.shareNative.style.display = "none";
+  }
+
+  els.backdrop.classList.add("show");
+}
+
+function escapeHtml(s) {
+  return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function loadImg(url) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch {
+    return false;
+  }
+}
+
+els.modalClose.addEventListener("click", () => els.backdrop.classList.remove("show"));
+els.backdrop.addEventListener("click", (e) => {
+  if (e.target === els.backdrop) els.backdrop.classList.remove("show");
+});
+
+async function generate(rawHandle, { resyncInto } = {}) {
+  const mkey = monthKey();
+  const handle = rawHandle ? rawHandle.trim().replace(/^@/, "") : "";
+  const slug = slugFor(handle || null);
+
+  els.go.disabled = true;
+  try {
+    let photos = [];
+    if (handle) {
+      setStatus(`resolving ${handle}…`);
+      const m = await moots(handle, { onStep: setStatus });
+      setStatus(`found ${m.pool.length} moots — checking their feeds for good photos… 0/${m.pool.length}`);
+      photos = await harvestPhotos(m.pool, {
+        onProgress: (done, total) => setStatus(`checking moots' feeds for photos… ${done}/${total}`),
+      });
+      setStatus(photos.length ? `found ${photos.length} candidate photos.` : "no usable photos found in your moots' recent feeds — filling doors with glitch art instead.");
+    } else {
+      setStatus("");
+    }
+
+    const existing = resyncInto || loadCal(slug, mkey);
+    const gifts = buildGifts(photos, slug, mkey, existing);
+    const opened = existing ? existing.opened : new Array(DOORS + 1).fill(false);
+    const cal = { slug, monthKey: mkey, handle: handle || null, createdAt: existing ? existing.createdAt : Date.now(), gifts, opened };
+    saveCal(cal);
+    render(cal);
+    if (handle) els.input.value = handle;
+  } catch (err) {
+    setStatus("couldn't build that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const h = els.input.value.trim().replace(/^@/, "");
+  if (h) localStorage.setItem("mootvent:lastHandle", h);
+  generate(els.input.value);
+});
+els.skip.addEventListener("click", () => generate(""));
+els.resync.addEventListener("click", () => {
+  if (currentCal && currentCal.handle) generate(currentCal.handle, { resyncInto: currentCal });
+});
+
+// auto-load whatever calendar already exists for this month, no handle needed
+(function autoload() {
+  const mkey = monthKey();
+  // prefer the last handle used, if any calendar exists for it this month
+  const lastHandle = localStorage.getItem("mootvent:lastHandle");
+  const candidates = [lastHandle ? slugFor(lastHandle) : null, anonId()].filter(Boolean);
+  for (const slug of candidates) {
+    const cal = loadCal(slug, mkey);
+    if (cal) {
+      render(cal);
+      if (cal.handle) els.input.value = cal.handle;
+      return;
+    }
+  }
+})();
+</script>
+</body>
+</html>
