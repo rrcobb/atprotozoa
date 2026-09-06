@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>hailstone — a synth engine with no oscillators, no Web Audio</title>
+    <meta
+      name="description"
+      content="A from-scratch sound synthesis technique: every note is a live generalized Collatz (hailstone) sequence, hashed sample-by-sample into a waveform and rendered straight to a WAV — no AudioContext, no oscillator, no filter node anywhere. Play it as a plucked keyboard, tune the math, share the patch."
+    />
+    <meta property="og:title" content="hailstone — a synth engine with no oscillators" />
+    <meta
+      property="og:description"
+      content="Every note is a live generalized Collatz (hailstone) sequence hashed into a waveform and rendered to a plain WAV file — zero Web Audio API anywhere. Play it, mistune it, share the patch."
+    />
+    <meta property="og:image" content="https://hailstone.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="hailstone — a stepped, icy waveform falling toward 4-2-1." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://hailstone.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="hailstone — a synth engine with no oscillators" />
+    <meta
+      name="twitter:description"
+      content="Every note is a live Collatz sequence hashed into a waveform, rendered to a plain WAV — no Web Audio API. Play it, share the patch."
+    />
+    <meta name="twitter:image" content="https://hailstone.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #070b12;
+        --bg2: #0d1522;
+        --panel: #101a29;
+        --panel2: #142235;
+        --line: #223448;
+        --ink: #eaf3fb;
+        --muted: #90a7bf;
+        --ice: #7fd4ff;
+        --ice2: #bff0ff;
+        --warn: #ffb84f;
+        --key-w: #eaf3fb;
+        --key-w-active: #7fd4ff;
+        --key-b: #0a1420;
+        --key-b-active: #bff0ff;
+        --mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background:
+          radial-gradient(900px 500px at 15% -10%, #14273a, transparent),
+          radial-gradient(900px 600px at 100% 0%, #0e2233, transparent),
+          var(--bg);
+        color: var(--ink);
+        font-family: var(--sans);
+        min-height: 100vh;
+        padding: 0 0 64px;
+      }
+      a { color: var(--ice); }
+      .wrap { max-width: 880px; margin: 0 auto; padding: 32px 20px 0; }
+      header { text-align: center; margin-bottom: 8px; }
+      h1 {
+        font-family: var(--mono);
+        font-size: clamp(2.2rem, 6vw, 3.4rem);
+        letter-spacing: -0.02em;
+        margin: 0 0 6px;
+        background: linear-gradient(180deg, var(--ice2), var(--ice) 60%, #4fa3cc);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        text-shadow: 0 0 40px rgba(127, 212, 255, 0.25);
+      }
+      .tagline { color: var(--muted); font-size: 1rem; margin: 0 auto 4px; max-width: 640px; }
+      .tagline .who { color: var(--ice2); }
+      .credit { color: #5a6f86; font-size: 0.8rem; margin: 4px 0 0; }
+
+      section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 18px 20px;
+        margin-top: 18px;
+      }
+      section h2 {
+        font-family: var(--mono);
+        font-size: 0.95rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--ice);
+        margin: 0 0 12px;
+      }
+
+      details.explain summary {
+        cursor: pointer;
+        font-family: var(--mono);
+        font-size: 0.95rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--ice);
+        list-style: none;
+      }
+      details.explain summary::-webkit-details-marker { display: none; }
+      details.explain summary::before { content: "▸ "; }
+      details.explain[open] summary::before { content: "▾ "; }
+      details.explain p { color: var(--muted); line-height: 1.55; font-size: 0.92rem; }
+      details.explain code {
+        background: #081019;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 1px 5px;
+        font-family: var(--mono);
+        color: var(--ice2);
+        font-size: 0.85em;
+      }
+
+      /* Keyboard */
+      #piano {
+        position: relative;
+        height: 160px;
+        margin: 6px auto 4px;
+        max-width: 620px;
+        user-select: none;
+        touch-action: none;
+      }
+      .key {
+        position: absolute;
+        top: 0;
+        border-radius: 0 0 6px 6px;
+        cursor: pointer;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        padding-bottom: 8px;
+        font-family: var(--mono);
+        font-size: 0.7rem;
+        transition: background 40ms linear, transform 40ms linear;
+      }
+      .key.white {
+        height: 160px;
+        background: var(--key-w);
+        color: #14202e;
+        border: 1px solid #c7d8e6;
+        z-index: 1;
+      }
+      .key.white.active { background: var(--key-w-active); transform: translateY(2px); }
+      .key.black {
+        height: 98px;
+        background: var(--key-b);
+        color: var(--muted);
+        border: 1px solid #000;
+        z-index: 2;
+      }
+      .key.black.active { background: var(--key-b-active); color: #05121c; transform: translateY(2px); }
+      .key .k { opacity: 0.75; }
+      .piano-hint { text-align: center; color: var(--muted); font-size: 0.8rem; margin: 2px 0 0; }
+
+      /* Controls grid */
+      .controls { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px 18px; }
+      .ctrl label {
+        display: block;
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 4px;
+      }
+      .ctrl .val { color: var(--ice2); }
+      .ctrl input[type="range"] { width: 100%; accent-color: var(--ice); }
+
+      .row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+      button {
+        font-family: var(--mono);
+        font-size: 0.85rem;
+        background: var(--panel2);
+        color: var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+      button:hover { border-color: var(--ice); color: var(--ice2); }
+      button.primary { background: linear-gradient(180deg, #1b3a52, #14283a); border-color: #2c5978; color: var(--ice2); }
+      button.primary:hover { border-color: var(--ice); }
+      #copyStatus { font-size: 0.78rem; color: var(--muted); align-self: center; }
+
+      canvas#scope {
+        width: 100%;
+        height: 110px;
+        background: #060b12;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        display: block;
+      }
+      .scope-label { color: var(--muted); font-size: 0.78rem; margin-top: 6px; }
+
+      footer {
+        max-width: 880px;
+        margin: 28px auto 0;
+        padding: 0 20px;
+        color: #5a6f86;
+        font-size: 0.82rem;
+        text-align: center;
+      }
+      footer a { color: #7fa8c4; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>hailstone</h1>
+        <p class="tagline">
+          A sound synthesis
+          engine with <b>no oscillators and no Web Audio API</b>. Every note is a live
+          generalized Collatz (hailstone) sequence — hashed sample-by-sample into a
+          waveform, rendered straight to a WAV, played by a plain <code>&lt;audio&gt;</code> tag.
+        </p>
+        <p class="credit">
+          built for <span class="who">@words.bsky.social</span>, relaying
+          <span class="who">@minormobius.bsky.social</span>'s LilyPond thread — asked for
+          "an exotic and never before heard sound synthesis technique that does not use
+          webaudio."
+        </p>
+      </header>
+
+      <section>
+        <h2>play it</h2>
+        <div id="piano"></div>
+        <p class="piano-hint">
+          click/tap a key, or use the computer-keyboard row
+          <code>a w s e d f t g y h u j k o l p ;</code>. every key is its own hailstone walk —
+          you cannot fully predict how one will sound, only nudge the odds with the knobs below.
+        </p>
+        <div class="row">
+          <button class="primary" id="demoBtn">▶ play a random cascade</button>
+          <button id="randomBtn">🎲 randomize patch</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>the waveform</h2>
+        <canvas id="scope" width="1200" height="220"></canvas>
+        <p class="scope-label" id="scopeLabel">nothing played yet — hit a key.</p>
+      </section>
+
+      <section>
+        <h2>tune the math</h2>
+        <div class="controls">
+          <div class="ctrl">
+            <label>multiplier m <span class="val" id="v-m"></span></label>
+            <input type="range" id="c-m" min="2" max="9" step="1" />
+          </div>
+          <div class="ctrl">
+            <label>increment a <span class="val" id="v-a"></span></label>
+            <input type="range" id="c-a" min="0" max="9" step="1" />
+          </div>
+          <div class="ctrl">
+            <label>divisor d <span class="val" id="v-d"></span></label>
+            <input type="range" id="c-d" min="2" max="9" step="1" />
+          </div>
+          <div class="ctrl">
+            <label>grain (steps/cycle) <span class="val" id="v-grain"></span></label>
+            <input type="range" id="c-grain" min="2" max="32" step="1" />
+          </div>
+          <div class="ctrl">
+            <label>chaos mix <span class="val" id="v-chaos"></span></label>
+            <input type="range" id="c-chaos" min="0" max="1" step="0.01" />
+          </div>
+          <div class="ctrl">
+            <label>smoothing <span class="val" id="v-smooth"></span></label>
+            <input type="range" id="c-smooth" min="0" max="1" step="0.01" />
+          </div>
+          <div class="ctrl">
+            <label>decay (s) <span class="val" id="v-decay"></span></label>
+            <input type="range" id="c-decay" min="0.15" max="3" step="0.01" />
+          </div>
+          <div class="ctrl">
+            <label>seed offset <span class="val" id="v-seed"></span></label>
+            <input type="range" id="c-seed" min="-999" max="999" step="1" />
+          </div>
+          <div class="ctrl">
+            <label>volume <span class="val" id="v-vol"></span></label>
+            <input type="range" id="c-vol" min="0" max="1" step="0.01" />
+          </div>
+        </div>
+        <div class="row">
+          <button id="shareBtn">🔗 copy patch link</button>
+          <a id="shareBluesky" href="#" target="_blank" rel="noopener"><button>share to bluesky</button></a>
+          <span id="copyStatus"></span>
+        </div>
+      </section>
+
+      <details class="explain">
+        <summary>how hailstone synthesis actually works</summary>
+        <section style="margin-top: 0">
+          <p>
+            The Collatz conjecture says: pick a positive integer <code>n</code>. If it's even,
+            halve it; if it's odd, do <code>3n+1</code>. Every starting number anyone has ever
+            checked eventually free-falls into the loop <code>4 → 2 → 1 → 4 → 2 → 1 …</code> —
+            these are "hailstone numbers," because the sequence bounces up and down like a
+            hailstone in a storm cloud before it finally drops.
+          </p>
+          <p>
+            hailstone generalizes the rule to <code>n → n/d</code> when <code>d</code> divides
+            <code>n</code>, else <code>n → m·n + a</code> — your <b>m</b>/<b>a</b>/<b>d</b>
+            knobs above — and bounds the walk into a fixed range so it never overflows. Each
+            key on the keyboard seeds its own walk (hashed from the key + your seed-offset
+            knob), so two adjacent keys can wander in totally unrelated directions.
+          </p>
+          <p>
+            Pitch comes from a plain per-sample sine phase accumulator — ordinary
+            <code>Math.sin</code> arithmetic, not an oscillator node. The hailstone walk feeds a
+            second signal: every few samples (the <b>grain</b> knob) it takes the next integer in
+            the walk and hashes it into an amplitude with a 32-bit integer mix (the same kind of
+            hash used for hash tables, repurposed as a wavetable), then linearly interpolates
+            toward it (the <b>smoothing</b> knob) so the result glides instead of always stepping.
+            <b>Chaos mix</b> blends that hashed hailstone signal against the clean sine.
+          </p>
+          <p>
+            The two signals, an attack ramp, and a decay curve get multiplied together sample by
+            sample into a <code>Float32Array</code>, which is hand-encoded into a 16-bit PCM WAV
+            file (44-byte header, no library) and handed to a plain <code>new Audio(url)</code> —
+            the browser's ordinary media element, the same one that plays an mp3. No
+            <code>AudioContext</code>, no <code>OscillatorNode</code>, no <code>GainNode</code>,
+            no <code>AnalyserNode</code>, nothing from the Web Audio API anywhere in this file.
+          </p>
+          <p>
+            One real consequence of using a real number-theory walk instead of a designed
+            waveform: some seeds hit the 4-2-1 loop almost immediately and just buzz, others
+            wander for a long, unpredictable while first. A patch (your nine knob values) fully
+            determines the sound, so the "copy patch link" button is a real, exact preset —
+            paste it to someone and they hear precisely what you built.
+          </p>
+        </section>
+      </details>
+
+      <p style="text-align: center; margin-top: 10px">
+        <a href="https://rateyourbuild.bisks.net/site/hailstone">rate this on rateyourbuild →</a>
+      </p>
+    </div>
+
+    <footer>
+      built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> ·
+      part of the <a href="https://bisks.net">bisks.net</a> constellation
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
