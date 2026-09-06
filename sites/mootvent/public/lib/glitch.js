@@ -85,9 +85,12 @@ export function drawGlitchArt(canvas, seedStr) {
   addScanlinesAndNoise(ctx, W, H, rnd);
 }
 
-// A real photo, run through the same treatment: cover-fit draw, a genuine
-// per-pixel R/B channel shift, then scanlines + vignette. Deterministic per
-// photo URL, so a redraw (share card vs. door modal) never looks different.
+// A real photo, run through a lighter version of the same treatment: cover-fit
+// draw, a subtle per-pixel R/B channel shift, then soft scanlines + vignette.
+// Deterministic per photo URL, so a redraw (share card vs. door modal) never
+// looks different. Tuned down 2026-09-06 after a report that the photo doors
+// were coming out as unrecognizable static — the point is "glitchy photo",
+// not "snow".
 export function drawGlitchPhoto(canvas, img, seedStr) {
   const ctx = canvas.getContext("2d");
   const W = canvas.width,
@@ -101,14 +104,14 @@ export function drawGlitchPhoto(canvas, img, seedStr) {
   const scale = Math.max(W / img.naturalWidth, H / img.naturalHeight);
   const w = img.naturalWidth * scale,
     h = img.naturalHeight * scale;
-  bctx.filter = "saturate(2.4) contrast(1.25) brightness(1.05) hue-rotate(-6deg)";
+  bctx.filter = "saturate(1.35) contrast(1.08) brightness(1.02) hue-rotate(-3deg)";
   bctx.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
 
   ctx.clearRect(0, 0, W, H);
   try {
     const src = bctx.getImageData(0, 0, W, H);
     const out = bctx.createImageData(W, H);
-    const shift = 2 + Math.floor(rnd() * 4);
+    const shift = 1 + Math.floor(rnd() * 3);
     for (let y = 0; y < H; y++) {
       const row = y * W * 4;
       for (let x = 0; x < W; x++) {
@@ -126,31 +129,37 @@ export function drawGlitchPhoto(canvas, img, seedStr) {
     ctx.drawImage(base, 0, 0); // canvas got tainted (cross-origin photo) — plain filtered draw instead
   }
 
-  // a few horizontal tears, in the same spirit as avcart's refry.js
-  const tears = 3 + Math.floor(rnd() * 5);
+  // a couple of thin horizontal tears, in the same spirit as avcart's refry.js
+  const tears = 1 + Math.floor(rnd() * 3);
   const snapshot = document.createElement("canvas");
   snapshot.width = W;
   snapshot.height = H;
   snapshot.getContext("2d").drawImage(canvas, 0, 0);
   for (let i = 0; i < tears; i++) {
     const y = Math.floor(rnd() * H);
-    const sliceH = 2 + Math.floor(rnd() * 14);
-    const dx = (rnd() - 0.5) * 36;
+    const sliceH = 2 + Math.floor(rnd() * 8);
+    const dx = (rnd() - 0.5) * 16;
     ctx.drawImage(snapshot, 0, y, W, sliceH, dx, y, W, sliceH);
   }
 
-  addScanlinesAndNoise(ctx, W, H, rnd);
+  // photos get a gentler pass than pure procedural art — the photo underneath
+  // should still read as a photo, just roughed up.
+  addScanlinesAndNoise(ctx, W, H, rnd, { scanAlpha: 0.07, noiseAlpha: 0.025, vignette: 0.32 });
 }
 
-function addScanlinesAndNoise(ctx, W, H, rnd) {
+function addScanlinesAndNoise(ctx, W, H, rnd, opts = {}) {
+  const scanAlpha = opts.scanAlpha ?? 0.14;
+  const noiseAlpha = opts.noiseAlpha ?? 0.06;
+  const vignette = opts.vignette ?? 0.5;
+
   ctx.save();
-  ctx.globalAlpha = 0.14;
+  ctx.globalAlpha = scanAlpha;
   ctx.fillStyle = "#000";
   for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
   ctx.restore();
 
   ctx.save();
-  ctx.globalAlpha = 0.06;
+  ctx.globalAlpha = noiseAlpha;
   const id = ctx.createImageData(W, H);
   for (let i = 0; i < id.data.length; i += 4) {
     const v = Math.floor(rnd() * 255);
@@ -162,7 +171,7 @@ function addScanlinesAndNoise(ctx, W, H, rnd) {
 
   const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.75);
   vg.addColorStop(0, "rgba(0,0,0,0)");
-  vg.addColorStop(1, "rgba(0,0,0,0.5)");
+  vg.addColorStop(1, `rgba(0,0,0,${vignette})`);
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, W, H);
 }
