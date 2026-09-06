@@ -35,7 +35,6 @@ let order = [];
 let idx = 0;
 let score = 0;
 let answered = false;
-let ambiguousHits = 0;
 
 function renderQuestion() {
   answered = false;
@@ -44,7 +43,7 @@ function renderQuestion() {
   els.qNum.textContent = idx + 1 + " / " + order.length;
   els.qScore.textContent = score + " matched";
   els.postText.textContent = q.text;
-  els.contextLine.textContent = "";
+  els.contextLine.innerHTML = "";
   els.optGrid.innerHTML = "";
 
   const onPick = (pickedAnswer, btn) => {
@@ -52,8 +51,10 @@ function renderQuestion() {
     answered = true;
     const correct = pickedAnswer === q.answer;
     if (correct) score++;
-    if (q.ambiguous && correct) ambiguousHits++;
-    els.contextLine.textContent = (q.ambiguous ? "⚡ " : "— ") + q.note;
+    const sourceLinks =
+      '<a href="' + q.permalink + '" target="_blank" rel="noopener">real post, by @' + q.author + "</a> · " +
+      '<a href="' + q.norvidPermalink + '" target="_blank" rel="noopener">norvid\'s actual QT</a>';
+    els.contextLine.innerHTML = "— " + q.note + "<br>" + sourceLinks;
     document.querySelectorAll("#optGrid button.opt").forEach((b) => {
       b.disabled = true;
       if (b.dataset.answer === q.answer) b.classList.add("correct");
@@ -89,7 +90,7 @@ function shareUrlFor() {
 
 function shareTextFor(score, total, tier) {
   return (
-    score + "/" + total + " on the norvidometer — \"" + tier + "\". claim or heuristic? some of them don't have an answer. " +
+    score + "/" + total + " on the norvidometer — \"" + tier + "\". guess how norvid tagged 20 real quote-tweets from his own timeline. " +
     shareUrlFor()
   );
 }
@@ -174,9 +175,7 @@ function showResult() {
   const tier = tierFor(score, total);
   els.resultTitle.textContent = tier;
   els.resultScore.textContent = score + " / " + total;
-  els.resultSub.textContent = ambiguousHits
-    ? "you matched the flanderized answer on " + ambiguousHits + " of the unresolvable ones — norvid himself isn't sure that's a win."
-    : "you dodged the flanderized answer on every unresolvable one. make of that what you will.";
+  els.resultSub.textContent = "every one of those was a real quote-tweet norvid actually tagged himself — no invented posts this time.";
 
   drawResultCard(score, total, tier);
 
@@ -208,7 +207,6 @@ function start() {
   order = shuffle(POSTS);
   idx = 0;
   score = 0;
-  ambiguousHits = 0;
   els.start.style.display = "none";
   els.result.style.display = "none";
   els.quiz.style.display = "block";
