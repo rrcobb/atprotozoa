@@ -16,7 +16,7 @@
 // book's proportions without any per-book custom geometry.
 
 import * as THREE from "three";
-import { hashString, hashColor } from "./util.js";
+import { hashString, hashColor, formatKind } from "./util.js";
 
 const CASE_WIDTH = 2.7;
 const CASE_DEPTH = 0.46;
@@ -35,6 +35,25 @@ function bookDims(book) {
   const h1 = hashString(book.title + "|h");
   const h2 = hashString(book.authors + "|w");
   const h3 = hashString(book.title + book.isbn + "|d");
+  const kind = formatKind(book.format);
+  if (kind === "audio") {
+    // A CD-style audiobook case: squat and wide rather than tall and narrow
+    // — the same footprint on the shelf, but it reads as a different object
+    // at a glance, not just a book with a label.
+    const height = 0.135 + (h1 % 100) / 100 * 0.02; // 0.135 - 0.155
+    const width = 0.15 + (h2 % 100) / 100 * 0.04; // 0.15 - 0.19
+    const depth = 0.155 + (h3 % 100) / 100 * 0.015;
+    return { height, width, depth };
+  }
+  if (kind === "ebook") {
+    // No physical object exists, so it barely takes up shelf space — a
+    // sliver, rendered translucent (see procCoverTexture/spineTexture below
+    // for the "digital ghost" material treatment).
+    const height = 0.205 + (h1 % 100) / 100 * 0.055;
+    const width = 0.028 + (h2 % 100) / 100 * 0.01; // 0.028 - 0.038
+    const depth = 0.145 + (h3 % 100) / 100 * 0.02;
+    return { height, width, depth };
+  }
   const height = 0.205 + (h1 % 100) / 100 * 0.055; // 0.205 - 0.26
   const width = 0.095 + (h2 % 100) / 100 * 0.055; // 0.095 - 0.15
   const depth = 0.145 + (h3 % 100) / 100 * 0.02; // 0.145 - 0.165
@@ -116,6 +135,15 @@ function spineTexture(book, bg) {
     ctx.fillStyle = ink;
     ctx.textAlign = "center";
     ctx.fillText("★".repeat(Math.round(book.stars)), w / 2, h - 8);
+  }
+
+  if (formatKind(book.format) === "audio") {
+    ctx.font = "700 13px sans-serif";
+    ctx.fillStyle = ink;
+    ctx.textAlign = "center";
+    ctx.globalAlpha = 0.75;
+    ctx.fillText("A U D I O B O O K", w / 2, 14);
+    ctx.globalAlpha = 1;
   }
 
   const tex = new THREE.CanvasTexture(c);
@@ -333,7 +361,23 @@ export function initScene(canvas) {
       }
 
       const bg = book._coverColor || hashColor(book.title + book.authors);
-      const spineMat = new THREE.MeshStandardMaterial({ map: spineTexture(book, bg), roughness: 0.7 });
+      const kind = formatKind(book.format);
+      // Audio gets a glossy plastic case instead of a cloth spine; ebook gets
+      // no physical object at all (see bookDims), so what little sliver
+      // remains is rendered as a translucent "digital ghost" — the phrase is
+      // dave.9000ish.uk's own, from the empty-shelf post that kicked this
+      // whole thread off.
+      const spineTraits = kind === "audio"
+        ? { roughness: 0.15, metalness: 0.15 }
+        : kind === "ebook"
+        ? { roughness: 0.35, transparent: true, opacity: 0.4, emissive: "#8fd8ff", emissiveIntensity: 0.5, depthWrite: false }
+        : { roughness: 0.7 };
+      const coverTraits = kind === "audio"
+        ? { roughness: 0.2, metalness: 0.15 }
+        : kind === "ebook"
+        ? { roughness: 0.35, transparent: true, opacity: 0.4, emissive: "#8fd8ff", emissiveIntensity: 0.5, depthWrite: false }
+        : { roughness: 0.6 };
+      const spineMat = new THREE.MeshStandardMaterial({ map: spineTexture(book, bg), ...spineTraits });
       const coverMat = new THREE.MeshStandardMaterial({
         map: book._coverImage
           ? (() => {
@@ -343,7 +387,7 @@ export function initScene(canvas) {
               return t;
             })()
           : procCoverTexture(book, bg),
-        roughness: 0.6,
+        ...coverTraits,
       });
       const materials = [coverMat, backMat, edgeMat, edgeMat, spineMat, backMat];
 
@@ -379,6 +423,8 @@ export function initScene(canvas) {
         state: "shelved", // shelved | pulling | pulled | returning
         dims,
         featured,
+        kind,
+        bobSeed: (hashString(book.title) % 1000) / 1000 * Math.PI * 2,
       });
 
       cursorX += dims.width + BOOK_GAP;
@@ -437,9 +483,16 @@ export function initScene(canvas) {
       // dark otherwise) once the search clears, rather than flattening
       // everything to black.
       const glow = matchSet && match;
-      const restCover = entry.featured ? 0.22 : 0, restCoverG = entry.featured ? 0.14 : 0, restCoverB = entry.featured ? 0.03 : 0;
+      // Resting emissive: an ebook stays a faint blue ghost, a leaned-out
+      // 5-star cover stays warm amber, everything else stays dark — a search
+      // match overrides all of those with the same warm "found it" glow.
+      const ghost = entry.kind === "ebook";
+      const restCover = ghost ? 0.14 : entry.featured ? 0.22 : 0;
+      const restCoverG = ghost ? 0.30 : entry.featured ? 0.14 : 0;
+      const restCoverB = ghost ? 0.38 : entry.featured ? 0.03 : 0;
+      const restSpine = ghost ? 0.14 : 0, restSpineG = ghost ? 0.30 : 0, restSpineB = ghost ? 0.38 : 0;
       entry.materials[0].emissive.setRGB(glow ? 0.28 : restCover, glow ? 0.18 : restCoverG, glow ? 0.04 : restCoverB);
-      entry.materials[4].emissive.setRGB(glow ? 0.28 : 0, glow ? 0.18 : 0, glow ? 0.04 : 0);
+      entry.materials[4].emissive.setRGB(glow ? 0.28 : restSpine, glow ? 0.18 : restSpineG, glow ? 0.04 : restSpineB);
     }
   }
 
@@ -548,7 +601,8 @@ export function initScene(canvas) {
     camera.updateProjectionMatrix();
   }
 
-  function frame() {
+  function frame(now) {
+    const t = (now || performance.now()) * 0.001;
     for (const entry of entries.values()) {
       if (entry.state === "pulling") {
         const pose = pulledPose(entry);
@@ -559,6 +613,10 @@ export function initScene(canvas) {
         entry.mesh.position.lerp(entry.home.pos, 0.22);
         entry.mesh.quaternion.slerp(entry.home.quat, 0.22);
         if (entry.mesh.position.distanceTo(entry.home.pos) < 0.004) entry.state = "shelved";
+      } else if (entry.state === "shelved" && entry.kind === "ebook") {
+        // A digital ghost never quite settles onto the shelf — a slow bob,
+        // out of phase per book so a row of them doesn't move in lockstep.
+        entry.mesh.position.y = entry.home.pos.y + Math.sin(t * 0.9 + entry.bobSeed) * 0.012;
       }
     }
 

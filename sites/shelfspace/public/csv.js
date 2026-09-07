@@ -148,3 +148,48 @@ export function buildBooks(records, mapping) {
   });
   return { books, skipped };
 }
+
+// Rereads show up as separate CSV rows (same book, another Last Date Read).
+// Grouped by ISBN when one resolves, otherwise by normalized title+author, so
+// a reread becomes one shelved volume with a reading history instead of a
+// second copy taking up its own slot.
+function rereadKey(book) {
+  if (book.isbn) return "isbn:" + book.isbn;
+  return "ta:" + book.title.trim().toLowerCase() + "|" + book.authors.trim().toLowerCase();
+}
+
+// Returns { books, mergedCount } — mergedCount is how many rows were folded
+// away (0 means nothing to merge, so callers can skip offering the choice).
+export function mergeRereads(books) {
+  const groups = new Map();
+  for (const book of books) {
+    const key = rereadKey(book);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(book);
+  }
+  const merged = [];
+  let mergedCount = 0;
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      merged.push(group[0]);
+      continue;
+    }
+    mergedCount += group.length - 1;
+    const reads = group
+      .map((b) => ({ dateRead: b.dateRead, year: b.year, stars: b.stars }))
+      .sort((a, b) => (a.year || 0) - (b.year || 0));
+    const years = group.map((b) => b.year).filter(Boolean);
+    const bestStars = reads.reduce((m, r) => (r.stars > m ? r.stars : m), 0);
+    const latest = years.length
+      ? group.reduce((a, b) => ((b.year || 0) > (a.year || 0) ? b : a))
+      : group[group.length - 1];
+    merged.push({
+      ...latest,
+      stars: bestStars || latest.stars,
+      year: years.length ? Math.max(...years) : latest.year,
+      reads,
+      rereadCount: group.length,
+    });
+  }
+  return { books: merged, mergedCount };
+}

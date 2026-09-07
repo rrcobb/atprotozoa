@@ -2,8 +2,9 @@
 // and Open Library covers (covers.js). No build step: this is a plain ES
 // module loaded straight off the static site, imported by index.html.
 
-import { parseCSV, mapHeaders, buildBooks } from "./csv.js";
+import { parseCSV, mapHeaders, buildBooks, mergeRereads } from "./csv.js";
 import { initScene, proceduralCoverDataUrl } from "./scene.js";
+import { formatKind } from "./util.js";
 import { fetchCoverThumb, fetchCoverLarge } from "./covers.js";
 
 const el = (id) => document.getElementById(id);
@@ -15,6 +16,10 @@ const $preview = el("preview");
 const $previewCount = el("previewCount");
 const $previewFields = el("previewFields");
 const $previewSkipped = el("previewSkipped");
+const $rereadRow = el("rereadRow");
+const $rereadCount = el("rereadCount");
+const $rereadPlural = el("rereadPlural");
+const $mergeRereads = el("mergeRereads");
 const $buildBtn = el("buildBtn");
 const $controls = el("controls");
 const $search = el("search");
@@ -41,7 +46,10 @@ const FIELD_LABELS = {
   dateRead: "Last Date Read", stars: "Stars", format: "Format",
 };
 
-let books = [];
+let rawBooks = []; // one entry per CSV row, rereads included as separate rows
+let mergedBooks = []; // rereads folded into one volume each, with a reads[] history
+let mergedCount = 0;
+let books = []; // whichever of the above is currently shelved
 let mapping = {};
 let scene = null;
 let roomDepth = 12;
@@ -61,8 +69,12 @@ function handleFile(file) {
       mapping = mapHeaders(headers);
       if (!mapping.title) return showError("couldn't find a Title column in " + headers.join(", "));
       const result = buildBooks(records, mapping);
-      books = result.books;
-      if (!books.length) return showError("found a Title column, but every row was empty.");
+      rawBooks = result.books;
+      if (!rawBooks.length) return showError("found a Title column, but every row was empty.");
+      const merge = mergeRereads(rawBooks);
+      mergedBooks = merge.books;
+      mergedCount = merge.mergedCount;
+      books = mergedCount > 0 && $mergeRereads.checked ? mergedBooks : rawBooks;
       showPreview(result.skipped);
     } catch (e) {
       showError("failed to parse: " + (e?.message || e));
@@ -95,8 +107,20 @@ function showPreview(skipped) {
   } else {
     $previewSkipped.hidden = true;
   }
+  if (mergedCount > 0) {
+    $rereadCount.textContent = mergedCount;
+    $rereadPlural.textContent = mergedCount === 1 ? "" : "s";
+    $rereadRow.hidden = false;
+  } else {
+    $rereadRow.hidden = true;
+  }
   $preview.hidden = false;
 }
+
+$mergeRereads.addEventListener("change", () => {
+  books = mergedCount > 0 && $mergeRereads.checked ? mergedBooks : rawBooks;
+  $previewCount.textContent = books.length;
+});
 
 $drop.addEventListener("dragover", (e) => { e.preventDefault(); $drop.classList.add("dragover"); });
 $drop.addEventListener("dragleave", () => $drop.classList.remove("dragover"));
@@ -298,9 +322,15 @@ function openDetail(id) {
   $detailMeta.innerHTML = "";
   const rows = [
     ["Last read", book.dateRead || "—"],
-    ["Format", book.format || "—"],
+    ["Format", formatKind(book.format) === "ebook" ? (book.format || "ebook") + " (digital ghost)" : (book.format || "—")],
     ["ISBN", book.isbn || "—"],
   ];
+  if (book.reads && book.reads.length > 1) {
+    const history = book.reads
+      .map((r) => (r.year || r.dateRead || "?") + (r.stars ? ` ★${r.stars}` : ""))
+      .join(", ");
+    rows.splice(1, 0, [`Read ${book.reads.length}×`, history]);
+  }
   for (const [k, v] of rows) {
     const dt = document.createElement("dt"); dt.textContent = k;
     const dd = document.createElement("dd"); dd.textContent = v;
