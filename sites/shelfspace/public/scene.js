@@ -482,7 +482,11 @@ export function initScene(canvas) {
   let selectedId = null;
   const pullTmp = new THREE.Vector3();
   const pullQuat = new THREE.Quaternion();
-  const rot90 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+  // -90°, not +90°: the cover lives on local +x, the pull direction is
+  // local +z, and turning +x onto +z (toward the reader) takes a -90°
+  // yaw. +90° was turning the cover onto -z instead — facing back into
+  // the case, which read as the book coming out backwards.
+  const rot90 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
 
   function pulledPose(entry) {
     const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(entry.home.quat);
@@ -586,14 +590,37 @@ export function initScene(canvas) {
   function frame() {
     for (const entry of entries.values()) {
       if (entry.state === "pulling") {
+        // Slide straight out first, spine-on (the home orientation, still
+        // thin sideways), and only start turning to face the reader once
+        // there's real clearance — turning in place swept the wide cover
+        // face through whatever book is still shelved right beside it,
+        // reading as an overlap glitch on every pull.
         const pose = pulledPose(entry);
+        const totalDist = entry.home.pos.distanceTo(pose.pos);
         entry.mesh.position.lerp(pose.pos, 0.18);
-        entry.mesh.quaternion.slerp(pose.quat, 0.18);
-        if (entry.mesh.position.distanceTo(pose.pos) < 0.005) entry.state = "pulled";
+        const traveled = entry.mesh.position.distanceTo(entry.home.pos);
+        if (totalDist === 0 || traveled / totalDist > 0.35) {
+          entry.mesh.quaternion.slerp(pose.quat, 0.22);
+        }
+        if (
+          entry.mesh.position.distanceTo(pose.pos) < 0.005 &&
+          Math.abs(entry.mesh.quaternion.dot(pose.quat)) > 0.9995
+        ) {
+          entry.state = "pulled";
+        }
       } else if (entry.state === "returning") {
-        entry.mesh.position.lerp(entry.home.pos, 0.22);
+        // Mirror image: turn back to spine-on before sliding back onto the
+        // shelf, so the return trip doesn't clip the neighbor either.
         entry.mesh.quaternion.slerp(entry.home.quat, 0.22);
-        if (entry.mesh.position.distanceTo(entry.home.pos) < 0.004) entry.state = "shelved";
+        if (Math.abs(entry.mesh.quaternion.dot(entry.home.quat)) > 0.98) {
+          entry.mesh.position.lerp(entry.home.pos, 0.22);
+        }
+        if (
+          entry.mesh.position.distanceTo(entry.home.pos) < 0.004 &&
+          Math.abs(entry.mesh.quaternion.dot(entry.home.quat)) > 0.9995
+        ) {
+          entry.state = "shelved";
+        }
       }
     }
 
