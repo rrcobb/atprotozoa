@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>coliseum — everyone, fighting it out</title>
+    <meta
+      name="description"
+      content="Paste a Bluesky post link (or a handle) and watch its replies fill a coliseum: the two loudest voices step onto the floor, everyone else picks a stand — or stays neutral."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="coliseum — everyone, fighting it out" />
+    <meta
+      property="og:description"
+      content="Paste a Bluesky thread. The two loudest replies fight on the floor; the rest of the thread fills the stands, sorted by who they're cheering for."
+    />
+    <meta property="og:image" content="https://coliseum.bisks.net/og.png" />
+    <meta property="og:url" content="https://coliseum.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="coliseum — everyone, fighting it out" />
+    <meta
+      name="twitter:description"
+      content="Paste a Bluesky thread. The two loudest replies fight on the floor; the rest of the thread fills the stands, sorted by who they're cheering for."
+    />
+    <meta name="twitter:image" content="https://coliseum.bisks.net/og.png" />
+    <link rel="preconnect" href="https://public.api.bsky.app" />
+    <style>
+      :root {
+        --bg: #120c08; --ink: #f3e9da; --muted: #b3a08a; --card: #1c140e;
+        --border: #3a2c1e; --a: #4fb8e0; --b: #e05f5f; --neutral: #9a8f7c;
+        --gold: #e0b84f; --sand: #caa872; --sand2: #8a6a3f;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 980px; margin: 0 auto; padding: 2.25rem 1.1rem 6rem; }
+      h1 { font-size: 1.6rem; font-weight: 700; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      .secret { cursor: pointer; }
+      .intro { color: var(--muted); margin: 0.5rem 0 1.6rem; font-size: 0.88rem; line-height: 1.75; max-width: 68ch; }
+      a { color: var(--gold); }
+
+      .card {
+        border: 1px solid var(--border); border-radius: 10px; background: var(--card);
+        padding: 1.1rem 1.2rem; margin-bottom: 1rem;
+      }
+      .label {
+        font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--muted); margin: 0 0 0.7rem; font-weight: 600;
+      }
+
+      .input-row { display: flex; gap: 0.6rem; }
+      #input {
+        flex: 1; background: #0d0906; border: 1px solid var(--border); border-radius: 8px;
+        color: var(--ink); padding: 0.65rem 0.8rem; font: inherit;
+      }
+      button, .btn {
+        background: var(--gold); color: #1c1206; border: none; border-radius: 8px;
+        padding: 0.65rem 1rem; font: inherit; font-weight: 700; cursor: pointer;
+        text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem;
+      }
+      button:disabled { opacity: 0.6; cursor: default; }
+      .status { color: var(--muted); margin-top: 0.6rem; min-height: 1.2em; font-size: 0.85rem; }
+      .status.err { color: var(--b); }
+
+      .ringmaster { display: flex; gap: 0.8rem; align-items: flex-start; }
+      .ringmaster img { width: 44px; height: 44px; border-radius: 50%; flex: none; }
+      .ringmaster .who { font-weight: 700; color: var(--gold); }
+      .ringmaster .txt { color: var(--ink); margin-top: 0.2rem; white-space: pre-wrap; }
+      .ringmaster .meta { color: var(--muted); font-size: 0.8rem; margin-top: 0.4rem; }
+
+      .scorebar-row { display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 0.5rem; }
+      .side-label.a { color: var(--a); font-weight: 700; }
+      .side-label.b { color: var(--b); font-weight: 700; }
+      .bar { display: flex; height: 14px; border-radius: 8px; overflow: hidden; background: #0d0906; border: 1px solid var(--border); }
+      .bar-fill { height: 100%; transition: width 0.4s ease; }
+      .bar-fill.a { background: var(--a); }
+      .bar-fill.b { background: var(--b); }
+      .crowd-count { text-align: center; color: var(--muted); font-size: 0.8rem; margin-top: 0.5rem; }
+
+      .coliseum { display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 0.7rem; align-items: start; }
+      .stand {
+        border-radius: 10px; padding: 0.8rem 0.6rem; min-height: 260px;
+        border: 1px solid var(--border);
+      }
+      .stand-a { background: linear-gradient(180deg, rgba(79,184,224,0.14), rgba(79,184,224,0.03)); }
+      .stand-b { background: linear-gradient(180deg, rgba(224,95,95,0.14), rgba(224,95,95,0.03)); }
+      .stand-title { text-align: center; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.5rem; min-height: 1.4em; }
+      .captain { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; margin-bottom: 0.7rem; }
+      .captain img { width: 60px; height: 60px; border-radius: 50%; object-fit: cover; }
+      .stand-a .captain img { border: 3px solid var(--a); }
+      .stand-b .captain img { border: 3px solid var(--b); }
+      .captain .handle { font-size: 0.78rem; font-weight: 700; }
+      .captain .score { font-size: 0.72rem; color: var(--muted); }
+      .captain.empty { color: var(--muted); font-size: 0.8rem; text-align: center; padding: 1rem 0.3rem; }
+
+      .floor {
+        background: radial-gradient(ellipse at center, var(--sand), var(--sand2));
+        border-radius: 46% / 22%; padding: 1.1rem 0.8rem; text-align: center; color: #241a0c;
+        border: 1px solid var(--border);
+      }
+      .vs { font-weight: 800; font-size: 1.3rem; letter-spacing: 0.05em; }
+      .neutral-label { font-size: 0.72rem; margin: 0.6rem 0 0.4rem; color: #3a2c18; }
+
+      .crowd { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; }
+      .chip {
+        border-radius: 50%; cursor: pointer; object-fit: cover; flex: none;
+        border: 1px solid rgba(0,0,0,0.25); transition: transform 0.08s ease;
+      }
+      .chip:hover { transform: scale(1.35); z-index: 2; }
+      .chip.fallback {
+        display: flex; align-items: center; justify-content: center;
+        font-size: 10px; font-weight: 700; background: var(--neutral); color: #1c1206;
+      }
+      .stand-a .chip { outline: 1px solid rgba(79,184,224,0.5); }
+      .stand-b .chip { outline: 1px solid rgba(224,95,95,0.5); }
+
+      .detail { display: flex; gap: 0.8rem; }
+      .detail img { width: 44px; height: 44px; border-radius: 50%; flex: none; }
+      .detail .who { font-weight: 700; }
+      .detail .side-tag { font-size: 0.72rem; padding: 0.1rem 0.5rem; border-radius: 999px; margin-left: 0.4rem; }
+      .detail .side-tag.a { background: rgba(79,184,224,0.2); color: var(--a); }
+      .detail .side-tag.b { background: rgba(224,95,95,0.2); color: var(--b); }
+      .detail .side-tag.neutral { background: rgba(154,143,124,0.2); color: var(--neutral); }
+      .detail .txt { margin-top: 0.3rem; white-space: pre-wrap; }
+      .detail .meta { color: var(--muted); font-size: 0.8rem; margin-top: 0.4rem; }
+
+      .share-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+      .empty-state { text-align: center; color: var(--muted); padding: 2rem 1rem; }
+
+      footer { color: var(--muted); font-size: 0.82rem; margin-top: 1.6rem; }
+      footer a { color: var(--muted); text-decoration: underline; }
+
+      @media (max-width: 640px) {
+        .coliseum { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><a href="/">🏛️ c<span class="secret" id="secret-o">o</span>liseum</a></h1>
+        <p class="intro">
+          Paste a Bluesky post link — or just a handle — and it fills a coliseum with the thread underneath it.
+          The two loudest replies step onto the floor and fight; everyone else picks a stand, or stays neutral.
+          Asked for by @jefferyharrell.bsky.social: "a bsky viewer that gives me a coliseum stands view of
+          everyone fighting it out."
+        </p>
+      </header>
+
+      <div class="card">
+        <div class="label">enter the arena</div>
+        <div class="input-row">
+          <input id="input" type="text" placeholder="bsky.app/profile/you.bsky.social/post/xxxx — or a handle" />
+          <button id="go">⚔️ fight</button>
+        </div>
+        <div id="status" class="status"></div>
+      </div>
+
+      <div id="result" style="display: none">
+        <div id="ringmaster" class="card ringmaster"></div>
+
+        <div class="card">
+          <div class="scorebar-row">
+            <div class="side-label a" id="score-a-label">—</div>
+            <div class="side-label b" id="score-b-label">—</div>
+          </div>
+          <div class="bar">
+            <div id="bar-a" class="bar-fill a" style="width: 50%"></div>
+            <div id="bar-b" class="bar-fill b" style="width: 50%"></div>
+          </div>
+          <div class="crowd-count" id="crowd-count"></div>
+        </div>
+
+        <div id="coliseum" class="coliseum">
+          <div class="stand stand-a">
+            <div class="stand-title">team a</div>
+            <div class="captain" id="captain-a"></div>
+            <div class="crowd" id="crowd-a"></div>
+          </div>
+          <div class="floor">
+            <div class="vs">VS</div>
+            <div class="neutral-label" id="neutral-label">the rest of the crowd</div>
+            <div class="crowd neutral" id="crowd-neutral"></div>
+          </div>
+          <div class="stand stand-b">
+            <div class="stand-title">team b</div>
+            <div class="captain" id="captain-b"></div>
+            <div class="crowd" id="crowd-b"></div>
+          </div>
+        </div>
+
+        <div id="detail" class="card detail" style="display: none"></div>
+
+        <div class="card">
+          <div class="label">spread the chaos</div>
+          <canvas id="share-canvas" width="1200" height="630" style="display: none"></canvas>
+          <div class="share-row">
+            <a id="share-bsky" class="btn" target="_blank" rel="noopener">🦋 share to bluesky</a>
+            <button id="share-native" class="btn" style="display: none">📤 share image</button>
+            <a id="share-download" class="btn" download="coliseum.png">💾 save image</a>
+            <a id="view-original" class="btn" target="_blank" rel="noopener">↗ view original post</a>
+          </div>
+        </div>
+      </div>
+
+      <footer>
+        reads the public feed only — nothing here writes back to anyone's account.
+        <a href="https://bisks.net/">bisks.net</a> ·
+        <a href="https://rateyourbuild.bisks.net/site/coliseum">rate this on rateyourbuild →</a>
+      </footer>
+    </div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
