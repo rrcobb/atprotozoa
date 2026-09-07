@@ -299,7 +299,11 @@ export function initScene(canvas) {
 
   // Lays out every book in `books` order into cases/shelves, greedily
   // packing each shelf until the next book's spine width would overflow it.
-  function setBooks(books) {
+  // opts.leanFeatured (set by app.js when arrange === "rating"): 5-star books
+  // get pulled proud of the shelf line and canted outward, the way a
+  // bookseller angles a staff pick — a permanent resting pose for this
+  // arrangement, not a temporary animation like the pull-out interaction.
+  function setBooks(books, opts = {}) {
     clearBooks();
     sortedBooks = books;
     if (!books.length) return { caseCount: 0, roomDepth: 12 };
@@ -349,7 +353,17 @@ export function initScene(canvas) {
       const localPos = new THREE.Vector3(cursorX + dims.width / 2, y, CASE_DEPTH / 2 - dims.depth / 2 - 0.01);
       currentCase.updateMatrixWorld();
       const worldPos = localPos.clone().applyMatrix4(currentCase.matrixWorld);
-      const worldQuat = currentCase.quaternion.clone();
+      let worldQuat = currentCase.quaternion.clone();
+
+      const featured = opts.leanFeatured && book.stars >= 5;
+      if (featured) {
+        const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(worldQuat);
+        worldPos.addScaledVector(dir, dims.depth * 1.7);
+        const cant = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.36);
+        worldQuat = worldQuat.clone().multiply(cant);
+        coverMat.emissive.setRGB(0.22, 0.14, 0.03);
+        coverMat.emissiveIntensity = 0.9;
+      }
 
       mesh.position.copy(worldPos);
       mesh.quaternion.copy(worldQuat);
@@ -364,6 +378,7 @@ export function initScene(canvas) {
         home: { pos: worldPos.clone(), quat: worldQuat.clone() },
         state: "shelved", // shelved | pulling | pulled | returning
         dims,
+        featured,
       });
 
       cursorX += dims.width + BOOK_GAP;
@@ -409,12 +424,22 @@ export function initScene(canvas) {
     matchSet = predicate ? new Set(sortedBooks.filter(predicate).map((b) => b.id)) : null;
     for (const entry of entries.values()) {
       const match = !matchSet || matchSet.has(entry.book.id);
-      // Only dim the cover (0) and spine (4) materials — those are unique
+      // Only touch the cover (0) and spine (4) materials — those are unique
       // per book. Materials 1/2/3/5 (back cover, page edges) are shared
       // instances reused across every book to save texture memory, so
       // tinting them here would dim every book on the shelf at once.
       entry.materials[0].color.setScalar(match ? 1 : 0.3);
       entry.materials[4].color.setScalar(match ? 1 : 0.3);
+      // An active search makes its matches actually glow (a warm emissive
+      // rim), not just leaves non-matches dimmer — the room should read as
+      // "these books are lit up," not "the rest went dark." Falls back to
+      // each book's own resting emissive (lit for a leaned-out 5-star book,
+      // dark otherwise) once the search clears, rather than flattening
+      // everything to black.
+      const glow = matchSet && match;
+      const restCover = entry.featured ? 0.22 : 0, restCoverG = entry.featured ? 0.14 : 0, restCoverB = entry.featured ? 0.03 : 0;
+      entry.materials[0].emissive.setRGB(glow ? 0.28 : restCover, glow ? 0.18 : restCoverG, glow ? 0.04 : restCoverB);
+      entry.materials[4].emissive.setRGB(glow ? 0.28 : 0, glow ? 0.18 : 0, glow ? 0.04 : 0);
     }
   }
 

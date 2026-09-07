@@ -141,7 +141,7 @@ function buildShelf() {
   resizeCanvas();
   window.addEventListener("resize", resizeCanvas);
 
-  const layout = scene.setBooks(sortedFor(currentArrange()));
+  const layout = scene.setBooks(sortedFor(currentArrange()), { leanFeatured: currentArrange() === "rating" });
   roomDepth = layout.roomDepth;
   scene.roomOverview(roomDepth);
   updateVisibleCount();
@@ -170,6 +170,8 @@ function sortedFor(mode) {
     copy.sort((a, b) => a.authors.localeCompare(b.authors) || a.title.localeCompare(b.title));
   } else if (mode === "title") {
     copy.sort((a, b) => a.title.localeCompare(b.title));
+  } else if (mode === "format") {
+    copy.sort((a, b) => (a.format || "unlabeled").localeCompare(b.format || "unlabeled") || a.title.localeCompare(b.title));
   }
   return copy;
 }
@@ -215,7 +217,7 @@ $search.addEventListener("input", () => {
 $minStars.addEventListener("change", () => applyFilters({ moveCamera: false }));
 $arrange.addEventListener("change", () => {
   closeDetail();
-  const layout = scene.setBooks(sortedFor(currentArrange()));
+  const layout = scene.setBooks(sortedFor(currentArrange()), { leanFeatured: currentArrange() === "rating" });
   roomDepth = layout.roomDepth;
   scene.roomOverview(roomDepth);
   applyFilters({ moveCamera: false });
