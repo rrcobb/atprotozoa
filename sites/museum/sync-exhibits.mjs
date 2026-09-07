@@ -1,11 +1,11 @@
 // Regenerate public/data/exhibits.json from the repo's own sites/*/site.json
 // manifests — the same source the apex gallery, sites/receipts, and
 // sites/rateyourbuild read (see audit/build-gallery.mjs, sites/receipts/
-// sync-asks.mjs, sites/rateyourbuild/sync-catalog.mjs). The metamuseum's
-// whole premise is a wall-text plaque for every piece the bot has built, so
-// its catalog can't be hand-maintained without drifting the moment a new
-// site lands — this script, re-run every future build per the standing
-// order in sites/buildthis/builder/INSTRUCTIONS.md, is how that's kept true.
+// sync-asks.mjs, sites/rateyourbuild/sync-catalog.mjs). The museum's whole
+// premise is a wall-text plaque for every piece the bot has built, so its
+// catalog can't be hand-maintained without drifting the moment a new site
+// lands — this script, re-run every future build per the standing order in
+// sites/buildthis/builder/INSTRUCTIONS.md, is how that's kept true.
 //
 // Two things are pulled in from elsewhere rather than invented here:
 //   - "reception" (critical reception) is sites/receipts' own hand-written
@@ -15,15 +15,17 @@
 //     into a previous exhibits.json (this script preserves it across
 //     regeneration, same pattern as receipts preserving `roast`), overrides
 //     the generated wing wall-text with real curatorial prose for that one
-//     piece — used for the museum's own self-referential exhibit.
+//     piece — used for the museum's own self-referential exhibit, and for
+//     metamuseum's exhibit here (which points a visitor back upstairs to
+//     the annex rather than repeating this wing's generic wall text).
 //
 // Usage:
-//   node sites/metamuseum/sync-exhibits.mjs           # check: does the file match?
-//   node sites/metamuseum/sync-exhibits.mjs --apply   # rewrite it from the manifests
+//   node sites/museum/sync-exhibits.mjs           # check: does the file match?
+//   node sites/museum/sync-exhibits.mjs --apply   # rewrite it from the manifests
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 
 const APPLY = process.argv.includes("--apply");
-const OUT = "sites/metamuseum/public/data/exhibits.json";
+const OUT = "sites/museum/public/data/exhibits.json";
 const RECEIPTS = "sites/receipts/public/data/asks.json";
 
 const MAIN_WINGS = new Set(["toy", "game", "tool", "joke", "explainer", "art"]);

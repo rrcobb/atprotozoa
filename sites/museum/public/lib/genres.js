@@ -4,7 +4,8 @@
 // wall text — the paragraph a visitor reads before looking at any single
 // piece in it. Subgenres aren't tracked here; a piece's freeform site.tag
 // (when it says something a bare genre doesn't) shows on its own plaque as
-// a "medium" note instead.
+// a "medium" note instead. Lives here, not in the metamuseum upstairs, since
+// the wings and their exhibits moved to sites/museum on 2026-09-07.
 
 export const SUPERS = {
   play: {
