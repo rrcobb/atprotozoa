@@ -17,11 +17,11 @@ export function hashColor(str, sat = 45, light = 40) {
   return `hsl(${h}, ${sat}%, ${light}%)`;
 }
 
-// Buckets a free-text CSV "Format" cell into one of the three shapes the room
-// actually renders differently: a physical spine (print — the default when a
-// row has no format at all, since "unlabeled" almost always means a normal
-// book), a glossy case (audio), or a translucent "digital ghost" (ebook —
-// there's no object to shelve, so it doesn't get a spine at all).
+// Buckets a free-text CSV "Format" cell into print (the default when a row
+// has no format at all, since "unlabeled" almost always means a normal
+// book), audio (rendered as a glossy case instead of a cloth spine), or
+// ebook — kept distinct for sorting/grouping (e.g. the "physical format"
+// arrangement) even though ebooks render as an ordinary book on the shelf.
 export function formatKind(format) {
   const f = String(format || "").toLowerCase();
   if (/audio/.test(f)) return "audio";

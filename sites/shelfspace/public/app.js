@@ -4,7 +4,6 @@
 
 import { parseCSV, mapHeaders, buildBooks, mergeRereads } from "./csv.js";
 import { initScene, proceduralCoverDataUrl } from "./scene.js";
-import { formatKind } from "./util.js";
 import { fetchCoverThumb, fetchCoverLarge } from "./covers.js";
 
 const el = (id) => document.getElementById(id);
@@ -289,10 +288,10 @@ function wireSceneInput() {
     lastT = now;
     let dx = 0, dz = 0;
     const speed = 2.6 * dt;
-    if (pressed.has("w") || pressed.has("arrowup")) dz -= speed;
-    if (pressed.has("s") || pressed.has("arrowdown")) dz += speed;
-    if (pressed.has("a") || pressed.has("arrowleft")) dx -= speed;
-    if (pressed.has("d") || pressed.has("arrowright")) dx += speed;
+    if (pressed.has("w") || pressed.has("arrowup")) dz += speed;
+    if (pressed.has("s") || pressed.has("arrowdown")) dz -= speed;
+    if (pressed.has("a") || pressed.has("arrowleft")) dx += speed;
+    if (pressed.has("d") || pressed.has("arrowright")) dx -= speed;
     if (dx || dz) scene.walk(dx, dz);
     requestAnimationFrame(walkTick);
   }
@@ -322,7 +321,7 @@ function openDetail(id) {
   $detailMeta.innerHTML = "";
   const rows = [
     ["Last read", book.dateRead || "—"],
-    ["Format", formatKind(book.format) === "ebook" ? (book.format || "ebook") + " (digital ghost)" : (book.format || "—")],
+    ["Format", book.format || "—"],
     ["ISBN", book.isbn || "—"],
   ];
   if (book.reads && book.reads.length > 1) {
