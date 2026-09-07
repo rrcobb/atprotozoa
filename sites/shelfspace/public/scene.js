@@ -179,7 +179,7 @@ function procCoverCanvas(book, bg) {
   ctx.globalAlpha = 0.16;
   ctx.strokeStyle = ink;
   for (let i = 0; i < 3; i++) {
-    const r = 30 + ((seed >> (i * 5)) % 90);
+    const r = 30 + ((seed >>> (i * 5)) % 90);
     ctx.beginPath();
     ctx.arc(w / 2, h * 0.32, r, 0, Math.PI * 2);
     ctx.lineWidth = 6;
