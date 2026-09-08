@@ -4,13 +4,26 @@
 // 4-bit key (bit weights [8,4,2,1] for x,y,z,w). 32 edges connect vertices
 // one bit-flip apart. 24 square faces are built by fixing two dimensions and
 // letting the other two sweep their four sign-combinations in cyclic order.
+// Each square face also remembers which two dimensions it fixed (and at
+// which sign) so it can be grouped into the 8 cubic cells it belongs to
+// (two cells share every square face, 24*2/6 = 8 — a tesseract's cell count).
 //
-// Every frame the 16 base vertices are rotated in the x–w plane and the y–z
-// plane (a genuine 4D double rotation, not a 3D one embedded in 4D). The
-// slice at w = c(t) is assembled face-by-face: a convex quad face crossed by
-// a plane contributes exactly one segment (its two edge crossings), and the
-// union of those segments across all 24 faces is the exact 3D cross-section
-// — no convex-hull step needed.
+// Every frame the 16 base vertices go through a genuine SO(4) rotation: all
+// six coordinate-plane rotations (xy, xz, xw, yz, yw, zw) composed in
+// sequence, each at its own frequency, rather than just the two axis-aligned
+// planes a "double rotation" usually picks. Composing non-commuting plane
+// rotations keeps changing which 2-planes are actually invariant from
+// instant to instant, so the tumble never locks into an obviously periodic
+// wobble the way a fixed double rotation does.
+//
+// The slice at w = c(t) is still assembled face-by-face: a convex quad face
+// crossed by a plane contributes exactly one segment (its two edge
+// crossings), and the union of those segments across all 24 faces is the
+// exact 3D cross-section — no convex-hull step needed. New: those segments
+// are then regrouped by cell, and each cell's segments — which are
+// necessarily planar, since a plane through a cube always cuts a flat
+// polygon — are walked into a closed loop and filled. The slice is no longer
+// just a wireframe; it's the actual facets of the cross-section solid.
 
 const SHIFT = [8, 4, 2, 1]; // x, y, z, w
 
@@ -34,6 +47,8 @@ for (let i = 0; i < 16; i++) {
   }
 }
 
+// FACES[fi] = { verts: [v0,v1,v2,v3], k, l, bk, bl } — (k,l) are the two
+// dimensions this face holds fixed, at bit values (bk,bl).
 const FACES = [];
 const DIM_PAIRS = [[0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3]];
 const SEQ = [[0, 0], [1, 0], [1, 1], [0, 1]];
@@ -47,10 +62,25 @@ for (const [i, j] of DIM_PAIRS) {
         bits[i] = bi; bits[j] = bj; bits[k] = bk; bits[l] = bl;
         return idxFromBits(bits);
       });
-      FACES.push(verts);
+      FACES.push({ verts, k, l, bk, bl });
     }
   }
 }
+
+// 8 cubic cells: cell (dim, bit) = every square face that holds `dim` fixed
+// at `bit`. Each cell picks up exactly 6 of the 24 faces.
+const CELLS = [];
+for (let dim = 0; dim < 4; dim++) {
+  for (const bit of [0, 1]) {
+    const faceIds = [];
+    FACES.forEach((f, idx) => {
+      if ((f.k === dim && f.bk === bit) || (f.l === dim && f.bl === bit)) faceIds.push(idx);
+    });
+    CELLS.push({ id: dim * 2 + bit, faceIds });
+  }
+}
+
+const CELL_COLORS = ["#ff5fd1", "#58e6d9", "#ffcf5c", "#7c6cff", "#ff8f5c", "#5cff9e", "#5c9eff", "#d15cff"];
 
 // Fixed points in the same 4D space. Magnitudes wander a little past the
 // tesseract's own ±1 extent so each one drifts in and out of slicing range
@@ -85,13 +115,37 @@ const TEMPLATES = [
   (n) => `${n} comes through legible`,
 ];
 
-function rotate(v, thXW, thYZ) {
-  const [x, y, z, w] = v;
-  const cx = Math.cos(thXW), sx = Math.sin(thXW);
-  const nx = x * cx - w * sx, nw = x * sx + w * cx;
-  const cy = Math.cos(thYZ), sy = Math.sin(thYZ);
-  const ny = y * cy - z * sy, nz = y * sy + z * cy;
-  return [nx, ny, nz, nw];
+// A full SO(4) tumble: all six coordinate-plane rotations, composed in
+// sequence rather than the usual "pick two orthogonal invariant planes"
+// double rotation. Manual drag input rides on top of the xw and yz terms
+// (the two planes the readouts already track) so dragging reads as "steering"
+// the same motion, not bolting on a separate control scheme.
+const OMEGA_XY = 0.11, OMEGA_XZ = -0.17, OMEGA_XW = 0.23;
+const OMEGA_YZ = 0.31, OMEGA_YW = -0.13, OMEGA_ZW = 0.19;
+const ROT_PLANES = [
+  { key: "xy", i: 0, j: 1, omega: OMEGA_XY },
+  { key: "xz", i: 0, j: 2, omega: OMEGA_XZ },
+  { key: "xw", i: 0, j: 3, omega: OMEGA_XW },
+  { key: "yz", i: 1, j: 2, omega: OMEGA_YZ },
+  { key: "yw", i: 1, j: 3, omega: OMEGA_YW },
+  { key: "zw", i: 2, j: 3, omega: OMEGA_ZW },
+];
+
+let dragXW = 0;
+let dragYZ = 0;
+
+function rotate4d(v, clock) {
+  const out = v.slice();
+  for (const p of ROT_PLANES) {
+    let theta = clock * p.omega;
+    if (p.key === "xw") theta += dragXW;
+    if (p.key === "yz") theta += dragYZ;
+    const c = Math.cos(theta), s = Math.sin(theta);
+    const a = out[p.i], b = out[p.j];
+    out[p.i] = a * c - b * s;
+    out[p.j] = a * s + b * c;
+  }
+  return out;
 }
 
 const W_DIST = 3;
@@ -109,7 +163,7 @@ function project3to2([x, y, z], scale) {
 function sliceFaces(rotatedVerts, c) {
   const segments = [];
   for (let fi = 0; fi < FACES.length; fi++) {
-    const verts = FACES[fi];
+    const verts = FACES[fi].verts;
     const pts = [];
     for (let e = 0; e < 4; e++) {
       const a = rotatedVerts[verts[e]];
@@ -129,9 +183,50 @@ function sliceFaces(rotatedVerts, c) {
   return segments;
 }
 
+function closeEnough(p, q, eps = 1e-4) {
+  return Math.abs(p[0] - q[0]) < eps && Math.abs(p[1] - q[1]) < eps && Math.abs(p[2] - q[2]) < eps;
+}
+
+// Walk a cell's segments (each an edge of that cube's slice) into a single
+// closed polygon loop by chaining shared endpoints. Segments from the same
+// face-crossing share exact endpoint coordinates (same edge, same
+// arithmetic), so this is a plain adjacency walk, not a nearest-point hack.
+function orderLoop(segs) {
+  const remaining = segs.slice();
+  const first = remaining.shift();
+  const loop = [first.a];
+  let currentPoint = first.b;
+  while (remaining.length) {
+    let idx = -1, reversed = false;
+    for (let i = 0; i < remaining.length; i++) {
+      if (closeEnough(remaining[i].a, currentPoint)) { idx = i; reversed = false; break; }
+      if (closeEnough(remaining[i].b, currentPoint)) { idx = i; reversed = true; break; }
+    }
+    if (idx === -1) return null;
+    const seg = remaining.splice(idx, 1)[0];
+    loop.push(currentPoint);
+    currentPoint = reversed ? seg.a : seg.b;
+  }
+  return loop;
+}
+
+function buildCellPolygons(segments) {
+  const segByFace = new Map();
+  segments.forEach((s) => segByFace.set(s.id, s));
+  const polys = [];
+  const usedFaceIds = new Set();
+  for (const cell of CELLS) {
+    const segs = cell.faceIds.map((fid) => segByFace.get(fid)).filter(Boolean);
+    if (segs.length < 3) continue;
+    const loop = orderLoop(segs);
+    if (!loop) continue;
+    segs.forEach((s) => usedFaceIds.add(s.id));
+    polys.push({ cellId: cell.id, points: loop });
+  }
+  return { polys, usedFaceIds };
+}
+
 // --- animation state ---
-const OMEGA_XW = 0.23;
-const OMEGA_YZ = 0.31;
 const SWEEP_BASE = 0.15;
 const SLICE_AMP = 1.35;
 const EPS = 0.09;
@@ -146,10 +241,12 @@ let lastFrameMs = null;
 const narrativeLines = []; // {text, id}
 let narrativeCounter = 0;
 let latestSliceSegments = [];
+let latestSlicePolys = [];
 let latestC = 0;
 
 const ambientSvg = d3.select("#ambientSvg");
 const sliceSvg = d3.select("#sliceSvg");
+const sliceFacesGroup = sliceSvg.select("#sliceFacesGroup");
 const narrativeEl = document.getElementById("narrative");
 const legendEl = document.getElementById("legend");
 const wReadout = document.getElementById("wReadout");
@@ -192,13 +289,11 @@ function frame(nowMs) {
   lastFrameMs = nowMs;
   if (!paused) clock += dt * speedMult;
 
-  const thXW = clock * OMEGA_XW;
-  const thYZ = clock * OMEGA_YZ;
   const c = SLICE_AMP * Math.sin(clock * SWEEP_BASE);
   latestC = c;
 
-  const rotatedVerts = BASE_VERTS.map((v) => rotate(v, thXW, thYZ));
-  const rotatedInducers = INDUCERS.map((ind) => rotate(ind.coord, thXW, thYZ));
+  const rotatedVerts = BASE_VERTS.map((v) => rotate4d(v, clock));
+  const rotatedInducers = INDUCERS.map((ind) => rotate4d(ind.coord, clock));
 
   // --- ambient panel: all 32 edges, highlighted where the plane cuts them ---
   const edgeData = EDGES.map(([i, j], id) => {
@@ -233,16 +328,41 @@ function frame(nowMs) {
     .attr("fill", (d) => (d.active ? "#ffcf5c" : "#6e5f8c"))
     .attr("fill-opacity", (d) => (d.active ? 1 : 0.6));
 
-  // --- slice panel: exact cross-section, plus any inducer currently in range ---
+  // --- slice panel: exact cross-section, faces filled where they close ---
   const segments = sliceFaces(rotatedVerts, c);
   latestSliceSegments = segments;
-  const segData = segments.map((s) => {
+  const { polys, usedFaceIds } = buildCellPolygons(segments);
+
+  const projectedPolys = polys.map((p) => {
+    const pts2d = p.points.map((pt) => project3to2(pt, SLICE_SCALE));
+    const avgZ = pts2d.reduce((s, pt) => s + pt.z, 0) / pts2d.length;
+    return { cellId: p.cellId, pts2d, avgZ };
+  }).sort((a, b) => a.avgZ - b.avgZ);
+  latestSlicePolys = projectedPolys;
+
+  sliceFacesGroup.selectAll("path.cellface")
+    .data(projectedPolys, (d) => d.cellId)
+    .join("path")
+    .attr("class", "cellface")
+    .attr("d", (d) => "M" + d.pts2d.map((pt) => `${CENTER + pt.x},${CENTER + pt.y}`).join("L") + "Z")
+    .attr("fill", (d) => CELL_COLORS[d.cellId])
+    .attr("fill-opacity", 0.3)
+    .attr("stroke", (d) => CELL_COLORS[d.cellId])
+    .attr("stroke-width", 1.3)
+    .attr("stroke-opacity", 0.75)
+    .call((sel) => sel.order());
+
+  // Segments that couldn't close into a polygon this frame (a plane passing
+  // exactly through a vertex, a cell mid-appear/disappear) still get drawn
+  // as loose lines so nothing just vanishes.
+  const looseSegs = segments.filter((s) => !usedFaceIds.has(s.id));
+  const looseData = looseSegs.map((s) => {
     const pa = project3to2(s.a, SLICE_SCALE);
     const pb = project3to2(s.b, SLICE_SCALE);
     return { id: s.id, x1: CENTER + pa.x, y1: CENTER + pa.y, x2: CENTER + pb.x, y2: CENTER + pb.y };
   });
   sliceSvg.selectAll("line.seg")
-    .data(segData, (d) => d.id)
+    .data(looseData, (d) => d.id)
     .join("line")
     .attr("class", "seg")
     .attr("x1", (d) => d.x1).attr("y1", (d) => d.y1)
@@ -296,8 +416,8 @@ function frame(nowMs) {
   });
 
   wReadout.textContent = c.toFixed(2);
-  thReadout.textContent = `${Math.round(((thXW * 180) / Math.PI) % 360)}°`;
-  phReadout.textContent = `${Math.round(((thYZ * 180) / Math.PI) % 360)}°`;
+  thReadout.textContent = `${Math.round((((clock * OMEGA_XW + dragXW) * 180) / Math.PI) % 360)}°`;
+  phReadout.textContent = `${Math.round((((clock * OMEGA_YZ + dragYZ) * 180) / Math.PI) % 360)}°`;
 }
 
 requestAnimationFrame(frame);
@@ -311,6 +431,39 @@ document.getElementById("pauseBtn").addEventListener("click", (e) => {
 document.getElementById("speedSlider").addEventListener("input", (e) => {
   speedMult = Number(e.target.value);
 });
+
+// --- drag-to-tumble: grab the ambient panel and steer the xw/yz rotation
+// planes directly, on top of the automatic six-plane spin ---
+const ambientNode = ambientSvg.node();
+ambientNode.style.cursor = "grab";
+ambientNode.style.touchAction = "none";
+let dragging = false;
+let lastPointer = null;
+const DRAG_SENSITIVITY = 0.012;
+
+function endDrag() {
+  if (!dragging) return;
+  dragging = false;
+  ambientNode.style.cursor = "grab";
+}
+
+ambientSvg.on("pointerdown", (event) => {
+  dragging = true;
+  lastPointer = { x: event.clientX, y: event.clientY };
+  ambientNode.style.cursor = "grabbing";
+  ambientNode.setPointerCapture(event.pointerId);
+});
+ambientSvg.on("pointermove", (event) => {
+  if (!dragging) return;
+  const dx = event.clientX - lastPointer.x;
+  const dy = event.clientY - lastPointer.y;
+  dragXW += dx * DRAG_SENSITIVITY;
+  dragYZ += dy * DRAG_SENSITIVITY;
+  lastPointer = { x: event.clientX, y: event.clientY };
+});
+ambientSvg.on("pointerup", endDrag);
+ambientSvg.on("pointerleave", endDrag);
+ambientSvg.on("pointercancel", endDrag);
 
 // --- sharing ---
 function currentShareText() {
@@ -345,16 +498,26 @@ function drawShareCard() {
   ctx.font = "22px 'JetBrains Mono', monospace";
   ctx.fillText("a live hyperplane slice through a rotating tesseract", 60, 150);
 
-  // render the current slice segments into a card-sized sub-panel
-  const ox = 700, oy = 210, s = 2.6;
+  // render the current slice — filled cell facets, then any loose edges — into a card-sized sub-panel
+  const ox = 700, oy = 210;
   ctx.save();
   ctx.translate(ox, oy);
+  for (const poly of latestSlicePolys) {
+    ctx.beginPath();
+    poly.pts2d.forEach((pt, i) => (i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y)));
+    ctx.closePath();
+    ctx.fillStyle = CELL_COLORS[poly.cellId] + "4d";
+    ctx.strokeStyle = CELL_COLORS[poly.cellId];
+    ctx.lineWidth = 1.5;
+    ctx.fill();
+    ctx.stroke();
+  }
   ctx.strokeStyle = "#58e6d9";
   ctx.lineWidth = 3;
   ctx.lineCap = "round";
   for (const seg of latestSliceSegments) {
-    const pa = project3to2(seg.a, SLICE_SCALE * s / 2.6 * 1);
-    const pb = project3to2(seg.b, SLICE_SCALE * s / 2.6 * 1);
+    const pa = project3to2(seg.a, SLICE_SCALE);
+    const pb = project3to2(seg.b, SLICE_SCALE);
     ctx.beginPath();
     ctx.moveTo(pa.x, pa.y);
     ctx.lineTo(pb.x, pb.y);
