@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>snubbed — who liked the reply but not you?</title>
+<meta name="description" content="Paste two Bluesky post links. snubbed pulls every liker of both, in full, and shows exactly who liked the second post but skipped the first." />
+<meta property="og:title" content="snubbed — who liked the reply but not you?" />
+<meta property="og:description" content="Paste two Bluesky post links. snubbed pulls every liker of both, in full, and shows exactly who liked the second post but skipped the first." />
+<meta property="og:url" content="https://snubbed.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://snubbed.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="snubbed: a count of people who liked one post but not another, with avatars." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="snubbed — who liked the reply but not you?" />
+<meta name="twitter:description" content="Paste two Bluesky post links. snubbed pulls every liker of both, in full, and shows exactly who liked the second post but skipped the first." />
+<meta name="twitter:image" content="https://snubbed.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0910;
+    --bg2: #14121e;
+    --fg: #f3eefc;
+    --dim: #9a90b0;
+    --accent: #ff4d8d;
+    --accent2: #ffb84c;
+    --good: #6ee7a8;
+    --bad: #ff5c5c;
+    --card: #14111d;
+    --border: #2a2438;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 12% -10%, #2a0d3a 0%, transparent 55%),
+      radial-gradient(ellipse at 92% 5%, #0d1f3a 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 4rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 760px; }
+  h1 {
+    font-size: 2rem; line-height: 1.2; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 0.6rem; line-height: 1.55; }
+  .tag b { color: var(--fg); }
+  .credit { color: var(--dim); font-size: 0.76rem; margin: 0 0 2rem; line-height: 1.5; }
+  .credit a { color: var(--accent); text-decoration: none; }
+
+  form { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .row { display: flex; flex-direction: column; gap: 0.3rem; }
+  .row label { color: var(--dim); font-size: 0.74rem; }
+  .row label b { color: var(--fg); }
+  .row input[type="text"] {
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.7rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  .row input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button[type="submit"] {
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: #1a0a12; border: none; border-radius: 8px; padding: 0.8rem 1.1rem;
+    font: inherit; font-weight: 700; font-size: 0.95rem; cursor: pointer; margin-top: 0.5rem;
+  }
+  button[type="submit"]:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--bad); }
+
+  #results { display: none; flex-direction: column; gap: 1.4rem; }
+  #results.show { display: flex; }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.6rem; box-shadow: 0 0 60px -30px var(--accent); animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .pair-who { display: flex; align-items: center; justify-content: center; gap: 0.9rem; margin-bottom: 1.2rem; }
+  .pair-who .p { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; text-align: center; width: 9rem; }
+  .pair-who .p .role { color: var(--dim); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .pair-who .handle { font-size: 0.78rem; font-weight: 700; word-break: break-word; }
+  .pair-who .handle a { color: var(--fg); text-decoration: none; }
+  .pair-who .arrow { font-size: 1.4rem; font-weight: 800; color: var(--accent2); min-width: 2rem; text-align: center; }
+
+  .headline { text-align: center; font-size: 1.6rem; font-weight: 800; margin-bottom: 0.3rem; color: var(--fg); }
+  .headline b { color: var(--accent); }
+  .subline { text-align: center; color: var(--dim); font-size: 0.85rem; margin-bottom: 1.4rem; }
+
+  .stats { display: flex; justify-content: center; gap: 1.6rem; margin-bottom: 1.4rem; flex-wrap: wrap; }
+  .stat { text-align: center; }
+  .stat .n { font-size: 1.3rem; font-weight: 800; }
+  .stat .n.snub { color: var(--accent); }
+  .stat .n.both { color: var(--good); }
+  .stat .l { color: var(--dim); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em; }
+
+  .snub-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.6rem; margin-bottom: 1rem; }
+  .snub-item { display: flex; align-items: center; gap: 0.5rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 0.5rem 0.65rem; text-decoration: none; color: inherit; }
+  .snub-item:hover { border-color: var(--accent); }
+  .snub-item img { width: 28px; height: 28px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+  .snub-item .who { min-width: 0; }
+  .snub-item .dn { font-size: 0.78rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .snub-item .h { font-size: 0.68rem; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .empty { color: var(--dim); font-size: 0.85rem; text-align: center; padding: 1.5rem 0; }
+
+  .share { border-top: 1px dashed var(--border); margin-top: 1.4rem; padding-top: 1.2rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #1a0a12; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>sn<span onclick='var e=document.getElementById("postA");if(e){e.focus();}' style="cursor:pointer">u</span>bbed</h1>
+    <p class="tag">
+      Paste two Bluesky post links. snubbed pulls <b>every</b> liker of
+      both — no page cap, the whole list, however long it takes — and shows
+      exactly who liked the second post but couldn't be bothered with the
+      first.
+    </p>
+    <p class="credit">
+      built for <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies.bsky.social</a>,
+      who wanted to know who liked grace's reply but skipped their own
+      original post.
+    </p>
+
+    <form id="f">
+      <div class="row">
+        <label for="postA">the post that got <b>skipped</b></label>
+        <input type="text" id="postA" placeholder="https://bsky.app/profile/you.bsky.social/post/..." autocomplete="off" autocapitalize="off" spellcheck="false" />
+      </div>
+      <div class="row">
+        <label for="postB">the post everyone liked <b>instead</b></label>
+        <input type="text" id="postB" placeholder="https://bsky.app/profile/them.bsky.social/post/..." autocomplete="off" autocapitalize="off" spellcheck="false" />
+      </div>
+      <button id="go" type="submit">find the snubs</button>
+    </form>
+    <p class="hint">reads every liker of both posts to the end of the list — a heavily-liked post just takes a little longer, it won't stop partway through and call it done.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="results"></div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+      <a href="https://rateyourbuild.bisks.net/site/snubbed">rate this on rateyourbuild →</a>
+    </footer>
+  </div>
+
+<script type="module">
+import { resolvePost, getAllLikers, bskyPostUrl } from "./lib/bsky.js";
+
+const els = {
+  form: document.getElementById("f"),
+  postA: document.getElementById("postA"),
+  postB: document.getElementById("postB"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  results: document.getElementById("results"),
+};
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function b64url(str) {
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+let lastResult = null; // { postA, postB, likersA, likersB, snubs }
+
+function shareUrlFor(uriA, uriB) {
+  return "https://snubbed.bisks.net/s/" + encodeURIComponent(b64url(uriA)) + "+" + encodeURIComponent(b64url(uriB));
+}
+
+function buildShareText(handleA, handleB, snubs) {
+  const url = shareUrlFor(lastResult.postA.uri, lastResult.postB.uri);
+  const headline = snubs.length === 0
+    ? `checked who liked @${handleB}'s post but not @${handleA}'s: nobody — everyone who liked one liked the other.`
+    : `${snubs.length} ${snubs.length === 1 ? "person" : "people"} liked @${handleB}'s post but couldn't be bothered with @${handleA}'s.`;
+  let text = `${headline}\n\n${url}`;
+  if (text.length > 300) text = `${headline}\n${url}`;
+  if (text.length > 300) text = text.slice(0, 296) + "…";
+  return text;
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+async function buildShareCard(canvas, handleA, handleB, snubs) {
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0a0910";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, "#2a0d3a");
+  glow.addColorStop(1, "rgba(10,9,16,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff4d8d";
+  ctx.font = `800 44px ${mono}`;
+  ctx.fillText("snubbed", 56, 84);
+
+  ctx.fillStyle = "#9a90b0";
+  ctx.font = `500 20px ${mono}`;
+  ctx.fillText(`@${handleB}'s post vs. @${handleA}'s`, 56, 122);
+
+  ctx.strokeStyle = "#2a2438";
+  ctx.lineWidth = 1.5;
+  const cardX = 56, cardY = 160, cardW = W - 112, cardH = H - 220;
+  ctx.fillStyle = "#14111d";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ff4d8d";
+  ctx.font = `800 140px ${mono}`;
+  ctx.fillText(String(snubs.length), cardX + cardW / 2, cardY + 190);
+
+  ctx.fillStyle = "#f3eefc";
+  ctx.font = `700 24px ${mono}`;
+  ctx.fillText(snubs.length === 1 ? "PERSON SNUBBED YOU" : "PEOPLE SNUBBED YOU", cardX + cardW / 2, cardY + 235);
+
+  const avatars = snubs.slice(0, 8);
+  const avR = 30, gap = 16;
+  const totalW = avatars.length * (avR * 2) + Math.max(0, avatars.length - 1) * gap;
+  let ax = cardX + cardW / 2 - totalW / 2 + avR;
+  const ay = cardY + cardH - 90;
+  const imgs = await Promise.all(avatars.map((s) => loadImg(s.avatar)));
+  imgs.forEach((img) => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(ax, ay, avR + 3, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.fillStyle = "#ff4d8d";
+    ctx.fill();
+    ctx.restore();
+    if (img) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(ax, ay, avR, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(img, ax - avR, ay - avR, avR * 2, avR * 2);
+      ctx.restore();
+    }
+    ax += avR * 2 + gap;
+  });
+  if (snubs.length > avatars.length) {
+    ctx.fillStyle = "#9a90b0";
+    ctx.font = `600 16px ${mono}`;
+    ctx.fillText(`+ ${snubs.length - avatars.length} more`, cardX + cardW / 2, ay + avR + 30);
+  }
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff4d8d";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("snubbed.bisks.net", 56, H - 40);
+}
+
+function renderResultCard(postA, postB, likersA, likersB, snubs) {
+  const handleA = (postA.post && postA.post.author && postA.post.author.handle) || postA.actorLabel || "unknown";
+  const handleB = (postB.post && postB.post.author && postB.post.author.handle) || postB.actorLabel || "unknown";
+  const both = likersB.filter((l) => likersA.some((a) => a.did === l.did)).length;
+
+  const div = document.createElement("div");
+  div.className = "card";
+  const listHtml = snubs.length
+    ? `<div class="snub-grid">${snubs.map((s) => `
+        <a class="snub-item" href="https://bsky.app/profile/${esc(s.handle)}" target="_blank" rel="noopener">
+          ${s.avatar ? `<img src="${esc(s.avatar)}" alt="" onerror="this.style.visibility='hidden'" />` : `<img src="" alt="" style="visibility:hidden" />`}
+          <span class="who">
+            <div class="dn">${esc(s.displayName || s.handle)}</div>
+            <div class="h">@${esc(s.handle)}</div>
+          </span>
+        </a>`).join("")}</div>`
+    : `<div class="empty">nobody — everyone who liked @${esc(handleB)}'s post also liked @${esc(handleA)}'s.</div>`;
+
+  div.innerHTML = `
+    <div class="pair-who">
+      <div class="p">
+        <div class="role">skipped</div>
+        <div class="handle"><a href="${bskyPostUrl(handleA, postA.uri)}" target="_blank" rel="noopener">@${esc(handleA)}</a></div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="p">
+        <div class="role">liked instead</div>
+        <div class="handle"><a href="${bskyPostUrl(handleB, postB.uri)}" target="_blank" rel="noopener">@${esc(handleB)}</a></div>
+      </div>
+    </div>
+    <div class="headline">${snubs.length ? `<b>${snubs.length}</b> ${snubs.length === 1 ? "snub" : "snubs"}` : "no snubs found"}</div>
+    <div class="subline">liked @${esc(handleB)}'s post, skipped @${esc(handleA)}'s</div>
+    <div class="stats">
+      <div class="stat"><div class="n snub">${snubs.length}</div><div class="l">snubbed you</div></div>
+      <div class="stat"><div class="n both">${both}</div><div class="l">liked both</div></div>
+      <div class="stat"><div class="n">${likersA.length}</div><div class="l">liked A</div></div>
+      <div class="stat"><div class="n">${likersB.length}</div><div class="l">liked B</div></div>
+    </div>
+    ${listHtml}
+    <div class="share">
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+      <div class="share-actions">
+        <button class="shareNative" type="button" style="display:none;border:none;">📤 share card</button>
+        <a class="shareBluesky" target="_blank" rel="noopener">🦋 share the snub count</a>
+        <button class="shareDownload" type="button">⬇ download card</button>
+      </div>
+    </div>
+  `;
+
+  const canvas = div.querySelector("#shareCanvas");
+  const shareBluesky = div.querySelector(".shareBluesky");
+  const shareDownload = div.querySelector(".shareDownload");
+  const shareNative = div.querySelector(".shareNative");
+  const shareText = buildShareText(handleA, handleB, snubs);
+  shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+  buildShareCard(canvas, handleA, handleB, snubs);
+
+  shareDownload.addEventListener("click", () => {
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `snubbed-${handleA}-${handleB}.png`.replace(/[^a-z0-9.-]/gi, "_");
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }, "image/png");
+  });
+
+  function canShareFiles() {
+    if (!navigator.share || !navigator.canShare) return false;
+    try {
+      const probe = new File([""], "probe.png", { type: "image/png" });
+      return navigator.canShare({ files: [probe] });
+    } catch (_) { return false; }
+  }
+  if (canShareFiles()) {
+    shareNative.style.display = "";
+    shareNative.addEventListener("click", () => {
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], "snubbed.png", { type: "image/png" });
+        try { await navigator.share({ files: [file], text: shareText, title: "snubbed" }); } catch (_) {}
+      }, "image/png");
+    });
+  }
+
+  return div;
+}
+
+async function run() {
+  const rawA = els.postA.value;
+  const rawB = els.postB.value;
+  if (!rawA.trim() || !rawB.trim()) { setStatus("paste both post links.", true); return; }
+
+  els.go.disabled = true;
+  els.results.classList.remove("show");
+  els.results.innerHTML = "";
+  lastResult = null;
+  setStatus("resolving both posts...");
+
+  try {
+    const [postA, postB] = await Promise.all([
+      resolvePost(rawA).catch((e) => { throw new Error("first post: " + e.message); }),
+      resolvePost(rawB).catch((e) => { throw new Error("second post: " + e.message); }),
+    ]);
+    if (postA.uri === postB.uri) { setStatus("those are the same post.", true); els.go.disabled = false; return; }
+
+    setStatus("pulling every liker of the first post...");
+    const likersA = await getAllLikers(postA.uri, (n) => setStatus(`pulling every liker of the first post... ${n} so far`));
+    setStatus("pulling every liker of the second post...");
+    const likersB = await getAllLikers(postB.uri, (n) => setStatus(`pulling every liker of the second post... ${n} so far`));
+
+    const likersASet = new Set(likersA.map((l) => l.did));
+    const snubs = likersB.filter((l) => !likersASet.has(l.did)).sort((x, y) => (x.createdAt < y.createdAt ? 1 : -1));
+
+    lastResult = { postA, postB, likersA, likersB, snubs };
+    els.results.innerHTML = "";
+    els.results.appendChild(renderResultCard(postA, postB, likersA, likersB, snubs));
+    els.results.classList.add("show");
+    setStatus("");
+  } catch (err) {
+    setStatus("couldn't run that check: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  run();
+});
+
+// /s/<a>+<b> (share links) — decode straight back to post URLs and auto-run.
+const pathMatch = location.pathname.match(/\/s\/([^/+]+)\+([^/]+)\/?$/);
+if (pathMatch) {
+  (function () {
+    function unb64url(s) {
+      let b64 = decodeURIComponent(s).replace(/-/g, "+").replace(/_/g, "/");
+      while (b64.length % 4) b64 += "=";
+      return atob(b64);
+    }
+    try {
+      els.postA.value = unb64url(pathMatch[1]);
+      els.postB.value = unb64url(pathMatch[2]);
+      run();
+    } catch (_) {}
+  })();
+}
+</script>
+
+<!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+<style>
+  #cm-toggle {
+    position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.7rem; line-height: 1;
+    background: rgba(20, 20, 20, 0.72); color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 999px; padding: 0.45rem 0.6rem; cursor: pointer;
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  }
+  #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+  #cm-coop { position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden; pointer-events: none; z-index: 2147483000; display: none; }
+  #cm-coop.on { display: block; }
+  .cm-chicken { position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1); animation-name: cm-strut; animation-timing-function: linear; animation-iteration-count: infinite; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5)); }
+  @keyframes cm-strut {
+    0% { transform: translateX(-3rem) scaleX(-1); }
+    48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+    50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+    98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+    100% { transform: translateX(-3rem) scaleX(-1); }
+  }
+</style>
+<button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+<div id="cm-coop"></div>
+<script>
+  (function () {
+    var coop = document.getElementById("cm-coop");
+    var toggle = document.getElementById("cm-toggle");
+    if (!coop || !toggle) return;
+    var KEY = "chicken-mode";
+    var spawner = null;
+    function spawn() {
+      var c = document.createElement("div");
+      c.className = "cm-chicken";
+      c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+      var duration = 14 + Math.random() * 10;
+      c.style.animationDuration = duration + "s";
+      c.style.animationDelay = -Math.random() * duration + "s";
+      c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+      coop.appendChild(c);
+    }
+    function start() {
+      if (spawner) return;
+      coop.innerHTML = "";
+      for (var i = 0; i < 5; i++) spawn();
+      spawner = setInterval(function () {
+        if (coop.children.length < 8) spawn();
+      }, 4000);
+    }
+    function stop() {
+      if (spawner) clearInterval(spawner);
+      spawner = null;
+      coop.innerHTML = "";
+    }
+    function setMode(on) {
+      coop.classList.toggle("on", on);
+      toggle.classList.toggle("on", on);
+      if (on) start(); else stop();
+      try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+    }
+    toggle.addEventListener("click", function () {
+      setMode(!coop.classList.contains("on"));
+    });
+    var startedOn = false;
+    try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+    if (startedOn) setMode(true);
+  })();
+</script>
+<!-- /chicken mode -->
+</body>
+</html>
