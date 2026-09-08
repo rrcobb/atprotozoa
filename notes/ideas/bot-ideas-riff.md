@@ -72,7 +72,15 @@ Riffs:
   dataset/annual-review idea should be built off *our own* records
   (`net.bisks.*` via `listReposByCollection`) rather than a copy of the network.
 - **PLC audit log watcher.** Free, public, nobody's watching it. Who migrated
-  PDS, who rotated keys, who changed handles.
+  PDS, who rotated keys, who changed handles. **Built as a page, not a cron
+  bot, 2026-09-08 (daily slot):** `sites/plcwatch` polls
+  `https://plc.directory/export` (CORS-open, no auth) straight from the
+  visitor's browser and tails it live — new identities vs. updates to
+  existing ones, filterable by handle/PDS host. Same move as fleetwatch on
+  the verifier idea above: the *silent-unless-actionable poster* version
+  described in this section is still unbuilt (that needs a standing service
+  and a place to post), this is the "put a human in front of the live stream"
+  version instead.
 - **Deploy/spend watcher.** The Cloudflare custom-domain cap and the Anthropic
   credit exhaustion both got discovered by users hitting broken things.
 - **Daily digest poster.** What shipped, what broke, who tagged.
