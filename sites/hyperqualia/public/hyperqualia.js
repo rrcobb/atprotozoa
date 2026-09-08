@@ -291,6 +291,7 @@ function frame(nowMs) {
 
   const c = SLICE_AMP * Math.sin(clock * SWEEP_BASE);
   latestC = c;
+  if (window.hqGlSetSlice) window.hqGlSetSlice(c);
 
   const rotatedVerts = BASE_VERTS.map((v) => rotate4d(v, clock));
   const rotatedInducers = INDUCERS.map((ind) => rotate4d(ind.coord, clock));
@@ -312,7 +313,7 @@ function frame(nowMs) {
     .attr("x1", (d) => d.x1).attr("y1", (d) => d.y1)
     .attr("x2", (d) => d.x2).attr("y2", (d) => d.y2)
     .attr("stroke", (d) => (d.crossed ? "#ff5fd1" : "#8a78b8"))
-    .attr("stroke-width", (d) => (d.crossed ? 2.4 : 1))
+    .attr("stroke-width", (d) => (d.crossed ? 3.2 : 1.4))
     .attr("stroke-opacity", (d) => (d.crossed ? 0.95 : 0.28 + 0.2 * (d.depth / 6 + 0.5)));
 
   const ambientDots = rotatedInducers.map((v, i) => {
@@ -324,7 +325,7 @@ function frame(nowMs) {
     .join("circle")
     .attr("class", "ind")
     .attr("cx", (d) => d.x).attr("cy", (d) => d.y)
-    .attr("r", (d) => (d.active ? 4.5 : 2))
+    .attr("r", (d) => (d.active ? 5.5 : 2))
     .attr("fill", (d) => (d.active ? "#ffcf5c" : "#6e5f8c"))
     .attr("fill-opacity", (d) => (d.active ? 1 : 0.6));
 
@@ -346,10 +347,10 @@ function frame(nowMs) {
     .attr("class", "cellface")
     .attr("d", (d) => "M" + d.pts2d.map((pt) => `${CENTER + pt.x},${CENTER + pt.y}`).join("L") + "Z")
     .attr("fill", (d) => CELL_COLORS[d.cellId])
-    .attr("fill-opacity", 0.3)
+    .attr("fill-opacity", 0.34)
     .attr("stroke", (d) => CELL_COLORS[d.cellId])
-    .attr("stroke-width", 1.3)
-    .attr("stroke-opacity", 0.75)
+    .attr("stroke-width", 2.1)
+    .attr("stroke-opacity", 0.8)
     .call((sel) => sel.order());
 
   // Segments that couldn't close into a polygon this frame (a plane passing
@@ -368,7 +369,7 @@ function frame(nowMs) {
     .attr("x1", (d) => d.x1).attr("y1", (d) => d.y1)
     .attr("x2", (d) => d.x2).attr("y2", (d) => d.y2)
     .attr("stroke", "#58e6d9")
-    .attr("stroke-width", 2.2)
+    .attr("stroke-width", 3)
     .attr("stroke-linecap", "round")
     .attr("stroke-opacity", 0.9);
 
@@ -378,7 +379,10 @@ function frame(nowMs) {
     const wasActive = ind.active;
     const isActive = Math.abs(w - c) < EPS;
     ind.active = isActive;
-    if (isActive && !wasActive) pushNarrative(ind.name);
+    if (isActive && !wasActive) {
+      pushNarrative(ind.name);
+      if (window.hqGlPulse) window.hqGlPulse();
+    }
     if (isActive) {
       const p = project3to2(rotatedInducers[i].slice(0, 3), SLICE_SCALE);
       activeInducers.push({ i, x: CENTER + p.x, y: CENTER + p.y, name: ind.name });
@@ -398,10 +402,10 @@ function frame(nowMs) {
     .attr("transform", (d) => `translate(${d.x},${d.y})`)
     .call((g) => {
       g.select("circle")
-        .attr("r", 5)
+        .attr("r", 6)
         .attr("fill", "#ffcf5c")
         .attr("stroke", "#08040f")
-        .attr("stroke-width", 1);
+        .attr("stroke-width", 1.5);
       g.select("text")
         .attr("x", 8).attr("y", 3)
         .attr("fill", "#ffcf5c")
