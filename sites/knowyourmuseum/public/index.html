@@ -42,7 +42,7 @@
       var(--bg);
     padding: 0 0 5rem;
   }
-  main { width: 100%; max-width: 880px; margin: 0 auto; padding: 0 1.1rem; }
+  main { width: 100%; max-width: 1160px; margin: 0 auto; padding: 0 1.1rem; }
   a { color: var(--accent); }
   code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; }
 
@@ -79,32 +79,41 @@
     border-radius: 0 4px 4px 0;
   }
 
-  .room { display: grid; gap: 0.65rem; }
+  .room { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 2rem; }
   .frame {
     background: var(--panel); border: 1px solid var(--border-dark); border-radius: 4px;
-    padding: 0.9rem 1.05rem; cursor: pointer;
-    box-shadow: 2px 2px 0 rgba(0,0,0,0.03);
-    display: flex; gap: 0.9rem; align-items: flex-start;
+    cursor: pointer; box-shadow: 3px 3px 0 rgba(0,0,0,0.05); overflow: hidden;
   }
   .frame:hover { border-color: var(--accent); }
-  .frame .thumb {
-    flex: none; width: 56px; height: 56px; object-fit: cover;
-    border: 1px solid var(--border-dark); border-radius: 2px; background: var(--wall);
+  .frame .hang {
+    display: flex; align-items: center; justify-content: center;
+    height: 340px; padding: 1.6rem;
+    background:
+      radial-gradient(ellipse at center, rgba(0,0,0,0.05) 0%, transparent 70%),
+      var(--wall);
+    border-bottom: 1px solid var(--border-dark);
   }
-  .frame .body { flex: 1; min-width: 0; }
-  .frame .title { font-size: 1.05rem; font-weight: 700; color: var(--velvet); }
+  .frame .mat {
+    background: var(--panel); padding: 0.9rem; border: 1px solid var(--border-dark);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.18), 0 0 0 6px var(--panel), 0 0 0 7px var(--brass);
+    max-width: 100%; max-height: 100%;
+  }
+  .frame .art {
+    display: block; max-width: 100%; max-height: 260px; object-fit: contain;
+  }
+  .frame .body { padding: 0.9rem 1.05rem 1rem; }
+  .frame .title { font-size: 1.15rem; font-weight: 700; color: var(--velvet); }
   .frame .title .arrow { color: var(--dim); font-weight: 400; font-size: 0.8rem; float: right; }
   .frame .meta { color: var(--dim); font-size: 0.78rem; margin-top: 0.35rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  .frame .imagecredit { font-size: 0.68rem; color: var(--dim); font-style: italic; margin-top: 0.5rem; }
 
   .plaque {
-    display: none; margin-top: 0.7rem; padding-top: 0.7rem; border-top: 1px dashed var(--border-dark);
+    display: none; margin-top: 0.9rem; padding-top: 0.7rem; border-top: 1px dashed var(--border-dark);
     font-size: 0.85rem; line-height: 1.7;
   }
   .frame.open .plaque { display: block; }
   .frame.open .title .arrow::before { content: "▲ close"; }
   .frame .title .arrow::before { content: "▼ full wall text"; }
-  .plaque .exhibitimg { max-width: 100%; max-height: 260px; border: 1px solid var(--border-dark); border-radius: 2px; display: block; margin-bottom: 0.3rem; }
-  .plaque .imagecredit { font-size: 0.68rem; color: var(--dim); font-style: italic; margin-bottom: 0.9rem; }
   .plaque .field { margin-bottom: 0.65rem; }
   .plaque .label { text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.68rem; color: var(--brass); font-weight: 700; margin-bottom: 0.15rem; }
   .plaque .val { color: var(--fg); }
@@ -197,15 +206,8 @@ function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
   gallerySel.innerHTML += GALLERY_ORDER.map((g) => `<option value="${g}">${esc(GALLERIES[g].label)}</option>`).join("");
 
   function plaqueHtml(e) {
-    const img = e.image
-      ? `<img class="exhibitimg" src="${esc(e.image)}" alt="${esc(e.title)}" loading="lazy" />
-         <div class="imagecredit">${esc(e.imageCredit || "")}</div>`
-      : "";
     return `
       <div class="plaque">
-        ${img}
-        <div class="field"><div class="label">year</div><div class="val">${esc(e.year)}</div></div>
-        <div class="field"><div class="label">medium</div><div class="val">${esc(e.medium)}</div></div>
         <div class="field"><div class="label">provenance</div><div class="val">${esc(e.provenance)}</div></div>
         <div class="field"><div class="label">artistic tradition</div><div class="val">${esc(e.tradition)}</div></div>
         <div class="field"><div class="label">critical reception</div><div class="val reception">${esc(e.reception)}</div></div>
@@ -216,13 +218,17 @@ function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
   }
 
   function frameHtml(e) {
-    const thumb = e.image ? `<img class="thumb" src="${esc(e.image)}" alt="" loading="lazy" />` : "";
+    const hang = e.image
+      ? `<div class="hang"><div class="mat"><img class="art" src="${esc(e.image)}" alt="${esc(e.title)}" loading="lazy" /></div></div>`
+      : "";
+    const credit = e.image ? `<div class="imagecredit">${esc(e.imageCredit || "")}</div>` : "";
     return `
       <div class="frame" data-name="${esc(e.name)}">
-        ${thumb}
+        ${hang}
         <div class="body">
           <div class="title">${esc(e.title)}<span class="arrow"></span></div>
           <div class="meta">${esc(e.year)} · ${esc(e.medium)}</div>
+          ${credit}
           ${plaqueHtml(e)}
         </div>
       </div>`;
