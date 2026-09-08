@@ -1,6 +1,9 @@
 import { renderSeal, tintFor } from "./lib/seal.js";
+import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch } from "./lib/oauth.js";
+import { FissionLog } from "./lib/fission-log.js";
 
 const PUB = "https://public.api.bsky.app/xrpc";
+const FISSION_COLLECTION = "net.bisks.blubberize.fission";
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -28,6 +31,9 @@ const els = {
   shareDownload: $("shareDownload"),
   shareNative: $("shareNative"),
   canvas: $("cardCanvas"),
+  signinBar: $("signinBar"),
+  fissionLogStatus: $("fissionLogStatus"),
+  fissionLogList: $("fissionLogList"),
 };
 
 const short = (h) => "@" + String(h || "").replace(/\.bsky\.social$/, "");
@@ -64,6 +70,69 @@ async function resolveProfile(raw) {
     avatar: p.avatar || "",
     followersCount: p.followersCount || 0,
   };
+}
+
+// --- sign in (optional — only needed to make a fission a real, permanent
+// record instead of a purely local animation; see doFission) ---------------
+
+let session = null;
+
+function renderSignin() {
+  if (session) {
+    els.signinBar.innerHTML = `
+      <span class="who">signed in as <b>${esc(short(session.handle))}</b> — fissions write a real record</span>
+      <button type="button" id="signOutBtn">sign out</button>
+    `;
+    $("signOutBtn").addEventListener("click", async () => {
+      await clearSession();
+      session = null;
+      renderSignin();
+      applySessionToYouInput();
+    });
+  } else {
+    els.signinBar.innerHTML = `
+      <a href="#" class="signin-link" id="signInLink">sign in to make FISSION real</a>
+      <span class="err" id="signinErr"></span>
+    `;
+    $("signInLink").addEventListener("click", async (e) => {
+      e.preventDefault();
+      const h = els.youInput.value.trim().replace(/^@/, "");
+      const err = $("signinErr");
+      if (!h) {
+        err.textContent = "type your handle in \"you\" first.";
+        return;
+      }
+      err.textContent = "signing in…";
+      try {
+        await login(h);
+      } catch (ex) {
+        err.textContent = ex.message || "sign-in failed.";
+      }
+    });
+  }
+  applySessionToYouInput();
+}
+
+// While signed in, "you" always is the signed-in identity — a real fission
+// record is a claim about who did it, so it can't be typed as someone else.
+function applySessionToYouInput() {
+  if (session) {
+    els.youInput.value = session.handle;
+    els.youInput.readOnly = true;
+    els.youInput.title = "signed in — this is you";
+  } else {
+    els.youInput.readOnly = false;
+    els.youInput.title = "";
+  }
+}
+
+async function initSession() {
+  try {
+    session = (await completeLoginIfCallback()) || (await getSession());
+  } catch (e) {
+    setStatus("sign-in failed: " + e.message, true);
+  }
+  renderSignin();
 }
 
 // Real followersCount, sqrt-scaled so a huge account doesn't blow the arena
@@ -212,6 +281,28 @@ function wireShare() {
   };
 }
 
+// Writes the receipt to the signed-in user's own PDS — this is the "real"
+// part: a permanent, signed record instead of state that vanishes on reload.
+// It has no effect on the target's actual ability to post; that stays a bit.
+async function writeFissionRecord(sess, target, half, yourFollowers) {
+  const record = {
+    $type: FISSION_COLLECTION,
+    target: target.did,
+    targetHandle: target.handle,
+    blubber: Math.round(half),
+    yourFollowers: Math.round(yourFollowers),
+    createdAt: new Date().toISOString(),
+  };
+  const res = await dpopFetch(sess, `${sess.pdsUrl}/xrpc/com.atproto.repo.createRecord`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ repo: sess.did, collection: FISSION_COLLECTION, record }),
+  });
+  const written = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(written.message || "your PDS rejected that record");
+  return written;
+}
+
 function doFission() {
   if (!state || state.fissioned) return;
   const { you, target } = state;
@@ -234,12 +325,34 @@ function doFission() {
   els.fissionBtn.disabled = true;
   els.fissionBtn.textContent = "fissioning…";
 
-  setTimeout(() => {
+  // Only the signed-in identity's own fission can become a real record — a
+  // permanent claim about who did it has to come from them, not whoever
+  // happens to have typed their handle into the "you" box.
+  const canBeReal = !!session && session.did === you.did;
+
+  setTimeout(async () => {
     state.fissioned = true;
     renderPair();
     els.fissionBtn.textContent = "💥 fissioned";
     els.verdict.style.display = "block";
-    els.verdict.textContent = `${short(you.handle)} projectiled ${fmt(Math.round(half))} blubber at ${short(target.handle)} — BLUBBERIZED, unable to post. (it's a bit; the account can still post fine.)`;
+    const baseLine = `${short(you.handle)} projectiled ${fmt(Math.round(half))} blubber at ${short(target.handle)} — BLUBBERIZED, unable to post. (it's a bit; the account can still post fine.)`;
+
+    if (canBeReal) {
+      els.verdict.textContent = baseLine + " writing a real record to your PDS…";
+      try {
+        await writeFissionRecord(session, target, half, you.followersCount);
+        els.verdict.textContent =
+          baseLine + " ✅ real: a signed record now lives in your own PDS and in the live log below.";
+      } catch (err) {
+        els.verdict.textContent =
+          baseLine + " (couldn't write the real record — " + (err.message || "try again") + ".)";
+      }
+    } else if (!session) {
+      els.verdict.textContent = baseLine + ` sign in as ${short(you.handle)} to make this one a real, permanent record.`;
+    } else {
+      els.verdict.textContent =
+        baseLine + ` (signed in as someone else — only ${short(you.handle)} can make this one real.)`;
+    }
     wireShare();
   }, 650);
 }
@@ -283,10 +396,59 @@ els.form.addEventListener("submit", async (e) => {
   }
 });
 
-const params = new URLSearchParams(location.search);
-const pathMatch = location.pathname.match(/^\/s\/([^/]+)\/([^/]+)\/?$/);
-const initialYou = params.get("you") || (pathMatch && decodeURIComponent(pathMatch[1])) || "";
-const initialTarget = params.get("target") || (pathMatch && decodeURIComponent(pathMatch[2])) || "";
-if (initialYou) els.youInput.value = initialYou;
-if (initialTarget) els.targetInput.value = initialTarget;
-if (initialYou && initialTarget) els.form.requestSubmit();
+// --- live fission log: every real net.bisks.blubberize.fission record on
+// the network, backfilled + kept live via Jetstream. Purely a public receipt
+// board — it doesn't feed back into the arena above. ---------------------
+
+function timeAgo(ts) {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + "m ago";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + "h ago";
+  return Math.floor(h / 24) + "d ago";
+}
+
+function esc(s) {
+  return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+const fissionLog = new FissionLog({
+  onUpdate(snapshot) {
+    els.fissionLogStatus.textContent = snapshot.connected
+      ? `${fmt(snapshot.count)} real fission${snapshot.count === 1 ? "" : "s"} logged · live`
+      : `${fmt(snapshot.count)} real fission${snapshot.count === 1 ? "" : "s"} logged · reconnecting…`;
+    if (!snapshot.fissions.length) {
+      els.fissionLogList.innerHTML = `<div class="fission-log-empty">${
+        snapshot.backfillDone ? "nobody's made it real yet — sign in and be the first." : "scanning the network for signed fission records…"
+      }</div>`;
+      return;
+    }
+    els.fissionLogList.innerHTML = snapshot.fissions
+      .map(
+        (f) => `
+      <div class="fission-log-row">
+        <span class="fl-who"><b>${esc(short(f.handle))}</b> blubberized <b>${esc(short(f.targetHandle))}</b> (${fmt(f.blubber)} blubber)</span>
+        <span class="fl-when">${esc(timeAgo(f.createdAt))}</span>
+      </div>`,
+      )
+      .join("");
+  },
+});
+fissionLog.start();
+
+(async () => {
+  // Await first: completeLoginIfCallback() rewrites location back to
+  // whatever page (a ?you=&target= or /s/... link) the user signed in from,
+  // so the you/target URL parsing below has to run after that, not before.
+  await initSession();
+
+  const params = new URLSearchParams(location.search);
+  const pathMatch = location.pathname.match(/^\/s\/([^/]+)\/([^/]+)\/?$/);
+  const initialYou = params.get("you") || (pathMatch && decodeURIComponent(pathMatch[1])) || "";
+  const initialTarget = params.get("target") || (pathMatch && decodeURIComponent(pathMatch[2])) || "";
+  if (initialYou && !session) els.youInput.value = initialYou;
+  if (initialTarget) els.targetInput.value = initialTarget;
+  if (els.youInput.value.trim() && els.targetInput.value.trim()) els.form.requestSubmit();
+})();
