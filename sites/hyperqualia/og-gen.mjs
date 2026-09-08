@@ -51,14 +51,14 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <circle cx="750" cy="520" r="5" fill="${ACCENT3}"/>
 
   <text x="60" y="150" font-family="JetBrains Mono" font-weight="800" font-size="76" fill="${ACCENT}">hyperqualia</text>
-  <text x="60" y="200" font-family="JetBrains Mono" font-size="24" fill="${FG}">a real hyperplane slice through a rotating tesseract</text>
+  <text x="60" y="200" font-family="JetBrains Mono" font-size="24" fill="${FG}">a mind too large to read directly, one slice at a time</text>
 
-  <text x="60" y="280" font-family="JetBrains Mono" font-size="20" fill="${DIM}">the mind's output is higher dimensional — narrative is just</text>
-  <text x="60" y="310" font-family="JetBrains Mono" font-size="20" fill="${DIM}">the accessible slice of it. breathwork, ayahuasca, prayer,</text>
-  <text x="60" y="340" font-family="JetBrains Mono" font-size="20" fill="${DIM}">and DMT only surface when the plane actually reaches them.</text>
+  <text x="60" y="280" font-family="JetBrains Mono" font-size="20" fill="${DIM}">what reaches you is a flat cut through something that</text>
+  <text x="60" y="310" font-family="JetBrains Mono" font-size="20" fill="${DIM}">keeps turning where you can't see it. it passes near</text>
+  <text x="60" y="340" font-family="JetBrains Mono" font-size="20" fill="${DIM}">breathwork, ayahuasca, prayer, and DMT without slowing down.</text>
 
   <rect x="60" y="400" width="640" height="4" fill="${ACCENT2}" opacity="0.6"/>
-  <text x="60" y="460" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="${ACCENT2}">live d3 · computed off the tesseract's actual rotated edges</text>
+  <text x="60" y="460" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="${ACCENT2}">a real slice, not a stand-in for one</text>
 
   <text x="60" y="570" font-family="JetBrains Mono" font-weight="700" font-size="30" fill="${ACCENT3}">hyperqualia.bisks.net</text>
 </svg>`;

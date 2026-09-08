@@ -134,18 +134,33 @@ const ROT_PLANES = [
 let dragXW = 0;
 let dragYZ = 0;
 
+function planeTheta(p, clock) {
+  let theta = clock * p.omega;
+  if (p.key === "xw") theta += dragXW;
+  if (p.key === "yz") theta += dragYZ;
+  return theta;
+}
+
 function rotate4d(v, clock) {
   const out = v.slice();
   for (const p of ROT_PLANES) {
-    let theta = clock * p.omega;
-    if (p.key === "xw") theta += dragXW;
-    if (p.key === "yz") theta += dragYZ;
+    const theta = planeTheta(p, clock);
     const c = Math.cos(theta), s = Math.sin(theta);
     const a = out[p.i], b = out[p.j];
     out[p.i] = a * c - b * s;
     out[p.j] = a * s + b * c;
   }
   return out;
+}
+
+// The ambient/slice panels only have room to number two of the six rotation
+// planes (xw, yz — the ones drag steers). The other four have no on-page
+// readout, so the GLSL backdrop uses them as texture instead; see
+// gl-backdrop.js's uRotXY/uRotXZ/uRotYW/uRotZW.
+function currentAngles(clock) {
+  const angles = {};
+  for (const p of ROT_PLANES) angles[p.key] = planeTheta(p, clock);
+  return angles;
 }
 
 const W_DIST = 3;
@@ -292,6 +307,7 @@ function frame(nowMs) {
   const c = SLICE_AMP * Math.sin(clock * SWEEP_BASE);
   latestC = c;
   if (window.hqGlSetSlice) window.hqGlSetSlice(c);
+  if (window.hqGlSetRotation) window.hqGlSetRotation(currentAngles(clock));
 
   const rotatedVerts = BASE_VERTS.map((v) => rotate4d(v, clock));
   const rotatedInducers = INDUCERS.map((ind) => rotate4d(ind.coord, clock));

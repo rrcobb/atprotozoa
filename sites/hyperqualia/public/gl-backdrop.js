@@ -6,11 +6,18 @@
 // wisps that diffuse outward from center like a scent — flaring whenever the
 // live slice actually catches an inducer, via hqGlPulse() below.
 //
-// Pure mood layer: it never touches the tesseract's real 4D math, so the
-// exact slice + narrative in hyperqualia.js are untouched. hqGlSetSlice/
-// hqGlPulse are the only coupling points, and both are optional — if this
-// file fails to get a WebGL context, hyperqualia.js's calls to them are
-// no-ops and the page falls back to its plain CSS gradient background.
+// It used to be mood only. It now also carries the four rotation planes that
+// have no numeric readout anywhere in the SVG panels (xy, xz, yw, zw — xw and
+// yz are the two you can already see and drag), via hqGlSetRotation() below:
+// xy turns the Escher tiles' fake light directions, xz turns the grain of the
+// vein noise field, yw offsets the tile grid, zw turns the wisp's warp. Same
+// instantaneous angles the tesseract is actually spinning through — this is
+// just somewhere for them to be seen, not a second source of truth. The exact
+// slice + narrative in hyperqualia.js are still untouched by any of it.
+// hqGlSetSlice/hqGlSetRotation/hqGlPulse are the only coupling points, and all
+// are optional — if this file fails to get a WebGL context, hyperqualia.js's
+// calls to them are no-ops and the page falls back to its plain CSS gradient
+// background.
 
 const canvas = document.getElementById("glBackdrop");
 const gl = canvas && (canvas.getContext("webgl") || canvas.getContext("experimental-webgl"));
@@ -32,6 +39,15 @@ if (gl) {
     uniform vec2 uResolution;
     uniform float uSliceW;
     uniform float uPulse;
+    uniform float uRotXY;
+    uniform float uRotXZ;
+    uniform float uRotYW;
+    uniform float uRotZW;
+
+    vec2 rot2(vec2 p, float a) {
+      float c = cos(a), s = sin(a);
+      return vec2(p.x * c - p.y * s, p.x * s + p.y * c);
+    }
 
     float hash(vec2 p) {
       p = fract(p * vec2(123.34, 456.21));
@@ -52,12 +68,17 @@ if (gl) {
     }
     // Escher's trick applied to shading rather than geometry: an interlocking
     // tile grid where alternating tiles fake a different light direction, so
-    // the texture never resolves to one consistent light source.
-    float escherTile(vec2 p) {
+    // the texture never resolves to one consistent light source. rotXY turns
+    // both fake light directions together — the xy rotation plane, which has
+    // no readout of its own anywhere on the page, made visible as a slow turn
+    // of which way the light seems to come from.
+    float escherTile(vec2 p, float rotXY) {
       vec2 g = fract(p) - 0.5;
       vec2 id = floor(p);
       float sel = step(0.5, mod(id.x + id.y, 2.0));
-      vec2 lightDir = mix(vec2(0.7, 0.7), vec2(-0.7, 0.4), sel);
+      vec2 dirA = rot2(vec2(0.7, 0.7), rotXY);
+      vec2 dirB = rot2(vec2(-0.7, 0.4), rotXY);
+      vec2 lightDir = mix(dirA, dirB, sel);
       return dot(normalize(g + 0.0001), lightDir);
     }
 
@@ -67,14 +88,18 @@ if (gl) {
 
       vec3 base = mix(vec3(0.02, 0.01, 0.035), vec3(0.05, 0.035, 0.06), 0.5 + 0.5 * sin(t * 0.05));
 
-      float esch = escherTile(uv * 5.0 + 0.15 * sin(t * 0.07));
+      // yw (no readout of its own) offsets the tile grid itself.
+      float esch = escherTile(uv * 5.0 + 0.15 * sin(t * 0.07) + uRotYW * 0.4, uRotXY);
       vec3 eschColor = mix(vec3(0.03, 0.02, 0.05), vec3(0.1, 0.08, 0.11), 0.5 + 0.5 * esch);
 
-      float veinField = fbm(uv * 3.0 + vec2(0.0, t * 0.03));
+      // xz (no readout of its own) turns the grain of the vein noise field.
+      float veinField = fbm(rot2(uv, uRotXZ) * 3.0 + vec2(0.0, t * 0.03));
       float vein = max(smoothstep(0.48, 0.5, veinField) - smoothstep(0.5, 0.56, veinField), 0.0);
       vec3 veinColor = mix(vec3(0.55, 0.05, 0.35), vec3(0.05, 0.4, 0.4), 0.5 + 0.5 * sin(veinField * 8.0 + t * 0.2));
 
-      vec2 warp = uv + 0.15 * vec2(fbm(uv * 1.5 - t * 0.02), fbm(uv * 1.5 + 7.0 + t * 0.02));
+      // zw (no readout of its own) turns the wisp's underlying warp field.
+      vec2 uvZW = rot2(uv, uRotZW);
+      vec2 warp = uv + 0.15 * vec2(fbm(uvZW * 1.5 - t * 0.02), fbm(uvZW * 1.5 + 7.0 + t * 0.02));
       float wisp = fbm(warp * 2.2 + t * 0.015);
       float dist = length(uv);
       float diffuse = smoothstep(0.9, 0.0, dist) * wisp;
@@ -120,14 +145,25 @@ if (gl) {
     const uResolution = gl.getUniformLocation(prog, "uResolution");
     const uSliceW = gl.getUniformLocation(prog, "uSliceW");
     const uPulse = gl.getUniformLocation(prog, "uPulse");
+    const uRotXY = gl.getUniformLocation(prog, "uRotXY");
+    const uRotXZ = gl.getUniformLocation(prog, "uRotXZ");
+    const uRotYW = gl.getUniformLocation(prog, "uRotYW");
+    const uRotZW = gl.getUniformLocation(prog, "uRotZW");
 
     let sliceW = 0;
     let pulse = 0;
+    let rotXY = 0, rotXZ = 0, rotYW = 0, rotZW = 0;
     let lastMs = null;
 
     // hyperqualia.js calls these every frame / on each inducer hit — the
-    // only coupling between the exact tesseract math and this mood layer.
+    // only coupling between the exact tesseract math and this backdrop.
     window.hqGlSetSlice = (c) => { sliceW = c; };
+    window.hqGlSetRotation = (angles) => {
+      rotXY = angles.xy || 0;
+      rotXZ = angles.xz || 0;
+      rotYW = angles.yw || 0;
+      rotZW = angles.zw || 0;
+    };
     window.hqGlPulse = () => { pulse = 1; };
 
     function resize() {
@@ -150,6 +186,10 @@ if (gl) {
       gl.uniform2f(uResolution, canvas.width, canvas.height);
       gl.uniform1f(uSliceW, sliceW);
       gl.uniform1f(uPulse, pulse);
+      gl.uniform1f(uRotXY, rotXY);
+      gl.uniform1f(uRotXZ, rotXZ);
+      gl.uniform1f(uRotYW, rotYW);
+      gl.uniform1f(uRotZW, rotZW);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
     requestAnimationFrame(draw);
