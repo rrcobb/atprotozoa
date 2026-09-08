@@ -22,6 +22,8 @@ type Exhibit = {
   medium: string;
   tradition: string;
   reception: string;
+  image?: string;
+  imageCredit?: string;
 };
 
 const EXHIBITS = exhibits as Exhibit[];
