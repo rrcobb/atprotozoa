@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>macpaint — paint like it's 1984, or teach an LLM to</title>
+<meta name="description" content="A 1-bit MacPaint tribute: pencil, bucket, spray can, and a Bayer-dither pattern palette, right in your browser. Also speaks a tiny text drawing language so an LLM can paint by writing a script instead of diffusing pixels." />
+<meta property="og:title" content="macpaint — paint like it's 1984, or teach an LLM to" />
+<meta property="og:description" content="A 1-bit MacPaint tribute with pencil, bucket, spray can, and dither patterns — plus a tiny text drawing language so an LLM can paint without a diffusion model." />
+<meta property="og:url" content="https://macpaint.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://macpaint.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="macpaint: a black-and-white paint program styled after 1984 MacPaint, with a dither-pattern palette and a script panel." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="macpaint — paint like it's 1984, or teach an LLM to" />
+<meta name="twitter:description" content="A 1-bit MacPaint tribute with pencil, bucket, spray can, and dither patterns — plus a tiny text drawing language so an LLM can paint without a diffusion model." />
+<meta name="twitter:image" content="https://macpaint.bisks.net/og.png" />
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: #bfbfbf;
+    color: #000;
+    font-family: Geneva, Verdana, "Segoe UI", sans-serif;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 1.5rem 1rem 3rem; }
+  .wrap { width: 100%; max-width: 1040px; }
+
+  h1 { font-size: 1.4rem; margin: 0 0 0.2rem; }
+  .tag { color: #333; font-size: 0.85rem; margin: 0 0 1rem; line-height: 1.5; max-width: 62ch; }
+  .tag a { color: #06c; }
+  .tag .credit { color: #555; }
+
+  .mac-window {
+    background: #fff;
+    border: 2px solid #000;
+    border-radius: 6px 6px 0 0;
+    overflow: hidden;
+  }
+  .title-bar {
+    position: relative;
+    height: 22px;
+    background: repeating-linear-gradient(#000 0, #000 2px, #fff 2px, #fff 4px);
+    border-bottom: 2px solid #000;
+    display: flex;
+    align-items: center;
+  }
+  .title-bar .close-box {
+    width: 12px; height: 12px; margin-left: 8px;
+    background: #fff; border: 2px solid #000;
+  }
+  .title-bar .title {
+    position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+    background: #fff; padding: 0 10px; height: 100%;
+    display: flex; align-items: center;
+    font-weight: bold; font-size: 0.85rem; letter-spacing: 0.02em;
+  }
+
+  .app-body {
+    display: flex; flex-wrap: wrap; gap: 0.75rem;
+    padding: 0.75rem; background: #ddd;
+  }
+
+  .toolbox {
+    display: grid; grid-template-columns: repeat(2, 34px);
+    gap: 3px; align-content: start;
+    background: #fff; border: 2px solid #000; padding: 4px;
+  }
+  .tool {
+    width: 34px; height: 30px;
+    background: #fff; border: 1px solid #000; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; padding: 0;
+  }
+  .tool.active { background: #000; color: #fff; }
+  .tool svg { width: 20px; height: 20px; }
+  .tool.active svg { filter: invert(1); }
+
+  .brush-size {
+    grid-column: span 2; display: flex; align-items: center; gap: 4px;
+    font-size: 0.65rem; padding: 4px 2px 2px;
+  }
+  .brush-size input { flex: 1; }
+
+  .canvas-col { display: flex; flex-direction: column; gap: 0.5rem; flex: 1; min-width: 280px; }
+
+  .canvas-frame {
+    border: 2px solid #000; background: #fff; align-self: flex-start;
+    width: 100%; max-width: 1024px;
+  }
+  #canvas {
+    display: block; width: 100%; height: auto;
+    image-rendering: pixelated; image-rendering: crisp-edges;
+    cursor: crosshair;
+    touch-action: none;
+  }
+
+  .toolbar-row { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+  button.chrome, select.chrome {
+    background: #fff; border: 1.5px solid #000; padding: 0.3rem 0.6rem;
+    font-family: inherit; font-size: 0.75rem; cursor: pointer; border-radius: 3px;
+  }
+  button.chrome:hover { background: #eee; }
+  button.chrome:disabled { opacity: 0.5; cursor: default; }
+
+  .palette-col { display: flex; flex-direction: column; gap: 4px; }
+  #palette {
+    display: grid; grid-template-columns: repeat(4, 26px);
+    gap: 2px; background: #fff; border: 2px solid #000; padding: 4px;
+  }
+  .swatch {
+    width: 26px; height: 26px; padding: 0; border: 1px solid #000; cursor: pointer; background: #fff;
+  }
+  .swatch.active { border: 3px solid #06c; }
+  .swatch canvas { width: 100%; height: 100%; image-rendering: pixelated; display: block; }
+
+  .panel {
+    margin-top: 1rem; background: #fff; border: 2px solid #000; padding: 0.9rem;
+  }
+  .panel h2 { font-size: 0.95rem; margin: 0 0 0.4rem; }
+  .panel p.hint { font-size: 0.75rem; color: #333; margin: 0.2rem 0 0.6rem; line-height: 1.5; }
+  .panel .row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.55rem; align-items: center; }
+  .panel input[type="text"], .panel textarea {
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.78rem;
+    border: 1.5px solid #000; border-radius: 3px; padding: 0.4rem;
+  }
+  .panel input[type="text"] { flex: 1; min-width: 180px; }
+  .panel textarea { width: 100%; min-height: 130px; resize: vertical; }
+  #scriptLog { font-size: 0.72rem; color: #333; white-space: pre-wrap; margin-top: 0.4rem; min-height: 1em; }
+  #copyStatus { font-size: 0.72rem; color: #060; }
+
+  footer {
+    margin-top: 1.2rem; font-size: 0.75rem; color: #333; text-align: center; max-width: 62ch;
+  }
+  footer a { color: #06c; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>macpaint</h1>
+  <p class="tag">
+    A 1-bit paint program in the spirit of 1984's MacPaint — pencil, bucket, spray can,
+    and a dither-pattern palette standing in for gray. It also speaks a tiny text
+    <em>drawing language</em>, so an LLM (or you) can paint by writing a script instead of
+    diffusing pixels. No diffusion model here — just dithering.
+    <span class="credit">Asked for by <a href="https://bsky.app/profile/evelyn.willalways.top">@evelyn.willalways.top</a>, seconded by <a href="https://bsky.app/profile/bisks.net">@bisks.net</a>.</span>
+  </p>
+
+  <div class="mac-window">
+    <div class="title-bar">
+      <div class="close-box"></div>
+      <div class="title">macpaint</div>
+    </div>
+    <div class="app-body">
+      <div class="toolbox" id="toolbox">
+        <button class="tool" type="button" data-tool="pencil" title="Pencil">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2"><path d="M4 20 L6 14 L16 4 L20 8 L10 18 Z"/><path d="M14 6 L18 10"/></svg>
+        </button>
+        <button class="tool" type="button" data-tool="brush" title="Brush">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2"><path d="M5 19c0-3 2-5 5-5s3 2 3-1-2-4-2-7a3 3 0 016 0c0 5-3 6-3 10 0 2 2 3 2 3"/></svg>
+        </button>
+        <button class="tool" type="button" data-tool="eraser" title="Eraser">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2"><rect x="5" y="10" width="14" height="8" rx="1" transform="rotate(-15 12 14)"/></svg>
+        </button>
+        <button class="tool" type="button" data-tool="spray" title="Spray can">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.6"><rect x="9" y="9" width="7" height="12" rx="1"/><path d="M11 9V6h3v3"/><circle cx="5" cy="6" r="1"/><circle cx="6" cy="10" r="1"/><circle cx="4" cy="12" r="1"/></svg>
+        </button>
+        <button class="tool" type="button" data-tool="bucket" title="Bucket fill">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.8"><path d="M3 11l8-8 9 9-8 8z"/><path d="M6 9h10"/><circle cx="19" cy="18" r="2.2"/></svg>
+        </button>
+        <button class="tool" type="button" data-tool="text" title="Text">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2"><path d="M5 6h14M12 6v13"/></svg>
+        </button>
+        <button class="tool" type="button" data-tool="line" title="Line">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2"><path d="M4 20 L20 4"/></svg>
+        </button>
+        <button class="tool" type="button" data-tool="rect" title="Rectangle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2"><rect x="4" y="6" width="16" height="12"/></svg>
+        </button>
+        <button class="tool" type="button" data-tool="rectFill" title="Filled rectangle">
+          <svg viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2"><rect x="4" y="6" width="16" height="12"/></svg>
+        </button>
+        <button class="tool" type="button" data-tool="oval" title="Oval">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2"><ellipse cx="12" cy="12" rx="9" ry="6.5"/></svg>
+        </button>
+        <button class="tool" type="button" data-tool="ovalFill" title="Filled oval">
+          <svg viewBox="0 0 24 24" fill="#000" stroke="#000" stroke-width="2"><ellipse cx="12" cy="12" rx="9" ry="6.5"/></svg>
+        </button>
+        <div class="brush-size">
+          <span>size</span>
+          <input type="range" id="brushSize" min="1" max="16" value="3" />
+        </div>
+      </div>
+
+      <div class="canvas-col">
+        <div class="toolbar-row">
+          <button class="chrome" id="undoBtn" type="button">Undo (⌘Z)</button>
+          <button class="chrome" id="clearBtn" type="button">New / Clear</button>
+          <button class="chrome" id="saveBtn" type="button">Save PNG</button>
+          <a class="chrome" id="shareBtn" href="#" target="_blank" rel="noopener" style="text-decoration:none; display:inline-block;">Share to Bluesky</a>
+        </div>
+        <div class="canvas-frame">
+          <canvas id="canvas"></canvas>
+        </div>
+      </div>
+
+      <div class="palette-col">
+        <div id="palette"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Teach an LLM to paint</h2>
+    <p class="hint">
+      Describe what you want, copy the prompt below into Claude, ChatGPT, or whatever
+      you've got open, and paste back whatever it writes. It's a script in a tiny
+      drawing language (PATTERN, LINE, RECT, OVAL, POLY, FILLAT, SPRAY, TEXT...) — the
+      canvas plays it back stroke by stroke. No image model involved anywhere.
+    </p>
+    <div class="row">
+      <input type="text" id="askInput" placeholder="what should it draw? e.g. a lighthouse in a storm" />
+      <button class="chrome" id="copyPromptBtn" type="button">Copy LLM prompt</button>
+      <span id="copyStatus"></span>
+    </div>
+    <div class="row">
+      <select class="chrome" id="exampleSelect"><option value="">— or try an example —</option></select>
+    </div>
+    <textarea id="scriptInput" placeholder="PATTERN 16&#10;CLEAR&#10;RECT 100 100 300 140 FILL&#10;..."></textarea>
+    <div class="row" style="margin-top:0.5rem;">
+      <select class="chrome" id="speedSelect">
+        <option value="watch">Watch it draw</option>
+        <option value="instant">Instant</option>
+      </select>
+      <button class="chrome" id="runBtn" type="button">Run script</button>
+      <button class="chrome" id="stopBtn" type="button" style="display:none;">Stop</button>
+    </div>
+    <div id="scriptLog"></div>
+  </div>
+
+  <footer>
+    Downloading gives you a 3x-scaled PNG — Bluesky's share link can't attach it
+    automatically, so grab the file first if you want it in your post.
+    <br />
+    <a href="https://rateyourbuild.bisks.net/site/macpaint">rate this on rateyourbuild →</a>
+    &nbsp;·&nbsp;
+    <a href="https://bisks.net/">back to the constellation</a>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
