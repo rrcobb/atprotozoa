@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>conjecturemill — working through the backlog</title>
+<meta name="description" content="A bot that grinds through a backlog of mathematical claims in your browser, running real primality and search checks, disproving whatever it can. Target: no conjectures left by 2030." />
+<meta property="og:title" content="conjecturemill — working through the backlog" />
+<meta property="og:description" content="A bot that grinds through a backlog of mathematical claims in your browser, running real primality and search checks, disproving whatever it can." />
+<meta property="og:url" content="https://conjecturemill.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://conjecturemill.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="conjecturemill: a conveyor belt of mathematical claims, some crossed out as disproven, one currently being ground through." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="conjecturemill — working through the backlog" />
+<meta name="twitter:description" content="A bot that grinds through a backlog of mathematical claims in your browser, disproving whatever it can. No conjectures left by 2030 (working on it)." />
+<meta name="twitter:image" content="https://conjecturemill.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0c0b0a;
+    --bg2: #17140f;
+    --fg: #f1ece1;
+    --dim: #9c9184;
+    --accent: #ffb020;
+    --accent2: #ff5a3c;
+    --good: #7fd88f;
+    --card: #1c1811;
+    --border: #362e22;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100%; }
+  body {
+    background:
+      radial-gradient(ellipse at 15% -10%, #3a2408 0%, transparent 55%),
+      radial-gradient(ellipse at 100% 0%, #2a120a 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2.75rem 1.1rem 4rem;
+  }
+  .wrap { width: 100%; max-width: 880px; }
+  header { margin-bottom: 1.75rem; }
+  h1 {
+    font-size: 2.1rem;
+    line-height: 1.2;
+    margin: 0 0 0.4rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tagline { color: var(--dim); font-size: 0.94rem; line-height: 1.55; margin: 0 0 0.9rem; max-width: 62ch; }
+  .tagline b { color: var(--fg); }
+  .countdown { color: var(--dim); font-size: 0.8rem; margin: 0 0 1.4rem; }
+  .countdown b { color: var(--accent); }
+
+  .statbar {
+    display: flex; flex-wrap: wrap; gap: 0.6rem 1.4rem;
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.85rem 1.1rem; margin-bottom: 1.6rem; font-size: 0.82rem;
+  }
+  .stat .n { color: var(--accent); font-weight: 700; font-size: 1.02rem; }
+  .stat .l { color: var(--dim); }
+
+  .grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 1.1rem; }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 1.1rem 1.2rem 1.2rem;
+  }
+  .panel h2 {
+    font-size: 0.74rem; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--dim); margin: 0 0 0.75rem;
+  }
+
+  .now-statement { font-size: 1.02rem; line-height: 1.5; margin: 0 0 0.35rem; }
+  .now-meta { color: var(--dim); font-size: 0.78rem; margin-bottom: 0.9rem; }
+  .now-meta .kind-open { color: #6fb2ff; }
+  .now-meta .kind-fake { color: var(--accent2); }
+
+  .bar-track { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; margin-bottom: 0.9rem; }
+  .bar-fill {
+    height: 100%; width: 30%; border-radius: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    animation: grind 1.15s ease-in-out infinite;
+  }
+  @keyframes grind {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(330%); }
+  }
+  .bar-fill.done { animation: none; width: 100%; transform: none; }
+
+  .console {
+    background: #0a0906; border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.7rem 0.85rem; font-size: 0.78rem; line-height: 1.65;
+    height: 170px; overflow-y: auto; color: #cfead3;
+  }
+  .console .line { opacity: 0; animation: fadein 0.25s ease forwards; }
+  .console .line.win { color: var(--good); font-weight: 700; }
+  @keyframes fadein { to { opacity: 1; } }
+
+  .controls { display: flex; gap: 0.5rem; margin-top: 0.9rem; }
+  button {
+    background: var(--bg2); color: var(--fg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 0.5rem 0.85rem; font: inherit; font-size: 0.78rem;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #1a0f00; font-weight: 700; border: none; }
+
+  ul.list { list-style: none; margin: 0; padding: 0; }
+  .list li {
+    padding: 0.55rem 0; border-bottom: 1px solid var(--border); font-size: 0.83rem; line-height: 1.4;
+  }
+  .list li:last-child { border-bottom: none; }
+  .list .idx { color: var(--dim); font-size: 0.72rem; margin-right: 0.35rem; }
+
+  .archive-item { padding: 0.7rem 0; border-bottom: 1px solid var(--border); }
+  .archive-item:last-child { border-bottom: none; }
+  .archive-item .claim { text-decoration: line-through; color: var(--dim); font-size: 0.83rem; }
+  .archive-item .proof { color: var(--good); font-size: 0.78rem; margin-top: 0.25rem; }
+
+  .side-panels { display: flex; flex-direction: column; gap: 1.1rem; }
+  .empty-note { color: var(--dim); font-size: 0.8rem; font-style: italic; }
+
+  .share-row { display: flex; align-items: center; gap: 0.6rem; margin-top: 1.6rem; flex-wrap: wrap; }
+  .share-row a { color: var(--accent); text-decoration: none; font-size: 0.82rem; border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.85rem; }
+  .share-row a:hover { border-color: var(--accent); }
+  canvas#cardCanvas { display: none; }
+
+  footer { margin-top: 2.5rem; color: var(--dim); font-size: 0.76rem; line-height: 1.8; text-align: center; }
+  footer a { color: var(--dim); }
+  footer a:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>conjecture<wbr>mill</h1>
+    <p class="tagline">
+      a bot that works through the backlog of claims,
+      disproving them if possible. every check below runs for real, in your browser, right now —
+      <b>real primality tests, real hailstone sequences, real counterexamples</b>, not a canned animation.
+      an idea from <a href="https://bsky.app/profile/garrison.corporate.fm" style="color:inherit">@garrison.corporate.fm</a>,
+      forwarded by <a href="https://bsky.app/profile/norvid-studies.bsky.social" style="color:inherit">@norvid-studies.bsky.social</a>.
+    </p>
+    <p class="countdown" id="countdown"></p>
+  </header>
+
+  <div class="statbar" id="statbar"></div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>currently grinding</h2>
+      <p class="now-statement" id="nowStatement">loading backlog…</p>
+      <p class="now-meta" id="nowMeta"></p>
+      <div class="bar-track"><div class="bar-fill" id="barFill"></div></div>
+      <div class="console" id="console"></div>
+      <div class="controls">
+        <button class="primary" id="grindNow">grind now</button>
+        <button id="pauseBtn">pause</button>
+      </div>
+    </div>
+
+    <div class="side-panels">
+      <div class="panel">
+        <h2>backlog (<span id="backlogCount">0</span>)</h2>
+        <ul class="list" id="queueList"></ul>
+      </div>
+      <div class="panel">
+        <h2>disproven (<span id="archiveCount">0</span>)</h2>
+        <div id="archiveList"><p class="empty-note">nothing knocked off the list yet.</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="share-row">
+    <a href="#" id="shareBluesky" target="_blank" rel="noopener">share on bluesky</a>
+    <a href="#" id="downloadCard">download card</a>
+    <a href="https://rateyourbuild.bisks.net/site/conjecturemill">rate this on rateyourbuild →</a>
+  </div>
+  <canvas id="cardCanvas" width="1200" height="630"></canvas>
+
+  <footer>
+    conjecturemill.bisks.net — part of the <a href="https://bisks.net">bisks.net</a> constellation.<br />
+    progress is saved to this browser only; open it on another device and the mill starts a fresh backlog.
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- number theory helpers (all real, no lookup tables) -----------------
+  function isPrime(n) {
+    if (n < 2) return false;
+    if (n % 2 === 0) return n === 2;
+    if (n % 3 === 0) return n === 3;
+    for (let i = 5; i * i <= n; i += 6) {
+      if (n % i === 0 || n % (i + 2) === 0) return false;
+    }
+    return true;
+  }
+  function smallestFactor(n) {
+    for (let i = 2; i * i <= n; i++) if (n % i === 0) return i;
+    return n;
+  }
+  function isPerfectSquare(x) {
+    const s = Math.round(Math.sqrt(x));
+    return s * s === x;
+  }
+  function isTriangular(x) {
+    if (x < 0) return false;
+    const s = Math.round(Math.sqrt(8 * x + 1));
+    return s * s === 8 * x + 1 && (s - 1) % 2 === 0;
+  }
+  function reverseNum(n) {
+    return parseInt(String(n).split("").reverse().join(""), 10);
+  }
+
+  // A tick is time-boxed, not count-boxed: it keeps checking real numbers
+  // until it's spent this many milliseconds, then reports what it verified
+  // and yields back to the browser. The number grows or shrinks per
+  // conjecture on its own as trial division gets more expensive on larger
+  // inputs — no arbitrary "check N items" cap needed.
+  const TIME_BUDGET_MS = 120;
+  const now = () => performance.now();
+
+  // ---- checkers: {done, state, logs?, headline?} ---------------------------
+  // "open" checkers extend real verified ranges of famous open conjectures.
+  // They are not expected to ever return done:true (that would be a genuine
+  // mathematical discovery) but the code path exists honestly in case it does.
+  // "fake" checkers hunt for a counterexample to a claim that is actually
+  // false, and resolve quickly because the smallest counterexample is small.
+
+  function stepGoldbach(state) {
+    let n = state.checked || 2;
+    const t0 = now();
+    while (now() - t0 < TIME_BUDGET_MS) {
+      n += 2;
+      let found = false;
+      for (let p = 2; p <= n / 2; p++) {
+        if (isPrime(p) && isPrime(n - p)) { found = true; break; }
+      }
+      if (!found) return { done: true, counterexample: { n: n }, state: { checked: n - 2 } };
+    }
+    return { done: false, state: { checked: n }, headline: "verified every even n up to " + n.toLocaleString() };
+  }
+
+  function stepCollatz(state) {
+    let n = state.checked || 0;
+    const t0 = now();
+    const STEP_CAP = 100000; // a trajectory this long would itself be a landmark result, not normal
+    while (now() - t0 < TIME_BUDGET_MS) {
+      n += 1;
+      let x = n, steps = 0;
+      while (x !== 1 && steps < STEP_CAP) { x = x % 2 === 0 ? x / 2 : 3 * x + 1; steps++; }
+      if (x !== 1) return { done: true, counterexample: { n: n, steps: steps }, state: { checked: n - 1 } };
+    }
+    return { done: false, state: { checked: n }, headline: "verified every n up to " + n.toLocaleString() + " reaches 1" };
+  }
+
+  function stepLegendre(state) {
+    let n = state.checked || 1;
+    const t0 = now();
+    while (now() - t0 < TIME_BUDGET_MS) {
+      n += 1;
+      const lo = n * n, hi = (n + 1) * (n + 1);
+      let found = false;
+      for (let k = lo + 1; k < hi; k++) { if (isPrime(k)) { found = true; break; } }
+      if (!found) return { done: true, counterexample: { n: n }, state: { checked: n - 1 } };
+    }
+    return { done: false, state: { checked: n }, headline: "verified a prime between n² and (n+1)² for every n up to " + n.toLocaleString() };
+  }
+
+  function stepAndrica(state) {
+    let cur = state.lastPrime || 2;
+    let count = state.count || 1;
+    const t0 = now();
+    while (now() - t0 < TIME_BUDGET_MS) {
+      let next = cur + 1;
+      while (!isPrime(next)) next++;
+      const gap = Math.sqrt(next) - Math.sqrt(cur);
+      if (gap >= 1) return { done: true, counterexample: { p: cur, q: next, gap: gap }, state: { lastPrime: cur, count: count } };
+      cur = next; count++;
+    }
+    return { done: false, state: { lastPrime: cur, count: count }, headline: "verified for the first " + count.toLocaleString() + " primes (up to " + cur.toLocaleString() + ")" };
+  }
+
+  function stepLemoine(state) {
+    let n = state.checked || 5;
+    const t0 = now();
+    while (now() - t0 < TIME_BUDGET_MS) {
+      n += 2;
+      let found = false;
+      for (let q = 2; 2 * q < n; q++) { if (isPrime(q) && isPrime(n - 2 * q)) { found = true; break; } }
+      if (!found) return { done: true, counterexample: { n: n }, state: { checked: n - 2 } };
+    }
+    return { done: false, state: { checked: n }, headline: "verified every odd n up to " + n.toLocaleString() };
+  }
+
+  function stepEuler41(state) {
+    let n = state.checked === undefined ? -1 : state.checked;
+    const logs = [];
+    const t0 = now();
+    while (now() - t0 < TIME_BUDGET_MS) {
+      n += 1;
+      const v = n * n + n + 41;
+      logs.push("n=" + n + ": " + n + "²+" + n + "+41 = " + v);
+      if (!isPrime(v)) {
+        return { done: true, counterexample: { n: n, v: v, factor: smallestFactor(v) }, state: { checked: n }, logs: logs };
+      }
+    }
+    return { done: false, state: { checked: n }, logs: logs };
+  }
+
+  function stepMult6to9(state) {
+    let n = state.checked || 0;
+    const logs = [];
+    n += 6;
+    logs.push("n=" + n + ": divisible by 6, divisible by 9? " + (n % 9 === 0));
+    if (n % 9 !== 0) return { done: true, counterexample: { n: n }, state: { checked: n - 6 }, logs: logs };
+    return { done: false, state: { checked: n }, logs: logs };
+  }
+
+  function stepFibonacci(state) {
+    let k = state.k || 2, a = 1, b = 1; // F(1)=1, F(2)=1
+    const logs = [];
+    const t0 = now();
+    while (now() - t0 < TIME_BUDGET_MS) {
+      const next = a + b; a = b; b = next; k++;
+      logs.push("F(" + k + ") = " + b + " — prime? " + isPrime(b));
+      if (!isPrime(b)) return { done: true, counterexample: { k: k, v: b }, state: { k: k, a: a, b: b }, logs: logs };
+    }
+    return { done: false, state: { k: k, a: a, b: b }, logs: logs };
+  }
+
+  function stepOddSum(state) {
+    let n = state.checked || 0;
+    const logs = [];
+    const t0 = now();
+    while (now() - t0 < TIME_BUDGET_MS) {
+      n += 1;
+      const sum = n * n;
+      const tri = isTriangular(sum);
+      logs.push("sum of first " + n + " odd numbers = " + sum + " — triangular? " + tri);
+      if (!tri) return { done: true, counterexample: { n: n, sum: sum }, state: { checked: n - 1 }, logs: logs };
+    }
+    return { done: false, state: { checked: n }, logs: logs };
+  }
+
+  function stepReversePrime(state) {
+    let n = state.checked || 10;
+    const logs = [];
+    const t0 = now();
+    while (now() - t0 < TIME_BUDGET_MS) {
+      n += 1;
+      if (!isPrime(n)) continue;
+      const r = reverseNum(n);
+      const rPrime = isPrime(r);
+      logs.push(n + " reversed is " + r + " — prime? " + rPrime);
+      if (!rPrime) return { done: true, counterexample: { n: n, r: r }, state: { checked: n }, logs: logs };
+    }
+    return { done: false, state: { checked: n }, logs: logs };
+  }
+
+  function stepMersenne(state) {
+    let n = state.checked || 1;
+    const logs = [];
+    const t0 = now();
+    while (now() - t0 < TIME_BUDGET_MS) {
+      n += 1;
+      if (!isPrime(n)) continue;
+      const v = Math.pow(2, n) - 1;
+      const vPrime = isPrime(v);
+      logs.push("n=" + n + " (prime): 2^" + n + "-1 = " + v + " — prime? " + vPrime);
+      if (!vPrime) return { done: true, counterexample: { n: n, v: v, factor: smallestFactor(v) }, state: { checked: n }, logs: logs };
+    }
+    return { done: false, state: { checked: n }, logs: logs };
+  }
+
+  function stepDivBy5(state) {
+    let n = state.checked || 0;
+    const logs = [];
+    const t0 = now();
+    while (now() - t0 < TIME_BUDGET_MS) {
+      n += 1;
+      const v = n * n + 1;
+      const div = v % 5 === 0;
+      logs.push("n=" + n + ": " + n + "²+1 = " + v + " — divisible by 5? " + div);
+      if (div) return { done: true, counterexample: { n: n, v: v }, state: { checked: n - 1 }, logs: logs };
+    }
+    return { done: false, state: { checked: n }, logs: logs };
+  }
+
+  function stepTriangularSquare(state) {
+    let k = state.checked || 0;
+    const logs = [];
+    const t0 = now();
+    while (now() - t0 < TIME_BUDGET_MS) {
+      k += 1;
+      const t = (k * (k + 1)) / 2;
+      const ok = isPrime(t) || isPerfectSquare(t);
+      logs.push("T(" + k + ") = " + t + " — prime or square? " + ok);
+      if (!ok) return { done: true, counterexample: { k: k, t: t }, state: { checked: k - 1 }, logs: logs };
+    }
+    return { done: false, state: { checked: k }, logs: logs };
+  }
+
+  // ---- the backlog ---------------------------------------------------------
+  const DATA = [
+    { id: "goldbach", kind: "open", source: "Goldbach, 1742", statement: "Every even integer greater than 2 is the sum of two primes.", step: stepGoldbach },
+    { id: "collatz", kind: "open", source: "Collatz, 1937", statement: "Starting from any positive integer and repeatedly applying n→n/2 (even) or n→3n+1 (odd), you always eventually reach 1.", step: stepCollatz },
+    { id: "legendre", kind: "open", source: "Legendre", statement: "There is always at least one prime between n² and (n+1)², for every positive integer n.", step: stepLegendre },
+    { id: "andrica", kind: "open", source: "Andrica, 1985", statement: "For consecutive primes pₙ and pₙ₊₁, √pₙ₊₁ − √pₙ is always less than 1.", step: stepAndrica },
+    { id: "lemoine", kind: "open", source: "Lemoine, 1894", statement: "Every odd integer greater than 5 can be written as p + 2q, for primes p and q.", step: stepLemoine },
+    { id: "euler41", kind: "fake", source: "misquoted Euler", statement: "n² + n + 41 is prime for every whole number n.", step: stepEuler41 },
+    { id: "mult6to9", kind: "fake", source: "arithmetic myth", statement: "Every multiple of 6 is also a multiple of 9.", step: stepMult6to9 },
+    { id: "fibprime", kind: "fake", source: "Fibonacci myth", statement: "Every Fibonacci number past the first couple is prime.", step: stepFibonacci },
+    { id: "oddsumtri", kind: "fake", source: "arithmetic myth", statement: "The sum of the first n odd numbers is always a triangular number.", step: stepOddSum },
+    { id: "revprime", kind: "fake", source: "digit-reversal myth", statement: "Reverse the digits of a prime number and you always get another prime.", step: stepReversePrime },
+    { id: "mersenne", kind: "fake", source: "Mersenne myth", statement: "2ⁿ − 1 is prime whenever n itself is prime.", step: stepMersenne },
+    { id: "divby5", kind: "fake", source: "arithmetic myth", statement: "n² + 1 is never divisible by 5.", step: stepDivBy5 },
+    { id: "trisq", kind: "fake", source: "arithmetic myth", statement: "Every triangular number is either prime or a perfect square.", step: stepTriangularSquare },
+  ];
+  const BY_ID = {};
+  DATA.forEach((d) => (BY_ID[d.id] = d));
+
+  // ---- persistence ----------------------------------------------------------
+  const STORE_KEY = "conjecturemill.v1";
+  function loadState() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return {
+      queue: DATA.map((d) => d.id),
+      archive: [],
+      progress: {},
+      totalTicks: 0,
+      startedAt: new Date().toISOString(),
+    };
+  }
+  function saveState() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+  }
+  const state = loadState();
+
+  // ---- rendering --------------------------------------------------------
+  const els = {
+    nowStatement: document.getElementById("nowStatement"),
+    nowMeta: document.getElementById("nowMeta"),
+    barFill: document.getElementById("barFill"),
+    console: document.getElementById("console"),
+    queueList: document.getElementById("queueList"),
+    archiveList: document.getElementById("archiveList"),
+    backlogCount: document.getElementById("backlogCount"),
+    archiveCount: document.getElementById("archiveCount"),
+    statbar: document.getElementById("statbar"),
+    countdown: document.getElementById("countdown"),
+    grindNow: document.getElementById("grindNow"),
+    pauseBtn: document.getElementById("pauseBtn"),
+  };
+
+  function logLine(text, cls) {
+    const p = document.createElement("div");
+    p.className = "line" + (cls ? " " + cls : "");
+    p.textContent = text;
+    els.console.appendChild(p);
+    while (els.console.children.length > 200) els.console.removeChild(els.console.firstChild);
+    els.console.scrollTop = els.console.scrollHeight;
+  }
+
+  function renderStats() {
+    const openLeft = state.queue.filter((id) => BY_ID[id].kind === "open").length;
+    const fakeLeft = state.queue.filter((id) => BY_ID[id].kind === "fake").length;
+    els.statbar.innerHTML =
+      stat(state.archive.length, "disproven") +
+      stat(fakeLeft, "unverified claims left") +
+      stat(openLeft, "genuinely open (may never clear)") +
+      stat(state.totalTicks, "checks run this browser");
+    function stat(n, l) { return '<div class="stat"><span class="n">' + n + "</span> <span class=\"l\">" + l + "</span></div>"; }
+    els.backlogCount.textContent = state.queue.length;
+    els.archiveCount.textContent = state.archive.length;
+  }
+
+  function renderQueue() {
+    els.queueList.innerHTML = "";
+    state.queue.slice(1, 9).forEach((id, i) => {
+      const d = BY_ID[id];
+      const li = document.createElement("li");
+      li.innerHTML = '<span class="idx">#' + (i + 2) + "</span>" + d.statement;
+      els.queueList.appendChild(li);
+    });
+    if (state.queue.length <= 1) {
+      const li = document.createElement("li");
+      li.textContent = "nothing else waiting.";
+      els.queueList.appendChild(li);
+    }
+  }
+
+  function renderArchive() {
+    if (!state.archive.length) {
+      els.archiveList.innerHTML = '<p class="empty-note">nothing knocked off the list yet.</p>';
+      return;
+    }
+    els.archiveList.innerHTML = "";
+    state.archive.slice(0, 12).forEach((a) => {
+      const d = BY_ID[a.id];
+      const div = document.createElement("div");
+      div.className = "archive-item";
+      div.innerHTML =
+        '<div class="claim">' + d.statement + "</div>" +
+        '<div class="proof">✗ ' + a.proof + "</div>";
+      els.archiveList.appendChild(div);
+    });
+  }
+
+  function renderCountdown() {
+    const target = new Date("2030-01-01T00:00:00Z").getTime();
+    const days = Math.max(0, Math.ceil((target - Date.now()) / 86400000));
+    els.countdown.innerHTML = "target: <b>no conjectures left by 2030</b> — " + days.toLocaleString() + " days left, " + state.archive.length + " down so far.";
+  }
+
+  function proofText(d, out) {
+    const c = out.counterexample;
+    switch (d.id) {
+      case "euler41": return "n=" + c.n + " gives " + c.v + " = " + c.factor + " × " + (c.v / c.factor) + ", composite.";
+      case "mult6to9": return c.n + " is a multiple of 6 but not of 9.";
+      case "fibprime": return "F(" + c.k + ") = " + c.v + ", not prime.";
+      case "oddsumtri": return "sum of the first " + c.n + " odd numbers is " + c.sum + ", not triangular.";
+      case "revprime": return c.n + " is prime, but reversed it's " + c.r + ", which isn't.";
+      case "mersenne": return "n=" + c.n + " is prime, but 2^" + c.n + "-1 = " + c.v + " = " + c.factor + " × " + (c.v / c.factor) + ".";
+      case "divby5": return "n=" + c.n + " gives " + c.v + ", divisible by 5.";
+      case "trisq": return "T(" + c.k + ") = " + c.t + " is neither prime nor a perfect square.";
+      default: return "counterexample found at " + JSON.stringify(c);
+    }
+  }
+
+  // ---- the grind loop -------------------------------------------------------
+  let paused = false;
+  let timer = null;
+
+  function scheduleNext(delayMs) {
+    if (timer) clearTimeout(timer);
+    if (paused) return;
+    timer = setTimeout(tick, delayMs);
+  }
+
+  function tick() {
+    if (!state.queue.length) { renderAll(); return; }
+    const id = state.queue[0];
+    const d = BY_ID[id];
+    els.nowStatement.textContent = d.statement;
+    els.nowMeta.innerHTML = '<span class="kind-' + d.kind + '">' + (d.kind === "open" ? "open conjecture" : "unverified claim") + "</span> — " + d.source;
+    els.barFill.classList.remove("done");
+    els.console.innerHTML = "";
+
+    const prevProgress = state.progress[id] || {};
+    const out = d.step(prevProgress);
+    state.progress[id] = out.state;
+    state.totalTicks++;
+
+    const reveal = (out.logs && out.logs.length) ? out.logs.slice(-10) : [];
+    let i = 0;
+    function revealNext() {
+      if (i < reveal.length) {
+        logLine(reveal[i]);
+        i++;
+        setTimeout(revealNext, 140);
+        return;
+      }
+      finishTick();
+    }
+    if (reveal.length) {
+      revealNext();
+    } else {
+      if (out.headline) logLine(out.headline);
+      finishTick();
+    }
+
+    function finishTick() {
+      els.barFill.classList.add("done");
+      if (out.done) {
+        const proof = proofText(d, out);
+        logLine("DISPROVEN — " + proof, "win");
+        state.queue.shift();
+        state.archive.unshift({ id: id, proof: proof, at: new Date().toISOString() });
+      } else {
+        state.queue.push(state.queue.shift());
+      }
+      saveState();
+      renderAll();
+      scheduleNext(out.done ? 1400 : 2200);
+    }
+  }
+
+  function renderAll() {
+    renderStats();
+    renderQueue();
+    renderArchive();
+    renderCountdown();
+  }
+
+  els.grindNow.addEventListener("click", () => { if (!paused) tick(); });
+  els.pauseBtn.addEventListener("click", () => {
+    paused = !paused;
+    els.pauseBtn.textContent = paused ? "resume" : "pause";
+    if (!paused) scheduleNext(400);
+    else if (timer) clearTimeout(timer);
+  });
+
+  // ---- share card -------------------------------------------------------
+  const canvas = document.getElementById("cardCanvas");
+  const ctx = canvas.getContext("2d");
+  function drawCard() {
+    const W = canvas.width, H = canvas.height;
+    ctx.fillStyle = "#0c0b0a";
+    ctx.fillRect(0, 0, W, H);
+    const grad = ctx.createLinearGradient(0, 0, W, 0);
+    grad.addColorStop(0, "#ffb020");
+    grad.addColorStop(1, "#ff5a3c");
+    ctx.fillStyle = grad;
+    ctx.font = "800 64px 'JetBrains Mono', monospace";
+    ctx.fillText("conjecturemill", 60, 130);
+
+    ctx.fillStyle = "#9c9184";
+    ctx.font = "20px 'JetBrains Mono', monospace";
+    wrapText("working through the backlog of claims, disproving them if possible.", 60, 175, 950, 28);
+
+    ctx.fillStyle = "#1c1811";
+    ctx.strokeStyle = "#362e22";
+    roundRect(60, 250, 1080, 300, 16);
+    ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = "#ffb020";
+    ctx.font = "800 46px 'JetBrains Mono', monospace";
+    ctx.fillText(String(state.archive.length), 100, 340);
+    ctx.fillStyle = "#f1ece1";
+    ctx.font = "20px 'JetBrains Mono', monospace";
+    ctx.fillText("claims disproven so far", 100, 372);
+
+    const openCount = state.queue.filter((id) => BY_ID[id].kind === "open").length;
+    ctx.fillStyle = "#6fb2ff";
+    ctx.font = "800 46px 'JetBrains Mono', monospace";
+    ctx.fillText(String(openCount), 100, 440);
+    ctx.fillStyle = "#f1ece1";
+    ctx.font = "20px 'JetBrains Mono', monospace";
+    ctx.fillText("still genuinely open", 100, 472);
+
+    const latest = state.archive[0];
+    ctx.fillStyle = "#7fd88f";
+    ctx.font = "18px 'JetBrains Mono', monospace";
+    if (latest) {
+      wrapText("latest kill: " + BY_ID[latest.id].statement, 100, 510, 980, 24);
+    } else {
+      ctx.fillText("no kills yet — the mill just started.", 100, 510);
+    }
+
+    ctx.fillStyle = "#9c9184";
+    ctx.font = "700 22px 'JetBrains Mono', monospace";
+    ctx.fillText("conjecturemill.bisks.net", 60, 600);
+
+    function wrapText(text, x, y, maxWidth, lineHeight) {
+      const words = text.split(" ");
+      let line = "", ly = y;
+      for (let n = 0; n < words.length; n++) {
+        const test = line + words[n] + " ";
+        if (ctx.measureText(test).width > maxWidth && n > 0) {
+          ctx.fillText(line, x, ly);
+          line = words[n] + " ";
+          ly += lineHeight;
+        } else {
+          line = test;
+        }
+      }
+      ctx.fillText(line, x, ly);
+    }
+    function roundRect(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+  }
+
+  function buildShareText() {
+    const url = "https://conjecturemill.bisks.net/";
+    const n = state.archive.length;
+    const latest = state.archive[0];
+    let text = n
+      ? "conjecturemill has disproven " + n + " claim" + (n === 1 ? "" : "s") + " so far"
+      : "conjecturemill is grinding through its backlog of claims";
+    if (latest) text += " — latest: " + BY_ID[latest.id].statement;
+    text += " " + url;
+    if (text.length > 295) text = text.slice(0, 292) + "…";
+    return text;
+  }
+
+  document.getElementById("shareBluesky").addEventListener("click", (e) => {
+    e.preventDefault();
+    const text = buildShareText();
+    window.open("https://bsky.app/intent/compose?text=" + encodeURIComponent(text), "_blank", "noopener");
+  });
+  document.getElementById("downloadCard").addEventListener("click", (e) => {
+    e.preventDefault();
+    drawCard();
+    canvas.toBlob((blob) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "conjecturemill.png";
+      a.click();
+    });
+  });
+
+  renderAll();
+  scheduleNext(600);
+})();
+</script>
+</body>
+</html>
