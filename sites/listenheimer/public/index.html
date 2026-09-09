@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>listenheimer — turn a post's likers into a moderation list</title>
+    <meta
+      name="description"
+      content="Paste a Bluesky post URL and listenheimer reads every public liker, then writes them straight into a real moderation list on your own PDS — no copy-pasting handles by hand."
+    />
+    <meta property="og:title" content="listenheimer — turn a post's likers into a moderation list" />
+    <meta
+      property="og:description"
+      content="Paste a Bluesky post URL and listenheimer reads every public liker, then writes them straight into a real moderation list on your own PDS — no copy-pasting handles by hand."
+    />
+    <meta property="og:image" content="https://listenheimer.bisks.net/og.png" />
+    <meta property="og:url" content="https://listenheimer.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="top">
+        <a class="home-link" href="https://bisks.net/">bisks.net</a>
+        <h1>list<span onclick='var e=document.getElementById("f-handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">e</span>nheimer</h1>
+        <p class="tag">
+          paste a post URL, see who liked it, sign in and write them straight into a real
+          <code>app.bsky.graph.list</code> moderation list on your own PDS — subscribe to it from Bluesky's
+          moderation settings to mute or block everyone on it at once. @dame.is asked for a
+          blockenheimer-like tool for this, bisks.net tagged the bot in.
+        </p>
+      </header>
+
+      <section id="post-section">
+        <label for="f-post">post URL</label>
+        <div class="session-row">
+          <input id="f-post" type="text" placeholder="https://bsky.app/profile/handle.bsky.social/post/abc123" autocomplete="off" style="flex: 1; min-width: 14rem" />
+          <button id="btn-find">find likers</button>
+        </div>
+        <p class="status" id="find-status"></p>
+      </section>
+
+      <section id="result-section" style="display: none">
+        <div class="post-hero" id="post-hero" style="display: none">
+          <img class="avatar" id="post-avatar" alt="" />
+          <div class="body">
+            <span class="name" id="post-name"></span><span class="handle" id="post-handle"></span>
+            <div class="text" id="post-text"></div>
+          </div>
+        </div>
+
+        <div class="like-count" id="like-count">—</div>
+        <div class="like-count-sub" id="like-count-sub"></div>
+
+        <div class="liker-grid" id="liker-grid"></div>
+        <p class="empty" id="liker-more"></p>
+      </section>
+
+      <section id="session-section" style="display: none">
+        <label for="f-handle">sign in to build the list</label>
+        <div class="session-row" id="signed-out-row">
+          <input id="f-handle" type="text" placeholder="you.bsky.social" autocomplete="off" />
+          <button id="btn-signin">sign in with bluesky</button>
+        </div>
+        <div class="session-row" id="signed-in-row" style="display: none">
+          <span>signed in as <strong id="who"></strong></span>
+          <button class="secondary" id="btn-signout">sign out</button>
+        </div>
+        <p class="status" id="auth-status"></p>
+      </section>
+
+      <section id="build-section" style="display: none">
+        <h2 class="section-title">build the moderation list</h2>
+        <p class="section-note">
+          writes a real <code>app.bsky.graph.list</code> (purpose: moderation list) + one
+          <code>app.bsky.graph.listitem</code> per liker to your own PDS. no caps — every liker found above goes in.
+        </p>
+        <div class="pack-panel">
+          <label for="f-list-name">list name</label>
+          <input id="f-list-name" type="text" />
+          <div class="pack-row">
+            <button id="btn-build" type="button">build list</button>
+          </div>
+          <p class="status" id="build-status"></p>
+          <div id="build-result" style="display: none">
+            <p>your list is live: <a class="pack-link" id="build-link" target="_blank" rel="noopener"></a></p>
+            <div class="share-row">
+              <a id="build-share" target="_blank" rel="noopener"><button type="button" class="secondary">share it to bluesky</button></a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        reads are all public AppView (<code>app.bsky.feed.getLikes</code>, paginated fully — no page cap, see
+        <code>public/lib/likes.js</code>). the only write is the list itself, straight to your PDS via a
+        create-only OAuth scope (<code>app.bsky.graph.list</code> + <code>app.bsky.graph.listitem</code>, nothing
+        else). rate this on
+        <a href="https://rateyourbuild.bisks.net/site/listenheimer" target="_blank" rel="noopener">rateyourbuild →</a>
+        built by <a href="https://buildthis.bisks.net/" target="_blank" rel="noopener">@buildthis.bisks.net</a>.
+      </footer>
+    </div>
+
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
+      import { resolvePostUri, getPost, getAllLikers } from "/lib/likes.js";
+      import { createModList } from "/lib/modlist.js";
+
+      const $ = (s) => document.querySelector(s);
+
+      let session = null;
+      let postRef = null; // { uri, did, rkey }
+      let postAuthorHandle = "";
+      let likers = []; // [{ did, handle, displayName, avatar }]
+
+      function esc(s) {
+        return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+
+      // --- auth --------------------------------------------------------------
+
+      function renderAuthUI() {
+        $("#signed-in-row").style.display = session ? "" : "none";
+        $("#signed-out-row").style.display = session ? "none" : "";
+        if (session) $("#who").textContent = "@" + session.handle;
+        renderBuildGate();
+      }
+
+      $("#btn-signin").addEventListener("click", async () => {
+        const h = $("#f-handle").value.trim();
+        if (!h) {
+          $("#auth-status").textContent = "type your handle first — that's who you'll sign in as.";
+          $("#auth-status").className = "status err";
+          return;
+        }
+        $("#auth-status").textContent = "redirecting to your PDS…";
+        $("#auth-status").className = "status";
+        try {
+          await login(h);
+        } catch (e) {
+          $("#auth-status").textContent = `sign-in failed: ${e.message}`;
+          $("#auth-status").className = "status err";
+        }
+      });
+      $("#btn-signout").addEventListener("click", async () => {
+        await clearSession();
+        session = null;
+        renderAuthUI();
+      });
+
+      // --- find likers ---------------------------------------------------------
+
+      const LIKER_DOM_CAP = 400; // render cap only — a browser-perf ceiling on the avatar grid, not on what gets fetched or listed
+
+      function renderPostHero(post) {
+        $("#post-hero").style.display = "";
+        $("#post-avatar").src = post.author.avatar || "";
+        $("#post-name").textContent = post.author.displayName || post.author.handle;
+        $("#post-handle").textContent = " @" + post.author.handle;
+        $("#post-text").textContent = (post.record && post.record.text) || "";
+      }
+
+      function renderLikers() {
+        $("#like-count").textContent = String(likers.length);
+        $("#like-count-sub").textContent = likers.length === 1 ? "account liked this post" : "accounts liked this post";
+        const grid = $("#liker-grid");
+        grid.innerHTML = likers
+          .slice(0, LIKER_DOM_CAP)
+          .map(
+            (l) => `
+          <a href="https://bsky.app/profile/${encodeURIComponent(l.handle)}" target="_blank" rel="noopener" title="@${esc(l.handle)}">
+            <img class="avatar" src="${esc(l.avatar)}" alt="@${esc(l.handle)}" />
+          </a>`,
+          )
+          .join("");
+        $("#liker-more").textContent = likers.length > LIKER_DOM_CAP ? `…and ${likers.length - LIKER_DOM_CAP} more (all still go in the list).` : "";
+      }
+
+      async function runFind(rawUrl) {
+        const status = $("#find-status");
+        status.className = "status";
+        $("#result-section").style.display = "none";
+        $("#session-section").style.display = "none";
+        $("#build-section").style.display = "none";
+        $("#post-hero").style.display = "none";
+        $("#build-result").style.display = "none";
+        likers = [];
+        try {
+          status.textContent = "resolving post…";
+          postRef = await resolvePostUri(rawUrl);
+
+          const post = await getPost(postRef.uri).catch(() => null);
+          $("#result-section").style.display = "";
+          if (post) {
+            postAuthorHandle = post.author.handle;
+            renderPostHero(post);
+          }
+
+          status.textContent = "reading likers…";
+          likers = await getAllLikers(postRef.uri, (n) => (status.textContent = `reading likers… ${n} so far`));
+          renderLikers();
+
+          if (!likers.length) {
+            status.textContent = "nobody's liked this post yet — nothing to list.";
+            status.className = "status warn";
+            return;
+          }
+
+          status.textContent = `found ${likers.length} liker${likers.length === 1 ? "" : "s"}.`;
+          status.className = "status ok";
+
+          $("#session-section").style.display = "";
+          $("#f-list-name").value = `likers of ${postAuthorHandle ? "@" + postAuthorHandle + "'s" : "a"} post`;
+          renderBuildGate();
+        } catch (e) {
+          status.textContent = `couldn't read that post: ${e.message}`;
+          status.className = "status err";
+        }
+      }
+
+      $("#btn-find").addEventListener("click", () => {
+        const v = $("#f-post").value.trim();
+        if (!v) return;
+        runFind(v);
+        history.replaceState({}, "", "/?post=" + encodeURIComponent(v));
+      });
+      $("#f-post").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("#btn-find").click();
+      });
+
+      // --- build the list ------------------------------------------------------
+
+      function renderBuildGate() {
+        const gateOk = !!(session && likers.length);
+        $("#build-section").style.display = likers.length ? "" : "none";
+        $("#btn-build").disabled = !gateOk;
+        if (likers.length && !session) {
+          $("#build-status").textContent = "sign in above to build the list.";
+          $("#build-status").className = "status warn";
+        } else if (gateOk) {
+          $("#build-status").textContent = "";
+          $("#build-status").className = "status";
+        }
+      }
+
+      $("#btn-build").addEventListener("click", async () => {
+        const status = $("#build-status");
+        const name = $("#f-list-name").value.trim() || `likers of ${postAuthorHandle ? "@" + postAuthorHandle + "'s" : "a"} post`;
+        $("#btn-build").disabled = true;
+        status.className = "status";
+        try {
+          const result = await createModList(
+            session,
+            dpopFetch,
+            {
+              name,
+              description: `everyone who liked ${postAuthorHandle ? "@" + postAuthorHandle + "'s" : "a"} post — made with listenheimer.bisks.net.`,
+              memberDids: likers.map((l) => l.did),
+            },
+            (step) => (status.textContent = step),
+          );
+          status.textContent = `list created with ${result.count} account${result.count === 1 ? "" : "s"}!`;
+          status.className = "status ok";
+          $("#build-result").style.display = "";
+          $("#build-link").href = result.url;
+          $("#build-link").textContent = result.url;
+          const shareText = `made a moderation list of the ${result.count} accounts that liked ${postAuthorHandle ? "@" + postAuthorHandle + "'s" : "a"} post → ${result.url}\n\nbuilt with listenheimer.bisks.net`;
+          $("#build-share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+        } catch (e) {
+          status.textContent = `couldn't build the list: ${e.message}`;
+          status.className = "status err";
+        } finally {
+          $("#btn-build").disabled = !(session && likers.length);
+        }
+      });
+
+      // --- boot ------------------------------------------------------------
+
+      async function boot() {
+        try {
+          session = (await completeLoginIfCallback()) || (await getSession());
+        } catch (e) {
+          $("#auth-status").textContent = e.message;
+          $("#auth-status").className = "status err";
+        }
+        renderAuthUI();
+
+        const params = new URLSearchParams(location.search);
+        const p = params.get("post");
+        if (p) {
+          $("#f-post").value = p;
+          runFind(p);
+        }
+      }
+      boot();
+    </script>
+  </body>
+</html>
