@@ -40,14 +40,24 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="url(#glow1)"/>
   <rect width="${W}" height="${H}" fill="url(#glow2)"/>
 
+  <!-- faint all-seeing-eye watermark, corrupt-governance seal vibe -->
+  <g transform="translate(870, 175) scale(1.9) rotate(-6)" opacity="0.07" stroke="${ACCENT2}" fill="none">
+    <polygon points="0,-58 58,46 -58,46" stroke-width="3"/>
+    <circle cx="0" cy="6" r="20" stroke-width="2.5"/>
+    <circle cx="0" cy="6" r="8" fill="${ACCENT2}" stroke="none"/>
+  </g>
+
   <text x="60" y="96" font-family="JetBrains Mono" font-weight="800" font-size="48" fill="${FG}">shadowcheck</text>
   <text x="60" y="140" font-family="JetBrains Mono" font-size="20" fill="${DIM}">are you shadowbanned?</text>
 
-  <text x="60" y="220" font-family="JetBrains Mono" font-size="17" fill="${DIM}">Over 10,000 followers, following</text>
-  <text x="60" y="246" font-family="JetBrains Mono" font-size="17" fill="${DIM}">2,000 or more? Yes. Flag emoji in</text>
-  <text x="60" y="272" font-family="JetBrains Mono" font-size="17" fill="${DIM}">your bio? Also yes. Else, no.</text>
+  <rect x="59" y="196" width="22" height="18" rx="2" fill="${DIM}"/>
+  <text x="90" y="213" font-family="JetBrains Mono" font-size="15" fill="${DIM}" letter-spacing="1">EYES ONLY</text>
+  <text x="60" y="246" font-family="JetBrains Mono" font-size="17" fill="${DIM}">the criteria are</text>
+  <rect x="60" y="258" width="230" height="22" rx="2" fill="#000"/>
+  <text x="60" y="298" font-family="JetBrains Mono" font-size="17" fill="${DIM}">we don't publish how we know.</text>
+  <text x="60" y="324" font-family="JetBrains Mono" font-size="17" fill="${DIM}">we just know.</text>
 
-  <g transform="translate(600, 345) rotate(-3)">
+  <g transform="translate(600, 460) rotate(-3)">
     <rect x="-260" y="-110" width="520" height="220" rx="10" fill="none" stroke="${ACCENT}" stroke-width="8"/>
     <text x="0" y="30" text-anchor="middle" font-family="JetBrains Mono" font-weight="900" font-size="110" fill="${ACCENT}">YES</text>
   </g>
