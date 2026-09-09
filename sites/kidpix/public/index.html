@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>kidpix — a Kid Pix 1.0 style paint party, with synthesized sound</title>
+<meta name="description" content="A colorful, noisy tribute to Kid Pix 1.0: wacky brushes, rubber stamps, a mixer of screen-melting effects, a dynamite clear button, and a whole kit of sound effects and a music loop synthesized live in the browser." />
+<meta property="og:title" content="kidpix — a Kid Pix 1.0 style paint party" />
+<meta property="og:description" content="Wacky brushes, rubber stamps, a dynamite clear button, and sound effects + a music loop synthesized live with the Web Audio API — no samples, no AI." />
+<meta property="og:url" content="https://kidpix.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://kidpix.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="kidpix: a colorful paint program styled after Kid Pix 1.0, with a rainbow toolbox and stamp palette." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="kidpix — a Kid Pix 1.0 style paint party" />
+<meta name="twitter:description" content="Wacky brushes, rubber stamps, a dynamite clear button, and sound effects + a music loop synthesized live with the Web Audio API — no samples, no AI." />
+<meta name="twitter:image" content="https://kidpix.bisks.net/og.png" />
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: repeating-linear-gradient(135deg, #2b0f5e 0 24px, #3d1a7a 24px 48px);
+    color: #1a1a1a;
+    font-family: "Comic Sans MS", "Chalkboard SE", "Marker Felt", Verdana, sans-serif;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 1.5rem 1rem 3rem; }
+  .wrap { width: 100%; max-width: 1100px; }
+
+  h1 {
+    font-size: 2.1rem; margin: 0 0 0.15rem; text-align: center;
+    background: linear-gradient(90deg, #ff3b3b, #ff9d1f, #ffe14d, #4ade4a, #2fb5ff, #b06bff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: 2px 2px 0 rgba(0,0,0,0.15);
+    letter-spacing: 0.02em;
+  }
+  .tag { color: #f0e8ff; font-size: 0.85rem; margin: 0 0 1rem; line-height: 1.5; max-width: 68ch; text-align: center; }
+  .tag a { color: #ffe14d; }
+  .tag .credit { color: #d9c9ff; }
+
+  .kp-window {
+    background: #fff2c4;
+    border: 6px solid #1a1a1a;
+    border-radius: 18px;
+    box-shadow: 0 10px 0 rgba(0,0,0,0.25);
+    overflow: hidden;
+  }
+  .title-bar {
+    background: repeating-linear-gradient(90deg, #ff3b3b 0 20px, #ffe14d 20px 40px, #4ade4a 40px 60px, #2fb5ff 60px 80px, #b06bff 80px 100px);
+    padding: 0.4rem 0.9rem;
+    font-weight: bold; font-size: 1.05rem; color: #1a1a1a;
+    text-shadow: 1px 1px 0 rgba(255,255,255,0.5);
+    border-bottom: 4px solid #1a1a1a;
+  }
+
+  .app-body { display: flex; flex-wrap: wrap; gap: 0.8rem; padding: 0.9rem; }
+
+  .toolbox {
+    display: grid; grid-template-columns: repeat(3, 46px);
+    gap: 5px; align-content: start;
+    background: #fff; border: 4px solid #1a1a1a; border-radius: 10px; padding: 6px;
+  }
+  .tool {
+    width: 46px; height: 42px; font-size: 1.25rem;
+    background: #fff; border: 2px solid #1a1a1a; border-radius: 8px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+    transition: transform 0.05s ease;
+  }
+  .tool:active { transform: scale(0.92); }
+  .tool.active { background: #ffe14d; box-shadow: 0 0 0 3px #ff9d1f inset; }
+
+  .mini-row { grid-column: span 3; display: flex; flex-direction: column; gap: 3px; font-size: 0.62rem; padding: 4px 2px 0; }
+  .mini-row input[type="range"] { width: 100%; }
+  .music-btn {
+    grid-column: span 3; margin-top: 2px; padding: 0.35rem; border-radius: 8px;
+    border: 2px solid #1a1a1a; background: #d6f5ff; cursor: pointer; font-weight: bold; font-size: 0.75rem;
+  }
+  .music-btn.on { background: #b06bff; color: #fff; }
+
+  .canvas-col { display: flex; flex-direction: column; gap: 0.5rem; flex: 1; min-width: 280px; }
+
+  .canvas-frame {
+    position: relative;
+    border: 4px solid #1a1a1a; border-radius: 10px; background: #fff; align-self: flex-start;
+    width: 100%; max-width: 900px; overflow: hidden;
+  }
+  #canvas {
+    display: block; width: 100%; height: auto;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  .canvas-frame.shake { animation: shake 0.35s linear; }
+  @keyframes shake {
+    0%,100% { transform: translate(0,0); }
+    20% { transform: translate(-6px,4px) rotate(-0.5deg); }
+    40% { transform: translate(5px,-5px) rotate(0.5deg); }
+    60% { transform: translate(-4px,-3px); }
+    80% { transform: translate(6px,3px); }
+  }
+  #textInput {
+    position: absolute; z-index: 5; font-family: "Comic Sans MS", sans-serif;
+    border: 2px dashed #ff3b3b; background: rgba(255,255,255,0.85); padding: 2px 4px;
+    outline: none; min-width: 60px;
+  }
+
+  .toolbar-row { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
+  button.chrome {
+    background: #fff; border: 2.5px solid #1a1a1a; padding: 0.35rem 0.7rem; border-radius: 8px;
+    font-family: inherit; font-size: 0.78rem; cursor: pointer; font-weight: bold;
+  }
+  button.chrome:hover { background: #ffe14d; }
+  button.chrome:active { transform: translateY(1px); }
+  a.chrome { text-decoration: none; color: #1a1a1a; display: inline-block; }
+
+  .mixer-row { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .mixer-row button { background: #ffd9f4; }
+
+  .side-col { display: flex; flex-direction: column; gap: 0.6rem; width: 128px; }
+  #palette {
+    display: grid; grid-template-columns: repeat(4, 26px);
+    gap: 3px; background: #fff; border: 3px solid #1a1a1a; border-radius: 8px; padding: 5px;
+  }
+  .swatch { width: 26px; height: 26px; padding: 0; border: 2px solid #1a1a1a; border-radius: 5px; cursor: pointer; }
+  .swatch.active { border: 3px solid #fff; box-shadow: 0 0 0 2px #1a1a1a; }
+
+  #stamps {
+    display: grid; grid-template-columns: repeat(4, 26px);
+    gap: 3px; background: #fff; border: 3px solid #1a1a1a; border-radius: 8px; padding: 5px;
+    font-size: 15px;
+  }
+  #stamps button { width: 26px; height: 26px; border: 1px solid #ddd; background: #fff; border-radius: 5px; cursor: pointer; padding: 0; }
+  #stamps button.active { background: #ffe14d; border-color: #1a1a1a; }
+  .side-label { font-size: 0.65rem; color: #4a2f00; font-weight: bold; text-align: center; }
+
+  footer {
+    margin-top: 1.2rem; font-size: 0.75rem; color: #f0e8ff; text-align: center; max-width: 62ch;
+  }
+  footer a { color: #ffe14d; }
+
+  .hint-panel {
+    margin-top: 1rem; background: #fff2c4; border: 3px solid #1a1a1a; border-radius: 10px; padding: 0.7rem 0.9rem;
+    font-size: 0.72rem; color: #3a2500; max-width: 900px; line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>kidpix</h1>
+  <p class="tag">
+    A loud, colorful tribute to <strong>Kid Pix 1.0</strong> — wacky brushes, rubber
+    stamps, a mixer full of screen-wrecking effects, a dynamite "New Picture" button,
+    and a whole kit of sound effects plus a background music loop, all synthesized
+    live in your browser with the Web Audio API. No samples, no image model, just
+    oscillators.
+    <span class="credit">Asked for by <a href="https://bsky.app/profile/antiali.as" target="_blank" rel="noopener">@antiali.as</a>.</span>
+  </p>
+
+  <div class="kp-window">
+    <div class="title-bar">kidpix — untitled masterpiece</div>
+    <div class="app-body">
+      <div class="toolbox" id="toolbox">
+        <button class="tool" type="button" data-tool="pencil" title="Pencil">✏️</button>
+        <button class="tool" type="button" data-tool="brush" title="Paintbrush">🖌️</button>
+        <button class="tool" type="button" data-tool="wacky" title="Wacky brush">🌈</button>
+        <button class="tool" type="button" data-tool="line" title="Line">📏</button>
+        <button class="tool" type="button" data-tool="rect" title="Rectangle">▭</button>
+        <button class="tool" type="button" data-tool="oval" title="Oval">⬬</button>
+        <button class="tool" type="button" data-tool="bucket" title="Bucket fill">🪣</button>
+        <button class="tool" type="button" data-tool="eraser" title="Eraser">🧽</button>
+        <button class="tool" type="button" data-tool="text" title="Text">🔤</button>
+        <button class="tool" type="button" data-tool="stamp" title="Rubber stamps">⭐</button>
+        <button class="tool" type="button" data-tool="fillshape" title="Fill shapes (toggle outline/fill)">🎨</button>
+        <button class="tool" type="button" data-tool="mixer" title="Mixer">🌀</button>
+
+        <div class="mini-row">
+          <span id="sizeLabel">brush size</span>
+          <input type="range" id="brushSize" min="1" max="48" value="10" />
+        </div>
+        <div class="mini-row" id="wackyStyleRow" style="display:none;">
+          <span>wacky style</span>
+          <select id="wackyStyle" class="chrome" style="font-size:0.65rem; padding:0.2rem;">
+            <option value="rainbow">rainbow trail</option>
+            <option value="dots">dotted</option>
+            <option value="zigzag">zigzag</option>
+            <option value="confetti">confetti</option>
+            <option value="bubbles">bubbles</option>
+            <option value="sparkle">sparkle</option>
+          </select>
+        </div>
+        <button class="music-btn" id="musicBtn" type="button">🎵 music: off</button>
+      </div>
+
+      <div class="canvas-col">
+        <div class="toolbar-row">
+          <button class="chrome" id="undoBtn" type="button">↩️ Oops!</button>
+          <button class="chrome" id="clearBtn" type="button">🧨 New Picture</button>
+          <button class="chrome" id="saveBtn" type="button">💾 Save PNG</button>
+          <a class="chrome" id="shareBtn" href="#" target="_blank" rel="noopener">🦋 Share to Bluesky</a>
+        </div>
+        <div class="canvas-frame" id="canvasFrame">
+          <canvas id="canvas"></canvas>
+          <input type="text" id="textInput" style="display:none;" />
+        </div>
+        <div class="mixer-row" id="mixerPanel" style="display:none;">
+          <button class="chrome" data-fx="melt" type="button">🫠 Melt</button>
+          <button class="chrome" data-fx="mirror" type="button">🪞 Mirror</button>
+          <button class="chrome" data-fx="invert" type="button">👻 Invert</button>
+          <button class="chrome" data-fx="swirl" type="button">🌪️ Swirl</button>
+          <button class="chrome" data-fx="smear" type="button">🐌 Smear</button>
+        </div>
+      </div>
+
+      <div class="side-col">
+        <div class="side-label">colors</div>
+        <div id="palette"></div>
+        <div class="side-label" id="stampLabel" style="display:none;">stamps</div>
+        <div id="stamps" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="hint-panel">
+    <strong>Pencil</strong> and <strong>paintbrush</strong> for plain drawing, the
+    <strong>wacky brush</strong> (🌈) for rainbow trails / dots / zigzags / confetti /
+    bubbles / sparkles, <strong>line / rectangle / oval</strong> with a fill toggle
+    (🎨), <strong>bucket</strong> to flood-fill, <strong>text</strong> click-to-type,
+    <strong>stamps</strong> (⭐) to place a picture, and the <strong>mixer</strong>
+    (🌀) to melt, mirror, invert, swirl, or smear the whole canvas. Everything you
+    hear — every click, pop, whoosh, the <strong>🧨 dynamite clear</strong>, and the
+    looping music — is a real-time synthesized sound, not a recording.
+  </div>
+
+  <footer>
+    kidpix.bisks.net — one of 200+ tiny <a href="https://bisks.net/" target="_blank" rel="noopener">atprotozoa</a> experiments.
+    <br />
+    Downloading gives you the full-res PNG — Bluesky's share link can't attach it
+    automatically, so grab the file first if you want it in your post.
+    <br />
+    <a href="https://rateyourbuild.bisks.net/site/kidpix" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+  </footer>
+</div>
+<script src="sound.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
