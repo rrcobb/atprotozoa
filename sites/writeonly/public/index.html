@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>write-only — a bluesky client that can only send</title>
+    <meta
+      name="description"
+      content="Sign in, compose, send. No timeline, no notifications, no read scope at all — this Bluesky client is structurally incapable of reading anything back, including the post you just made."
+    />
+    <meta property="og:title" content="write-only" />
+    <meta
+      property="og:description"
+      content="A Bluesky client that can only send. The OAuth scope grants create-only — there is no read permission to build a feed out of even if we wanted to."
+    />
+    <meta property="og:image" content="https://writeonly.bisks.net/og.png" />
+    <meta property="og:url" content="https://writeonly.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --void: #07070a;
+        --panel: #101014;
+        --line: #232329;
+        --ink: #e8e8ee;
+        --dim: #83838f;
+        --dimmer: #4c4c56;
+        --signal: #7bf0c9;
+        --err: #ff8a80;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; }
+      body {
+        background: var(--void);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        background-image: radial-gradient(circle at 50% -10%, rgba(123, 240, 201, 0.06), transparent 55%);
+      }
+      .wrap { max-width: 620px; margin: 0 auto; padding: 3rem 1.1rem 5rem; }
+
+      header { text-align: center; margin-bottom: 2.2rem; }
+      h1 {
+        font-size: clamp(1.9rem, 8vw, 2.6rem);
+        margin: 0 0 0.6rem;
+        letter-spacing: -0.02em;
+        font-weight: 800;
+      }
+      h1 .fade { color: var(--dimmer); font-weight: 500; }
+      header p {
+        color: var(--dim);
+        max-width: 46ch;
+        margin: 0 auto;
+        font-size: 0.92rem;
+      }
+      header p code { color: var(--signal); }
+
+      section { margin-top: 1.4rem; }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 1.1rem;
+      }
+      label.field {
+        display: block;
+        font-size: 0.7rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--dim);
+        margin-bottom: 0.4rem;
+      }
+      textarea, input[type="text"] {
+        width: 100%;
+        font-family: var(--mono);
+        font-size: 0.95rem;
+        padding: 0.65rem 0.75rem;
+        border: 1px solid var(--line);
+        background: #0c0c10;
+        color: var(--ink);
+        border-radius: 8px;
+      }
+      textarea:focus, input:focus { outline: none; border-color: var(--signal); }
+      textarea { resize: vertical; min-height: 6em; }
+      textarea::placeholder, input::placeholder { color: var(--dimmer); }
+
+      .counter { text-align: right; font-size: 0.72rem; color: var(--dim); margin-top: 0.3rem; }
+      .counter.over { color: var(--err); }
+
+      .row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-top: 0.7rem; }
+      button {
+        font-family: var(--mono);
+        font-size: 0.83rem;
+        font-weight: 700;
+        padding: 0.55rem 0.9rem;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--ink);
+        border-radius: 8px;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { border-color: var(--signal); }
+      button:disabled { opacity: 0.35; cursor: default; }
+      button.primary { background: var(--signal); border-color: var(--signal); color: #05201a; }
+      button.primary:hover:not(:disabled) { background: #93f5d3; }
+      button.ghost { color: var(--dim); }
+
+      .who { font-size: 0.85rem; margin-bottom: 0.7rem; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+      .who .h { color: var(--signal); }
+      .signin { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .signin input { flex: 1; min-width: 14ch; }
+
+      .attach-row { margin-top: 0.7rem; font-size: 0.78rem; color: var(--dim); }
+      .attach-row.active { color: var(--ink); }
+      .preview { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.5rem; }
+      .preview img { max-width: 80px; max-height: 80px; border-radius: 6px; border: 1px solid var(--line); }
+      .preview input[type="text"] { flex: 1; }
+
+      .reply-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.78rem;
+        color: var(--dim);
+        margin-top: 0.5rem;
+        background: #0c0c10;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 0.4rem 0.6rem;
+      }
+      .reply-chip button { padding: 0.1rem 0.4rem; font-size: 0.7rem; }
+
+      .status { font-size: 0.8rem; color: var(--dim); margin-top: 0.7rem; min-height: 1.2em; }
+      .status.err { color: var(--err); }
+
+      .void-panel {
+        display: none;
+        text-align: center;
+        padding: 1.6rem 1.1rem;
+        border: 1px dashed var(--line);
+        border-radius: 12px;
+        margin-top: 1.2rem;
+        animation: fadeIn 0.4s ease;
+      }
+      .void-panel .into {
+        font-size: 1.05rem;
+        color: var(--signal);
+        margin-bottom: 0.4rem;
+      }
+      .void-panel .sub { font-size: 0.78rem; color: var(--dim); }
+      .void-panel a { color: var(--signal); }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+      .tally { text-align: center; font-size: 0.75rem; color: var(--dimmer); margin-top: 1.4rem; }
+
+      footer { margin-top: 2.6rem; color: var(--dimmer); font-size: 0.76rem; text-align: center; }
+      footer a { color: var(--dim); }
+      footer .share { margin-top: 0.5rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>write<span class="fade" onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">-</span>only</h1>
+        <p>
+          a bluesky client that can only send. sign in and the token this page
+          gets can <code>create</code> a post — nothing else. no timeline, no
+          notifications, no reading your own feed back. type something,
+          launch it, and it's gone from here — same as anywhere else, just
+          honest about it.
+        </p>
+      </header>
+
+      <section class="panel" id="authPanel">
+        <div class="who" id="who" style="display:none"></div>
+        <div class="signin" id="signinRow">
+          <input id="handle" type="text" placeholder="your bluesky handle" autocomplete="off" />
+          <button type="button" id="signinBtn">sign in with bluesky</button>
+        </div>
+        <div class="status" id="authStatus"></div>
+      </section>
+
+      <section class="panel" id="composer" style="display:none">
+        <label class="field" for="text">compose</label>
+        <textarea id="text" placeholder="say something into the void…"></textarea>
+        <div class="counter" id="counter">0 / 300</div>
+
+        <div class="attach-row" id="attachRow">
+          <label style="cursor:pointer">
+            📎 attach an image
+            <input type="file" id="imageFile" accept="image/*" style="display:none" />
+          </label>
+          <span id="replyHint" style="margin-left: 0.8rem; cursor:pointer">↩ reply to a post</span>
+        </div>
+        <div class="preview" id="imagePreview" style="display:none">
+          <img id="imagePreviewImg" alt="" />
+          <input type="text" id="imageAlt" placeholder="alt text (optional)" />
+          <button type="button" id="removeImage" class="ghost">✕</button>
+        </div>
+        <div id="replyBox" style="display:none; margin-top: 0.6rem">
+          <input type="text" id="replyUrl" placeholder="paste a bsky.app post link to reply to" />
+        </div>
+        <div id="replyChipWrap"></div>
+
+        <div class="row">
+          <button type="button" id="sendBtn" class="primary" disabled>send into the void</button>
+          <button type="button" id="signoutBtn" class="ghost">sign out</button>
+        </div>
+        <div class="status" id="sendStatus"></div>
+      </section>
+
+      <div class="void-panel" id="voidPanel">
+        <div class="into">↳ sent. it's gone from here.</div>
+        <div class="sub" id="voidSub"></div>
+      </div>
+
+      <div class="tally" id="tally"></div>
+
+      <footer>
+        the client cannot show you what you just wrote, what anyone replied,
+        or whether anyone even saw it — that's the point, not a bug. part of
+        <a href="https://bisks.net">bisks.net</a>.
+        <div class="share">
+          <a href="#" id="shareLink" target="_blank" rel="noopener">share write-only</a>
+          · <a href="https://rateyourbuild.bisks.net/site/writeonly" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+        </div>
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import {
+        login,
+        completeLoginIfCallback,
+        getSession,
+        clearSession,
+      } from "./lib/oauth.js";
+      import { uploadImage, resolvePostRef, firePost } from "./lib/post.js";
+
+      const $ = (id) => document.getElementById(id);
+      const els = {
+        who: $("who"),
+        signinRow: $("signinRow"),
+        handle: $("handle"),
+        signinBtn: $("signinBtn"),
+        authStatus: $("authStatus"),
+        composer: $("composer"),
+        text: $("text"),
+        counter: $("counter"),
+        attachRow: $("attachRow"),
+        imageFile: $("imageFile"),
+        imagePreview: $("imagePreview"),
+        imagePreviewImg: $("imagePreviewImg"),
+        imageAlt: $("imageAlt"),
+        removeImage: $("removeImage"),
+        replyHint: $("replyHint"),
+        replyBox: $("replyBox"),
+        replyUrl: $("replyUrl"),
+        replyChipWrap: $("replyChipWrap"),
+        sendBtn: $("sendBtn"),
+        signoutBtn: $("signoutBtn"),
+        sendStatus: $("sendStatus"),
+        voidPanel: $("voidPanel"),
+        voidSub: $("voidSub"),
+        tally: $("tally"),
+        shareLink: $("shareLink"),
+      };
+
+      if (window.attachHandleTypeahead) attachHandleTypeahead(els.handle);
+
+      const MAX_GRAPHEMES = 300;
+      let session = null;
+      let pendingImage = null; // { bytes, mime, width, height }
+      let pendingReply = null; // { root, parent, handle }
+
+      function countGraphemes(s) {
+        if (typeof Intl !== "undefined" && Intl.Segmenter) {
+          return [...new Intl.Segmenter().segment(s)].length;
+        }
+        return [...s].length;
+      }
+
+      function setStatus(el, msg, isErr) {
+        el.textContent = msg || "";
+        el.className = "status" + (isErr ? " err" : "");
+      }
+
+      function tallyKey() {
+        return "writeonly:sent";
+      }
+      function bumpTally() {
+        const n = (parseInt(localStorage.getItem(tallyKey()) || "0", 10) || 0) + 1;
+        localStorage.setItem(tallyKey(), String(n));
+        renderTally(n);
+      }
+      function renderTally(n) {
+        n = n ?? parseInt(localStorage.getItem(tallyKey()) || "0", 10) || 0;
+        els.tally.textContent = n > 0
+          ? `${n} message${n === 1 ? "" : "s"} sent into the void from this browser`
+          : "";
+      }
+      renderTally();
+
+      function updateCounter() {
+        const n = countGraphemes(els.text.value);
+        els.counter.textContent = `${n} / ${MAX_GRAPHEMES}`;
+        els.counter.classList.toggle("over", n > MAX_GRAPHEMES);
+        updateSendEnabled();
+      }
+      function updateSendEnabled() {
+        const n = countGraphemes(els.text.value);
+        els.sendBtn.disabled = !session || n === 0 || n > MAX_GRAPHEMES;
+      }
+
+      function renderAuth() {
+        if (session) {
+          els.who.style.display = "";
+          els.who.innerHTML = `signed in as <span class="h">@${session.handle}</span>`;
+          els.signinRow.style.display = "none";
+          els.composer.style.display = "";
+        } else {
+          els.who.style.display = "none";
+          els.signinRow.style.display = "";
+          els.composer.style.display = "none";
+        }
+        updateSendEnabled();
+      }
+
+      function renderReplyChip() {
+        if (!pendingReply) {
+          els.replyChipWrap.innerHTML = "";
+          return;
+        }
+        els.replyChipWrap.innerHTML = "";
+        const chip = document.createElement("div");
+        chip.className = "reply-chip";
+        chip.innerHTML = `↩ replying to @${pendingReply.handle || "that post"} `;
+        const clear = document.createElement("button");
+        clear.type = "button";
+        clear.className = "ghost";
+        clear.textContent = "✕";
+        clear.onclick = () => {
+          pendingReply = null;
+          renderReplyChip();
+        };
+        chip.appendChild(clear);
+        els.replyChipWrap.appendChild(chip);
+      }
+
+      function resetImage() {
+        pendingImage = null;
+        els.imageFile.value = "";
+        els.imagePreview.style.display = "none";
+        els.imagePreviewImg.src = "";
+        els.imageAlt.value = "";
+      }
+
+      els.text.addEventListener("input", updateCounter);
+
+      els.replyHint.addEventListener("click", () => {
+        els.replyBox.style.display = els.replyBox.style.display === "none" ? "" : "none";
+      });
+
+      els.replyUrl.addEventListener("change", async () => {
+        const val = els.replyUrl.value.trim();
+        if (!val) return;
+        setStatus(els.sendStatus, "resolving that link…");
+        try {
+          const ref = await resolvePostRef(val);
+          pendingReply = ref;
+          els.replyUrl.value = "";
+          els.replyBox.style.display = "none";
+          renderReplyChip();
+          setStatus(els.sendStatus, "");
+        } catch (e) {
+          setStatus(els.sendStatus, e.message || "couldn't resolve that link", true);
+        }
+      });
+
+      els.imageFile.addEventListener("change", async () => {
+        const file = els.imageFile.files?.[0];
+        if (!file) return;
+        if (!file.type.startsWith("image/")) {
+          setStatus(els.sendStatus, "that's not an image", true);
+          return;
+        }
+        const bytes = await file.arrayBuffer();
+        const url = URL.createObjectURL(file);
+        const dims = await new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+          img.onerror = () => resolve({ width: 0, height: 0 });
+          img.src = url;
+        });
+        pendingImage = { bytes, mime: file.type, ...dims };
+        els.imagePreviewImg.src = url;
+        els.imagePreview.style.display = "flex";
+      });
+      els.removeImage.addEventListener("click", resetImage);
+
+      els.signinBtn.addEventListener("click", async () => {
+        const handle = els.handle.value.trim().replace(/^@/, "");
+        if (!handle) {
+          setStatus(els.authStatus, "type a handle first", true);
+          return;
+        }
+        setStatus(els.authStatus, "redirecting to your PDS…");
+        try {
+          await login(handle);
+        } catch (e) {
+          setStatus(els.authStatus, e.message || "sign-in failed", true);
+        }
+      });
+
+      els.signoutBtn.addEventListener("click", async () => {
+        await clearSession();
+        session = null;
+        renderAuth();
+      });
+
+      els.sendBtn.addEventListener("click", async () => {
+        if (!session) return;
+        const text = els.text.value.trim();
+        if (!text) return;
+        els.sendBtn.disabled = true;
+        setStatus(els.sendStatus, "sending…");
+        try {
+          let image = null;
+          if (pendingImage) {
+            setStatus(els.sendStatus, "uploading image…");
+            const blob = await uploadImage(session, pendingImage.bytes, pendingImage.mime);
+            image = {
+              blob,
+              alt: els.imageAlt.value.trim(),
+              width: pendingImage.width,
+              height: pendingImage.height,
+            };
+          }
+          setStatus(els.sendStatus, "sending…");
+          const result = await firePost(session, {
+            text,
+            image,
+            replyRef: pendingReply
+              ? { root: pendingReply.root, parent: pendingReply.parent }
+              : null,
+          });
+          bumpTally();
+          const rkey = result.uri.split("/").pop();
+          els.voidSub.innerHTML = `it exists now at <a href="https://bsky.app/profile/${session.handle}/post/${rkey}" target="_blank" rel="noopener">bsky.app</a> — this page just doesn't know how to look.`;
+          els.voidPanel.style.display = "block";
+          setTimeout(() => { els.voidPanel.style.display = "none"; }, 9000);
+          els.text.value = "";
+          resetImage();
+          pendingReply = null;
+          renderReplyChip();
+          updateCounter();
+          setStatus(els.sendStatus, "");
+        } catch (e) {
+          setStatus(els.sendStatus, e.message || "send failed", true);
+        } finally {
+          updateSendEnabled();
+        }
+      });
+
+      // Share the site itself — the tool has no per-user result to show off
+      // (that's the whole bit), so the share text is about write-only itself.
+      const shareText = "found a bluesky client that can only send — no timeline, no notifications, no reading anything back. https://writeonly.bisks.net/";
+      els.shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+
+      (async () => {
+        try {
+          const fromCallback = await completeLoginIfCallback();
+          session = fromCallback || (await getSession());
+        } catch (e) {
+          setStatus(els.authStatus, e.message || "sign-in failed", true);
+        }
+        renderAuth();
+      })();
+    </script>
+  </body>
+</html>
