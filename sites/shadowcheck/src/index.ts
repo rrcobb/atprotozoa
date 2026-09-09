@@ -74,7 +74,7 @@ function esc(s: string): string {
 // to personalize the whole head — no HTML parser needed.
 const GENERIC_TITLE = "shadowcheck — are you shadowbanned?";
 const GENERIC_DESC =
-  "Enter a Bluesky handle. The algorithm: over 10,000 followers and following 2,000 or more means yes. A flag emoji in your display name or bio also means yes. Otherwise, no.";
+  "Enter a Bluesky handle and find out if you're on the list. The criteria are classified. We don't publish how we know — we just know.";
 // Matched as a full quoted attribute, not the bare URL — the bare URL is
 // also a prefix of the og:image/twitter:image URLs ("…/og.png"), so a naive
 // split/join on it would corrupt those into "…/s/<handle>og.png" too (the
@@ -102,12 +102,9 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
     const who = "@" + (profile.handle || handle);
     const verdict = result.shadowbanned ? "yes" : "no";
     const title = `shadowcheck: is ${who} shadowbanned? ${verdict}.`;
-    const why = result.shadowbanned
-      ? result.flagHit
-        ? "flag emoji in the display name or bio."
-        : `${result.followers.toLocaleString()} followers, following ${result.follows.toLocaleString()}.`
-      : "doesn't meet any of the criteria.";
-    const desc = why;
+    const desc = result.shadowbanned
+      ? "trips a classified criterion. we don't publish how we know."
+      : "clears every classified criterion. we don't publish how we know.";
     const ogUrl = `https://shadowcheck.bisks.net/s/${encodeURIComponent(handle)}`;
 
     html = html

@@ -137,6 +137,7 @@
   .verdict-sub { color: var(--dim); font-size: 0.85rem; margin-top: 0.5rem; }
 
   .rules { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1.4rem; }
+  .rules-head { color: var(--accent); font-weight: 700; letter-spacing: 0.06em; font-size: 0.7rem; margin-bottom: 0.15rem; }
   .rule { border-left: 3px solid var(--border); padding-left: 0.85rem; font-size: 0.87rem; line-height: 1.5; display: flex; justify-content: space-between; gap: 0.6rem; }
   .rule.hit { border-left-color: var(--accent); }
   .rule .lbl { color: var(--fg); }
@@ -172,7 +173,7 @@
           <line x1="130" y1="40" x2="118" y2="58" />
         </g>
       </svg>
-      <div class="stamp">classified</div>
+      <div class="stamp">top secret</div>
       <div class="ticker" aria-hidden="true">
         <span>👁️&nbsp; 🛰️&nbsp; 🕵️&nbsp; 🏛️&nbsp; 📡&nbsp; 🔒&nbsp; 📷&nbsp; 🖥️&nbsp; 👁️&nbsp; 🛰️&nbsp; 🕵️&nbsp; 🏛️&nbsp; 📡&nbsp; 🔒&nbsp; 📷&nbsp; 🖥️&nbsp; 👁️&nbsp; 🛰️&nbsp; 🕵️&nbsp; 🏛️</span>
       </div>
@@ -320,38 +321,30 @@ function shareUrlFor(handle) {
 function shareText(profile, result) {
   const verdict = result.shadowbanned ? "yes" : "no";
   const why = result.shadowbanned
-    ? (result.flagHit ? "flag emoji in the bio." : `${result.followers.toLocaleString()} followers, following ${result.follows.toLocaleString()}.`)
-    : "clean.";
+    ? "trips a classified criterion."
+    : "clean, per the file.";
   return (
     `ran the shadowcheck algorithm on @${profile.handle}: ${verdict}. ${why}\n\n` +
     `check your own → ${shareUrlFor(profile.handle)}`
   );
 }
 
-function ruleRow(label, value, hit) {
+function ruleRow(codename, hit) {
   const div = document.createElement("div");
   div.className = "rule" + (hit ? " hit" : "");
-  div.innerHTML = `<span class="lbl">${label}</span><span class="val">${value}</span>`;
+  div.innerHTML = `<span class="lbl">criterion ${codename} <span class="black-bar">████████████████</span></span><span class="val">${hit ? "MATCH" : "clear"}</span>`;
   return div;
 }
 
 function renderRules(result) {
   els.rules.innerHTML = "";
-  els.rules.appendChild(ruleRow(
-    `followers &gt; ${FOLLOWERS_THRESHOLD.toLocaleString()} and follows &ge; ${FOLLOWS_THRESHOLD.toLocaleString()}`,
-    `${result.followers.toLocaleString()} / ${result.follows.toLocaleString()}`,
-    result.countHit
-  ));
-  els.rules.appendChild(ruleRow(
-    "flag emoji in display name",
-    result.flagInName ? "found" : "none",
-    result.flagInName
-  ));
-  els.rules.appendChild(ruleRow(
-    "flag emoji in bio",
-    result.flagInBio ? "found" : "none",
-    result.flagInBio
-  ));
+  const head = document.createElement("div");
+  head.className = "rules-head";
+  head.textContent = "findings — top secret";
+  els.rules.appendChild(head);
+  els.rules.appendChild(ruleRow("α", result.countHit));
+  els.rules.appendChild(ruleRow("β", result.flagInName));
+  els.rules.appendChild(ruleRow("γ", result.flagInBio));
 }
 
 function loadImg(url) {
@@ -419,9 +412,7 @@ async function buildShareCard({ profile, result }) {
   ctx.textAlign = "center";
   ctx.fillStyle = "#8b9599";
   ctx.font = `400 17px ${mono}`;
-  const why = yes
-    ? (result.flagHit ? "flag emoji spotted in the bio" : `${result.followers.toLocaleString()} followers, following ${result.follows.toLocaleString()}`)
-    : "doesn't trip the algorithm";
+  const why = yes ? "trips a classified criterion" : "doesn't trip the algorithm";
   ctx.fillText(why, W / 2, H - 90);
 
   ctx.textAlign = "left";
@@ -460,8 +451,8 @@ async function reveal(rawHandle) {
     els.verdictWord.className = "verdict-word " + (result.shadowbanned ? "yes" : "no");
     els.verdictWord.textContent = result.shadowbanned ? "yes" : "no";
     els.verdictSub.textContent = result.shadowbanned
-      ? (result.flagHit ? "flag emoji in the display name or bio." : "over the follower/follows threshold.")
-      : "doesn't meet any of the criteria.";
+      ? "trips a classified criterion. that's all we can say."
+      : "clears every classified criterion. for now.";
 
     renderRules(result);
 
