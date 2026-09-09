@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>shadowcheck — are you shadowbanned?</title>
+<meta name="description" content="Enter a Bluesky handle. The algorithm: over 10,000 followers and following 2,000 or more means yes. A flag emoji in your display name or bio also means yes. Otherwise, no." />
+<meta property="og:title" content="shadowcheck — are you shadowbanned?" />
+<meta property="og:description" content="Enter a Bluesky handle. The algorithm: over 10,000 followers and following 2,000 or more means yes. A flag emoji in your display name or bio also means yes. Otherwise, no." />
+<meta property="og:url" content="https://shadowcheck.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://shadowcheck.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="shadowcheck: a redacted-looking card stamped YES or NO over a Bluesky handle." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="shadowcheck — are you shadowbanned?" />
+<meta name="twitter:description" content="Enter a Bluesky handle. The algorithm: over 10,000 followers and following 2,000 or more means yes. A flag emoji in your display name or bio also means yes. Otherwise, no." />
+<meta name="twitter:image" content="https://shadowcheck.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #08090a;
+    --bg2: #111315;
+    --fg: #eef1f2;
+    --dim: #8b9599;
+    --accent: #ff3b3b;
+    --accent2: #5eead4;
+    --card: #131516;
+    --border: #262a2c;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #2a0808 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 5%, #071a18 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 4rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 560px; }
+  h1 {
+    font-size: 1.95rem; line-height: 1.2; margin: 0 0 0.35rem;
+    letter-spacing: -0.01em;
+  }
+  h1 .sh { color: var(--accent); }
+  h1 .adow { color: var(--fg); }
+  h1 .check { color: var(--accent2); }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 0.6rem; line-height: 1.55; }
+  .tag b { color: var(--fg); }
+  .credit { color: var(--dim); font-size: 0.76rem; margin: 0 0 2.1rem; line-height: 1.5; }
+  .credit a { color: var(--accent2); text-decoration: none; }
+
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0; background: var(--card); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.75rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: var(--accent); color: #1a0303; border: none; border-radius: 8px;
+    padding: 0.75rem 1.1rem; font: inherit; font-weight: 700; font-size: 0.9rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--accent); }
+
+  .card { display: none; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 1.75rem; }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.4rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); }
+  .who .handle { font-weight: 700; }
+  .who .handle a { color: var(--fg); text-decoration: none; }
+  .who .dn { color: var(--dim); font-size: 0.78rem; }
+
+  .verdict-box {
+    text-align: center; border: 3px solid var(--border); border-radius: 10px;
+    padding: 1.6rem 1rem; margin-bottom: 1.5rem; transform: rotate(-1.2deg);
+    position: relative;
+  }
+  .verdict-box.yes { border-color: var(--accent); }
+  .verdict-box.no { border-color: var(--accent2); }
+  .verdict-word {
+    font-size: 3.4rem; font-weight: 900; letter-spacing: 0.06em; line-height: 1;
+    text-transform: uppercase;
+  }
+  .verdict-word.yes { color: var(--accent); }
+  .verdict-word.no { color: var(--accent2); }
+  .verdict-sub { color: var(--dim); font-size: 0.85rem; margin-top: 0.5rem; }
+
+  .rules { display: flex; flex-direction: column; gap: 0.6rem; margin-bottom: 1.4rem; }
+  .rule { border-left: 3px solid var(--border); padding-left: 0.85rem; font-size: 0.87rem; line-height: 1.5; display: flex; justify-content: space-between; gap: 0.6rem; }
+  .rule.hit { border-left-color: var(--accent); }
+  .rule .lbl { color: var(--fg); }
+  .rule .val { color: var(--dim); white-space: nowrap; }
+  .rule.hit .val { color: var(--accent); font-weight: 700; }
+
+  .share { border-top: 1px dashed var(--border); margin-top: 1.4rem; padding-top: 1.2rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: var(--accent); color: #1a0303; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1><span class="sh">shadow</span><span class="adow">check</span><span class="check" onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer;color:inherit;">.</span></h1>
+    <p class="tag">
+      Enter a Bluesky handle. The algorithm is exactly this, no more: over
+      <b>10,000 followers</b> and following <b>2,000 or more</b> people means
+      <b>yes</b>, you're shadowbanned. A <b>flag emoji</b> anywhere in your
+      display name or bio also means <b>yes</b>. Anything else, <b>no</b>.
+      That's the whole model.
+    </p>
+    <p class="credit">
+      the algorithm as specified by <a href="https://bsky.app/profile/7778777.online" target="_blank" rel="noopener">@7778777.online</a>,
+      who asked for the follower/follows threshold, then came back in a reply
+      and added the flag-emoji clause. <em>this detects nothing real — no API
+      exposes actual shadowban state — it just runs the bit, straight-faced.</em>
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">check</button>
+    </form>
+    <p class="hint">works on any handle. yours, a friend's, whoever you're suspicious of.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut"></div>
+          <div class="dn" id="dnOut"></div>
+        </div>
+      </div>
+
+      <div class="verdict-box" id="verdictBox">
+        <div class="verdict-word" id="verdictWord"></div>
+        <div class="verdict-sub" id="verdictSub"></div>
+      </div>
+
+      <div class="rules" id="rules"></div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share the verdict</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+      <a href="https://rateyourbuild.bisks.net/site/shadowcheck">rate this on rateyourbuild →</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+const FOLLOWERS_THRESHOLD = 10000;
+const FOLLOWS_THRESHOLD = 2000;
+
+// Broad but not exhaustive: paired regional-indicator flags (every ISO
+// country flag), the white/rainbow-combo flags (pride, trans), the black
+// flag (with the pirate-flag ZWJ combo), the England/Scotland/Wales
+// tag-sequence flags, and the odd single-glyph flags (triangular, black
+// pennant, checkered). Good enough for "is there a flag emoji in this text."
+const FLAG_RE = /\p{Regional_Indicator}{2}|\u{1F3F3}\u{FE0F}?(?:\u{200D}\u{1F308})?|\u{1F3F4}(?:\u{200D}\u{2620}\u{FE0F})?|\u{1F3F4}\u{E0067}\u{E0062}(?:\u{E0065}\u{E006E}\u{E0067}|\u{E0073}\u{E0063}\u{E0074}|\u{E0077}\u{E006C}\u{E0073})\u{E007F}|\u{1F3C1}|\u{1F6A9}|\u{1F3F1}/u;
+function hasFlagEmoji(s) {
+  return FLAG_RE.test(s || "");
+}
+
+function decide(profile) {
+  const followers = profile.followersCount || 0;
+  const follows = profile.followsCount || 0;
+  const countHit = followers > FOLLOWERS_THRESHOLD && follows >= FOLLOWS_THRESHOLD;
+  const flagInName = hasFlagEmoji(profile.displayName);
+  const flagInBio = hasFlagEmoji(profile.description);
+  const flagHit = flagInName || flagInBio;
+  return { followers, follows, countHit, flagInName, flagInBio, flagHit, shadowbanned: countHit || flagHit };
+}
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  dnOut: document.getElementById("dnOut"),
+  verdictBox: document.getElementById("verdictBox"),
+  verdictWord: document.getElementById("verdictWord"),
+  verdictSub: document.getElementById("verdictSub"),
+  rules: document.getElementById("rules"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function shareUrlFor(handle) {
+  return "https://shadowcheck.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function shareText(profile, result) {
+  const verdict = result.shadowbanned ? "yes" : "no";
+  const why = result.shadowbanned
+    ? (result.flagHit ? "flag emoji in the bio." : `${result.followers.toLocaleString()} followers, following ${result.follows.toLocaleString()}.`)
+    : "clean.";
+  return (
+    `ran the shadowcheck algorithm on @${profile.handle}: ${verdict}. ${why}\n\n` +
+    `check your own → ${shareUrlFor(profile.handle)}`
+  );
+}
+
+function ruleRow(label, value, hit) {
+  const div = document.createElement("div");
+  div.className = "rule" + (hit ? " hit" : "");
+  div.innerHTML = `<span class="lbl">${label}</span><span class="val">${value}</span>`;
+  return div;
+}
+
+function renderRules(result) {
+  els.rules.innerHTML = "";
+  els.rules.appendChild(ruleRow(
+    `followers &gt; ${FOLLOWERS_THRESHOLD.toLocaleString()} and follows &ge; ${FOLLOWS_THRESHOLD.toLocaleString()}`,
+    `${result.followers.toLocaleString()} / ${result.follows.toLocaleString()}`,
+    result.countHit
+  ));
+  els.rules.appendChild(ruleRow(
+    "flag emoji in display name",
+    result.flagInName ? "found" : "none",
+    result.flagInName
+  ));
+  els.rules.appendChild(ruleRow(
+    "flag emoji in bio",
+    result.flagInBio ? "found" : "none",
+    result.flagInBio
+  ));
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+async function buildShareCard({ profile, result }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = await loadImg(profile.avatar);
+  const yes = result.shadowbanned;
+  const stampColor = yes ? "#ff3b3b" : "#5eead4";
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#08090a";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.15, -H * 0.1, 0, W * 0.15, -H * 0.1, W * 0.5);
+  glow.addColorStop(0, yes ? "#2a0808" : "#071a18");
+  glow.addColorStop(1, "rgba(8,9,10,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#eef1f2";
+  ctx.font = `800 48px ${mono}`;
+  ctx.fillText("shadowcheck", 60, 96);
+
+  const who = "@" + profile.handle;
+  ctx.font = `700 28px ${mono}`;
+  let textX = 60;
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 148, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 60, 120, 56, 56);
+    ctx.restore();
+    textX = 132;
+  }
+  ctx.fillStyle = "#8b9599";
+  ctx.fillText(who, textX, 156);
+
+  ctx.save();
+  ctx.translate(W / 2, H / 2 + 30);
+  ctx.rotate(-0.03);
+  ctx.strokeStyle = stampColor;
+  ctx.lineWidth = 8;
+  ctx.strokeRect(-260, -110, 520, 220);
+  ctx.textAlign = "center";
+  ctx.fillStyle = stampColor;
+  ctx.font = `900 110px ${mono}`;
+  ctx.fillText(yes ? "YES" : "NO", 0, 30);
+  ctx.restore();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#8b9599";
+  ctx.font = `400 17px ${mono}`;
+  const why = yes
+    ? (result.flagHit ? "flag emoji spotted in the bio" : `${result.followers.toLocaleString()} followers, following ${result.follows.toLocaleString()}`)
+    : "doesn't trip the algorithm";
+  ctx.fillText(why, W / 2, H - 90);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = stampColor;
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("shadowcheck.bisks.net", 60, H - 40);
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("resolving " + handle + " ...");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+
+    const result = decide(profile);
+
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + profile.handle;
+    els.dnOut.textContent = profile.displayName || "";
+
+    els.verdictBox.className = "verdict-box " + (result.shadowbanned ? "yes" : "no");
+    els.verdictWord.className = "verdict-word " + (result.shadowbanned ? "yes" : "no");
+    els.verdictWord.textContent = result.shadowbanned ? "yes" : "no";
+    els.verdictSub.textContent = result.shadowbanned
+      ? (result.flagHit ? "flag emoji in the display name or bio." : "over the follower/follows threshold.")
+      : "doesn't meet any of the criteria.";
+
+    renderRules(result);
+
+    setStatus("");
+    els.card.classList.add("show");
+
+    const txt = shareText(profile, result);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(txt);
+    buildShareCard({ profile, result });
+
+    els.shareDownload.onclick = () => {
+      els.shareCanvas.toBlob((blob) => {
+        if (!blob) return;
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "shadowcheck-" + profile.handle.replace(/[^a-z0-9.-]/gi, "_") + ".png";
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }, "image/png");
+    };
+
+    function canShareFiles() {
+      if (!navigator.share || !navigator.canShare) return false;
+      try {
+        const probe = new File([""], "probe.png", { type: "image/png" });
+        return navigator.canShare({ files: [probe] });
+      } catch (_) {
+        return false;
+      }
+    }
+    if (canShareFiles()) {
+      els.shareNative.style.display = "";
+      els.shareNative.onclick = () => {
+        els.shareCanvas.toBlob(async (blob) => {
+          if (!blob) return;
+          const file = new File([blob], "shadowcheck.png", { type: "image/png" });
+          try {
+            await navigator.share({ files: [file], text: txt, title: "shadowcheck" });
+          } catch (_) {}
+        }, "image/png");
+      };
+    }
+  } catch (err) {
+    setStatus("couldn't resolve that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+// /s/<handle> (share links) or ?h=<handle> both auto-run on load.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>

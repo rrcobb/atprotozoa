@@ -1,0 +1,29 @@
+name = "atprotozoa-shadowcheck"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Everything still runs client-side (see public/index.html) EXCEPT the OG/share
+# unfurl, which has a small server surface: the Worker renders /s/<handle>
+# (src/index.ts) with per-handle og:title/og:description/og:url baked
+# server-side, then falls through to ASSETS for everything else.
+#
+# The "algorithm" (asked for by @7778777.online, thread-original, then amended
+# by the same handle in a reply): resolve the handle via
+# com.atproto.identity.resolveHandle, read app.bsky.actor.getProfile for
+# followersCount/followsCount/displayName/description, and say "yes, you're
+# shadowbanned" if followersCount > 10000 AND followsCount >= 2000, OR if a
+# flag emoji shows up in the display name or bio. Otherwise "no." It is not a
+# real shadowban detector — nothing public exposes that signal — this plays
+# the bit completely straight. No secrets.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes
+# (same gotcha called out in buildthis/logs/wrangler.toml).
+routes = [{ pattern = "shadowcheck.bisks.net/*", zone_name = "bisks.net" }]
+
+# run_worker_first: /s/<handle> is dynamic (personalized OG tags per share), so
+# the Worker must run BEFORE the static-asset router, same as sites/logs.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
