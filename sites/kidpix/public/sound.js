@@ -141,28 +141,72 @@ const SoundKit = (() => {
   }
 
   // ---- background music loop -------------------------------------------
-  // a cheerful looping chiptune arpeggio, scheduled step by step with
-  // setTimeout (short loop, so drift doesn't matter for a toy paint app).
+  // several looping chiptune moods, scheduled step by step with setTimeout
+  // (short loop, so drift doesn't matter for a toy paint app). Each mood is
+  // just a different scale/step-pattern/voice/tempo — same tone()/noise()
+  // synth primitives as every other sound here, no samples.
 
-  const SCALE = [261.6, 293.7, 329.6, 392.0, 440.0, 523.3, 587.3, 659.3]; // C major-ish
-  const PATTERN = [0, 2, 4, 7, 4, 2, 0, 4, 1, 3, 5, 3, 1, 5, 3, 6];
+  const MOODS = {
+    cheerful: {
+      label: "🎈 cheerful",
+      scale: [261.6, 293.7, 329.6, 392.0, 440.0, 523.3, 587.3, 659.3], // C major-ish
+      pattern: [0, 2, 4, 7, 4, 2, 0, 4, 1, 3, 5, 3, 1, 5, 3, 6],
+      type: "square", stepMs: 180, vol: 0.06, bassEvery: 4,
+    },
+    spooky: {
+      label: "👻 spooky",
+      scale: [220.0, 233.1, 261.6, 277.2, 311.1, 349.2, 369.9, 415.3], // A harmonic-minor-ish
+      pattern: [0, 3, 1, 4, 0, 5, 3, 2, 0, 4, 1, 3],
+      type: "sawtooth", stepMs: 300, vol: 0.045, bassEvery: 3,
+    },
+    sleepy: {
+      label: "😴 sleepy",
+      scale: [220.0, 246.9, 277.2, 329.6, 369.9, 440.0], // gentle lullaby-ish
+      pattern: [0, 2, 4, 2, 5, 4, 2, 0, 1, 3, 5, 3],
+      type: "sine", stepMs: 420, vol: 0.05, bassEvery: 6,
+    },
+    circus: {
+      label: "🎪 circus",
+      scale: [349.2, 392.0, 440.0, 466.2, 523.3, 587.3, 659.3, 698.5], // F major, oom-pah range
+      pattern: [0, 4, 2, 4, 1, 5, 3, 5, 0, 4, 2, 6, 1, 5, 3, 7],
+      type: "square", stepMs: 120, vol: 0.055, bassEvery: 2,
+    },
+    space: {
+      label: "🛸 space",
+      scale: [174.6, 207.7, 220.0, 261.6, 293.7, 349.2], // wide, sparse, echoey
+      pattern: [0, 4, 2, 5, 1, 3, 0, 5],
+      type: "triangle", stepMs: 500, vol: 0.05, bassEvery: 8,
+    },
+  };
+  let currentMood = "cheerful";
 
   function musicStepTone(i) {
-    const c = getCtx();
-    const note = SCALE[PATTERN[i % PATTERN.length] % SCALE.length];
-    tone({ freq: note, type: "square", dur: 0.16, vol: 0.06 });
-    if (i % 4 === 0) tone({ freq: note / 2, type: "triangle", dur: 0.3, vol: 0.05 });
+    const m = MOODS[currentMood] || MOODS.cheerful;
+    const note = m.scale[m.pattern[i % m.pattern.length] % m.scale.length];
+    tone({ freq: note, type: m.type, dur: m.stepMs / 1000 * 0.9, vol: m.vol });
+    if (currentMood === "space") {
+      // a soft detuned echo voice instead of a bass note — feels wide/ambient
+      tone({ freq: note * 1.003, type: "sine", dur: (m.stepMs / 1000) * 1.6, vol: m.vol * 0.5, delay: 0.09 });
+    } else if (i % m.bassEvery === 0) {
+      tone({ freq: note / 2, type: "triangle", dur: 0.3, vol: m.vol * 0.85 });
+    }
   }
 
-  function startMusic() {
+  function setMood(mood) {
+    if (MOODS[mood]) currentMood = mood;
+    return currentMood;
+  }
+
+  function startMusic(mood) {
+    if (mood) setMood(mood);
     if (musicOn) return;
     musicOn = true;
     getCtx();
-    const stepMs = 180;
     const loop = () => {
       if (!musicOn) return;
       musicStepTone(musicStep++);
-      musicTimer = setTimeout(loop, stepMs);
+      const m = MOODS[currentMood] || MOODS.cheerful;
+      musicTimer = setTimeout(loop, m.stepMs);
     };
     loop();
   }
@@ -171,16 +215,18 @@ const SoundKit = (() => {
     if (musicTimer) clearTimeout(musicTimer);
     musicTimer = null;
   }
-  function toggleMusic() {
+  function toggleMusic(mood) {
     if (musicOn) stopMusic();
-    else startMusic();
+    else startMusic(mood);
     return musicOn;
   }
 
   return {
     toolSelect, drawTick, stampPop, bucketWhoosh, eraserSqueak,
     oopsUndo, typewriterClick, saveChime, lineWhoosh, dynamite,
-    startMusic, stopMusic, toggleMusic,
+    startMusic, stopMusic, toggleMusic, setMood,
+    MOOD_LIST: Object.keys(MOODS).map((k) => ({ key: k, label: MOODS[k].label })),
     get musicOn() { return musicOn; },
+    get currentMood() { return currentMood; },
   };
 })();
