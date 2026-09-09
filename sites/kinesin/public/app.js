@@ -12,6 +12,13 @@
 // walked, fall→detach. Controls are direct held-key input instead of
 // spreadsheet formulas — hold a key and its value ramps toward its extreme;
 // let go and it relaxes back.
+//
+// Every run is also a candidate for the network-wide /leaderboard: sign in
+// (lib/oauth.js) and each detach writes a net.bisks.kinesin.walk record to
+// your own PDS (lib/records.js) — no sign-in, no write, just the existing
+// localStorage best. leaderboard.js replays every such record it can find
+// (lib/global-index.js) into a best-distance standings table
+// (lib/standings.js), same recipe as sites/shelfguessr.
 
 export const PHYS = {
   armLen: 42, // neck-linker segment length, px
@@ -93,6 +100,67 @@ if (typeof document !== "undefined") {
 function init() {
   const LS_BEST = "kinesin:best";
 
+  const sessionBar = document.getElementById("sessionBar");
+  const recordStatus = document.getElementById("record-status");
+  let session = null;
+  let oauthLib = null;
+  let recordsLib = null;
+
+  async function oauth() {
+    if (!oauthLib) oauthLib = await import("./lib/oauth.js");
+    return oauthLib;
+  }
+  async function records() {
+    if (!recordsLib) recordsLib = await import("./lib/records.js");
+    return recordsLib;
+  }
+
+  function esc(s) {
+    return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function renderSessionBar() {
+    if (!sessionBar) return;
+    if (session) {
+      sessionBar.innerHTML = `
+        <span>signed in as <strong>@${esc(session.handle)}</strong> — runs save automatically</span>
+        <button id="signOutBtn">sign out</button>
+      `;
+      document.getElementById("signOutBtn").onclick = async () => {
+        const { clearSession } = await oauth();
+        await clearSession();
+        session = null;
+        renderSessionBar();
+      };
+    } else {
+      sessionBar.innerHTML = `
+        <input type="text" id="loginHandle" placeholder="your.bsky.social" autocomplete="off" spellcheck="false" />
+        <button id="signInBtn">sign in to save runs</button>
+      `;
+      document.getElementById("signInBtn").onclick = async () => {
+        const h = document.getElementById("loginHandle").value.trim();
+        if (!h) return;
+        try {
+          const { login } = await oauth();
+          await login(h);
+        } catch (err) {
+          alert(`sign in failed: ${err.message}`);
+        }
+      };
+    }
+  }
+
+  (async function bootSession() {
+    try {
+      const { completeLoginIfCallback, getSession } = await oauth();
+      const cb = await completeLoginIfCallback();
+      session = cb || (await getSession());
+    } catch (err) {
+      console.warn("kinesin oauth boot failed", err);
+    }
+    renderSessionBar();
+  })();
+
   const canvas = document.getElementById("stage");
   const ctx2d = canvas.getContext("2d");
   const distanceEl = document.getElementById("distance");
@@ -125,7 +193,12 @@ function init() {
 
   bestEl.textContent = best ? `${best.toFixed(0)} nm` : "—";
 
+  function isTypingTarget(el) {
+    return el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+  }
+
   window.addEventListener("keydown", (e) => {
+    if (isTypingTarget(e.target)) return;
     const k = e.key.toLowerCase();
     if (k in held) {
       held[k] = true;
@@ -134,6 +207,7 @@ function init() {
     }
   });
   window.addEventListener("keyup", (e) => {
+    if (isTypingTarget(e.target)) return;
     const k = e.key.toLowerCase();
     if (k in held) {
       held[k] = false;
@@ -155,6 +229,7 @@ function init() {
     statusEl.textContent = "walking";
     statusEl.classList.remove("fell");
     stepsEl.textContent = "0";
+    if (recordStatus) recordStatus.textContent = "";
   }
 
   restartBtn.addEventListener("click", resetRun);
@@ -203,6 +278,24 @@ function init() {
     splatBest.textContent = `best: ${best.toFixed(0)} nm · ${state.steps} steps`;
     splat.hidden = false;
     wireShare(dist, state.steps);
+    saveRun(dist, state.steps);
+  }
+
+  async function saveRun(dist, steps) {
+    if (!recordStatus) return;
+    if (!session) {
+      recordStatus.textContent = "sign in above to save this run to the leaderboard";
+      return;
+    }
+    recordStatus.textContent = "saving run…";
+    try {
+      const { recordWalk } = await records();
+      await recordWalk(session, { distance: dist, steps });
+      recordStatus.textContent = "saved to your PDS ✓";
+    } catch (err) {
+      console.warn("kinesin recordWalk failed", err);
+      recordStatus.textContent = "couldn't save this run — try again next time";
+    }
   }
 
   function renderScene(tick) {
