@@ -201,6 +201,7 @@
       <footer>
         firehose via <a href="https://github.com/bluesky-social/jetstream">jetstream</a>
         · a <a href="https://bisks.net">bisks.net</a> experiment
+        · <a href="https://rateyourbuild.bisks.net/site/noai">rate this on rateyourbuild →</a>
       </footer>
     </div>
 
@@ -238,6 +239,111 @@
         return Math.floor(s / 86400) + "d";
       }
 
+      // Feed items are only ever added at the front (unshift) or trimmed off
+      // the tail (MAX_FEED), so existing <li>s never need to move — we just
+      // patch them in place. Rebuilding the whole list on every snapshot
+      // (including snapshots where the feed didn't even change, like the
+      // periodic "seen" tick) was what caused the visible flicker: it
+      // retriggered every item's fade-in animation and reloaded every
+      // avatar image on every update, not just new ones.
+      const feedNodes = new Map(); // uri -> { li, avatarEl, whoEl, handleEl, timeEl, entry }
+
+      function liInnerHtml(p) {
+        const handle = p.profile ? p.profile.handle : p.did.slice(0, 24) + "…";
+        const name = p.profile ? p.profile.displayName : handle;
+        const avatar = p.profile && p.profile.avatar ? p.profile.avatar : "";
+        const link = `https://bsky.app/profile/${p.did}/post/${p.rkey}`;
+        return `${avatar ? `<img class="avatar" src="${esc(avatar)}" alt="" loading="lazy" />` : `<span class="avatar"></span>`}
+          <div class="post-body">
+            <div class="post-head">
+              <span class="who">${esc(name)}</span>
+              <span class="handle">@${esc(handle)}</span>
+              <span class="time">${timeAgo(p.createdAt)}</span>
+            </div>
+            <div class="post-text">${esc(p.text)}</div>
+            <a class="post-link" href="${link}" target="_blank" rel="noopener">view on bluesky →</a>
+          </div>`;
+      }
+
+      function createLiNode(p) {
+        const li = document.createElement("li");
+        li.innerHTML = liInnerHtml(p);
+        return {
+          li,
+          avatarEl: li.querySelector(".avatar"),
+          whoEl: li.querySelector(".who"),
+          handleEl: li.querySelector(".handle"),
+          timeEl: li.querySelector(".time"),
+          entry: p,
+          lastProfile: p.profile,
+        };
+      }
+
+      function updateLiNode(node, p) {
+        const handle = p.profile ? p.profile.handle : p.did.slice(0, 24) + "…";
+        const name = p.profile ? p.profile.displayName : handle;
+        const avatarUrl = p.profile && p.profile.avatar ? p.profile.avatar : "";
+        node.whoEl.textContent = name;
+        node.handleEl.textContent = "@" + handle;
+        if (avatarUrl && node.avatarEl.tagName !== "IMG") {
+          const img = document.createElement("img");
+          img.className = "avatar";
+          img.alt = "";
+          img.loading = "lazy";
+          img.src = avatarUrl;
+          node.avatarEl.replaceWith(img);
+          node.avatarEl = img;
+        } else if (avatarUrl && node.avatarEl.src !== avatarUrl) {
+          node.avatarEl.src = avatarUrl;
+        }
+        node.entry = p;
+        node.lastProfile = p.profile;
+      }
+
+      function renderFeed(feed) {
+        if (!feed.length) {
+          if (emptyFeed.parentNode !== feedEl) {
+            feedEl.innerHTML = "";
+            feedEl.appendChild(emptyFeed);
+          }
+          feedNodes.clear();
+          return;
+        }
+        if (emptyFeed.parentNode === feedEl) emptyFeed.remove();
+
+        // New entries only ever appear as a prefix of `feed` (newest-first).
+        let newCount = 0;
+        while (newCount < feed.length && !feedNodes.has(feed[newCount].uri)) newCount++;
+        for (let i = newCount - 1; i >= 0; i--) {
+          const p = feed[i];
+          const node = createLiNode(p);
+          feedNodes.set(p.uri, node);
+          feedEl.insertBefore(node.li, feedEl.firstChild);
+        }
+
+        // Existing entries: patch in place if their profile just resolved.
+        for (let i = newCount; i < feed.length; i++) {
+          const p = feed[i];
+          const node = feedNodes.get(p.uri);
+          if (node && node.lastProfile !== p.profile) updateLiNode(node, p);
+        }
+
+        // Drop anything that fell off the tail (MAX_FEED trim).
+        const currentUris = new Set(feed.map((p) => p.uri));
+        for (const [uri, node] of feedNodes) {
+          if (!currentUris.has(uri)) {
+            node.li.remove();
+            feedNodes.delete(uri);
+          }
+        }
+      }
+
+      setInterval(() => {
+        for (const node of feedNodes.values()) {
+          node.timeEl.textContent = timeAgo(node.entry.createdAt);
+        }
+      }, 15000);
+
       function render(snap) {
         dot.classList.toggle("live", snap.connected && !snap.paused);
         statusText.textContent = snap.paused ? "paused" : snap.connected ? "live" : "reconnecting…";
@@ -249,31 +355,7 @@
         }
         pauseBtn.textContent = snap.paused ? "▶ resume" : "⏸ pause";
 
-        if (!snap.feed.length) {
-          feedEl.innerHTML = "";
-          feedEl.appendChild(emptyFeed);
-          return;
-        }
-        feedEl.innerHTML = snap.feed
-          .map((p) => {
-            const handle = p.profile ? p.profile.handle : p.did.slice(0, 24) + "…";
-            const name = p.profile ? p.profile.displayName : handle;
-            const avatar = p.profile && p.profile.avatar ? p.profile.avatar : "";
-            const link = `https://bsky.app/profile/${p.did}/post/${p.rkey}`;
-            return `<li>
-              ${avatar ? `<img class="avatar" src="${esc(avatar)}" alt="" loading="lazy" />` : `<span class="avatar"></span>`}
-              <div class="post-body">
-                <div class="post-head">
-                  <span class="who">${esc(name)}</span>
-                  <span class="handle">@${esc(handle)}</span>
-                  <span class="time">${timeAgo(p.createdAt)}</span>
-                </div>
-                <div class="post-text">${esc(p.text)}</div>
-                <a class="post-link" href="${link}" target="_blank" rel="noopener">view on bluesky →</a>
-              </div>
-            </li>`;
-          })
-          .join("");
+        renderFeed(snap.feed);
       }
 
       pauseBtn.addEventListener("click", () => {
