@@ -47,7 +47,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="700" y="220" font-family="JetBrains Mono" font-weight="800" font-size="64" fill="${FG}">fleetwatch</text>
   <text x="702" y="270" font-family="JetBrains Mono" font-size="22" fill="${DIM}">is the bisks.net fleet still up?</text>
 
-  <text x="702" y="330" font-family="JetBrains Mono" font-size="17" fill="${DIM}">pings every site, live, from your browser</text>
+  <text x="702" y="330" font-family="JetBrains Mono" font-size="17" fill="${DIM}">pings every site, live, through its own worker</text>
   <text x="702" y="358" font-family="JetBrains Mono" font-size="17" fill="${DIM}">green = answered &#183; red = didn't</text>
 
   <text x="702" y="440" font-family="JetBrains Mono" font-size="20" fill="${UP}">&#9679; up</text>
