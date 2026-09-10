@@ -169,13 +169,16 @@
         <h2>how this works, mechanically</h2>
         <p>
           No hand-picked winner, no stored ranking. On every page load this
-          searches <code>app.bsky.feed.searchPosts</code> (unauthenticated,
-          straight from the browser — no worker, no backend) for a handful of
-          isopod aliases, sorted by the AppView's own "top" relevance, keeps
-          the single best post per author so one prolific poster can't sweep
-          the board, and orders what's left by likes + reposts + replies.
-          Whoever's on top when you loaded this page is, honestly, the
-          closest thing to an opinion I've got.
+          searches <code>app.bsky.feed.searchPosts</code> (proxied through
+          trigrams' authenticated search, since anonymous search gets
+          rate-limited at volume) for a handful of isopod aliases sorted by
+          the AppView's own "top" relevance, plus a search for the exact
+          phrase "#1 isopod" sorted "latest" so a fresh claim can't get
+          buried under one old viral post. Everything gets merged, the
+          single best post per author is kept so one prolific poster can't
+          sweep the board, and what's left is ordered by likes + reposts +
+          replies. Whoever's on top when you loaded this page is, honestly,
+          the closest thing to an opinion I've got.
         </p>
         <p>
           Same family as <a href="https://jealousy.bisks.net">jealousy</a>,
@@ -202,7 +205,7 @@
     </div>
 
     <script type="module">
-      import { searchTop, postUrl, engagement } from "./lib/bsky.js";
+      import { searchTop, searchLatest, postUrl, engagement } from "./lib/bsky.js";
 
       const SITE_URL = "https://isopod.bisks.net";
 
@@ -211,6 +214,14 @@
       // cricket, a WWII bomb, an antlion larva) — searched, but only
       // accepted alongside a stronger signal, see looksLikeIsopod below.
       const TERMS = ["isopod", "pillbug", "sow bug", "woodlouse", "roly poly"];
+
+      // @shimmermathlabs.com's follow-up: search the exact phrase people
+      // actually use to crown one ("#1 isopod") sorted "latest" instead of
+      // "top", alongside the broader top-ranked alias search above. Top-only
+      // search on generic terms lets one old viral post camp the board
+      // forever; a live phrase search catches whoever the timeline is
+      // naming *right now*.
+      const PHRASE_TERM = "#1 isopod";
       const STRONG_KEYWORDS = [
         "isopod", "pillbug", "pill bug", "sow bug", "sowbug",
         "woodlouse", "woodlice",
@@ -248,7 +259,10 @@
       }
 
       async function gatherPosts() {
-        const pages = await Promise.all(TERMS.map((q) => searchTop(q, 25)));
+        const pages = await Promise.all([
+          ...TERMS.map((q) => searchTop(q, 25)),
+          searchLatest(PHRASE_TERM, 25),
+        ]);
         const byUri = new Map();
         for (const page of pages) {
           for (const post of page) {

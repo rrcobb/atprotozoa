@@ -30,16 +30,25 @@ async function searchGet(url, tries = 6) {
   return null;
 }
 
-// One page of searchPosts, sorted "top" (the AppView's own relevance+
-// engagement ranking) for `q`. Returns [] on total failure — caller treats
-// that the same as "no results this round," not a hard error.
-export async function searchTop(q, limit = 25) {
+// One page of searchPosts for `q`, sorted either "top" (the AppView's own
+// relevance+engagement ranking) or "latest" (most recent first). Returns []
+// on total failure — caller treats that the same as "no results this
+// round," not a hard error.
+async function search(q, sort, limit) {
   const u = new URL(SEARCH_API);
   u.searchParams.set("q", q);
-  u.searchParams.set("sort", "top");
+  u.searchParams.set("sort", sort);
   u.searchParams.set("limit", String(limit));
   const d = await searchGet(u.toString());
   return d?.posts || [];
+}
+
+export async function searchTop(q, limit = 25) {
+  return search(q, "top", limit);
+}
+
+export async function searchLatest(q, limit = 25) {
+  return search(q, "latest", limit);
 }
 
 // bsky.app permalink from an at:// uri.
