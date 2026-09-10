@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>murmuration — watch a flock of starlings, or your own follows</title>
+<meta name="description" content="A real-time boids flocking simulation in your browser: separation, alignment, cohesion, and your cursor as a predator. Type a Bluesky handle and the flock becomes their actual follows, one bird per account, colored by DID." />
+<meta property="og:title" content="murmuration — a flock of starlings, or your own follows" />
+<meta property="og:description" content="A real-time boids flocking sim. Your cursor is a predator. Type a Bluesky handle and the flock becomes their real follow graph, one bird per account." />
+<meta property="og:url" content="https://murmuration.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://murmuration.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A dusk-colored sky full of small triangular birds swirling in a flocking pattern." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="murmuration — a flock of starlings, or your own follows" />
+<meta name="twitter:description" content="A real-time boids flocking sim. Your cursor is a predator. Type a Bluesky handle and the flock becomes their real follow graph, one bird per account." />
+<meta name="twitter:image" content="https://murmuration.bisks.net/og.png" />
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+    color: #f3ead8;
+    overflow: hidden;
+  }
+  #sky {
+    position: fixed; inset: 0;
+    background: linear-gradient(180deg, #1a1030 0%, #3a1f4d 22%, #7a3b5e 45%, #c85a4a 65%, #e8935a 82%, #f5c168 100%);
+  }
+  canvas#sim {
+    position: fixed; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+  }
+  .panel {
+    position: fixed; top: 0; left: 0; right: 0;
+    padding: 1rem 1.1rem 0.8rem;
+    background: linear-gradient(180deg, rgba(10,4,20,0.72) 0%, rgba(10,4,20,0.35) 80%, rgba(10,4,20,0) 100%);
+    pointer-events: none;
+  }
+  .panel * { pointer-events: auto; }
+  h1 { font-size: 1.35rem; margin: 0 0 0.15rem; letter-spacing: 0.01em; text-shadow: 0 2px 8px rgba(0,0,0,0.6); }
+  .tag { font-size: 0.82rem; margin: 0 0 0.7rem; color: #e8dcc8; max-width: 60ch; line-height: 1.45; text-shadow: 0 1px 4px rgba(0,0,0,0.5); }
+  .tag a { color: #ffd8a8; }
+
+  .row { display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem; align-items: center; }
+
+  .card {
+    background: rgba(15, 8, 22, 0.6);
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 8px;
+    padding: 0.55rem 0.7rem;
+    backdrop-filter: blur(4px);
+  }
+
+  form#flockForm { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+  input#handle {
+    background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.25);
+    color: #f3ead8;
+    border-radius: 5px;
+    padding: 0.4rem 0.6rem;
+    font: inherit;
+    font-size: 0.85rem;
+    width: 15rem;
+    max-width: 45vw;
+  }
+  input#handle::placeholder { color: rgba(243,234,216,0.5); }
+  button, .btn {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: #f3ead8;
+    border-radius: 5px;
+    padding: 0.4rem 0.7rem;
+    font: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+  }
+  button:hover, .btn:hover { background: rgba(255,255,255,0.2); }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  .sliders { display: flex; flex-wrap: wrap; gap: 0.5rem 1.1rem; font-size: 0.75rem; margin-top: 0.55rem; }
+  .sliders label { display: flex; flex-direction: column; gap: 0.15rem; color: #e8dcc8; }
+  .sliders input[type=range] { width: 8.5rem; accent-color: #ffb066; }
+
+  #status { font-size: 0.78rem; margin-top: 0.4rem; min-height: 1.1em; color: #ffd8a8; text-shadow: 0 1px 4px rgba(0,0,0,0.6); }
+  #status.err { color: #ff9d9d; }
+
+  #tooltip {
+    position: fixed; pointer-events: none;
+    background: rgba(10,4,20,0.85); color: #fff;
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 5px; padding: 0.2rem 0.5rem;
+    font-size: 0.78rem; display: none; z-index: 10;
+    white-space: nowrap;
+  }
+
+  .bottom {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    display: flex; justify-content: space-between; align-items: flex-end;
+    gap: 0.6rem; flex-wrap: wrap;
+    padding: 0.7rem 1rem 0.8rem;
+    background: linear-gradient(0deg, rgba(10,4,20,0.7) 0%, rgba(10,4,20,0) 100%);
+    pointer-events: none;
+  }
+  .bottom * { pointer-events: auto; }
+  .share-row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+  a.share-post {
+    background: #ffb066; color: #1a1030; font-weight: 700;
+    border-radius: 5px; padding: 0.4rem 0.75rem; text-decoration: none; font-size: 0.82rem;
+  }
+  a.share-post:hover { background: #ffc98a; }
+
+  footer { font-size: 0.72rem; color: #d8cbb4; text-shadow: 0 1px 4px rgba(0,0,0,0.6); max-width: 32rem; line-height: 1.5; }
+  footer a { color: #ffd8a8; }
+</style>
+</head>
+<body>
+<div id="sky"></div>
+<canvas id="sim"></canvas>
+<div id="tooltip"></div>
+
+<div class="panel">
+  <h1>m<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">u</span>rmuration</h1>
+  <p class="tag">
+    a real-time <a href="https://en.wikipedia.org/wiki/Boids" target="_blank" rel="noopener">boids</a> flock —
+    separation, alignment, cohesion. your cursor is a predator: hover the sky and watch the flock swerve away.
+    type a Bluesky handle and the flock becomes their real follows, one bird per account.
+  </p>
+  <div class="row">
+    <form id="flockForm">
+      <input id="handle" type="text" placeholder="your handle, e.g. you.bsky.social" autocomplete="off" />
+      <button id="flockBtn" type="submit">flock it</button>
+      <button id="resetBtn" type="button">reset to plain flock</button>
+    </form>
+  </div>
+  <div id="status"></div>
+  <details class="card" style="margin-top:0.6rem; display:inline-block;">
+    <summary style="cursor:pointer; font-size:0.8rem;">tune the flock</summary>
+    <div class="sliders">
+      <label>separation <input id="sepSlider" type="range" min="0" max="3" step="0.05" value="1.4" /></label>
+      <label>alignment <input id="aliSlider" type="range" min="0" max="3" step="0.05" value="1.0" /></label>
+      <label>cohesion <input id="cohSlider" type="range" min="0" max="3" step="0.05" value="1.0" /></label>
+      <label>speed <input id="speedSlider" type="range" min="1" max="7" step="0.1" value="3.4" /></label>
+    </div>
+  </details>
+</div>
+
+<div class="bottom">
+  <footer>
+    murmuration.bisks.net — one of 700+ tiny <a href="https://bisks.net/" target="_blank" rel="noopener">atprotozoa</a> experiments.
+    a daily-slot build, nobody in particular asked.
+    <a href="https://rateyourbuild.bisks.net/site/murmuration" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+  </footer>
+  <div class="share-row">
+    <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your flock</a>
+    <button id="shareDownload" type="button">⬇ download card</button>
+    <button id="shareNative" type="button" style="display:none;">share…</button>
+  </div>
+</div>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>
