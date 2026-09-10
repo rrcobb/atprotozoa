@@ -16,10 +16,10 @@ const BG = "#0c1614", FG = "#eef5f3", DIM = "#93a8a3";
 const ACCENT = "#3f7a72", GOLD = "#5fae9d", CARD = "#101c19", BORDER = "#233b36";
 
 const items = [
-  "searches bluesky live",
-  "ranks by likes + reposts",
-  "best post per author",
-  "no fixed favorite",
+  "crowned by her friends",
+  "confirmed via getRepo CAR",
+  "7,130 posts, read once",
+  "#1 isopod: isolyth.dev",
 ];
 
 const cardX = 460, cardY = 90, cardW = 680, cardH = 450;
@@ -48,17 +48,17 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="url(#glow1)"/>
 
   <text x="64" y="140" font-family="JetBrains Mono" font-weight="800" font-size="60" fill="url(#title)">isopod</text>
-  <text x="64" y="188" font-family="JetBrains Mono" font-size="20" fill="${DIM}">the timeline's current favorite</text>
+  <text x="64" y="188" font-family="JetBrains Mono" font-size="20" fill="${DIM}">the case for isolyth.dev</text>
 
-  <text x="64" y="270" font-family="JetBrains Mono" font-size="16" fill="${DIM}">No hand-picked winner — just whoever</text>
-  <text x="64" y="296" font-family="JetBrains Mono" font-size="16" fill="${DIM}">Bluesky loves most right now.</text>
+  <text x="64" y="270" font-family="JetBrains Mono" font-size="16" fill="${DIM}">The friends said it first. Her own repo</text>
+  <text x="64" y="296" font-family="JetBrains Mono" font-size="16" fill="${DIM}">backs it up.</text>
 
   <text x="64" y="440" font-family="JetBrains Mono" font-size="16" fill="${GOLD}">asked by @shimmermathlabs.com</text>
 
   <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${ACCENT}">isopod.bisks.net</text>
 
   <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" rx="18" fill="${CARD}" stroke="${BORDER}" stroke-width="1.5"/>
-  <text x="${cardX + 40}" y="${cardY + 44}" font-family="JetBrains Mono" font-weight="800" font-size="15" letter-spacing="2" fill="${DIM}">HOW IT PICKS</text>
+  <text x="${cardX + 40}" y="${cardY + 44}" font-family="JetBrains Mono" font-weight="800" font-size="15" letter-spacing="2" fill="${DIM}">THE VERDICT</text>
 
   ${rowsSvg}
 </svg>`;
