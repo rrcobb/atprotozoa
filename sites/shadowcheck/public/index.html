@@ -198,8 +198,9 @@
       <p class="credit">
         commissioned by <a href="https://bsky.app/profile/7778777.online" target="_blank" rel="noopener">@7778777.online</a>,
         who filed a follow-up amendment we are not at liberty to describe.
-        <em>this detects nothing real — no API exposes actual shadowban
-        state — it just runs the bit, straight-faced.</em>
+        <em>most of this detects nothing real — no API exposes actual shadowban
+        state. one classified criterion, as of this revision, checks something
+        Bluesky's moderation service actually said. we won't say which.</em>
       </p>
     </div>
 
@@ -261,14 +262,45 @@ function hasFlagEmoji(s) {
   return FLAG_RE.test(s || "");
 }
 
-function decide(profile) {
+// Bluesky's own moderation service. Every other criterion here is satire (see
+// the credit line below) — this one queries something real: the labeler will
+// hand back any label IT has issued on a subject, unauthenticated, CORS-open,
+// no account needed. An unexpired label here means the account is actually
+// flagged by Bluesky moderation right now, not just tripping our fake math.
+const MOD_SERVICE_DID = "did:plc:ar7c4by46qjdydhdevvrndac";
+
+async function fetchModLabels(did) {
+  try {
+    const res = await fetch(
+      "https://mod.bsky.app/xrpc/com.atproto.label.queryLabels?uriPatterns=" + encodeURIComponent(did),
+    );
+    if (!res.ok) return [];
+    const j = await res.json();
+    const now = Date.now();
+    return (j.labels || []).filter((l) => !l.exp || new Date(l.exp).getTime() > now);
+  } catch (_) {
+    return [];
+  }
+}
+
+function decide(profile, modLabels) {
   const followers = profile.followersCount || 0;
   const follows = profile.followsCount || 0;
   const countHit = followers > FOLLOWERS_THRESHOLD && follows >= FOLLOWS_THRESHOLD;
   const flagInName = hasFlagEmoji(profile.displayName);
   const flagInBio = hasFlagEmoji(profile.description);
   const flagHit = flagInName || flagInBio;
-  return { followers, follows, countHit, flagInName, flagInBio, flagHit, shadowbanned: countHit || flagHit };
+  const modHit = (modLabels || []).length > 0;
+  return {
+    followers,
+    follows,
+    countHit,
+    flagInName,
+    flagInBio,
+    flagHit,
+    modHit,
+    shadowbanned: countHit || flagHit || modHit,
+  };
 }
 
 function cleanHandle(raw) {
@@ -345,6 +377,7 @@ function renderRules(result) {
   els.rules.appendChild(ruleRow("α", result.countHit));
   els.rules.appendChild(ruleRow("β", result.flagInName));
   els.rules.appendChild(ruleRow("γ", result.flagInBio));
+  els.rules.appendChild(ruleRow("δ", result.modHit));
 }
 
 function loadImg(url) {
@@ -440,7 +473,8 @@ async function reveal(rawHandle) {
       profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
     }
 
-    const result = decide(profile);
+    const modLabels = await fetchModLabels(did);
+    const result = decide(profile, modLabels);
 
     els.avatar.src = profile.avatar || "";
     els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";

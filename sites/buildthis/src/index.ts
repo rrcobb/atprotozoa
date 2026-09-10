@@ -413,6 +413,31 @@ async function runWatcher(env: Env): Promise<void> {
   // Pull recent mentions. We page a little in case a burst arrived, but the
   // seen-cursor + per-id dedup below is what actually prevents double-handling.
   const mentions = await recentMentions(session);
+
+  // Second discovery rail, every SWEEP_EVERY_N-th tick: listNotifications is
+  // one recipient-side view, and it can go quiet for a specific author without
+  // the watcher ever seeing an error. Confirmed 2026-09-10 (@cee.wtf's account
+  // got a Bluesky moderation label; every mention they posted after that
+  // stopped appearing in listNotifications for anyone, ours included, while
+  // still being live, correctly-facetted posts findable by search). searchPosts
+  // draws from a different index than the per-recipient notification feed, so
+  // it still finds a mention that got filtered out of the list above. Not every
+  // tick — it's a heavier call, and the `handled:` dedup below means a mention
+  // this sweep would have caught just waits one extra sweep interval, so
+  // trading a little latency for not hammering the endpoint every 2 minutes is
+  // the right side of that trade. Best-effort: a sweep failure just means this
+  // tick didn't get the extra check, not a broken watcher.
+  const tick = await bumpSweepTick(env);
+  if (tick % SWEEP_EVERY_N === 0) {
+    try {
+      const swept = await searchMentionSweep(session, env);
+      const seen = new Set(mentions.map((m) => m.uri));
+      for (const m of swept) if (!seen.has(m.uri)) mentions.push(m);
+    } catch (err) {
+      console.error(`search sweep failed: ${err}`);
+    }
+  }
+
   if (mentions.length === 0) return;
 
   for (const m of mentions) {
@@ -1924,6 +1949,73 @@ async function recentMentions(session: Session): Promise<Mention[]> {
         isReply: Boolean(rec.reply),
       };
     });
+}
+
+// --- Search sweep (secondary mention discovery) -----------------------
+
+// How often (in watcher ticks, ~2 min apart) to run the heavier searchPosts
+// sweep alongside the normal listNotifications pull. See runWatcher's comment
+// for why this exists and why it isn't every tick.
+const SWEEP_EVERY_N = 5;
+const SWEEP_TICK_KEY = "watcher:sweep-tick";
+
+// A plain incrementing counter in KV, not a precise clock — one watcher
+// instance, one tick at a time, so there's no concurrent-write race to guard
+// against. On a KV read/write failure, fail open to "not a sweep tick" (return
+// a value that won't hit the modulus) rather than force a sweep on every
+// subsequent tick if KV is having a bad moment.
+async function bumpSweepTick(env: Env): Promise<number> {
+  try {
+    const raw = await env.STATE.get(SWEEP_TICK_KEY);
+    const n = (raw ? parseInt(raw, 10) || 0 : 0) + 1;
+    await env.STATE.put(SWEEP_TICK_KEY, String(n));
+    return n;
+  } catch (err) {
+    console.error(`bumpSweepTick failed: ${err}`);
+    return 1;
+  }
+}
+
+interface RawSearchPost {
+  uri: string;
+  cid: string;
+  author: { did: string; handle: string };
+  record?: unknown;
+}
+
+// Finds mentions via full-text/mention search instead of the notification
+// feed. Same PDS-proxied-to-AppView pattern as recentMentions (Bearer session,
+// not the anonymous public API), and the `mentions` param does the precise
+// work — it's Bluesky's own "posts that mention this account" filter, not a
+// text match on our handle, so this doesn't need the reply-facet fallback
+// recentMentions has (a plain mention is already exactly what we asked for).
+async function searchMentionSweep(session: Session, env: Env): Promise<Mention[]> {
+  const u = new URL(`${PDS}/xrpc/app.bsky.feed.searchPosts`);
+  u.searchParams.set("q", "buildthis.bisks.net");
+  u.searchParams.set("mentions", env.BOT_DID);
+  u.searchParams.set("sort", "latest");
+  u.searchParams.set("limit", "25");
+  const res = await fetch(u.toString(), {
+    headers: { authorization: `Bearer ${session.accessJwt}` },
+  });
+  if (!res.ok) {
+    throw new Error(`searchPosts failed: ${res.status} ${await res.text()}`);
+  }
+  const j = (await res.json()) as { posts: RawSearchPost[] };
+  return j.posts.map((p) => {
+    const rec = (p.record ?? {}) as PostRecord;
+    const root = rec.reply?.root;
+    return {
+      uri: p.uri,
+      cid: p.cid,
+      authorDid: p.author.did,
+      authorHandle: p.author.handle,
+      text: rec.text ?? "",
+      rootUri: root?.uri ?? p.uri,
+      rootCid: root?.cid ?? p.cid,
+      isReply: Boolean(rec.reply),
+    };
+  });
 }
 
 // When the mention is a reply, walk the thread's ancestor chain (root -> ... ->

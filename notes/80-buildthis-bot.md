@@ -42,7 +42,13 @@ Each tick:
    right under the bot's own "built it 🎉" reply used to be silently dropped
    before it ever reached the event log (found 2026-09-10, via @cee.wtf's
    "add jimothy mode" ask going unanswered — see `recentMentions` in
-   `src/index.ts`).
+   `src/index.ts`). Every 5th tick, also sweep `app.bsky.feed.searchPosts`
+   (`mentions=<bot DID>`) as a second discovery rail and merge in anything
+   `listNotifications` didn't have — confirmed 2026-09-10 that Bluesky can
+   silently drop an author's mentions from *every* recipient's notification
+   list account-wide (seen after @cee.wtf's account picked up a moderation
+   label) while the post itself stays live, correctly facetted, and findable
+   by search; see `searchMentionSweep` in `src/index.ts`.
 2. Gate on **Rob's mutuals** — `getRelationships` against Rob's DID
    (`did:plc:f6n22z62adionrvb5s6n6vfk`), requiring both `following` and
    `followedBy`. This is mutual-follow with *Rob*, not with the bot, and the

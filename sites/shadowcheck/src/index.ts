@@ -34,12 +34,35 @@ interface Profile {
   followsCount?: number;
 }
 
-function decide(profile: Profile) {
+// Bluesky's own moderation service — kept as a server-side copy of the same
+// check in public/index.html (see that file's comment for why this one is
+// real and the others aren't).
+const MOD_SERVICE_DID = "did:plc:ar7c4by46qjdydhdevvrndac";
+
+interface ModLabel { exp?: string }
+
+async function fetchModLabels(did: string): Promise<ModLabel[]> {
+  try {
+    const res = await fetch(
+      `https://mod.bsky.app/xrpc/com.atproto.label.queryLabels?uriPatterns=${encodeURIComponent(did)}`,
+      { cf: { cacheTtl: 60 } as unknown as Record<string, unknown> },
+    );
+    if (!res.ok) return [];
+    const j = (await res.json()) as { labels?: ModLabel[] };
+    const now = Date.now();
+    return (j.labels || []).filter((l) => !l.exp || new Date(l.exp).getTime() > now);
+  } catch (_) {
+    return [];
+  }
+}
+
+function decide(profile: Profile, modLabels: ModLabel[]) {
   const followers = profile.followersCount || 0;
   const follows = profile.followsCount || 0;
   const countHit = followers > FOLLOWERS_THRESHOLD && follows >= FOLLOWS_THRESHOLD;
   const flagHit = hasFlagEmoji(profile.displayName) || hasFlagEmoji(profile.description);
-  return { followers, follows, countHit, flagHit, shadowbanned: countHit || flagHit };
+  const modHit = modLabels.length > 0;
+  return { followers, follows, countHit, flagHit, modHit, shadowbanned: countHit || flagHit || modHit };
 }
 
 function cleanHandle(raw: string): string {
@@ -97,7 +120,8 @@ async function renderShare(env: Env, request: Request, rawHandle: string): Promi
       did = r.did;
     }
     const profile: Profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
-    const result = decide(profile);
+    const modLabels = await fetchModLabels(did);
+    const result = decide(profile, modLabels);
 
     const who = "@" + (profile.handle || handle);
     const verdict = result.shadowbanned ? "yes" : "no";
