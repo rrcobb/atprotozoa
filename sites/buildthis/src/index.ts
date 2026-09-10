@@ -1888,8 +1888,28 @@ async function recentMentions(session: Session): Promise<Mention[]> {
   }
   const j = (await res.json()) as { notifications: RawNotif[] };
 
+  // A reply landing directly on one of OUR OWN posts never gets reason
+  // "mention" from the AppView, even when its text also @-mentions us — a
+  // direct reply already notifies us, so it dedupes to reason "reply" only.
+  // That silently dropped tags like "@buildthis.bisks.net add X" posted right
+  // under our own "built it 🎉" reply (seen 2026-09-10: @cee.wtf's ask never
+  // even reached the event log — recordEvent below never ran for it because
+  // this filter threw it away before the loop ever saw it). Catch that case by
+  // also accepting a "reply" notification whose record carries an explicit
+  // mention facet pointing at our own DID.
+  const isMentionFacetOfUs = (rec: PostRecord): boolean =>
+    (rec.facets ?? []).some((f) =>
+      (f.features ?? []).some(
+        (feat) => feat.$type === "app.bsky.richtext.facet#mention" && feat.did === session.did,
+      ),
+    );
+
   return j.notifications
-    .filter((n) => n.reason === "mention")
+    .filter((n) => {
+      if (n.reason === "mention") return true;
+      if (n.reason !== "reply") return false;
+      return isMentionFacetOfUs((n.record ?? {}) as PostRecord);
+    })
     .map((n) => {
       const rec = (n.record ?? {}) as PostRecord;
       const root = rec.reply?.root;
@@ -2156,6 +2176,7 @@ interface RawNotif {
 interface PostRecord {
   text?: string;
   reply?: { root?: { uri: string; cid: string } };
+  facets?: Array<{ features?: Array<{ $type?: string; did?: string }> }>;
 }
 
 // Is `did` a mutual of Rob's? Uses the anonymous AppView — a mutual has BOTH

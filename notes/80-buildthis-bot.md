@@ -34,7 +34,15 @@ Subscribe at `https://bsky.app/profile/buildthis.bisks.net/feed/shipped`.
 Each tick:
 
 1. Log in as the bot, `listNotifications`, filter to `reason: "mention"` newer
-   than the last-seen cursor (KV).
+   than the last-seen cursor (KV) — plus `reason: "reply"` notifications whose
+   record carries an explicit mention facet pointing at the bot's own DID. The
+   AppView doesn't double-notify: a reply landing directly on one of the bot's
+   own posts comes through as `reason: "reply"` only, even when its text also
+   `@`-mentions the bot, so a tag like "@buildthis.bisks.net add X" posted
+   right under the bot's own "built it 🎉" reply used to be silently dropped
+   before it ever reached the event log (found 2026-09-10, via @cee.wtf's
+   "add jimothy mode" ask going unanswered — see `recentMentions` in
+   `src/index.ts`).
 2. Gate on **Rob's mutuals** — `getRelationships` against Rob's DID
    (`did:plc:f6n22z62adionrvb5s6n6vfk`), requiring both `following` and
    `followedBy`. This is mutual-follow with *Rob*, not with the bot, and the
