@@ -197,23 +197,53 @@ function init() {
     return el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
   }
 
+  function setKey(k, val) {
+    if (!(k in held)) return;
+    held[k] = val;
+    keyBadges[k]?.classList.toggle("active", val);
+  }
+
   window.addEventListener("keydown", (e) => {
     if (isTypingTarget(e.target)) return;
     const k = e.key.toLowerCase();
     if (k in held) {
-      held[k] = true;
-      keyBadges[k]?.classList.add("active");
+      setKey(k, true);
       e.preventDefault();
     }
   });
   window.addEventListener("keyup", (e) => {
     if (isTypingTarget(e.target)) return;
     const k = e.key.toLowerCase();
-    if (k in held) {
-      held[k] = false;
-      keyBadges[k]?.classList.remove("active");
-    }
+    if (k in held) setKey(k, false);
   });
+
+  // mobile: on-screen buttons mirror Q/W/O/P, shown via CSS on coarse pointers
+  const touchButtons = {
+    q: document.getElementById("touch-q"),
+    w: document.getElementById("touch-w"),
+    o: document.getElementById("touch-o"),
+    p: document.getElementById("touch-p"),
+  };
+  function bindTouch(el, k) {
+    if (!el) return;
+    const press = (e) => {
+      e.preventDefault();
+      setKey(k, true);
+      el.classList.add("active");
+    };
+    const release = (e) => {
+      if (e) e.preventDefault();
+      setKey(k, false);
+      el.classList.remove("active");
+    };
+    el.addEventListener("touchstart", press, { passive: false });
+    el.addEventListener("touchend", release, { passive: false });
+    el.addEventListener("touchcancel", release, { passive: false });
+    el.addEventListener("mousedown", press);
+    el.addEventListener("mouseup", release);
+    el.addEventListener("mouseleave", release);
+  }
+  for (const [k, el] of Object.entries(touchButtons)) bindTouch(el, k);
 
   function resetRun() {
     running = true;
