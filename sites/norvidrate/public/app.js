@@ -6,6 +6,14 @@
 // shimmermathlabs.com's ask: "do you really think we want a normal currency
 // converter? ... recompute conversion factor daily."
 //
+// shimmermathlabs.com later asked to simplify this down to just USD, EUR,
+// and the norvid ("it's too much otherwise") — the full 165-currency picker
+// xrate needs doesn't earn its keep on a two-currency joke. KEPT_CODES is
+// the only thing that changed from the "all currencies" version: the
+// Frankfurter rate table still arrives as one bulk fetch (its own API has no
+// symbols/quote filter to ask for less — see history around this change),
+// it's just filtered down to the couple of codes this site actually shows.
+//
 // The norvid rate is priced in the background so it never blocks the page:
 // a cached-or-fallback value is merged into the rate table immediately (the
 // converter is usable the instant Frankfurter's rates land), then refined in
@@ -14,13 +22,14 @@ import { peekNorvidCache, isFreshToday, getNorvidRate, forceRefreshNorvidRate, F
 
 const RATES_BASE = "USD";
 const RATES_URL = `https://api.frankfurter.dev/v2/rates?base=${RATES_BASE}`;
-const CURRENCIES_URL = "https://api.frankfurter.dev/v2/currencies";
-const CACHE_KEY = "norvidrate.cache.v1";
+const CACHE_KEY = "norvidrate.cache.v2";
 const CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6h — rates update once/day anyway
 const PAIR_KEY = "norvidrate.pair.v1";
 
 const NORVID = "NORVID";
-const GLANCE_CODES = ["USD", "EUR", "GBP", "JPY", NORVID];
+const KEPT_CODES = ["USD", "EUR", NORVID];
+const NAMES = { USD: "US Dollar", EUR: "Euro" };
+const GLANCE_CODES = KEPT_CODES;
 
 const els = {
   amount: document.getElementById("amount"),
@@ -74,25 +83,22 @@ function writeCache(data) {
 }
 
 async function fetchFresh() {
-  const [ratesRes, namesRes] = await Promise.all([
-    fetch(RATES_URL),
-    fetch(CURRENCIES_URL),
-  ]);
-  if (!ratesRes.ok || !namesRes.ok) throw new Error("rate lookup failed");
+  const ratesRes = await fetch(RATES_URL);
+  if (!ratesRes.ok) throw new Error("rate lookup failed");
   const ratesList = await ratesRes.json();
-  const currencyList = await namesRes.json();
 
+  // Frankfurter's rates endpoint has no symbols/quote filter to ask for just
+  // EUR — it's a bulk all-currencies response either way — so this just
+  // keeps the one code this simplified site cares about out of the ~170 it
+  // returns.
   const rates = {};
   let date = null;
   for (const entry of ratesList) {
-    rates[entry.quote] = entry.rate;
+    if (entry.quote === "USD" || entry.quote === "EUR") rates[entry.quote] = entry.rate;
     date = entry.date;
   }
 
-  const nameMap = {};
-  for (const c of currencyList) nameMap[c.iso_code] = c.name;
-
-  return { rates, names: nameMap, date };
+  return { rates, names: NAMES, date };
 }
 
 // Merges the norvid rate (whatever's known right now — cache, fallback, or a

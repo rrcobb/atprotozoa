@@ -19,11 +19,7 @@ const W = 1200, H = 630;
 const BG = "#0d1117", PANEL = "#151b23", PANEL2 = "#1c2430", BORDER = "#2a3441", FG = "#e6edf3", DIM = "#8b96a5";
 const ACCENT = "#56d2c2", ACCENT2 = "#ff8a5c";
 
-const rows = [
-  ["EUR", "86.09"],
-  ["GBP", "73.96"],
-  ["JPY", "15,418"],
-];
+const rows = [["EUR", "86.09"]];
 
 const rowSvg = rows
   .map((r, i) => {
