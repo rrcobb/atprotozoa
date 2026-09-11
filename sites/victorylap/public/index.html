@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🏁</text></svg>" />
+<title>victorylap — celebrate early, verify later</title>
+<meta name="description" content="type whatever you're declaring victory over. watch the runner cut the lap short and celebrate anyway. get a scoreboard of made-up stats and a live 'unchallenged for' timer." />
+<meta property="og:title" content="victorylap — celebrate early, verify later" />
+<meta property="og:description" content="type whatever you're declaring victory over. watch the runner cut the lap short and celebrate anyway. get a scoreboard of made-up stats and a live 'unchallenged for' timer." />
+<meta property="og:url" content="https://victorylap.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://victorylap.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="victorylap: a runner cutting across an oval track under a checkered banner reading PREMATURE VICTORY LAP, 100%+ confidence, 0% evidence." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="victorylap — celebrate early, verify later" />
+<meta name="twitter:description" content="type whatever you're declaring victory over. watch the runner cut the lap short and celebrate anyway. get a scoreboard of made-up stats and a live 'unchallenged for' timer." />
+<meta name="twitter:image" content="https://victorylap.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0d1410;
+    --bg2: #142018;
+    --fg: #ecfff2;
+    --dim: #8fae9c;
+    --accent: #ffcf4d;
+    --accent2: #4dffb0;
+    --panel: #122019;
+    --border: #24402f;
+    --track: #1c2e22;
+    --bad: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: radial-gradient(ellipse at 70% 0%, #1c3226 0%, transparent 55%), var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  #app {
+    max-width: 720px; margin: 0 auto;
+    padding: env(safe-area-inset-top) 1rem env(safe-area-inset-bottom);
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+  header { text-align: center; padding: 1.4rem 0 0.6rem; }
+  h1 { margin: 0; font-size: 1.7rem; letter-spacing: 0.02em; }
+  h1 .accent { color: var(--accent); }
+  .tagline { margin: 0.3rem 0 0; font-size: 0.82rem; color: var(--dim); line-height: 1.5; }
+
+  main { flex: 1; padding: 1rem 0 2rem; }
+  section { margin-bottom: 1.6rem; }
+  h2 { font-size: 0.95rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent2); margin: 0 0 0.8rem; }
+
+  #setup { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  #claim-input {
+    flex: 1; min-width: 200px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; color: var(--fg); font-family: inherit; font-size: 0.95rem;
+    padding: 0.7rem 0.9rem;
+  }
+  #claim-input::placeholder { color: var(--dim); }
+
+  .btn {
+    display: inline-block; border: none; border-radius: 999px;
+    padding: 0.7rem 1.4rem; font-family: inherit; font-size: 0.92rem; font-weight: 700;
+    cursor: pointer; text-decoration: none; margin: 0.25rem 0.25rem 0.25rem 0;
+  }
+  .btn.primary { background: var(--accent); color: #241a0a; }
+  .btn.secondary { background: transparent; color: var(--fg); border: 1px solid var(--border); }
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+
+  #track-wrap {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 0.8rem; margin-top: 1rem;
+  }
+  #trackCanvas { width: 100%; height: auto; display: block; border-radius: 10px; }
+
+  #result { display: none; }
+  #banner {
+    background: linear-gradient(135deg, rgba(255,207,77,0.14), rgba(77,255,176,0.1));
+    border: 1px solid var(--accent); border-radius: 12px; padding: 0.9rem 1rem;
+    text-align: center; margin-top: 1rem;
+  }
+  #banner .win { font-size: 1.1rem; font-weight: 800; color: var(--accent); letter-spacing: 0.02em; }
+  #banner .claim { margin-top: 0.35rem; font-size: 1rem; line-height: 1.4; }
+  #banner .claim b { color: var(--accent2); }
+
+  #stats {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem;
+    margin-top: 0.9rem;
+  }
+  .stat {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.6rem 0.7rem;
+  }
+  .stat .label { font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--dim); }
+  .stat .value { font-size: 1.15rem; font-weight: 700; margin-top: 0.15rem; }
+  .stat.good .value { color: var(--accent2); }
+  .stat.bad .value { color: var(--bad); }
+
+  #actions { margin-top: 1rem; text-align: center; }
+
+  .fine { font-size: 0.72rem; color: var(--dim); margin-top: 0.7rem; text-align: center; line-height: 1.5; }
+
+  footer { text-align: center; padding: 1rem 0 1.6rem; font-size: 0.75rem; color: var(--dim); }
+  footer .links { display: flex; justify-content: center; gap: 1rem; flex-wrap: wrap; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>premature v<span class="accent">i</span>ctory lap</h1>
+    <p class="tagline">tell it what you haven't earned yet. it'll run the lap anyway — the short way.</p>
+  </header>
+  <main>
+    <section>
+      <h2>declare victory</h2>
+      <div id="setup">
+        <input id="claim-input" type="text" maxlength="120" placeholder="e.g. the deploy, my diet, the singularity" />
+        <button class="btn primary" id="lap-btn">take the lap</button>
+      </div>
+      <div id="track-wrap">
+        <canvas id="trackCanvas" width="640" height="340"></canvas>
+      </div>
+      <div id="result">
+        <div id="banner">
+          <div class="win">🏆 WE DID IT (allegedly)</div>
+          <div class="claim">victory declared over: <b id="claim-out"></b></div>
+        </div>
+        <div id="stats"></div>
+        <p class="fine" id="timer-line"></p>
+        <div id="actions">
+          <a class="btn secondary" id="share-bsky" target="_blank" rel="noopener">share to bluesky</a>
+          <button class="btn secondary" id="share-card-btn">save/share image</button>
+          <button class="btn secondary" id="again-btn">lap again</button>
+        </div>
+      </div>
+    </section>
+    <p class="fine">the runner does not complete the actual lap. this is the entire premise.</p>
+  </main>
+  <footer>
+    <div class="links">
+      <a href="https://bisks.net/" target="_blank" rel="noopener">bisks.net gallery</a>
+      <a href="https://rateyourbuild.bisks.net/site/victorylap" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+    </div>
+  </footer>
+</div>
+<canvas id="shareCanvas" width="1200" height="630" style="display:none"></canvas>
+<script src="app.js"></script>
+</body>
+</html>
