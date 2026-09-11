@@ -1,0 +1,983 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <title>cityhall — sim city, but they can vote you down</title>
+    <meta name="description" content="No god mode. You get one council seat, a policy deck, and six factions who all have a real vote. Run a full term and see who ends up loving you and who's plotting your recall." />
+    <meta property="og:title" content="cityhall — sim city, but they can vote you down" />
+    <meta property="og:description" content="Landlords, tenants, the Chamber, the Green Coalition, NIMBYs, and the police union all get a say. Pass policy, build coalitions, survive a term." />
+    <meta property="og:url" content="https://cityhall.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://cityhall.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="cityhall: a city council term with six factions who all get a vote." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="cityhall — sim city, but they can vote you down" />
+    <meta name="twitter:description" content="Landlords, tenants, the Chamber, the Green Coalition, NIMBYs, and the police union all get a say. Pass policy, build coalitions, survive a term." />
+    <meta name="twitter:image" content="https://cityhall.bisks.net/og.png" />
+    <meta name="color-scheme" content="dark" />
+    <style>
+      :root {
+        --bg: #0a0d10;
+        --bg2: #10151b;
+        --ink: #eef1f4;
+        --dim: #93a0ab;
+        --card: rgba(255,255,255,0.045);
+        --card-border: rgba(238,241,244,0.13);
+        --sans: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+        --gold: #e0b354;
+        --slate: #3fa9ff;
+
+        --f-landlords: #e0b354;
+        --f-tenants: #ff5a5a;
+        --f-green: #4be38c;
+        --f-chamber: #3fa9ff;
+        --f-nimby: #b98bff;
+        --f-police: #ff9f43;
+      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body { margin: 0; min-height: 100%; }
+      body {
+        background:
+          radial-gradient(60% 40% at 8% -8%, rgba(224,179,84,0.14) 0%, transparent 60%),
+          radial-gradient(55% 40% at 100% 0%, rgba(63,169,255,0.13) 0%, transparent 60%),
+          linear-gradient(180deg, var(--bg), var(--bg2));
+        background-attachment: fixed;
+        color: var(--ink);
+        font-family: var(--sans);
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+      a { color: var(--gold); }
+      .wrap { max-width: 700px; margin: 0 auto; padding: 2rem 1.1rem 3rem; }
+
+      header { text-align: center; margin-bottom: 1rem; }
+      .masthead {
+        margin: 0; font-weight: 900; font-size: 2.5rem; letter-spacing: -0.02em;
+        text-transform: uppercase; color: var(--ink);
+        background: linear-gradient(90deg, var(--gold), var(--slate));
+        -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+      }
+      header p.tag { color: var(--dim); margin: 0.55rem auto 0; font-size: 0.92rem; max-width: 46ch; }
+
+      .rule { border: none; border-top: 1px solid var(--card-border); margin: 1.1rem 0; }
+
+      .card {
+        background: var(--card); border: 1px solid var(--card-border);
+        border-radius: 16px; padding: 1.2rem; margin-top: 1.1rem;
+      }
+
+      .step { display: none; }
+      .step.show { display: block; }
+
+      label { display: block; font-size: 0.78rem; color: var(--dim); margin: 0 0 0.4rem; font-weight: 700; }
+      input[type="text"] {
+        width: 100%; font: inherit; font-size: 1rem; padding: 0.7rem 0.85rem;
+        border-radius: 12px; border: 1px solid var(--card-border);
+        background: rgba(0,0,0,0.25); color: var(--ink);
+      }
+      input[type="text"]::placeholder { color: rgba(238,241,244,0.32); }
+      input[type="text"]:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
+
+      button {
+        font-family: var(--sans); font-size: 0.9rem; font-weight: 800;
+        color: #0a0a0c; background: linear-gradient(90deg, var(--gold), var(--slate));
+        border: none; border-radius: 12px; padding: 0.65rem 1.1rem; cursor: pointer;
+        box-shadow: 0 6px 18px rgba(224,179,84,0.16);
+      }
+      button:hover { filter: brightness(1.06); }
+      button:active { transform: translateY(1px); }
+      button.ghost {
+        background: transparent; color: var(--dim); border: 1px solid var(--card-border);
+        box-shadow: none; font-weight: 700;
+      }
+      button:disabled { opacity: 0.4; cursor: not-allowed; filter: none; }
+      .wide { width: 100%; padding: 0.8rem; font-size: 1rem; margin-top: 1rem; }
+
+      /* --- dashboard --- */
+      .dash-top { display: flex; justify-content: space-between; align-items: baseline; font-size: 0.8rem; color: var(--dim); margin-bottom: 0.6rem; flex-wrap: wrap; gap: 0.3rem; }
+      .dash-top b { color: var(--ink); }
+      .pc-pill { display: inline-flex; align-items: center; gap: 0.3rem; background: rgba(224,179,84,0.14); border: 1px solid rgba(224,179,84,0.35); color: var(--gold); border-radius: 999px; padding: 0.15rem 0.65rem; font-weight: 800; font-family: var(--mono); }
+
+      .statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.55rem; margin-top: 0.6rem; }
+      .statbox { background: rgba(0,0,0,0.2); border: 1px solid var(--card-border); border-radius: 10px; padding: 0.5rem 0.6rem; }
+      .statbox .lbl { font-size: 0.7rem; color: var(--dim); font-weight: 700; display: flex; justify-content: space-between; }
+      .barwrap { height: 6px; border-radius: 4px; background: rgba(255,255,255,0.08); margin-top: 0.35rem; overflow: hidden; }
+      .barwrap > i { display: block; height: 100%; background: var(--slate); border-radius: 4px; }
+      .statbox.approval .barwrap > i { background: var(--gold); }
+
+      .factionrow { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0; font-size: 0.82rem; }
+      .factionrow .ico { width: 1.4em; text-align: center; flex-shrink: 0; }
+      .factionrow .flabel { width: 8.4em; flex-shrink: 0; color: var(--dim); font-weight: 700; }
+      .fbar { flex: 1; height: 7px; border-radius: 4px; background: rgba(255,255,255,0.08); position: relative; overflow: hidden; }
+      .fbar > i { position: absolute; top: 0; bottom: 0; }
+      .fval { width: 3em; text-align: right; font-family: var(--mono); font-size: 0.75rem; color: var(--dim); flex-shrink: 0; }
+
+      .ticker { font-size: 0.83rem; color: var(--dim); font-style: italic; margin-top: 0.5rem; min-height: 2.4em; }
+
+      /* --- policy hand --- */
+      .handgrid { display: grid; gap: 0.7rem; margin-top: 0.8rem; }
+      .pcard {
+        text-align: left; background: rgba(0,0,0,0.22); border: 1px solid var(--card-border);
+        border-radius: 14px; padding: 0.85rem 1rem; cursor: pointer; width: 100%; font: inherit; color: var(--ink);
+        box-shadow: none;
+      }
+      .pcard:hover { border-color: rgba(224,179,84,0.5); background: rgba(224,179,84,0.06); }
+      .pcard .pname { font-weight: 800; font-size: 0.98rem; }
+      .pcard .pdesc { color: var(--dim); font-size: 0.82rem; margin-top: 0.2rem; }
+      .pcard .ptags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.5rem; }
+      .tag-stat, .tag-lean { display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 0.12rem 0.5rem; border-radius: 999px; border: 1px solid var(--card-border); color: var(--dim); font-family: var(--mono); }
+      .tag-stat.pos { color: #4be38c; border-color: rgba(75,227,140,0.4); }
+      .tag-stat.neg { color: #ff5a5a; border-color: rgba(255,90,90,0.4); }
+      .tag-lean.pass { color: #4be38c; border-color: rgba(75,227,140,0.4); }
+      .tag-lean.fail { color: #ff5a5a; border-color: rgba(255,90,90,0.4); }
+      .preact { margin-top: 0.5rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+      .preact span { font-size: 0.95rem; }
+
+      /* --- negotiate panel --- */
+      .neg-flist { margin-top: 0.7rem; }
+      .neg-frow { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px dashed var(--card-border); }
+      .neg-frow:last-child { border-bottom: none; }
+      .neg-frow .ico { width: 1.4em; text-align: center; }
+      .neg-frow .flabel { flex: 1; font-weight: 700; font-size: 0.85rem; }
+      .neg-frow .fscore { font-family: var(--mono); font-size: 0.8rem; color: var(--dim); width: 3.4em; text-align: right; }
+      .neg-frow button { font-size: 0.72rem; padding: 0.3rem 0.55rem; border-radius: 8px; }
+
+      .totalbox { text-align: center; margin: 0.9rem 0; padding: 0.9rem; border-radius: 12px; border: 1px solid var(--card-border); background: rgba(0,0,0,0.2); }
+      .totalbox .verdict { font-weight: 900; font-size: 1.3rem; letter-spacing: 0.02em; }
+      .totalbox .verdict.pass { color: #4be38c; }
+      .totalbox .verdict.fail { color: #ff5a5a; }
+      .totalbox .margin { color: var(--dim); font-size: 0.78rem; margin-top: 0.15rem; }
+
+      .navrow { display: flex; gap: 0.6rem; margin-top: 1rem; }
+      .navrow button { flex: 1; }
+
+      /* --- outcome --- */
+      .outcome-banner { text-align: center; font-weight: 900; font-size: 1.4rem; margin: 0.2rem 0 0.3rem; }
+      .outcome-banner.pass { color: #4be38c; }
+      .outcome-banner.fail { color: #ff5a5a; }
+      .outcome-log { font-size: 0.85rem; color: var(--ink); margin-top: 0.6rem; }
+      .outcome-log li { margin-bottom: 0.3rem; }
+
+      /* --- end screen --- */
+      .archetype { text-align: center; color: var(--gold); font-weight: 900; font-size: 1.5rem; margin: 0.3rem 0 0.15rem; }
+      .archline { text-align: center; color: var(--dim); font-size: 0.9rem; margin-bottom: 0.8rem; }
+      .tally { display: flex; justify-content: center; gap: 1.2rem; font-size: 0.8rem; color: var(--dim); margin-bottom: 0.6rem; }
+      .tally b { color: var(--ink); font-family: var(--mono); }
+
+      .shareRow { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.6rem; }
+      .shareRow button, .shareRow a { flex: 1; min-width: 140px; text-align: center; text-decoration: none; }
+      .shareRow a.primary { background: linear-gradient(90deg, var(--gold), var(--slate)); color: #0a0a0c; border-radius: 12px; padding: 0.7rem 1.2rem; font-weight: 800; }
+
+      #shareCanvas { display: none; }
+
+      footer { margin-top: 2.2rem; text-align: center; color: var(--dim); font-size: 0.74rem; line-height: 1.7; }
+      footer a { text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+
+      .flash { position: fixed; left: 50%; bottom: 1.2rem; transform: translateX(-50%);
+        background: rgba(0,0,0,0.85); color: var(--ink); padding: 0.55rem 1rem; border-radius: 999px;
+        font-size: 0.8rem; font-weight: 700; opacity: 0; pointer-events: none; transition: opacity 0.25s ease; z-index: 10; }
+      .flash.show { opacity: 1; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1 class="masthead">cityhall</h1>
+        <p class="tag">no god mode. one council seat, a policy deck, and six factions who all get a real vote.</p>
+      </header>
+
+      <!-- step 0: intro -->
+      <section class="step show" id="stepIntro">
+        <div class="card">
+          <p style="margin-top:0;">Every sim city gives you godlike zoning power and calls the tenants a "happiness meter." Not this one. You're one seat on a council, with a phone book full of people who can vote you down: landlords, the tenants union, the Chamber of Commerce, the Green Coalition, the neighborhood NIMBYs, and the police union. Ten sessions, one policy per session, real coalitions or real gridlock.</p>
+          <label for="cityName">name your city (optional)</label>
+          <input id="cityName" type="text" placeholder="e.g. Port Halden" autocomplete="off" autocapitalize="off" spellcheck="false" />
+          <button type="button" class="wide" id="startBtn">call the first session →</button>
+        </div>
+      </section>
+
+      <!-- step 1: game -->
+      <section class="step" id="stepGame">
+        <div class="card">
+          <div class="dash-top">
+            <span>session <b id="turnNum"></b> of <b id="turnMax"></b> — <b id="cityNameOut"></b></span>
+            <span class="pc-pill">🤝 <span id="pcOut"></span> PC</span>
+          </div>
+          <div class="statgrid" id="statgrid"></div>
+          <div class="statgrid" style="margin-top:0.4rem;">
+            <div class="statbox approval">
+              <div class="lbl"><span>📣 approval</span><span id="approvalNum"></span></div>
+              <div class="barwrap"><i id="approvalBar"></i></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <p style="margin:0 0 0.3rem; font-size:0.78rem; color:var(--dim); font-weight:700; text-transform:uppercase; letter-spacing:0.04em;">who's got influence right now</p>
+          <div id="factionPanel"></div>
+        </div>
+
+        <div class="card" id="tickerCard" style="display:none;">
+          <p class="ticker" id="ticker"></p>
+        </div>
+
+        <div class="card" id="handCard">
+          <p style="margin:0 0 0.2rem; font-weight:800;">what's on the docket</p>
+          <p style="margin:0 0 0.2rem; font-size:0.8rem; color:var(--dim);">pick one to bring to a vote — or skip the session.</p>
+          <div class="handgrid" id="handgrid"></div>
+          <button type="button" class="ghost wide" id="skipBtn">skip this session</button>
+        </div>
+
+        <div class="card" id="negCard" style="display:none;">
+          <p class="pname" id="negName" style="font-weight:900; font-size:1.05rem; margin:0;"></p>
+          <p class="pdesc" id="negDesc" style="color:var(--dim); font-size:0.85rem; margin:0.2rem 0 0.6rem;"></p>
+          <div class="neg-flist" id="negFlist"></div>
+          <div class="totalbox">
+            <div class="verdict" id="negVerdict"></div>
+            <div class="margin" id="negMargin"></div>
+          </div>
+          <div class="navrow">
+            <button type="button" class="ghost" id="negBack">← back</button>
+            <button type="button" id="negConfirm">bring it to a vote</button>
+          </div>
+        </div>
+
+        <div class="card" id="outcomeCard" style="display:none;">
+          <p class="outcome-banner" id="outcomeBanner"></p>
+          <p class="margin" id="outcomeMargin" style="text-align:center;"></p>
+          <ul class="outcome-log" id="outcomeLog"></ul>
+          <button type="button" class="wide" id="nextTurnBtn">next session →</button>
+        </div>
+      </section>
+
+      <!-- step 2: end of term -->
+      <section class="step" id="stepEnd">
+        <div class="card">
+          <p style="text-align:center; color:var(--dim); font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; margin:0;">term complete — <span id="endCityName"></span></p>
+          <p class="archetype" id="endArchetype"></p>
+          <p class="archline" id="endArchLine"></p>
+          <div class="tally">
+            <span>passed <b id="tallyPass"></b></span>
+            <span>failed <b id="tallyFail"></b></span>
+            <span>skipped <b id="tallySkip"></b></span>
+          </div>
+          <div class="statgrid" id="endStatgrid"></div>
+          <p style="margin:0.9rem 0 0.3rem; font-size:0.78rem; color:var(--dim); font-weight:700; text-transform:uppercase; letter-spacing:0.04em;">final standing with each faction</p>
+          <div id="endFactionPanel"></div>
+          <div class="shareRow">
+            <button type="button" id="copyBtn">📋 copy verdict</button>
+            <button type="button" id="shareCardBtn">🖼️ make a card</button>
+            <button type="button" id="shareNative" style="display:none;">📤 share card</button>
+          </div>
+          <div class="shareRow">
+            <a id="shareBluesky" class="primary" target="_blank" rel="noopener">🦋 post it</a>
+            <button type="button" class="ghost" id="playAgainBtn">↺ new term</button>
+          </div>
+        </div>
+      </section>
+
+      <canvas id="shareCanvas" width="1200" height="630"></canvas>
+      <div class="flash" id="flash"></div>
+
+      <hr class="rule" />
+      <footer>
+        riffs on @dollspace.gay's "sim city but with actual political constraints" pitch, asked for by @faz.ms ·
+        <a href="https://rateyourbuild.bisks.net/site/cityhall">rate this on rateyourbuild →</a> ·
+        built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+        part of <a href="https://bisks.net">atprotozoa</a>
+      </footer>
+    </div>
+
+    <script>
+    "use strict";
+    (function () {
+      var SITE_URL = "https://cityhall.bisks.net/";
+      var MAX_TURNS = 10;
+
+      // ---------------------------------------------------------------
+      // factions — every one of these has a real vote. influence weights
+      // sum to 100; nobody has a majority alone.
+      // ---------------------------------------------------------------
+      var FACTIONS = {
+        landlords: { label: "Landlords & Developers", icon: "💰", hex: "#e0b354", influence: 15 },
+        tenants:   { label: "Tenants Union",           icon: "🏠", hex: "#ff5a5a", influence: 16 },
+        green:     { label: "Green Coalition",         icon: "🌳", hex: "#4be38c", influence: 15 },
+        chamber:   { label: "Chamber of Commerce",     icon: "🏢", hex: "#3fa9ff", influence: 18 },
+        nimby:     { label: "Neighborhood Alliance",   icon: "🏡", hex: "#b98bff", influence: 18 },
+        police:    { label: "Police Union",            icon: "🚓", hex: "#ff9f43", influence: 18 }
+      };
+      var FACTION_KEYS = Object.keys(FACTIONS);
+
+      var STATS = {
+        housing:     { label: "Housing",     icon: "🏘️" },
+        transit:     { label: "Transit",     icon: "🚌" },
+        environment: { label: "Environment", icon: "🌿" },
+        business:    { label: "Business",    icon: "💼" },
+        safety:      { label: "Safety",      icon: "🚨" }
+      };
+      var STAT_KEYS = Object.keys(STATS);
+
+      // ---------------------------------------------------------------
+      // the policy deck — 23 cards. `support` is how much each named
+      // faction backs (positive) or opposes (negative) it, -100..100.
+      // unlisted factions default to 0 (indifferent on the merits, but
+      // their general disposition toward you still weighs in).
+      // ---------------------------------------------------------------
+      var POLICIES = [
+        { id: "rent-stabilization", name: "Rent Stabilization Ordinance", desc: "Caps annual rent increases citywide.",
+          stats: { housing: 6, business: -3 }, approval: 4,
+          support: { landlords: -70, tenants: 80, chamber: -20, nimby: 10 } },
+        { id: "upzone-downtown", name: "Upzone Downtown for Density", desc: "Allows taller apartment buildings near transit.",
+          stats: { housing: 8, transit: 2, environment: 2 }, approval: 2,
+          support: { landlords: 60, tenants: -10, chamber: 30, nimby: -80, green: 20 } },
+        { id: "public-housing", name: "Public Housing Bond", desc: "Issues a bond to build city-owned affordable housing.",
+          stats: { housing: 10, business: -2 }, approval: 5,
+          support: { tenants: 70, landlords: -50, chamber: -10, nimby: -30 } },
+        { id: "bike-lanes", name: "Protected Bike Lane Network", desc: "Converts car lanes to protected bike lanes on 12 corridors.",
+          stats: { transit: 8, environment: 5, business: -2 }, approval: 2,
+          support: { green: 80, chamber: -20, nimby: -30, tenants: 10 } },
+        { id: "highway-expansion", name: "Highway Interchange Expansion", desc: "Widens the interstate interchange to ease commuter traffic.",
+          stats: { transit: -3, environment: -10, business: 6 }, approval: -2,
+          support: { chamber: 60, green: -90, nimby: 20, landlords: 10 } },
+        { id: "carbon-fee", name: "Commercial Carbon Fee", desc: "Taxes large commercial emitters, funds transit.",
+          stats: { environment: 8, transit: 3, business: -6 }, approval: 1,
+          support: { green: 90, chamber: -70, landlords: -10 } },
+        { id: "police-budget-increase", name: "Police Budget Increase", desc: "Adds officers and overtime funding.",
+          stats: { safety: 8, business: 2 }, approval: 1,
+          support: { police: 90, chamber: 20, tenants: -30, green: -10 } },
+        { id: "police-budget-cut", name: "Reallocate Police Budget to Crisis Response", desc: "Shifts funding to mental-health crisis response teams.",
+          stats: { safety: -3, housing: 2 }, approval: 2,
+          support: { police: -90, tenants: 40, green: 20, nimby: -20 } },
+        { id: "small-biz-tax-cut", name: "Small Business Tax Cut", desc: "Cuts the commercial license fee for small storefronts.",
+          stats: { business: 6 }, approval: 2,
+          support: { chamber: 70, landlords: 20 } },
+        { id: "luxury-condo-tax", name: "Luxury Condo Transfer Tax", desc: "Taxes high-end condo sales to fund housing programs.",
+          stats: { housing: 5, business: -3 }, approval: 3,
+          support: { tenants: 60, landlords: -60, chamber: -30 } },
+        { id: "historic-preservation", name: "Historic District Expansion", desc: "Locks in zoning to preserve a beloved old neighborhood.",
+          stats: { housing: -4 }, approval: 1,
+          support: { nimby: 80, landlords: -30, tenants: -20 } },
+        { id: "community-land-trust", name: "Community Land Trust Pilot", desc: "Seeds a nonprofit land trust to keep some housing permanently affordable.",
+          stats: { housing: 5 }, approval: 3,
+          support: { tenants: 60, landlords: -20, green: 10 } },
+        { id: "parking-minimums", name: "End Parking Minimums", desc: "Stops requiring new buildings to include parking spots.",
+          stats: { housing: 4, environment: 3, transit: 2 }, approval: 0,
+          support: { landlords: 40, green: 30, nimby: -60, chamber: 10 } },
+        { id: "streetcar", name: "Downtown Streetcar Line", desc: "Builds a short streetcar loop through downtown.",
+          stats: { transit: 10, business: 4, environment: 2 }, approval: 4,
+          support: { chamber: 40, green: 30, nimby: -20 } },
+        { id: "noise-ordinance", name: "Strict Nightlife Noise Ordinance", desc: "Cracks down on bars and venues after 10pm.",
+          stats: { business: -4, safety: 1 }, approval: -1,
+          support: { nimby: 70, chamber: -50, police: 10 } },
+        { id: "surveillance-cameras", name: "Citywide Camera Network", desc: "Installs police-linked cameras on major corridors.",
+          stats: { safety: 6 }, approval: -2,
+          support: { police: 70, chamber: 20, tenants: -40, green: -10 } },
+        { id: "green-roof-mandate", name: "Green Roof Mandate", desc: "Requires green roofs on new commercial buildings.",
+          stats: { environment: 7, business: -3 }, approval: 2,
+          support: { green: 80, chamber: -40, landlords: -10 } },
+        { id: "business-deregulation", name: "Permit Process Deregulation", desc: "Fast-tracks business permits, cuts inspections.",
+          stats: { business: 8, safety: -3, environment: -3 }, approval: -1,
+          support: { chamber: 80, green: -40, police: -10, nimby: -10 } },
+        { id: "rent-vouchers", name: "Emergency Rent Voucher Fund", desc: "Direct cash assistance for renters facing eviction.",
+          stats: { housing: 5 }, approval: 4,
+          support: { tenants: 70, landlords: 10, chamber: -10 } },
+        { id: "eviction-court", name: "Right to Counsel in Eviction Court", desc: "Guarantees tenants a lawyer when facing eviction.",
+          stats: { housing: 4 }, approval: 3,
+          support: { tenants: 80, landlords: -60 } },
+        { id: "gentle-density", name: "“Gentle Density” Duplex Reform", desc: "Legalizes duplexes and ADUs in single-family zones.",
+          stats: { housing: 6 }, approval: 1,
+          support: { landlords: 30, tenants: 20, nimby: -70, green: 10 } },
+        { id: "biz-improvement-district", name: "New Business Improvement District", desc: "Lets a commercial strip tax itself for cleanup and marketing.",
+          stats: { business: 5 }, approval: 1,
+          support: { chamber: 60, nimby: 20 } },
+        { id: "transit-fare-freeze", name: "Transit Fare Freeze", desc: "Holds bus and rail fares flat despite rising costs.",
+          stats: { transit: 3, business: -1 }, approval: 3,
+          support: { tenants: 30, green: 20, chamber: -10 } }
+      ];
+
+      // ---------------------------------------------------------------
+      // state
+      // ---------------------------------------------------------------
+      var state = null;
+
+      function freshState() {
+        var stats = {}, disposition = {};
+        STAT_KEYS.forEach(function (k) { stats[k] = 50; });
+        FACTION_KEYS.forEach(function (k) { disposition[k] = 0; });
+        return {
+          cityName: "",
+          turn: 0,
+          approval: 50,
+          pc: 3,
+          stats: stats,
+          disposition: disposition,
+          deck: shuffled(POLICIES.slice()),
+          hand: [],
+          selected: null,
+          lobbied: {},
+          passedCount: 0,
+          failedCount: 0,
+          skippedCount: 0,
+          logHistory: []
+        };
+      }
+
+      function shuffled(arr) {
+        for (var i = arr.length - 1; i > 0; i--) {
+          var j = Math.floor(Math.random() * (i + 1));
+          var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+        }
+        return arr;
+      }
+
+      function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+      function drawHand() {
+        if (state.deck.length < 3) state.deck = shuffled(POLICIES.slice());
+        state.hand = state.deck.splice(0, 3);
+      }
+
+      // ---------------------------------------------------------------
+      // elements
+      // ---------------------------------------------------------------
+      var els = {
+        stepIntro: document.getElementById("stepIntro"),
+        stepGame: document.getElementById("stepGame"),
+        stepEnd: document.getElementById("stepEnd"),
+        cityName: document.getElementById("cityName"),
+        startBtn: document.getElementById("startBtn"),
+        turnNum: document.getElementById("turnNum"),
+        turnMax: document.getElementById("turnMax"),
+        cityNameOut: document.getElementById("cityNameOut"),
+        pcOut: document.getElementById("pcOut"),
+        statgrid: document.getElementById("statgrid"),
+        approvalNum: document.getElementById("approvalNum"),
+        approvalBar: document.getElementById("approvalBar"),
+        factionPanel: document.getElementById("factionPanel"),
+        tickerCard: document.getElementById("tickerCard"),
+        ticker: document.getElementById("ticker"),
+        handCard: document.getElementById("handCard"),
+        handgrid: document.getElementById("handgrid"),
+        skipBtn: document.getElementById("skipBtn"),
+        negCard: document.getElementById("negCard"),
+        negName: document.getElementById("negName"),
+        negDesc: document.getElementById("negDesc"),
+        negFlist: document.getElementById("negFlist"),
+        negVerdict: document.getElementById("negVerdict"),
+        negMargin: document.getElementById("negMargin"),
+        negBack: document.getElementById("negBack"),
+        negConfirm: document.getElementById("negConfirm"),
+        outcomeCard: document.getElementById("outcomeCard"),
+        outcomeBanner: document.getElementById("outcomeBanner"),
+        outcomeMargin: document.getElementById("outcomeMargin"),
+        outcomeLog: document.getElementById("outcomeLog"),
+        nextTurnBtn: document.getElementById("nextTurnBtn"),
+        endCityName: document.getElementById("endCityName"),
+        endArchetype: document.getElementById("endArchetype"),
+        endArchLine: document.getElementById("endArchLine"),
+        tallyPass: document.getElementById("tallyPass"),
+        tallyFail: document.getElementById("tallyFail"),
+        tallySkip: document.getElementById("tallySkip"),
+        endStatgrid: document.getElementById("endStatgrid"),
+        endFactionPanel: document.getElementById("endFactionPanel"),
+        copyBtn: document.getElementById("copyBtn"),
+        shareCardBtn: document.getElementById("shareCardBtn"),
+        shareNative: document.getElementById("shareNative"),
+        shareBluesky: document.getElementById("shareBluesky"),
+        playAgainBtn: document.getElementById("playAgainBtn"),
+        canvas: document.getElementById("shareCanvas"),
+        flash: document.getElementById("flash")
+      };
+
+      function showStep(el) {
+        [els.stepIntro, els.stepGame, els.stepEnd].forEach(function (s) { s.classList.remove("show"); });
+        el.classList.add("show");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+
+      els.startBtn.addEventListener("click", function () {
+        state = freshState();
+        state.cityName = (els.cityName.value || "").trim() || "Port Halden";
+        els.turnMax.textContent = String(MAX_TURNS);
+        beginTurn();
+        showStep(els.stepGame);
+      });
+      els.cityName.addEventListener("keydown", function (e) { if (e.key === "Enter") els.startBtn.click(); });
+
+      // ---------------------------------------------------------------
+      // dashboard rendering
+      // ---------------------------------------------------------------
+      function renderDash() {
+        els.turnNum.textContent = String(state.turn + 1);
+        els.cityNameOut.textContent = state.cityName;
+        els.pcOut.textContent = String(state.pc);
+
+        els.statgrid.innerHTML = "";
+        STAT_KEYS.forEach(function (k) {
+          var v = state.stats[k];
+          var box = document.createElement("div");
+          box.className = "statbox";
+          box.innerHTML = '<div class="lbl"><span>' + STATS[k].icon + " " + STATS[k].label + '</span><span>' + v + '</span></div>' +
+            '<div class="barwrap"><i style="width:' + v + '%"></i></div>';
+          els.statgrid.appendChild(box);
+        });
+
+        els.approvalNum.textContent = state.approval;
+        els.approvalBar.style.width = state.approval + "%";
+
+        els.factionPanel.innerHTML = "";
+        FACTION_KEYS.forEach(function (k) {
+          var f = FACTIONS[k];
+          var d = state.disposition[k];
+          var row = document.createElement("div");
+          row.className = "factionrow";
+          var pct = (d + 100) / 2; // 0..100, 50 = neutral
+          var barStyle = d >= 0
+            ? "left:50%;width:" + (pct - 50) + "%;"
+            : "left:" + pct + "%;width:" + (50 - pct) + "%;";
+          row.innerHTML =
+            '<span class="ico">' + f.icon + '</span>' +
+            '<span class="flabel">' + f.label + '</span>' +
+            '<span class="fbar"><i style="' + barStyle + 'background:' + f.hex + ';opacity:' + (0.35 + Math.abs(d) / 160) + ';"></i></span>' +
+            '<span class="fval">' + (d > 0 ? "+" : "") + d + '</span>';
+          els.factionPanel.appendChild(row);
+        });
+      }
+
+      // ---------------------------------------------------------------
+      // vote math
+      // ---------------------------------------------------------------
+      function effectiveSupport(card, factionKey, lobbied) {
+        var base = (card.support && card.support[factionKey]) || 0;
+        var lobbyBonus = lobbied[factionKey] ? 30 : 0;
+        var goodwill = state.disposition[factionKey] * 0.4;
+        return clamp(base + lobbyBonus + goodwill, -100, 100);
+      }
+
+      function computeTotal(card, lobbied) {
+        var weighted = 0;
+        FACTION_KEYS.forEach(function (k) {
+          weighted += (FACTIONS[k].influence / 100) * effectiveSupport(card, k, lobbied);
+        });
+        var mandate = (state.approval - 50) * 0.5;
+        return weighted + mandate;
+      }
+
+      function leanLabel(total) {
+        if (total > 40) return { pass: true, label: "likely to pass" };
+        if (total > 0) return { pass: true, label: "narrow path to pass" };
+        if (total > -40) return { pass: false, label: "likely to fail" };
+        return { pass: false, label: "dead on arrival" };
+      }
+
+      // ---------------------------------------------------------------
+      // turn flow
+      // ---------------------------------------------------------------
+      function beginTurn() {
+        drawHand();
+        state.selected = null;
+        state.lobbied = {};
+        els.handCard.style.display = "";
+        els.negCard.style.display = "none";
+        els.outcomeCard.style.display = "none";
+        renderDash();
+        renderHand();
+      }
+
+      function renderHand() {
+        els.handgrid.innerHTML = "";
+        state.hand.forEach(function (card, idx) {
+          var total = computeTotal(card, {});
+          var lean = leanLabel(total);
+          var btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "pcard";
+          var statTags = STAT_KEYS.filter(function (k) { return card.stats[k]; }).map(function (k) {
+            var v = card.stats[k];
+            return '<span class="tag-stat ' + (v > 0 ? "pos" : "neg") + '">' + STATS[k].icon + " " + (v > 0 ? "+" : "") + v + '</span>';
+          }).join("");
+          var reactions = FACTION_KEYS.filter(function (k) { return Math.abs((card.support && card.support[k]) || 0) >= 40; })
+            .map(function (k) {
+              var s = card.support[k];
+              return '<span title="' + FACTIONS[k].label + '">' + FACTIONS[k].icon + (s > 0 ? "👍" : "👎") + '</span>';
+            }).join("");
+          btn.innerHTML =
+            '<div class="pname">' + card.name + '</div>' +
+            '<div class="pdesc">' + card.desc + '</div>' +
+            '<div class="ptags">' + statTags + '<span class="tag-lean ' + (lean.pass ? "pass" : "fail") + '">' + lean.label + '</span></div>' +
+            '<div class="preact">' + reactions + '</div>';
+          btn.addEventListener("click", function () { selectCard(idx); });
+          els.handgrid.appendChild(btn);
+        });
+      }
+
+      function selectCard(idx) {
+        state.selected = state.hand[idx];
+        state.lobbied = {};
+        els.handCard.style.display = "none";
+        els.negCard.style.display = "";
+        renderNegotiate();
+      }
+
+      function renderNegotiate() {
+        var card = state.selected;
+        els.negName.textContent = card.name;
+        els.negDesc.textContent = card.desc;
+        els.negFlist.innerHTML = "";
+        var relevant = FACTION_KEYS.filter(function (k) {
+          return (card.support && card.support[k]) || Math.abs(state.disposition[k]) >= 10;
+        });
+        if (relevant.length === 0) relevant = FACTION_KEYS.slice(0, 3);
+        relevant.forEach(function (k) {
+          var f = FACTIONS[k];
+          var eff = effectiveSupport(card, k, state.lobbied);
+          var row = document.createElement("div");
+          row.className = "neg-frow";
+          var canLobby = state.pc > 0 && !state.lobbied[k];
+          row.innerHTML =
+            '<span class="ico">' + f.icon + '</span>' +
+            '<span class="flabel">' + f.label + '</span>' +
+            '<span class="fscore" data-fkey="' + k + '">' + (eff > 0 ? "+" : "") + Math.round(eff) + '</span>';
+          var btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "ghost";
+          btn.textContent = state.lobbied[k] ? "lobbied ✓" : "lobby (1 PC)";
+          btn.disabled = !canLobby;
+          btn.addEventListener("click", function () {
+            if (state.pc <= 0 || state.lobbied[k]) return;
+            state.pc -= 1;
+            state.lobbied[k] = true;
+            els.pcOut.textContent = String(state.pc);
+            renderNegotiate();
+          });
+          row.appendChild(btn);
+          els.negFlist.appendChild(row);
+        });
+
+        var total = computeTotal(card, state.lobbied);
+        var lean = leanLabel(total);
+        els.negVerdict.textContent = lean.pass ? "leaning PASS" : "leaning FAIL";
+        els.negVerdict.className = "verdict " + (lean.pass ? "pass" : "fail");
+        els.negMargin.textContent = lean.label + " (council lean " + (total > 0 ? "+" : "") + Math.round(total) + ")";
+      }
+
+      els.negBack.addEventListener("click", function () {
+        // refund any PC spent lobbying on this card — the deal never happened
+        var refund = Object.keys(state.lobbied).length;
+        state.pc += refund;
+        state.lobbied = {};
+        state.selected = null;
+        els.pcOut.textContent = String(state.pc);
+        els.negCard.style.display = "none";
+        els.handCard.style.display = "";
+      });
+
+      els.negConfirm.addEventListener("click", function () {
+        resolveVote(state.selected, state.lobbied);
+      });
+
+      els.skipBtn.addEventListener("click", function () {
+        state.approval = clamp(state.approval - 1, 0, 100);
+        state.skippedCount++;
+        showOutcome({
+          banner: "SESSION SKIPPED", pass: null,
+          margin: "no policy brought to a vote — the gallery grumbles about gridlock.",
+          log: ["Approval slips slightly: nobody likes watching a council do nothing."]
+        });
+      });
+
+      function resolveVote(card, lobbied) {
+        var total = computeTotal(card, lobbied);
+        var passed = total > 0;
+        var log = [];
+
+        STAT_KEYS.forEach(function (k) {
+          if (card.stats[k] && passed) {
+            state.stats[k] = clamp(state.stats[k] + card.stats[k], 0, 100);
+          }
+        });
+
+        if (passed) {
+          state.approval = clamp(state.approval + card.approval, 0, 100);
+          state.passedCount++;
+        } else {
+          state.approval = clamp(state.approval - 2, 0, 100);
+          state.failedCount++;
+        }
+
+        FACTION_KEYS.forEach(function (k) {
+          var base = (card.support && card.support[k]) || 0;
+          if (!base) return;
+          var delta = passed ? base * 0.15 : base * -0.08;
+          state.disposition[k] = clamp(state.disposition[k] + delta, -100, 100);
+          if (Math.abs(base) >= 30) {
+            if (passed && base > 0) log.push(FACTIONS[k].icon + " " + FACTIONS[k].label + " celebrates.");
+            else if (passed && base < 0) log.push(FACTIONS[k].icon + " " + FACTIONS[k].label + " is furious.");
+            else if (!passed && base > 0) log.push(FACTIONS[k].icon + " " + FACTIONS[k].label + " is disappointed it died in committee.");
+            else if (!passed && base < 0) log.push(FACTIONS[k].icon + " " + FACTIONS[k].label + " breathes a sigh of relief.");
+          }
+        });
+
+        state.logHistory.push({ turn: state.turn, name: card.name, passed: passed });
+
+        showOutcome({
+          banner: card.name.toUpperCase() + (passed ? " — PASSES" : " — FAILS"),
+          pass: passed,
+          margin: "council lean " + (total > 0 ? "+" : "") + Math.round(total),
+          log: log.length ? log : ["The vote barely registers outside the chamber."]
+        });
+      }
+
+      function showOutcome(o) {
+        els.negCard.style.display = "none";
+        els.handCard.style.display = "none";
+        els.outcomeCard.style.display = "";
+        els.outcomeBanner.textContent = o.banner;
+        els.outcomeBanner.className = "outcome-banner" + (o.pass === true ? " pass" : o.pass === false ? " fail" : "");
+        els.outcomeMargin.textContent = o.margin;
+        els.outcomeLog.innerHTML = "";
+        o.log.forEach(function (line) {
+          var li = document.createElement("li");
+          li.textContent = line;
+          els.outcomeLog.appendChild(li);
+        });
+        renderDash();
+      }
+
+      els.nextTurnBtn.addEventListener("click", function () {
+        state.turn++;
+        state.pc = clamp(state.pc + 2, 0, 8);
+        if (state.turn >= MAX_TURNS) {
+          endTerm();
+        } else {
+          beginTurn();
+        }
+      });
+
+      // ---------------------------------------------------------------
+      // end of term
+      // ---------------------------------------------------------------
+      var endResult = null;
+
+      var ARCHETYPES = {
+        landlords: { title: "Landlord's Best Friend", line: "the developers send a fruit basket every quarter. everyone else remembers." },
+        tenants:   { title: "Tenant Champion", line: "you'll never get a Chamber of Commerce dinner invite again, and you seem fine with that." },
+        green:     { title: "Green New Dealer", line: "the bike lanes are beautiful. the highway lobby has your name on a dartboard." },
+        chamber:   { title: "Chamber's Golden Child", line: "business is booming. ask the renters how they're doing sometime." },
+        nimby:     { title: "NIMBY Whisperer", line: "the neighborhood alliance loves you. the city stopped growing, but they love you." },
+        police:    { title: "Cop City Mayor", line: "the union throws you a parade every re-election. the tenants union does not attend." }
+      };
+
+      function computeEnding() {
+        var happiest = FACTION_KEYS[0], angriest = FACTION_KEYS[0];
+        FACTION_KEYS.forEach(function (k) {
+          if (state.disposition[k] > state.disposition[happiest]) happiest = k;
+          if (state.disposition[k] < state.disposition[angriest]) angriest = k;
+        });
+        var spread = state.disposition[happiest] - state.disposition[angriest];
+
+        var title, line;
+        if (state.passedCount <= 2) {
+          title = "Gridlocked Do-Nothing";
+          line = "ten sessions, almost nothing to show for it. nobody's mad, nobody's happy, everyone's bored.";
+        } else if (state.approval < 35) {
+          title = "Recalled in Spirit";
+          line = "you passed things. the city noticed, and did not care for them.";
+        } else if (state.approval >= 65 && spread < 35) {
+          title = "Coalition Builder";
+          line = "nobody got everything, everybody got something, and somehow the whole council still returns your calls.";
+        } else {
+          var a = ARCHETYPES[happiest];
+          title = a.title;
+          line = a.line;
+        }
+        return { title: title, line: line, happiest: happiest, angriest: angriest };
+      }
+
+      function endTerm() {
+        endResult = computeEnding();
+        els.endCityName.textContent = state.cityName;
+        els.endArchetype.textContent = endResult.title;
+        els.endArchLine.textContent = endResult.line;
+        els.tallyPass.textContent = String(state.passedCount);
+        els.tallyFail.textContent = String(state.failedCount);
+        els.tallySkip.textContent = String(state.skippedCount);
+
+        els.endStatgrid.innerHTML = "";
+        STAT_KEYS.forEach(function (k) {
+          var v = state.stats[k];
+          var box = document.createElement("div");
+          box.className = "statbox";
+          box.innerHTML = '<div class="lbl"><span>' + STATS[k].icon + " " + STATS[k].label + '</span><span>' + v + '</span></div>' +
+            '<div class="barwrap"><i style="width:' + v + '%"></i></div>';
+          els.endStatgrid.appendChild(box);
+        });
+
+        els.endFactionPanel.innerHTML = "";
+        FACTION_KEYS.forEach(function (k) {
+          var f = FACTIONS[k];
+          var d = Math.round(state.disposition[k]);
+          var pct = (d + 100) / 2;
+          var row = document.createElement("div");
+          row.className = "factionrow";
+          row.innerHTML =
+            '<span class="ico">' + f.icon + '</span>' +
+            '<span class="flabel">' + f.label + '</span>' +
+            '<span class="fbar"><i style="' + (d >= 0 ? 'left:50%;width:' + (pct - 50) : 'left:' + pct + '%;width:' + (50 - pct)) + '%;background:' + f.hex + ';opacity:' + (0.35 + Math.abs(d) / 160) + ';"></i></span>' +
+            '<span class="fval">' + (d > 0 ? "+" : "") + d + '</span>';
+          els.endFactionPanel.appendChild(row);
+        });
+
+        els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText());
+        showStep(els.stepEnd);
+      }
+
+      function truncate(s, max) { return s.length > max ? s.slice(0, max - 1).trim() + "…" : s; }
+
+      function verdictText() {
+        return state.cityName + " finished a term as “" + endResult.title + "” — approval " + state.approval +
+          "/100, " + state.passedCount + " policies passed, " + FACTIONS[endResult.happiest].label + " loves you, " +
+          FACTIONS[endResult.angriest].label + " does not.";
+      }
+
+      function buildShareText() {
+        var prefix = state.cityName + " just finished a term as “" + endResult.title + "”. ";
+        var mid = "approval: " + state.approval + "/100. " + FACTIONS[endResult.happiest].label + " loves me, " + FACTIONS[endResult.angriest].label + " wants me gone. ";
+        var suffix = "run your own city: " + SITE_URL;
+        var budget = 300 - prefix.length - mid.length - suffix.length;
+        var extra = budget > 10 ? truncate(endResult.line, budget) + " " : "";
+        return prefix + mid + extra + suffix;
+      }
+
+      els.copyBtn.addEventListener("click", function () {
+        var text = verdictText();
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () { flash("copied!"); })
+            .catch(function () { window.prompt("copy this:", text); });
+        } else {
+          window.prompt("copy this:", text);
+        }
+      });
+
+      function flash(msg) {
+        els.flash.textContent = msg;
+        els.flash.classList.add("show");
+        setTimeout(function () { els.flash.classList.remove("show"); }, 1500);
+      }
+
+      els.playAgainBtn.addEventListener("click", function () {
+        showStep(els.stepIntro);
+      });
+
+      // ---------------------------------------------------------------
+      // share card
+      // ---------------------------------------------------------------
+      function wrapCanvasText(c, text, x, y, maxWidth, lineHeight, maxLines) {
+        var words = text.split(" ");
+        var line = "", cy = y, lines = 0;
+        for (var i = 0; i < words.length; i++) {
+          var test = line ? line + " " + words[i] : words[i];
+          if (line && c.measureText(test).width > maxWidth) {
+            c.fillText(line, x, cy); line = words[i]; cy += lineHeight; lines++;
+            if (maxLines && lines >= maxLines - 1) {
+              var rest = words.slice(i).join(" ");
+              c.fillText(truncate(line + " " + rest, 70), x, cy);
+              return cy;
+            }
+          } else { line = test; }
+        }
+        if (line) c.fillText(line, x, cy);
+        return cy;
+      }
+
+      function buildShareCard() {
+        if (!endResult) return false;
+        var c = els.canvas.getContext("2d");
+        var W = els.canvas.width, H = els.canvas.height;
+        var hex = FACTIONS[endResult.happiest].hex;
+
+        var grad = c.createLinearGradient(0, 0, W, H);
+        grad.addColorStop(0, "#10151b");
+        grad.addColorStop(1, "#0a0d10");
+        c.fillStyle = grad; c.fillRect(0, 0, W, H);
+
+        var glow = c.createRadialGradient(W * 0.5, H * 0.1, 0, W * 0.5, H * 0.1, W * 0.65);
+        glow.addColorStop(0, hex + "30");
+        glow.addColorStop(1, hex + "00");
+        c.fillStyle = glow; c.fillRect(0, 0, W, H);
+
+        c.textAlign = "center";
+        c.font = "800 20px system-ui, sans-serif";
+        c.fillStyle = "#e0b354";
+        c.fillText("TERM COMPLETE — " + state.cityName.toUpperCase(), W / 2, 90);
+
+        c.strokeStyle = hex; c.lineWidth = 3;
+        c.beginPath(); c.moveTo(W / 2 - 100, 118); c.lineTo(W / 2 + 100, 118); c.stroke();
+
+        c.fillStyle = hex;
+        c.font = "900 58px system-ui, sans-serif";
+        c.fillText(endResult.title, W / 2, 200);
+
+        c.fillStyle = "#eef1f4";
+        c.font = "800 20px system-ui, sans-serif";
+        wrapCanvasText(c, endResult.line, W / 2, 250, 940, 30, 2);
+
+        c.fillStyle = "#93a0ab";
+        c.font = "700 20px system-ui, sans-serif";
+        c.fillText(FACTIONS[endResult.happiest].icon + " " + FACTIONS[endResult.happiest].label + " loves you  ·  " +
+          FACTIONS[endResult.angriest].icon + " " + FACTIONS[endResult.angriest].label + " does not", W / 2, 340);
+
+        c.fillStyle = hex;
+        c.font = "800 78px ui-monospace, monospace";
+        c.fillText(String(state.approval), W / 2, 470);
+
+        c.fillStyle = "#93a0ab";
+        c.font = "700 20px system-ui, sans-serif";
+        c.fillText("APPROVAL · " + state.passedCount + " POLICIES PASSED", W / 2, 505);
+
+        c.fillStyle = "#e0b354";
+        c.font = "700 22px system-ui, sans-serif";
+        c.fillText("cityhall.bisks.net", W / 2, H - 56);
+        return true;
+      }
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          var probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (e) { return false; }
+      }
+      if (canShareFiles()) els.shareNative.style.display = "";
+
+      els.shareCardBtn.addEventListener("click", function () {
+        if (!buildShareCard()) return;
+        var link = document.createElement("a");
+        link.download = "cityhall-" + state.cityName.toLowerCase().replace(/[^a-z0-9]+/g, "-") + ".png";
+        link.href = els.canvas.toDataURL("image/png");
+        link.click();
+      });
+
+      els.shareNative.addEventListener("click", function () {
+        if (!buildShareCard()) return;
+        els.canvas.toBlob(function (blob) {
+          if (!blob) return;
+          var file = new File([blob], "cityhall.png", { type: "image/png" });
+          navigator.share({
+            files: [file],
+            text: verdictText() + " " + SITE_URL,
+            title: "cityhall"
+          }).catch(function () {});
+        }, "image/png");
+      });
+    })();
+    </script>
+  </body>
+</html>
