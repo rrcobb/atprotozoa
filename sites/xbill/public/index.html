@@ -52,6 +52,12 @@
               <input type="text" id="handle" placeholder="e.g. cee.wtf" spellcheck="false" />
               <button id="goBtn" type="submit">run the meter</button>
             </div>
+            <label class="extra-toggle" for="extraMode">
+              <input type="checkbox" id="extraMode" />
+              <span><b>EXTRA mode</b> — also find every one of their moots
+              (mutual follows) and bulk-fetch each moot's profile too, same
+              live meter running the whole time.</span>
+            </label>
           </form>
           <p class="msg" id="goMsg"></p>
         </div>
@@ -85,7 +91,9 @@
         posts, $10/1000 profiles) — reflects X's rates, not Bluesky's, which
         charges nothing for reads. Repo fetched via
         <code>com.atproto.sync.getRepo</code>, one request, no pagination.
-        Idea from <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>.
+        Idea from <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>;
+        EXTRA mode (moots' profiles, priced the same way) requested by
+        <a href="https://bsky.app/profile/shimmermathlabs.com" target="_blank" rel="noopener">@shimmermathlabs.com</a>.
         rate this on <a href="https://rateyourbuild.bisks.net/site/xbill" target="_blank" rel="noopener">rateyourbuild →</a>
         · sibling of <a href="https://bisks.net">bisks.net</a> and
         <a href="https://backscroll.bisks.net">backscroll</a>.
@@ -101,6 +109,7 @@
 
       const $ = (id) => document.getElementById(id);
       const gate = $("gate"), goForm = $("goForm"), handleInput = $("handle"),
+        extraModeInput = $("extraMode"),
         goBtn = $("goBtn"), goMsg = $("goMsg"),
         working = $("working"), statusLine = $("statusLine"), subStat = $("subStat"),
         tickerAmount = $("tickerAmount"),
@@ -124,7 +133,8 @@
 
       function buildShareText(r) {
         const url = "https://xbill.bisks.net/";
-        return `@${r.handle}'s entire bsky archive: ${r.postsFetched.toLocaleString()} posts. Same fetch on X's read API would run ${fmtUsd(r.cost)}. Fetched here for $0.00. → ${url}`;
+        const extra = r.extraMode ? ` + ${r.mootsFetched.toLocaleString()} moots' profiles` : "";
+        return `@${r.handle}'s entire bsky archive: ${r.postsFetched.toLocaleString()} posts${extra}. Same fetch on X's read API would run ${fmtUsd(r.cost)}. Fetched here for $0.00. → ${url}`;
       }
 
       function loadImg(url) {
@@ -195,9 +205,12 @@
         ctx.fillText(fmtUsd(r.cost), cardX + 44, cardY + 150);
 
         ctx.fillStyle = "#c9beae";
-        ctx.font = `400 20px ${mono}`;
+        ctx.font = `400 19px ${mono}`;
+        const profileLabel = r.extraMode
+          ? `${r.profilesFetched.toLocaleString()} profiles (you + ${r.mootsFetched.toLocaleString()} moots)`
+          : `${r.profilesFetched.toLocaleString()} profile${r.profilesFetched === 1 ? "" : "s"}`;
         ctx.fillText(
-          `${r.postsFetched.toLocaleString()} posts × $${PRICE_PER_1000_POSTS}/1k  +  ${r.profilesFetched} profile × $${PRICE_PER_1000_PROFILES}/1k`,
+          `${r.postsFetched.toLocaleString()} posts × $${PRICE_PER_1000_POSTS}/1k  +  ${profileLabel} × $${PRICE_PER_1000_PROFILES}/1k`,
           cardX + 44,
           cardY + 190,
         );
@@ -246,9 +259,12 @@
 
         const rows = document.createElement("div");
         rows.className = "rows";
+        const profileRowLabel = r.extraMode
+          ? `${r.profilesFetched.toLocaleString()} profiles fetched (you + ${r.mootsFetched.toLocaleString()} moot${r.mootsFetched === 1 ? "" : "s"}) × $${PRICE_PER_1000_PROFILES}/1,000`
+          : `${r.profilesFetched.toLocaleString()} profile${r.profilesFetched === 1 ? "" : "s"} fetched × $${PRICE_PER_1000_PROFILES}/1,000`;
         rows.innerHTML =
           `<div class="row-line"><span>${r.postsFetched.toLocaleString()} posts fetched × $${PRICE_PER_1000_POSTS}/1,000</span><span>${fmtUsd(r.postsCost)}</span></div>` +
-          `<div class="row-line"><span>${r.profilesFetched} profile fetched × $${PRICE_PER_1000_PROFILES}/1,000</span><span>${fmtUsd(r.profilesCost)}</span></div>` +
+          `<div class="row-line"><span>${profileRowLabel}</span><span>${fmtUsd(r.profilesCost)}</span></div>` +
           `<div class="row-line total"><span>total, X read-API rate card</span><span>${fmtUsd(r.cost)}</span></div>` +
           `<div class="row-line free"><span>actual cost, fetched here</span><span>$0.00</span></div>`;
 
@@ -302,18 +318,23 @@
         summaryCard.appendChild(actions);
       }
 
-      async function run(handleRaw) {
+      async function run(handleRaw, extraMode) {
         showScreen("working");
         setTicker(0);
         statusLine.textContent = "resolving…";
         subStat.textContent = "";
 
         const r = await runMeter(handleRaw, {
+          extraMode,
           onTick: (state) => {
             if (state.status) statusLine.textContent = state.status;
             if (typeof state.cost === "number") setTicker(state.cost);
             if (typeof state.postsFetched === "number") {
-              subStat.textContent = `${state.postsFetched.toLocaleString()} post${state.postsFetched === 1 ? "" : "s"} · ${state.profilesFetched || 0} profile${(state.profilesFetched || 0) === 1 ? "" : "s"}`;
+              let sub = `${state.postsFetched.toLocaleString()} post${state.postsFetched === 1 ? "" : "s"} · ${state.profilesFetched || 0} profile${(state.profilesFetched || 0) === 1 ? "" : "s"}`;
+              if (typeof state.moots === "number") {
+                sub += ` · ${state.moots.toLocaleString()} moot${state.moots === 1 ? "" : "s"}`;
+              }
+              subStat.textContent = sub;
             }
           },
         });
@@ -333,7 +354,7 @@
         goMsg.className = "msg";
         goMsg.textContent = "";
         try {
-          await run(raw);
+          await run(raw, extraModeInput.checked);
         } catch (err) {
           showScreen("gate");
           goMsg.className = "msg err";
