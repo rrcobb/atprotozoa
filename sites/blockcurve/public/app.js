@@ -1,5 +1,5 @@
 import { resolveHandle, getRecord, cleanHandle } from "./lib/identity.js";
-import { fetchDirectBlocks, fetchListMemberships, fetchListSubscribers } from "./lib/constellation.js";
+import { fetchDirectBlocks, fetchListMemberships, fetchListSubscribers, fetchFollowers } from "./lib/constellation.js";
 import { tidToMs } from "./lib/tid.js";
 
 const $ = (id) => document.getElementById(id);
@@ -8,6 +8,7 @@ const els = {
   input: $("handle-input"),
   btn: $("trace-btn"),
   includeLists: $("include-lists"),
+  includeFollowers: $("include-followers"),
   status: $("status"),
   result: $("result"),
   stats: $("stats"),
@@ -84,9 +85,10 @@ function nearestIndex(series, t) {
 }
 
 // ---------- chart rendering ----------
-function xScaleFor(minTs, maxTs) {
+function xScaleFor(minTs, maxTs, marginRight) {
+  const mr = marginRight ?? MARGIN.right;
   const span = Math.max(maxTs - minTs, 1);
-  return (t) => MARGIN.left + ((t - minTs) / span) * (VBW - MARGIN.left - MARGIN.right);
+  return (t) => MARGIN.left + ((t - minTs) / span) * (VBW - MARGIN.left - mr);
 }
 function yScaleFor(maxCount) {
   const top = MARGIN.top, bottom = VBH - MARGIN.bottom;
@@ -112,8 +114,9 @@ function el(tag, attrs) {
 }
 
 let chartState = null;
+const FOLLOWER_MARGIN_RIGHT = 44; // room for the follower axis's own number labels
 
-function renderChart(direct, total, spike) {
+function renderChart(direct, total, spike, followers) {
   const svg = els.svg;
   svg.innerHTML = "";
   svg.setAttribute("viewBox", `0 0 ${VBW} ${VBH}`);
@@ -122,15 +125,16 @@ function renderChart(direct, total, spike) {
   const minTs = direct.ts[0] ?? now;
   const primary = total || direct;
   const maxCount = primary.ts.length;
-  const x = xScaleFor(minTs, now);
+  const marginRight = followers ? FOLLOWER_MARGIN_RIGHT : MARGIN.right;
+  const x = xScaleFor(minTs, now, marginRight);
   const y = yScaleFor(maxCount);
 
-  // gridlines + y labels
+  // gridlines + y labels (left axis: block counts)
   const step = niceStep(maxCount, 4);
   const g = el("g", {});
   for (let v = 0; v <= maxCount + step; v += step) {
     const yy = y(v).toFixed(1);
-    g.appendChild(el("line", { class: "grid", x1: MARGIN.left, x2: VBW - MARGIN.right, y1: yy, y2: yy }));
+    g.appendChild(el("line", { class: "grid", x1: MARGIN.left, x2: VBW - marginRight, y1: yy, y2: yy }));
     const t = el("text", { class: "axis-text", x: 4, y: Number(yy) + 3 });
     t.textContent = fmtNum(v);
     g.appendChild(t);
@@ -180,7 +184,32 @@ function renderChart(direct, total, spike) {
     svg.appendChild(el("circle", { class: "spike-marker", cx, cy, r: 5 }));
   }
 
-  chartState = { direct, total, x, y, minTs, maxTs: now };
+  // follower growth overlay — own right-hand axis, own scale (usually a very
+  // different magnitude than block counts, so it can't share the left one)
+  let y2 = null;
+  if (followers) {
+    y2 = yScaleFor(followers.ts.length);
+    let areaDF = stepPath(followers, x, y2, minTs, now);
+    areaDF += ` L ${x(now).toFixed(1)} ${y2(0).toFixed(1)} L ${x(minTs).toFixed(1)} ${y2(0).toFixed(1)} Z`;
+    svg.appendChild(el("path", { class: "area-followers", d: areaDF }));
+    svg.appendChild(el("path", { class: "line-followers", d: stepPath(followers, x, y2, minTs, now) }));
+
+    const cx = x(now).toFixed(1);
+    const cy = y2(followers.ts.length).toFixed(1);
+    const dot = el("circle", { class: "end-dot line-followers", cx, cy, r: 4 });
+    dot.style.fill = getComputedStyle(document.documentElement).getPropertyValue("--series-3");
+    svg.appendChild(dot);
+
+    const stepF = niceStep(followers.ts.length, 4);
+    for (let v = 0; v <= followers.ts.length + stepF; v += stepF) {
+      const yy = y2(v).toFixed(1);
+      const t = el("text", { class: "axis-text-right", x: VBW - 4, y: Number(yy) + 3, "text-anchor": "end" });
+      t.textContent = fmtNum(v);
+      svg.appendChild(t);
+    }
+  }
+
+  chartState = { direct, total, followers, x, y, y2, minTs, maxTs: now };
   wireHover();
 }
 
@@ -202,6 +231,10 @@ function wireHover() {
     if (chartState.total) {
       const totalCount = cumulativeAt(chartState.total, t);
       rows.push({ label: "incl. modlists", value: totalCount, color: "--series-2" });
+    }
+    if (chartState.followers) {
+      const followerCount = cumulativeAt(chartState.followers, t);
+      rows.push({ label: "followers", value: followerCount, color: "--series-3" });
     }
 
     els.tooltip.hidden = false;
@@ -387,9 +420,22 @@ async function trace(rawHandle) {
       }
     }
 
+    let followers = null;
+    if (els.includeFollowers.checked) {
+      setStatus(`tracing follower growth for @${handle}…`);
+      const followerLinks = await fetchFollowers(did, (n, total2) =>
+        setStatus(`followers found: ${fmtNum(n)}${total2 ? " / " + fmtNum(total2) : ""}`),
+      );
+      const followerEvents = followerLinks
+        .map((r) => ({ ts: tidToMs(r.rkey), by: r.did, kind: "new follower" }))
+        .filter((e) => e.ts != null);
+      followers = buildSeries(followerEvents);
+      allEvents = allEvents.concat(followerEvents);
+    }
+
     setStatus("");
-    renderResult({ handle, did, direct, total, allEvents, spike });
-    lastTrace = { handle, did, direct, total, allEvents, spike };
+    renderResult({ handle, did, direct, total, allEvents, spike, followers });
+    lastTrace = { handle, did, direct, total, allEvents, spike, followers };
   } catch (err) {
     setStatus("couldn't trace that: " + err.message, true);
   } finally {
@@ -397,7 +443,7 @@ async function trace(rawHandle) {
   }
 }
 
-function renderResult({ handle, direct, total, allEvents, spike }) {
+function renderResult({ handle, direct, total, allEvents, spike, followers }) {
   els.result.hidden = false;
   els.stats.innerHTML = "";
 
@@ -411,10 +457,21 @@ function renderResult({ handle, direct, total, allEvents, spike }) {
   if (total) {
     els.stats.appendChild(statTile("incl. modlists", fmtNum(total.ts.length), "direct + list-block exposure"));
   }
+  if (followers) {
+    els.stats.appendChild(statTile("followers", fmtNum(followers.ts.length)));
+    if (followers.ts.length) {
+      const thirtyDaysAgo = Date.now() - 30 * 86400000;
+      const recentF = followers.ts.length - cumulativeAt(followers, thirtyDaysAgo);
+      els.stats.appendChild(statTile("last 30 days", "+" + fmtNum(recentF), "new followers"));
+    }
+  }
 
-  els.chartTitle.textContent = total ? "cumulative blocks received (direct + modlists)" : "cumulative blocks received";
-  els.legend.hidden = !total;
-  if (total) {
+  const titleParts = [total ? "cumulative blocks received (direct + modlists)" : "cumulative blocks received"];
+  if (followers) titleParts.push("follower growth");
+  els.chartTitle.textContent = titleParts.join(" & ");
+
+  els.legend.hidden = !(total || followers);
+  if (total || followers) {
     els.legend.innerHTML = "";
     const mk = (color, label) => {
       const span = document.createElement("span");
@@ -427,10 +484,12 @@ function renderResult({ handle, direct, total, allEvents, spike }) {
       span.append(sw, lbl);
       return span;
     };
-    els.legend.append(mk("--series-1", "direct blocks"), mk("--series-2", "incl. modlists"));
+    els.legend.append(mk("--series-1", "direct blocks"));
+    if (total) els.legend.append(mk("--series-2", "incl. modlists"));
+    if (followers) els.legend.append(mk("--series-3", "followers"));
   }
 
-  renderChart(direct, total, spike);
+  renderChart(direct, total, spike, followers);
   renderTable(allEvents);
 
   if (spike && spike.instantCount > 0) {
@@ -450,9 +509,10 @@ function renderResult({ handle, direct, total, allEvents, spike }) {
 
   els.shareRow.hidden = false;
   const url = `https://blockcurve.bisks.net/s/${encodeURIComponent(handle)}`;
+  const followerSuffix = followers ? ` vs. ${fmtNum(followers.ts.length)} followers` : "";
   const shareText = total
-    ? `@${handle} has been blocked ${fmtNum(direct.ts.length)} times directly (${fmtNum(total.ts.length)} incl. modlists) — cumulative chart: ${url}`
-    : `@${handle} has been blocked ${fmtNum(direct.ts.length)} times, going back to ${direct.ts.length ? fmtDate(direct.ts[0]) : "—"} — cumulative chart: ${url}`;
+    ? `@${handle} has been blocked ${fmtNum(direct.ts.length)} times directly (${fmtNum(total.ts.length)} incl. modlists)${followerSuffix} — cumulative chart: ${url}`
+    : `@${handle} has been blocked ${fmtNum(direct.ts.length)} times, going back to ${direct.ts.length ? fmtDate(direct.ts[0]) : "—"}${followerSuffix} — cumulative chart: ${url}`;
   els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText.slice(0, 300));
 }
 
@@ -496,7 +556,7 @@ function canShareFiles() {
   }
 }
 
-async function buildShareCard({ handle, direct, total }) {
+async function buildShareCard({ handle, direct, total, followers }) {
   const canvas = els.shareCanvas;
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
@@ -510,6 +570,14 @@ async function buildShareCard({ handle, direct, total }) {
   ctx.fillStyle = "#3987e5";
   ctx.font = `800 44px ${mono}`;
   ctx.fillText("blockcurve", 60, 90);
+
+  if (followers) {
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#39c97a";
+    ctx.font = `700 26px ${mono}`;
+    ctx.fillText(`${fmtNum(followers.ts.length)} followers`, W - 60, 90);
+    ctx.textAlign = "left";
+  }
 
   ctx.fillStyle = "#f3f3f1";
   ctx.font = `700 30px ${mono}`;

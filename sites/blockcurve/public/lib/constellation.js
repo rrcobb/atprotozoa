@@ -79,3 +79,11 @@ export function fetchListMemberships(did, onPage) {
 export function fetchListSubscribers(listUri, onPage) {
   return fetchAllLinks(listUri, "app.bsky.graph.listblock", ".subject", onPage);
 }
+
+// Followers: every app.bsky.graph.follow record naming `did` as .subject —
+// i.e. everyone who follows this account. Optional overlay for the "chart
+// follower growth alongside it" ask; a different scale than blocks, so it
+// gets its own axis in app.js rather than sharing the block-count one.
+export function fetchFollowers(did, onPage) {
+  return fetchAllLinks(did, "app.bsky.graph.follow", ".subject", onPage);
+}
