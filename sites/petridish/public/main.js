@@ -28,6 +28,7 @@ const els = {
   force: document.getElementById("forceSlider"),
   friction: document.getElementById("frictionSlider"),
   reach: document.getElementById("reachSlider"),
+  speed: document.getElementById("speedSlider"),
 };
 
 // A genuine main-thread cap, not a data cap: the grid-accelerated neighbor
@@ -70,10 +71,11 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-const params = { force: 1, friction: 0.12, reach: 70 };
+const params = { force: 1, friction: 0.12, reach: 70, speed: 1 };
 els.force.addEventListener("input", () => (params.force = parseFloat(els.force.value)));
 els.friction.addEventListener("input", () => (params.friction = parseFloat(els.friction.value)));
 els.reach.addEventListener("input", () => (params.reach = parseFloat(els.reach.value)));
+els.speed.addEventListener("input", () => (params.speed = parseFloat(els.speed.value)));
 
 const HUES = [352, 28, 200, 145, 268, 48, 320];
 
@@ -225,7 +227,7 @@ function render() {
 
 let last = performance.now();
 function loop(now) {
-  const dt = Math.min(1.6, (now - last) / 16.7);
+  const dt = Math.min(1.6, (now - last) / 16.7) * params.speed;
   last = now;
   step(dt);
   render();
