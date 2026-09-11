@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>norvidrate — currency converter, denominated in norvids</title>
+<meta name="description" content="Convert between world currencies and the norvid — pegged daily to what xbill would charge X's read-API rates to download @norvid-studies.bsky.social's own repo." />
+
+<meta property="og:title" content="norvidrate — currency converter, denominated in norvids" />
+<meta property="og:description" content="Convert between world currencies and the norvid — pegged daily to what xbill would charge X's read-API rates to download @norvid-studies.bsky.social's own repo." />
+<meta property="og:url" content="https://norvidrate.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://norvidrate.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="norvidrate: 100 USD converting to norvids, at a rate priced off xbill's read-API meter." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="norvidrate — currency converter, denominated in norvids" />
+<meta name="twitter:description" content="1 norvid = the xbill cost of downloading norvid-studies' own repo. Recomputed daily." />
+<meta name="twitter:image" content="https://norvidrate.bisks.net/og.png" />
+
+<link rel="stylesheet" href="/style.css" />
+<style>
+  .converter { display: flex; flex-direction: column; gap: 14px; }
+  .row { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; }
+  .field { flex: 1; min-width: 160px; display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 0.78rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.04em; }
+  input[type="text"], select {
+    font-family: var(--mono);
+    font-size: 1rem;
+    background: var(--panel-2);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    width: 100%;
+  }
+  input[type="text"]:focus, select:focus { outline: 1px solid var(--accent); }
+  .swap-row { display: flex; justify-content: center; }
+  #swapBtn { font-size: 1.1rem; padding: 8px 16px; }
+  .result {
+    text-align: center;
+    padding: 20px 12px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .result .figure { font-size: 2.1rem; font-weight: 700; color: var(--accent); word-break: break-word; }
+  .result .rate-line { color: var(--dim); font-size: 0.85rem; margin-top: 8px; }
+  .status { text-align: center; color: var(--dim); font-size: 0.8rem; min-height: 1.2em; }
+  .status.err { color: var(--bad); }
+  .norvid-note {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.78rem;
+    min-height: 1.2em;
+    border-top: 1px dashed var(--border);
+    padding-top: 10px;
+    margin-top: 2px;
+  }
+  .norvid-note a { color: var(--accent-2); }
+  .glance { margin-top: 6px; }
+  .glance table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  .glance td { padding: 6px 4px; border-bottom: 1px solid var(--border); }
+  .glance td:last-child { text-align: right; color: var(--fg); }
+  .glance td:first-child { color: var(--dim); }
+  .refresh-row { display: flex; justify-content: center; margin-top: 4px; }
+  .refresh-row button { font-size: 0.78rem; padding: 6px 10px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>norvidrate</h1>
+    <p>
+      A currency converter to and from the <strong>norvid</strong>. 1 norvid is pegged to
+      what <a href="https://xbill.bisks.net/" target="_blank" rel="noopener">xbill</a> would
+      bill for downloading
+      <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies.bsky.social</a>'s
+      own repo at X's read-API rate card ($5/1000 posts) — recomputed once a day, alongside the
+      same <a href="https://frankfurter.dev" target="_blank" rel="noopener">Frankfurter</a>/ECB
+      rates every other currency here uses.
+    </p>
+    <p class="origin">
+      "do you really think we want a normal currency converter?" — asked for by
+      <a href="https://bsky.app/profile/shimmermathlabs.com" target="_blank" rel="noopener">@shimmermathlabs.com</a>
+    </p>
+  </header>
+
+  <div class="panel converter">
+    <div class="row">
+      <div class="field">
+        <label for="amount">amount</label>
+        <input type="text" id="amount" inputmode="decimal" value="100" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="fromCur">from</label>
+        <select id="fromCur"></select>
+      </div>
+    </div>
+
+    <div class="swap-row">
+      <button id="swapBtn" title="swap currencies">⇅ swap</button>
+    </div>
+
+    <div class="row">
+      <div class="field" style="flex:2">
+        <label for="toCur">to</label>
+        <select id="toCur"></select>
+      </div>
+    </div>
+
+    <div class="result">
+      <div class="figure" id="resultFigure">—</div>
+      <div class="rate-line" id="rateLine"></div>
+    </div>
+
+    <div class="status" id="status">loading rates…</div>
+
+    <div class="glance" id="glanceWrap" style="display:none">
+      <div class="rate-line" style="margin-bottom:4px">1 <span id="glanceBase"></span> is also worth</div>
+      <table id="glanceTable"></table>
+    </div>
+
+    <div class="refresh-row">
+      <button id="refreshBtn">↻ refresh rates</button>
+    </div>
+
+    <div class="norvid-note" id="norvidStatus">pricing the norvid…</div>
+  </div>
+
+  <footer>
+    part of <a href="https://bisks.net/">bisks.net</a> · <a href="https://rateyourbuild.bisks.net/site/norvidrate">rate this on rateyourbuild →</a> — built by
+    <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+    for <a href="https://bsky.app/profile/shimmermathlabs.com" target="_blank" rel="noopener">@shimmermathlabs.com</a>
+  </footer>
+</main>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
