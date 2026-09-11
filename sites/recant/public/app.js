@@ -51,6 +51,7 @@ const els = {
   shareDownload: document.getElementById("shareDownload"),
   shareNative: document.getElementById("shareNative"),
   shareCanvas: document.getElementById("shareCanvas"),
+  pinned: document.getElementById("pinned"),
 };
 
 // --- sign in ----------------------------------------------------------------
@@ -157,7 +158,7 @@ async function submitApology(text) {
       createdAtMs: Date.parse(createdAt) || Date.now(),
     });
     setStatus("recanted. it's on the wall now.", "ok");
-    setShare(text);
+    setShare(text, shareUrlFor(written.uri));
     renderWall();
   } catch (err) {
     setStatus("couldn't recant: " + err.message, "err");
@@ -259,14 +260,87 @@ function clip(text, max) {
   return text.length > max ? text.slice(0, max - 1).trimEnd() + "…" : text;
 }
 
-function setShare(apologyText) {
+// at://did/collection/rkey -> https://recant.bisks.net/a/did/rkey — that's a
+// real, distinct URL per apology (src/index.ts's renderShare), so sharing one
+// person's recantation unfurls with *their* words instead of the generic
+// site card every time. Falls back to the plain site URL if uri is missing
+// or unparseable.
+function shareUrlFor(uri) {
+  const m = /^at:\/\/([^/]+)\/[^/]+\/([^/]+)$/.exec(uri || "");
+  return m ? `${SITE_URL}a/${m[1]}/${m[2]}` : SITE_URL;
+}
+
+function setShare(apologyText, url) {
+  const link = url || SITE_URL;
   lastShareText = apologyText
-    ? `I recant: "${clip(apologyText, 180)}"\n\n${SITE_URL}`
-    : `a lot of people assumed OpenAI was at fault over the Buckmaster/Navier-Stokes story before the facts were in. if that was you, here's a place to say so.\n\n${SITE_URL}`;
+    ? `I recant: "${clip(apologyText, 180)}"\n\n${link}`
+    : `a lot of people assumed OpenAI was at fault over the Buckmaster/Navier-Stokes story before the facts were in. if that was you, here's a place to say so.\n\n${link}`;
   els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
   drawShareCard(apologyText || null);
 }
 setShare(null);
+
+// --- pinned apology (landing on someone else's /a/<did>/<rkey> link) --------
+
+function renderPinned(entry) {
+  if (!els.pinned) return;
+  const name = entry.displayName || entry.handle;
+  els.pinned.innerHTML = `
+    <div class="pinnedhead">you're looking at one public apology</div>
+    <div class="slip">
+      <div class="stamp">RECANTED</div>
+      <div class="head">
+        <img class="avatar" ${entry.avatar ? `src="${esc(entry.avatar)}"` : ""} alt="" onerror="this.style.visibility='hidden'" />
+        <div>
+          <div class="name">${esc(name)}</div>
+          <div class="when">@${esc(entry.handle)} · ${timeAgo(entry.createdAtMs)}</div>
+        </div>
+      </div>
+      <div class="text">${esc(entry.text)}</div>
+    </div>
+  `;
+  els.pinned.style.display = "";
+}
+
+async function loadPinnedApology() {
+  const m = location.pathname.match(/^\/a\/(did:[^/]+)\/([^/]+)\/?$/);
+  if (!m || !els.pinned) return;
+  const [, did, rkey] = m;
+  try {
+    const doc = did.startsWith("did:web:")
+      ? await fetch(`https://${did.slice("did:web:".length).replace(/:/g, "/")}/.well-known/did.json`).then((r) => (r.ok ? r.json() : null))
+      : await fetch(`https://plc.directory/${did}`).then((r) => (r.ok ? r.json() : null));
+    const service = (doc?.service || []).find((s) => s.id === "#atproto_pds" || s.type === "AtprotoPersonalDataServer");
+    const pds = typeof service?.serviceEndpoint === "string" ? service.serviceEndpoint : null;
+    if (!pds) return;
+    const recRes = await fetch(
+      `${pds.replace(/\/$/, "")}/xrpc/com.atproto.repo.getRecord?repo=${encodeURIComponent(did)}&collection=${APOLOGY_COLLECTION}&rkey=${encodeURIComponent(rkey)}`,
+    );
+    if (!recRes.ok) return;
+    const rec = await recRes.json();
+    const text = typeof rec.value?.text === "string" ? rec.value.text.trim() : "";
+    if (!text) return;
+
+    let handle = did, displayName = did, avatar = "";
+    try {
+      const p = await fetch(`https://api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`);
+      if (p.ok) {
+        const pd = await p.json();
+        handle = pd.handle || did;
+        displayName = pd.displayName || handle;
+        avatar = pd.avatar || "";
+      }
+    } catch (_) {}
+
+    const createdAtMs = Date.parse(rec.value.createdAt) || Date.now();
+    renderPinned({ handle, displayName, avatar, text, createdAtMs });
+    setShare(text, shareUrlFor(`at://${did}/${APOLOGY_COLLECTION}/${rkey}`));
+  } catch (_) {
+    // Bad link, deleted record, or unreachable PDS — the rest of the page
+    // (sign in, wall, share) still works fine without a pinned apology.
+  }
+}
+loadPinnedApology();
 
 function wrapText(ctx, text, maxWidth) {
   const words = text.split(/\s+/);
