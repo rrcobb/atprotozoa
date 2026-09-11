@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>petridish — particle-life colonies in a dish</title>
+<meta name="description" content="A live particle-life simulation: a handful of colored 'species' pull and push on each other with a random asymmetric rule matrix, and the result self-organizes into orbits, chases, and blob colonies inside a circular dish. Every seed is shareable and replayable." />
+<meta property="og:title" content="petridish — particle-life colonies in a dish" />
+<meta property="og:description" content="Colored particles following a random attraction/repulsion matrix, swirling into orbits and colonies inside a petri dish. No two seeds behave the same. Share the one you get." />
+<meta property="og:url" content="https://petridish.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://petridish.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A circular petri dish full of small colored dots clumped into swirling colonies." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="petridish — particle-life colonies in a dish" />
+<meta name="twitter:description" content="Colored particles following a random attraction/repulsion matrix, swirling into orbits and colonies inside a petri dish. No two seeds behave the same. Share the one you get." />
+<meta name="twitter:image" content="https://petridish.bisks.net/og.png" />
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    font-family: ui-monospace, "JetBrains Mono", Menlo, monospace;
+    color: #2a2620;
+    overflow: hidden;
+    background: #e9e3d3;
+  }
+  #bench {
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse at 50% 42%, #f5f1e4 0%, #e9e3d3 55%, #d8d0ba 100%);
+  }
+  canvas#sim {
+    position: fixed; inset: 0;
+    width: 100%; height: 100%;
+    display: block;
+  }
+  .panel {
+    position: fixed; top: 0; left: 0; right: 0;
+    padding: 1rem 1.1rem 0.8rem;
+    background: linear-gradient(180deg, rgba(233,227,211,0.92) 0%, rgba(233,227,211,0.55) 80%, rgba(233,227,211,0) 100%);
+    pointer-events: none;
+  }
+  .panel * { pointer-events: auto; }
+  h1 { font-size: 1.35rem; margin: 0 0 0.15rem; letter-spacing: 0.01em; }
+  .tag { font-size: 0.82rem; margin: 0 0 0.7rem; color: #4a4436; max-width: 60ch; line-height: 1.45; }
+  .tag a { color: #a8501f; }
+
+  .row { display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem; align-items: center; }
+
+  .card {
+    background: rgba(255,252,244,0.75);
+    border: 1px solid rgba(42,38,32,0.18);
+    border-radius: 8px;
+    padding: 0.55rem 0.7rem;
+    backdrop-filter: blur(4px);
+  }
+
+  button, .btn {
+    background: rgba(42,38,32,0.08);
+    border: 1px solid rgba(42,38,32,0.35);
+    color: #2a2620;
+    border-radius: 5px;
+    padding: 0.4rem 0.7rem;
+    font: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+  }
+  button:hover, .btn:hover { background: rgba(42,38,32,0.16); }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  .sliders { display: flex; flex-wrap: wrap; gap: 0.5rem 1.1rem; font-size: 0.75rem; margin-top: 0.55rem; }
+  .sliders label { display: flex; flex-direction: column; gap: 0.15rem; color: #4a4436; }
+  .sliders input[type=range] { width: 8.5rem; accent-color: #a8501f; }
+
+  #status { font-size: 0.78rem; margin-top: 0.4rem; min-height: 1.1em; color: #6b3618; }
+
+  .bottom {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    display: flex; justify-content: space-between; align-items: flex-end;
+    gap: 0.6rem; flex-wrap: wrap;
+    padding: 0.7rem 1rem 0.8rem;
+    background: linear-gradient(0deg, rgba(233,227,211,0.9) 0%, rgba(233,227,211,0) 100%);
+    pointer-events: none;
+  }
+  .bottom * { pointer-events: auto; }
+  .share-row { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+  a.share-post {
+    background: #a8501f; color: #fdf6e8; font-weight: 700;
+    border-radius: 5px; padding: 0.4rem 0.75rem; text-decoration: none; font-size: 0.82rem;
+  }
+  a.share-post:hover { background: #c05f28; }
+
+  footer { font-size: 0.72rem; color: #55503f; max-width: 32rem; line-height: 1.5; }
+  footer a { color: #a8501f; }
+</style>
+</head>
+<body>
+<div id="bench"></div>
+<canvas id="sim"></canvas>
+
+<div class="panel">
+  <h1>petri dish</h1>
+  <p class="tag">
+    a live <a href="https://en.wikipedia.org/wiki/Particle_Life" target="_blank" rel="noopener">particle-life</a> sim:
+    a handful of colored species pull and push on each other by a random, asymmetric rule matrix, dropped
+    into a circular dish. some seeds settle into orbits, some chase in rings, some just clump and sit there.
+    hit randomize for a new colony, or share the one you land on.
+  </p>
+  <div class="row">
+    <button id="randomizeBtn" type="button">🎲 new colony</button>
+    <span id="seedLabel" style="font-size:0.78rem; color:#55503f;"></span>
+  </div>
+  <div id="status"></div>
+  <details class="card" style="margin-top:0.6rem; display:inline-block;">
+    <summary style="cursor:pointer; font-size:0.8rem;">tune the dish</summary>
+    <div class="sliders">
+      <label>species <input id="speciesSlider" type="range" min="2" max="7" step="1" value="5" /></label>
+      <label>particles <input id="countSlider" type="range" min="150" max="1200" step="50" value="600" /></label>
+      <label>force <input id="forceSlider" type="range" min="0.2" max="3" step="0.05" value="1" /></label>
+      <label>friction <input id="frictionSlider" type="range" min="0.02" max="0.5" step="0.01" value="0.12" /></label>
+      <label>reach <input id="reachSlider" type="range" min="30" max="140" step="5" value="70" /></label>
+    </div>
+  </details>
+</div>
+
+<div class="bottom">
+  <footer>
+    petridish.bisks.net — one of 630+ tiny <a href="https://bisks.net/" target="_blank" rel="noopener">atprotozoa</a> experiments.
+    a daily-slot build, nobody in particular asked.
+    <a href="https://rateyourbuild.bisks.net/site/petridish" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+  </footer>
+  <div class="share-row">
+    <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share this colony</a>
+    <button id="shareDownload" type="button">⬇ download card</button>
+    <button id="shareNative" type="button" style="display:none;">share…</button>
+  </div>
+</div>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>
