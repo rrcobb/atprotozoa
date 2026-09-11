@@ -1,0 +1,941 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>multiclass — what kind of LLM practitioner are you?</title>
+<meta name="description" content="Wizard, Warlock, or Cleric — the roguelikedev 'proc gen practitioner' talk, remapped onto how you actually use AI. Scan a Bluesky handle for a multiclass build, or skip the scan and answer six questions by hand." />
+<meta property="og:title" content="multiclass — what kind of LLM practitioner are you?" />
+<meta property="og:description" content="Wizard, Warlock, or Cleric — the roguelikedev 'proc gen practitioner' talk, remapped onto how you actually use AI. Scan a Bluesky handle for a multiclass build, or skip the scan and answer six questions by hand." />
+<meta property="og:url" content="https://multiclass.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://multiclass.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="multiclass: a class card showing a Wizard/Warlock/Cleric percentage build." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="multiclass — what kind of LLM practitioner are you?" />
+<meta name="twitter:description" content="Wizard, Warlock, or Cleric — the roguelikedev 'proc gen practitioner' talk, remapped onto how you actually use AI. Scan a Bluesky handle for a multiclass build, or skip the scan and answer six questions by hand." />
+<meta name="twitter:image" content="https://multiclass.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --fg: #eef1f5;
+    --dim: #8891a0;
+    --wizard: #5fc9ff;
+    --warlock: #b46cff;
+    --cleric: #ffcf5c;
+    --card: #12131c;
+    --border: #262838;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 12% -10%, #123047 0%, transparent 50%),
+      radial-gradient(ellipse at 90% 0%, #2e1a47 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 110%, #3a2e10 0%, transparent 45%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 4rem 1.25rem 5rem; }
+  .wrap { width: 100%; max-width: 640px; }
+  h1 {
+    font-size: 2rem;
+    line-height: 1.2;
+    margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--wizard), var(--warlock), var(--cleric));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 1.4rem; line-height: 1.55; }
+  .tag b { color: var(--fg); }
+  .classes-legend {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin: 0 0 2rem;
+  }
+  .legend-chip {
+    flex: 1;
+    min-width: 165px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.7rem 0.85rem;
+    font-size: 0.76rem;
+    line-height: 1.4;
+  }
+  .legend-chip .name { font-weight: 800; font-size: 0.9rem; margin-bottom: 0.25rem; }
+  .legend-chip.wizard { border-left: 3px solid var(--wizard); }
+  .legend-chip.wizard .name { color: var(--wizard); }
+  .legend-chip.warlock { border-left: 3px solid var(--warlock); }
+  .legend-chip.warlock .name { color: var(--warlock); }
+  .legend-chip.cleric { border-left: 3px solid var(--cleric); }
+  .legend-chip.cleric .name { color: var(--cleric); }
+  .legend-chip .short { color: var(--dim); }
+
+  .mode-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.1rem; }
+  .mode-tab {
+    flex: 1;
+    text-align: center;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 8px;
+    padding: 0.65rem 0.5rem;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .mode-tab.active { color: var(--fg); border-color: var(--wizard); background: rgba(95, 201, 255, 0.08); }
+
+  .mode-panel { display: none; }
+  .mode-panel.active { display: block; }
+
+  form#f { display: flex; gap: 0.5rem; margin-bottom: 0.6rem; }
+  input[type="text"] {
+    flex: 1;
+    min-width: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--wizard); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--wizard), var(--warlock));
+    color: #060613;
+    border: none;
+    border-radius: 8px;
+    padding: 0.75rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 1.1rem; }
+
+  .quiz-q { margin-bottom: 1.1rem; }
+  .quiz-q .qtext { font-size: 0.88rem; font-weight: 700; margin-bottom: 0.5rem; }
+  .quiz-q .qopt {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    margin-bottom: 0.4rem;
+    font-size: 0.82rem;
+    cursor: pointer;
+    line-height: 1.4;
+  }
+  .quiz-q .qopt:has(input:checked) { border-color: var(--wizard); background: rgba(95, 201, 255, 0.08); }
+  .quiz-q input { margin-top: 0.2rem; accent-color: var(--wizard); }
+  #quizSubmit { width: 100%; margin-top: 0.4rem; }
+
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: var(--warlock); }
+
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: 0 0 60px -25px var(--wizard);
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.4rem; }
+  .who img { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border); }
+  .who .handle { font-weight: 700; }
+  .who .did { color: var(--dim); font-size: 0.72rem; word-break: break-all; }
+
+  .build-title {
+    text-align: center;
+    font-size: 1.55rem;
+    font-weight: 800;
+    line-height: 1.3;
+    margin-bottom: 0.35rem;
+  }
+  .build-flavor {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    margin-bottom: 1.2rem;
+    padding: 0 0.5rem;
+  }
+
+  .bar { display: flex; height: 24px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); margin-bottom: 0.6rem; }
+  .bar > div { height: 100%; min-width: 0; }
+  .bar .wizard { background: var(--wizard); }
+  .bar .warlock { background: var(--warlock); }
+  .bar .cleric { background: var(--cleric); }
+
+  .tally { display: flex; justify-content: center; gap: 1.1rem; flex-wrap: wrap; font-size: 0.8rem; color: var(--dim); margin-bottom: 1.6rem; }
+  .tally b { font-variant-numeric: tabular-nums; }
+  .tally .dot { display: inline-block; width: 0.6em; height: 0.6em; border-radius: 50%; margin-right: 0.35em; }
+  .tally .wizard-dot { background: var(--wizard); }
+  .tally .warlock-dot { background: var(--warlock); }
+  .tally .cleric-dot { background: var(--cleric); }
+  .tally .wizard-count { color: var(--wizard); }
+  .tally .warlock-count { color: var(--warlock); }
+  .tally .cleric-count { color: var(--cleric); }
+
+  .method { color: var(--dim); font-size: 0.76rem; line-height: 1.5; border-top: 1px dashed var(--border); padding-top: 1rem; margin-bottom: 1.5rem; }
+
+  .receipts { margin-bottom: 1.5rem; }
+  .receipts h2 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; margin: 0 0 0.6rem; }
+  .receipts h2.wizard { color: var(--wizard); }
+  .receipts h2.warlock { color: var(--warlock); }
+  .receipts h2.cleric { color: var(--cleric); }
+  .receipt {
+    display: block;
+    padding: 0.65rem 0.85rem;
+    margin-bottom: 0.5rem;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--fg);
+    font-size: 0.87rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .receipt.wizard { background: rgba(95, 201, 255, 0.08); border-left: 3px solid var(--wizard); }
+  .receipt.warlock { background: rgba(180, 108, 255, 0.08); border-left: 3px solid var(--warlock); }
+  .receipt.cleric { background: rgba(255, 207, 92, 0.08); border-left: 3px solid var(--cleric); }
+  .receipt:hover { filter: brightness(1.15); }
+  .receipts .none { color: var(--dim); font-size: 0.85rem; font-style: italic; }
+
+  .share { border-top: 1px dashed var(--border); padding-top: 1.2rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.65rem 0.9rem;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--wizard), var(--warlock)); color: #060613; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.6; }
+  footer a { color: var(--wizard); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>multicl<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">a</span>ss</h1>
+    <p class="tag">
+      From <a href="https://youtu.be/mYMdMAvTHpo" target="_blank" rel="noopener" style="color:var(--wizard)">a talk about proc-gen practitioners</a>,
+      remapped onto how you actually use AI: <b>Wizard</b> (academic, guards & wards, a tool),
+      <b>Warlock</b> (a pact for power, doesn't count the cost), or <b>Cleric</b>
+      (worships the machine god, insane). Nobody's just one — this gives you a build.
+    </p>
+
+    <div class="classes-legend">
+      <div class="legend-chip wizard"><div class="name">🧙 Wizard</div><div class="short">approaches it academically & with appropriate guards & wards. treats it like a tool.</div></div>
+      <div class="legend-chip warlock"><div class="name">😈 Warlock</div><div class="short">made a pact for power with an alien entity without considering the costs. corrupted by the whispers.</div></div>
+      <div class="legend-chip cleric"><div class="name">🙏 Cleric</div><div class="short">worships their new machine god. insane.</div></div>
+    </div>
+
+    <div class="mode-tabs">
+      <button class="mode-tab active" id="tabScan" type="button">🔮 scan a handle</button>
+      <button class="mode-tab" id="tabQuiz" type="button">📜 answer questions</button>
+    </div>
+
+    <div class="mode-panel active" id="panelScan">
+      <form id="f">
+        <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <button id="go" type="submit">scan</button>
+      </form>
+      <p class="hint">downloads their whole post history and reads it for class tells. works on any handle — yours, a friend's, your favorite AI cleric.</p>
+    </div>
+
+    <div class="mode-panel" id="panelQuiz">
+      <form id="quizForm"></form>
+    </div>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who" id="whoRow" style="display:none">
+        <img id="avatar" alt="" />
+        <div>
+          <div class="handle" id="handleOut"></div>
+          <div class="did" id="didOut"></div>
+        </div>
+      </div>
+
+      <div class="build-title" id="buildTitle"></div>
+      <div class="build-flavor" id="buildFlavor"></div>
+
+      <div class="bar" id="bar">
+        <div class="wizard" id="barWizard"></div>
+        <div class="warlock" id="barWarlock"></div>
+        <div class="cleric" id="barCleric"></div>
+      </div>
+      <div class="tally" id="tally"></div>
+
+      <div class="method" id="methodText"></div>
+
+      <div class="receipts" id="receiptsBlock">
+        <div id="receiptsWizard"></div>
+        <div id="receiptsWarlock"></div>
+        <div id="receiptsCleric"></div>
+      </div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share my build</a>
+          <button id="shareDownload" type="button">⬇ download card</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+      <a href="https://rateyourbuild.bisks.net/site/multiclass">rate this on rateyourbuild →</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script src="lib/classify.js"></script>
+<script type="module">
+import { fetchRepoRecordsWithKeys } from "./lib/car.js";
+
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+const MAX_POSTS = 500; // cap for the paginated-feed fallback only — the CAR path reads every post record, no cap
+const MAX_PAGES = 5;
+const PLC_DIRECTORY = "https://plc.directory";
+const { CLASS_INFO, buildTitle, flavorFor, QUIZ, tallyQuiz } = window.Multiclass;
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+const els = {
+  tabScan: document.getElementById("tabScan"),
+  tabQuiz: document.getElementById("tabQuiz"),
+  panelScan: document.getElementById("panelScan"),
+  panelQuiz: document.getElementById("panelQuiz"),
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  quizForm: document.getElementById("quizForm"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  whoRow: document.getElementById("whoRow"),
+  avatar: document.getElementById("avatar"),
+  handleOut: document.getElementById("handleOut"),
+  didOut: document.getElementById("didOut"),
+  buildTitle: document.getElementById("buildTitle"),
+  buildFlavor: document.getElementById("buildFlavor"),
+  methodText: document.getElementById("methodText"),
+  barWizard: document.getElementById("barWizard"),
+  barWarlock: document.getElementById("barWarlock"),
+  barCleric: document.getElementById("barCleric"),
+  tally: document.getElementById("tally"),
+  receiptsBlock: document.getElementById("receiptsBlock"),
+  receiptsWizard: document.getElementById("receiptsWizard"),
+  receiptsWarlock: document.getElementById("receiptsWarlock"),
+  receiptsCleric: document.getElementById("receiptsCleric"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareNative: document.getElementById("shareNative"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+function setMode(mode) {
+  els.tabScan.classList.toggle("active", mode === "scan");
+  els.tabQuiz.classList.toggle("active", mode === "quiz");
+  els.panelScan.classList.toggle("active", mode === "scan");
+  els.panelQuiz.classList.toggle("active", mode === "quiz");
+  setStatus("");
+}
+els.tabScan.addEventListener("click", () => setMode("scan"));
+els.tabQuiz.addEventListener("click", () => setMode("quiz"));
+
+// ---- build the quiz form ---------------------------------------------------
+QUIZ.forEach((q, qi) => {
+  const wrap = document.createElement("div");
+  wrap.className = "quiz-q";
+  const qt = document.createElement("div");
+  qt.className = "qtext";
+  qt.textContent = (qi + 1) + ". " + q.q;
+  wrap.appendChild(qt);
+  q.a.forEach((opt, oi) => {
+    const label = document.createElement("label");
+    label.className = "qopt";
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "q" + qi;
+    input.value = opt.cls;
+    input.required = true;
+    label.appendChild(input);
+    const span = document.createElement("span");
+    span.textContent = opt.text;
+    label.appendChild(span);
+    wrap.appendChild(label);
+  });
+  els.quizForm.appendChild(wrap);
+});
+const quizSubmit = document.createElement("button");
+quizSubmit.id = "quizSubmit";
+quizSubmit.type = "submit";
+quizSubmit.textContent = "reveal my build";
+els.quizForm.appendChild(quizSubmit);
+
+els.quizForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const answers = QUIZ.map((_, qi) => {
+    const checked = els.quizForm.querySelector('input[name="q' + qi + '"]:checked');
+    return checked ? checked.value : null;
+  });
+  if (answers.some((a) => !a)) {
+    setStatus("answer every question first.", true);
+    return;
+  }
+  const pcts = tallyQuiz(answers);
+  renderBuild({ pcts, isQuiz: true });
+});
+
+// ---- scan path (CAR bulk read, same shape as sites/llmstance) -------------
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+async function didDoc(did) {
+  if (did.startsWith("did:plc:")) {
+    const r = await fetch(PLC_DIRECTORY + "/" + did);
+    return r.ok ? r.json() : null;
+  }
+  if (did.startsWith("did:web:")) {
+    const domain = did.replace("did:web:", "").replace(/:/g, "/");
+    const r = await fetch("https://" + domain + "/.well-known/did.json");
+    return r.ok ? r.json() : null;
+  }
+  return null;
+}
+
+async function resolvePds(did) {
+  const doc = await didDoc(did);
+  const svc = ((doc && doc.service) || []).find(
+    (s) => s.id === "#atproto_pds" || s.type === "AtprotoPersonalDataServer"
+  );
+  return (svc && svc.serviceEndpoint) || null;
+}
+
+// Downloads the entire repo as one CAR and pulls every post out of it — every
+// post the account has ever made, not just the first N a paginated read
+// happens to return. See notes on "prefer bulk reads over paginated cursor
+// walks" — a repo CAR is one request no matter how much history exists.
+async function scanAccountViaCar(did, onProgress) {
+  const pds = await resolvePds(did);
+  if (!pds) throw new Error("couldn't find a PDS for this account");
+  const { records } = await fetchRepoRecordsWithKeys(pds, did, "app.bsky.feed.post", onProgress);
+  const posts = [];
+  for (const { uri, value } of records) {
+    const text = value && value.text;
+    if (typeof text !== "string" || !text.trim()) continue;
+    posts.push({ text, uri, rkey: uri.split("/").pop(), indexedAt: value.createdAt });
+  }
+  return posts;
+}
+
+async function scanAccountViaFeed(did, onProgress) {
+  let cursor;
+  const posts = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const params = { actor: did, limit: "100", filter: "posts_with_replies" };
+    if (cursor) params.cursor = cursor;
+    const feed = await xrpc("app.bsky.feed.getAuthorFeed", params);
+    const items = (feed.feed || []).filter((f) => !f.reason);
+    for (const f of items) {
+      const text = f.post && f.post.record && f.post.record.text;
+      if (typeof text !== "string" || !text.trim()) continue;
+      const uri = f.post.uri || "";
+      posts.push({ text, uri, rkey: uri.split("/").pop(), indexedAt: f.post.indexedAt });
+    }
+    onProgress("scanning via feed API (no full-repo access)... (" + posts.length + " so far, page " + (page + 1) + ")");
+    cursor = feed.cursor;
+    if (!cursor || items.length === 0 || posts.length >= MAX_POSTS) break;
+  }
+  return posts.slice(0, MAX_POSTS);
+}
+
+async function scanAccount(did, onProgress) {
+  try {
+    const posts = await scanAccountViaCar(did, onProgress);
+    return { posts, method: "car" };
+  } catch (err) {
+    onProgress("full repo scan failed (" + err.message + ") — falling back to the feed API...");
+    const posts = await scanAccountViaFeed(did, onProgress);
+    return { posts, method: "feed" };
+  }
+}
+
+function tallyPosts(posts, handle) {
+  let wizard = 0, warlock = 0, cleric = 0;
+  const receipts = { wizard: [], warlock: [], cleric: [] };
+  for (const p of posts) {
+    const c = window.Multiclass.classifyPost(p.text);
+    const entry = { ...p, postUrl: "https://bsky.app/profile/" + handle + "/post/" + p.rkey };
+    if (c.label === "wizard") { wizard++; receipts.wizard.push({ ...entry, hits: c.wizardHits }); }
+    else if (c.label === "warlock") { warlock++; receipts.warlock.push({ ...entry, hits: c.warlockHits }); }
+    else if (c.label === "cleric") { cleric++; receipts.cleric.push({ ...entry, hits: c.clericHits }); }
+  }
+  receipts.wizard.sort((a, b) => b.hits - a.hits);
+  receipts.warlock.sort((a, b) => b.hits - a.hits);
+  receipts.cleric.sort((a, b) => b.hits - a.hits);
+  return { wizard, warlock, cleric, receipts };
+}
+
+function truncate(s, max) {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1).trimEnd() + "…";
+}
+
+function renderReceipts(container, list, kind) {
+  container.innerHTML = "";
+  const h2 = document.createElement("h2");
+  h2.className = kind;
+  h2.textContent = "strongest " + kind + " receipts";
+  container.appendChild(h2);
+  if (!list.length) {
+    const p = document.createElement("p");
+    p.className = "none";
+    p.textContent = "no clearly " + kind + " posts found.";
+    container.appendChild(p);
+    return;
+  }
+  for (const r of list.slice(0, 4)) {
+    const a = document.createElement("a");
+    a.className = "receipt " + kind;
+    a.href = r.postUrl;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.append("“" + truncate(r.text, 220) + "”");
+    container.appendChild(a);
+  }
+}
+
+function shareUrlFor(handle) {
+  return "https://multiclass.bisks.net/s/" + encodeURIComponent(handle);
+}
+
+function shareTextFor({ isQuiz, handle, title, pcts }) {
+  const pctLine = CLASS_INFO.wizard.icon + " " + pcts.wizard + "% wizard · " +
+    CLASS_INFO.warlock.icon + " " + pcts.warlock + "% warlock · " +
+    CLASS_INFO.cleric.icon + " " + pcts.cleric + "% cleric";
+  if (isQuiz) {
+    return `my multiclass build: ${title}\n${pctLine}\n\nbuild yours → https://multiclass.bisks.net/`;
+  }
+  return `@${handle}'s multiclass build: ${title}\n${pctLine}\n\ncheck anyone's → ${shareUrlFor(handle)}`;
+}
+
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let cy = y;
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      ctx.fillText(line, x, cy);
+      line = w;
+      cy += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx.fillText(line, x, cy);
+  return cy;
+}
+
+async function buildShareCard({ profile, title, flavor, pcts }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const avatar = profile && profile.avatar ? await loadImg(profile.avatar) : null;
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0a0a0f";
+  ctx.fillRect(0, 0, W, H);
+  const glow1 = ctx.createRadialGradient(W * 0.1, -H * 0.1, 0, W * 0.1, -H * 0.1, W * 0.45);
+  glow1.addColorStop(0, "#123047");
+  glow1.addColorStop(1, "rgba(10,10,15,0)");
+  ctx.fillStyle = glow1;
+  ctx.fillRect(0, 0, W, H);
+  const glow2 = ctx.createRadialGradient(W * 0.95, -H * 0.05, 0, W * 0.95, -H * 0.05, W * 0.4);
+  glow2.addColorStop(0, "#2e1a47");
+  glow2.addColorStop(1, "rgba(10,10,15,0)");
+  ctx.fillStyle = glow2;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#5fc9ff";
+  ctx.font = `800 48px ${mono}`;
+  ctx.fillText("multiclass", 60, 92);
+
+  ctx.fillStyle = "#eef1f5";
+  ctx.font = `700 26px ${mono}`;
+  let textX = 60, textY = 150;
+  const who = profile ? "@" + profile.handle : "manual build";
+  if (avatar) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(88, 140, 28, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(avatar, 60, 112, 56, 56);
+    ctx.restore();
+    textX = 132;
+  }
+  ctx.fillText(who, textX, textY);
+
+  ctx.strokeStyle = "#262838";
+  ctx.lineWidth = 1.5;
+  const cardX = 60, cardY = 200, cardW = W - 120, cardH = H - 260;
+  ctx.fillStyle = "#12131c";
+  ctx.beginPath();
+  ctx.roundRect(cardX, cardY, cardW, cardH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#eef1f5";
+  ctx.font = `800 32px ${mono}`;
+  let ny = wrapCanvasText(ctx, title, W / 2, cardY + 54, cardW - 96, 38);
+
+  ctx.fillStyle = "#8891a0";
+  ctx.font = `italic 16px ${mono}`;
+  ny = wrapCanvasText(ctx, flavor, W / 2, ny + 42, cardW - 120, 22);
+
+  const barX = cardX + 48, barY = cardY + cardH - 130, barW = cardW - 96, barH = 28;
+  const total = pcts.wizard + pcts.warlock + pcts.cleric || 1;
+  const wizardW = (pcts.wizard / total) * barW;
+  const warlockW = (pcts.warlock / total) * barW;
+  const clericW = barW - wizardW - warlockW;
+  ctx.fillStyle = "#5fc9ff";
+  ctx.fillRect(barX, barY, wizardW, barH);
+  ctx.fillStyle = "#b46cff";
+  ctx.fillRect(barX + wizardW, barY, warlockW, barH);
+  ctx.fillStyle = "#ffcf5c";
+  ctx.fillRect(barX + wizardW + warlockW, barY, clericW, barH);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#8891a0";
+  ctx.font = `400 17px ${mono}`;
+  ctx.fillText("🧙 " + pcts.wizard + "%  ·  😈 " + pcts.warlock + "%  ·  🙏 " + pcts.cleric + "%", barX, barY + 55);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#5fc9ff";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("multiclass.bisks.net", 60, H - 40);
+}
+
+function renderBuild({ pcts, isQuiz, profile, did, scanMethod, receipts, total }) {
+  const { title, classes } = buildTitle(pcts);
+  const flavor = flavorFor(classes);
+
+  els.whoRow.style.display = profile ? "flex" : "none";
+  if (profile) {
+    els.avatar.src = profile.avatar || "";
+    els.avatar.style.visibility = profile.avatar ? "visible" : "hidden";
+    els.handleOut.textContent = "@" + profile.handle;
+    els.didOut.textContent = did || "";
+  }
+
+  els.buildTitle.textContent = title;
+  els.buildFlavor.textContent = flavor;
+
+  els.barWizard.style.width = pcts.wizard + "%";
+  els.barWarlock.style.width = pcts.warlock + "%";
+  els.barCleric.style.width = pcts.cleric + "%";
+
+  els.tally.innerHTML =
+    '<span><span class="dot wizard-dot"></span><b class="wizard-count">' + pcts.wizard + '%</b> wizard</span>' +
+    '<span><span class="dot warlock-dot"></span><b class="warlock-count">' + pcts.warlock + '%</b> warlock</span>' +
+    '<span><span class="dot cleric-dot"></span><b class="cleric-count">' + pcts.cleric + '%</b> cleric</span>';
+
+  if (isQuiz) {
+    els.methodText.textContent = "No model in the loop — six questions, one point per answer, normalized to a percentage. Manual entry, no posts read.";
+    els.receiptsBlock.style.display = "none";
+  } else {
+    els.receiptsBlock.style.display = "";
+    const relevant = total;
+    const smallSample = relevant > 0 && relevant < 5 ? " small sample (" + relevant + " AI-related posts found) — take it with a grain of salt." : "";
+    els.methodText.textContent = (
+      scanMethod === "car"
+        ? "No model in the loop — this is a keyword lexicon, not a judge. Downloaded the account's entire repo (every app.bsky.feed.post record, via one com.atproto.sync.getRepo CAR, no page cap), flagged anything mentioning AI, and scored each post's Wizard/Warlock/Cleric tells."
+        : "No model in the loop — this is a keyword lexicon, not a judge. Couldn't pull the full repo CAR, so this fell back to reading recent posts via the feed API, flagged anything mentioning AI, and scored each post's Wizard/Warlock/Cleric tells."
+    ) + smallSample + " Read the receipts below before you trust it.";
+    renderReceipts(els.receiptsWizard, receipts.wizard, "wizard");
+    renderReceipts(els.receiptsWarlock, receipts.warlock, "warlock");
+    renderReceipts(els.receiptsCleric, receipts.cleric, "cleric");
+  }
+
+  setStatus("");
+  els.card.classList.add("show");
+
+  lastShareText = shareTextFor({ isQuiz, handle: profile && profile.handle, title, pcts });
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+  buildShareCard({ profile, title, flavor, pcts });
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+
+  try {
+    let did, profile;
+    if (handle.startsWith("did:")) {
+      did = handle;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    } else {
+      setStatus("resolving " + handle + " ...");
+      const r = await xrpc("com.atproto.identity.resolveHandle", { handle });
+      did = r.did;
+      profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+    }
+    const resolvedHandle = profile.handle || handle;
+
+    setStatus("downloading " + resolvedHandle + "'s repo...");
+    const { posts, method } = await scanAccount(did, (msg) => setStatus(msg));
+
+    if (!posts.length) {
+      setStatus("no readable posts found for @" + resolvedHandle + ".", true);
+      return;
+    }
+
+    const { wizard, warlock, cleric, receipts } = tallyPosts(posts, resolvedHandle);
+    const total = wizard + warlock + cleric;
+
+    if (total === 0) {
+      setStatus("@" + resolvedHandle + " never really tipped their hand on AI in " + posts.length + " posts — try the manual quiz instead.", true);
+      return;
+    }
+
+    const pcts = {
+      wizard: Math.round((wizard / total) * 100),
+      warlock: Math.round((warlock / total) * 100),
+      cleric: 0,
+    };
+    pcts.cleric = 100 - pcts.wizard - pcts.warlock;
+
+    renderBuild({ pcts, isQuiz: false, profile: { handle: resolvedHandle, avatar: profile.avatar }, did, scanMethod: method, receipts, total });
+  } catch (err) {
+    setStatus("couldn't scan that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    const who = (els.handleOut.textContent || "build").replace(/[^a-z0-9.-]/gi, "_");
+    a.download = "multiclass-" + who + ".png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const who = (els.handleOut.textContent || "build").replace(/[^a-z0-9.-]/gi, "_");
+      const file = new File([blob], "multiclass-" + who + ".png", { type: "image/png" });
+      try {
+        await navigator.share({ files: [file], text: lastShareText, title: "multiclass" });
+      } catch (_) {
+        // user cancelled the share sheet, or it failed silently — no-op
+      }
+    }, "image/png");
+  });
+}
+
+// /s/<handle> (shared scan links) or the older ?h=<handle> pattern both auto-scan on load.
+const pathHandle = (location.pathname.match(/^\/s\/([^/]+)\/?$/) || [])[1];
+const sharedHandle = new URLSearchParams(location.search).get("h") || (pathHandle && decodeURIComponent(pathHandle));
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
