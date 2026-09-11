@@ -2,7 +2,9 @@
 // profile fetch over the result. Added for xbill's EXTRA mode:
 // @shimmermathlabs.com replied to the original xbill build asking to also
 // grab every one of a handle's moots' profiles, with the same live $-meter
-// running through the extra work.
+// running through the extra work. META mode (later ask, same thread) reuses
+// `fetchFollowers` directly instead of narrowing to the mutual-follow
+// intersection — see xbill.js for how the two modes pick a target set.
 //
 // The account's own follows come for free out of xbill.js's existing repo
 // CAR download (app.bsky.graph.follow records live in the same repo as the
@@ -73,20 +75,12 @@ async function fetchFollowersConstellation(did) {
   return out;
 }
 
-async function fetchFollowers(did) {
+export async function fetchFollowers(did) {
   try {
     return await fetchFollowersConstellation(did);
   } catch {
     return graphAll("app.bsky.graph.getFollowers", "followers", did, FOLLOWERS_PAGES);
   }
-}
-
-// Every DID in `follows` (the account's own follow list, already known from
-// its repo) that also follows `did` back — i.e. `did`'s moots.
-export async function computeMoots(did, follows) {
-  const followers = await fetchFollowers(did);
-  const followerSet = new Set(followers);
-  return follows.filter((d) => d !== did && followerSet.has(d));
 }
 
 // Fetch every DID's profile, batched 25-per-request (the AppView's cap on

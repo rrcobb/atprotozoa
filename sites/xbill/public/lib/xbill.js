@@ -10,12 +10,21 @@
 // every moot's profile, folding each one into the same running $-meter
 // instead of stopping once the repo download finishes. See moots.js.
 //
+// META mode (a later reply still, same thread): same live meter, but instead
+// of narrowing to the moot intersection, it bulk-fetches a profile for every
+// DID in the handle's follows *and* followers — the full union, deduped, not
+// just the ones who follow back. Turning on META implies the same repo-CAR
+// walk and followers lookup EXTRA needs, so it reuses that plumbing rather
+// than doing a second pass; if both checkboxes are on, META's superset wins
+// and the moot count is still reported for free (it falls out of the same
+// two sets with no extra request).
+//
 // Copy, don't abstract: resolveDid is the same handle-cleaning + resolve
 // dance as sites/backscroll's public/lib/backscroll.js.
 
 import { fetchRepoRecordsWithKeys } from "./car.js";
 import { resolvePds } from "./identity.js";
-import { computeMoots, fetchProfilesBatched } from "./moots.js";
+import { fetchFollowers, fetchProfilesBatched } from "./moots.js";
 
 const PUB = "https://public.api.bsky.app/xrpc";
 
@@ -55,13 +64,15 @@ export async function fetchProfile(did) {
 // Runs the whole meter: resolve → fetch profile (counts as the one "user
 // profile" fetch a real archival job would also need) → resolve PDS →
 // download + walk the repo CAR, tallying app.bsky.feed.post records live →
-// (EXTRA mode only) find every moot and bulk-fetch their profiles too.
-// `onTick(state)` fires on every meaningful step (status text, byte/record
-// progress, and every single matched post) with a running cost snapshot, so
-// the caller can drive a dollar counter that visibly climbs instead of
-// jumping straight to its final value.
-export async function runMeter(handleRaw, { onTick, extraMode } = {}) {
+// (EXTRA or META mode) find the account's follows/followers and bulk-fetch
+// profiles for either the moot intersection (EXTRA) or the full follows ∪
+// followers union (META). `onTick(state)` fires on every meaningful step
+// (status text, byte/record progress, and every single matched post) with a
+// running cost snapshot, so the caller can drive a dollar counter that
+// visibly climbs instead of jumping straight to its final value.
+export async function runMeter(handleRaw, { onTick, extraMode, metaMode } = {}) {
   const tick = onTick || (() => {});
+  const needsGraph = !!(extraMode || metaMode);
 
   tick({ phase: "resolving", status: `resolving @${handleRaw.replace(/^@/, "")}…` });
   const did = await resolveDid(handleRaw);
@@ -82,11 +93,11 @@ export async function runMeter(handleRaw, { onTick, extraMode } = {}) {
   const pds = await resolvePds(did);
   if (!pds) throw new Error("couldn't find a PDS for this account");
 
-  // EXTRA mode needs this same account's own follows to compute their moot
-  // set, and those live in the very repo we're already downloading for
-  // posts — pull both $types out of the one CAR walk instead of paying for a
-  // second com.atproto.sync.getRepo download of the same account.
-  const wantedTypes = extraMode ? ["app.bsky.feed.post", "app.bsky.graph.follow"] : "app.bsky.feed.post";
+  // EXTRA/META mode needs this same account's own follows, and those live in
+  // the very repo we're already downloading for posts — pull both $types out
+  // of the one CAR walk instead of paying for a second
+  // com.atproto.sync.getRepo download of the same account.
+  const wantedTypes = needsGraph ? ["app.bsky.feed.post", "app.bsky.graph.follow"] : "app.bsky.feed.post";
   const { records, bytes } = await fetchRepoRecordsWithKeys(pds, did, wantedTypes, (count, item, meta) => {
     if (meta && meta.status) {
       tick({ phase: "downloading", status: meta.status, postsFetched, profilesFetched, cost: costOf(postsFetched, profilesFetched) });
@@ -107,39 +118,75 @@ export async function runMeter(handleRaw, { onTick, extraMode } = {}) {
   postsFetched = records.filter((r) => r.value && r.value.$type === "app.bsky.feed.post").length;
 
   let mootsFound = 0;
-  if (extraMode) {
+  let followsFound = 0;
+  let followersFound = 0;
+  if (needsGraph) {
     const follows = records
       .filter((r) => r.value && r.value.$type === "app.bsky.graph.follow")
       .map((r) => r.value.subject)
       .filter(Boolean);
+    followsFound = follows.length;
     tick({
-      phase: "moots",
-      status: "EXTRA mode: finding who follows them back…",
+      phase: "graph",
+      status: metaMode ? "META mode: fetching their followers…" : "EXTRA mode: finding who follows them back…",
       postsFetched,
       profilesFetched,
       cost: costOf(postsFetched, profilesFetched),
     });
-    const moots = await computeMoots(did, follows);
+    const followers = await fetchFollowers(did);
+    followersFound = followers.length;
+    const followerSet = new Set(followers);
+    const moots = follows.filter((d) => d !== did && followerSet.has(d));
     mootsFound = moots.length;
-    tick({
-      phase: "moots",
-      status: `found ${mootsFound.toLocaleString()} moot${mootsFound === 1 ? "" : "s"} — fetching their profiles…`,
-      postsFetched,
-      profilesFetched,
-      moots: mootsFound,
-      cost: costOf(postsFetched, profilesFetched),
-    });
-    await fetchProfilesBatched(moots, (_gotInBatch, totalMootProfiles) => {
-      profilesFetched = 1 + totalMootProfiles;
+
+    if (metaMode) {
+      // The full union, not just the intersection — every follow and every
+      // follower, self excluded, deduped so nobody's profile is billed twice.
+      const targets = [...new Set([...follows, ...followers])].filter((d) => d !== did);
+      tick({
+        phase: "meta",
+        status: `META mode: ${followsFound.toLocaleString()} follows, ${followersFound.toLocaleString()} followers (${targets.length.toLocaleString()} unique) — fetching profiles…`,
+        postsFetched,
+        profilesFetched,
+        moots: mootsFound,
+        follows: followsFound,
+        followers: followersFound,
+        cost: costOf(postsFetched, profilesFetched),
+      });
+      await fetchProfilesBatched(targets, (_gotInBatch, totalFetched) => {
+        profilesFetched = 1 + totalFetched;
+        tick({
+          phase: "meta",
+          status: `fetching follow/follower profiles… ${totalFetched.toLocaleString()}/${targets.length.toLocaleString()}`,
+          postsFetched,
+          profilesFetched,
+          moots: mootsFound,
+          follows: followsFound,
+          followers: followersFound,
+          cost: costOf(postsFetched, profilesFetched),
+        });
+      });
+    } else {
       tick({
         phase: "moots",
-        status: `fetching moot profiles… ${totalMootProfiles.toLocaleString()}/${mootsFound.toLocaleString()}`,
+        status: `found ${mootsFound.toLocaleString()} moot${mootsFound === 1 ? "" : "s"} — fetching their profiles…`,
         postsFetched,
         profilesFetched,
         moots: mootsFound,
         cost: costOf(postsFetched, profilesFetched),
       });
-    });
+      await fetchProfilesBatched(moots, (_gotInBatch, totalMootProfiles) => {
+        profilesFetched = 1 + totalMootProfiles;
+        tick({
+          phase: "moots",
+          status: `fetching moot profiles… ${totalMootProfiles.toLocaleString()}/${mootsFound.toLocaleString()}`,
+          postsFetched,
+          profilesFetched,
+          moots: mootsFound,
+          cost: costOf(postsFetched, profilesFetched),
+        });
+      });
+    }
   }
 
   const cost = costOf(postsFetched, profilesFetched);
@@ -153,7 +200,10 @@ export async function runMeter(handleRaw, { onTick, extraMode } = {}) {
     postsFetched,
     profilesFetched,
     mootsFetched: mootsFound,
+    followsFetched: followsFound,
+    followersFetched: followersFound,
     extraMode: !!extraMode,
+    metaMode: !!metaMode,
     bytes,
     cost,
     postsCost: (postsFetched / 1000) * PRICE_PER_1000_POSTS,

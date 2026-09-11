@@ -58,6 +58,13 @@
               (mutual follows) and bulk-fetch each moot's profile too, same
               live meter running the whole time.</span>
             </label>
+            <label class="extra-toggle" for="metaMode">
+              <input type="checkbox" id="metaMode" />
+              <span><b>META mode</b> — instead of just moots, bulk-fetch a
+              profile for every one of their follows <i>and</i> every one of
+              their followers (the whole union, not just the overlap), same
+              live meter the whole time.</span>
+            </label>
           </form>
           <p class="msg" id="goMsg"></p>
         </div>
@@ -92,7 +99,8 @@
         charges nothing for reads. Repo fetched via
         <code>com.atproto.sync.getRepo</code>, one request, no pagination.
         Idea from <a href="https://bsky.app/profile/cee.wtf" target="_blank" rel="noopener">@cee.wtf</a>;
-        EXTRA mode (moots' profiles, priced the same way) requested by
+        EXTRA mode (moots' profiles) and META mode (all follows' + followers'
+        profiles), priced the same way, requested by
         <a href="https://bsky.app/profile/shimmermathlabs.com" target="_blank" rel="noopener">@shimmermathlabs.com</a>.
         rate this on <a href="https://rateyourbuild.bisks.net/site/xbill" target="_blank" rel="noopener">rateyourbuild →</a>
         · sibling of <a href="https://bisks.net">bisks.net</a> and
@@ -109,7 +117,7 @@
 
       const $ = (id) => document.getElementById(id);
       const gate = $("gate"), goForm = $("goForm"), handleInput = $("handle"),
-        extraModeInput = $("extraMode"),
+        extraModeInput = $("extraMode"), metaModeInput = $("metaMode"),
         goBtn = $("goBtn"), goMsg = $("goMsg"),
         working = $("working"), statusLine = $("statusLine"), subStat = $("subStat"),
         tickerAmount = $("tickerAmount"),
@@ -133,7 +141,12 @@
 
       function buildShareText(r) {
         const url = "https://xbill.bisks.net/";
-        const extra = r.extraMode ? ` + ${r.mootsFetched.toLocaleString()} moots' profiles` : "";
+        let extra = "";
+        if (r.metaMode) {
+          extra = ` + ${r.followsFetched.toLocaleString()} follows' + ${r.followersFetched.toLocaleString()} followers' profiles`;
+        } else if (r.extraMode) {
+          extra = ` + ${r.mootsFetched.toLocaleString()} moots' profiles`;
+        }
         return `@${r.handle}'s entire bsky archive: ${r.postsFetched.toLocaleString()} posts${extra}. Same fetch on X's read API would run ${fmtUsd(r.cost)}. Fetched here for $0.00. → ${url}`;
       }
 
@@ -206,9 +219,11 @@
 
         ctx.fillStyle = "#c9beae";
         ctx.font = `400 19px ${mono}`;
-        const profileLabel = r.extraMode
-          ? `${r.profilesFetched.toLocaleString()} profiles (you + ${r.mootsFetched.toLocaleString()} moots)`
-          : `${r.profilesFetched.toLocaleString()} profile${r.profilesFetched === 1 ? "" : "s"}`;
+        const profileLabel = r.metaMode
+          ? `${r.profilesFetched.toLocaleString()} profiles (you + ${r.followsFetched.toLocaleString()} follows + ${r.followersFetched.toLocaleString()} followers)`
+          : r.extraMode
+            ? `${r.profilesFetched.toLocaleString()} profiles (you + ${r.mootsFetched.toLocaleString()} moots)`
+            : `${r.profilesFetched.toLocaleString()} profile${r.profilesFetched === 1 ? "" : "s"}`;
         ctx.fillText(
           `${r.postsFetched.toLocaleString()} posts × $${PRICE_PER_1000_POSTS}/1k  +  ${profileLabel} × $${PRICE_PER_1000_PROFILES}/1k`,
           cardX + 44,
@@ -259,9 +274,11 @@
 
         const rows = document.createElement("div");
         rows.className = "rows";
-        const profileRowLabel = r.extraMode
-          ? `${r.profilesFetched.toLocaleString()} profiles fetched (you + ${r.mootsFetched.toLocaleString()} moot${r.mootsFetched === 1 ? "" : "s"}) × $${PRICE_PER_1000_PROFILES}/1,000`
-          : `${r.profilesFetched.toLocaleString()} profile${r.profilesFetched === 1 ? "" : "s"} fetched × $${PRICE_PER_1000_PROFILES}/1,000`;
+        const profileRowLabel = r.metaMode
+          ? `${r.profilesFetched.toLocaleString()} profiles fetched (you + ${r.followsFetched.toLocaleString()} follow${r.followsFetched === 1 ? "" : "s"} + ${r.followersFetched.toLocaleString()} follower${r.followersFetched === 1 ? "" : "s"}) × $${PRICE_PER_1000_PROFILES}/1,000`
+          : r.extraMode
+            ? `${r.profilesFetched.toLocaleString()} profiles fetched (you + ${r.mootsFetched.toLocaleString()} moot${r.mootsFetched === 1 ? "" : "s"}) × $${PRICE_PER_1000_PROFILES}/1,000`
+            : `${r.profilesFetched.toLocaleString()} profile${r.profilesFetched === 1 ? "" : "s"} fetched × $${PRICE_PER_1000_PROFILES}/1,000`;
         rows.innerHTML =
           `<div class="row-line"><span>${r.postsFetched.toLocaleString()} posts fetched × $${PRICE_PER_1000_POSTS}/1,000</span><span>${fmtUsd(r.postsCost)}</span></div>` +
           `<div class="row-line"><span>${profileRowLabel}</span><span>${fmtUsd(r.profilesCost)}</span></div>` +
@@ -318,7 +335,7 @@
         summaryCard.appendChild(actions);
       }
 
-      async function run(handleRaw, extraMode) {
+      async function run(handleRaw, extraMode, metaMode) {
         showScreen("working");
         setTicker(0);
         statusLine.textContent = "resolving…";
@@ -326,12 +343,15 @@
 
         const r = await runMeter(handleRaw, {
           extraMode,
+          metaMode,
           onTick: (state) => {
             if (state.status) statusLine.textContent = state.status;
             if (typeof state.cost === "number") setTicker(state.cost);
             if (typeof state.postsFetched === "number") {
               let sub = `${state.postsFetched.toLocaleString()} post${state.postsFetched === 1 ? "" : "s"} · ${state.profilesFetched || 0} profile${(state.profilesFetched || 0) === 1 ? "" : "s"}`;
-              if (typeof state.moots === "number") {
+              if (typeof state.follows === "number" && typeof state.followers === "number") {
+                sub += ` · ${state.follows.toLocaleString()} follows · ${state.followers.toLocaleString()} followers`;
+              } else if (typeof state.moots === "number") {
                 sub += ` · ${state.moots.toLocaleString()} moot${state.moots === 1 ? "" : "s"}`;
               }
               subStat.textContent = sub;
@@ -354,7 +374,7 @@
         goMsg.className = "msg";
         goMsg.textContent = "";
         try {
-          await run(raw, extraModeInput.checked);
+          await run(raw, extraModeInput.checked, metaModeInput.checked);
         } catch (err) {
           showScreen("gate");
           goMsg.className = "msg err";
