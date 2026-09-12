@@ -1182,7 +1182,7 @@ function asideHtml() {
     <p>goodsky is a fan-made rebuild of the bsky.app web client, with a transparent quality filter over every feed. Every feed, profile, and thread here is live data pulled straight from Bluesky's public AppView — nothing is faked or cached long-term.</p>
     <p>Browse without an account, or log in with OAuth to see your real home timeline (filtered, same as everything else here), like, repost, and reply — genuine writes to your own repo. goodsky never follows for you. Real notifications live in the 🔔 tab. For DMs, use <a class="link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a>.</p>
   </div>
-  <div class="aside-card" id="aside-feeds"><h2>Popular feeds</h2><p>Loading…</p></div>
+  ${session ? `<div class="aside-card" id="aside-feeds"><h2>Popular feeds</h2><p>Loading…</p></div>` : ""}
   <div class="aside-foot">Built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a> · part of the <a href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a> experiment garden · <a href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source</a></div>
   `;
 }
@@ -1195,13 +1195,10 @@ async function fillAside() {
     });
   }
   const box = document.getElementById("aside-feeds");
-  if (!box) return;
-  if (!session) {
-    // getFeed on custom generators returns broken/placeholder posts with no
-    // signed-in session — don't dangle links to feeds that won't load.
-    box.innerHTML = `<h2>Popular feeds</h2><p>Custom feeds need a signed-in request to work. <span class="pill-btn primary" data-action="login">Log in with Bluesky</span></p>`;
-    return;
-  }
+  // getFeed on custom generators returns broken/placeholder posts with no
+  // signed-in session — the box isn't rendered at all when logged out
+  // (see asideHtml()), so there's nothing to fill in that case.
+  if (!box || !session) return;
   try {
     const data = await xrpc("app.bsky.unspecced.getPopularFeedGenerators", { limit: 5 });
     box.innerHTML =
