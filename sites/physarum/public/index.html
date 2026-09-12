@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧫</text></svg>" />
+<title>physarum — a slime mold grows its own network</title>
+<meta
+  name="description"
+  content="A live physarum (slime mold) simulation: thousands of agents deposit and follow a pheromone trail, growing branching foraging networks in your browser. Click or drag to drop food. Seed it with a Bluesky handle for a deterministic shape of your own."
+/>
+<meta property="og:title" content="physarum — a slime mold grows its own network" />
+<meta property="og:description" content="Thousands of simple agents, one shared pheromone trail — watch branching networks emerge live. Click to drop food, seed it with a handle to grow your own." />
+<meta property="og:url" content="https://physarum.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://physarum.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="physarum: glowing branching filament networks grown by a slime-mold agent simulation." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="physarum — a slime mold grows its own network" />
+<meta name="twitter:description" content="Thousands of simple agents, one shared pheromone trail — watch branching networks emerge live. Click to drop food, seed it with a handle to grow your own." />
+<meta name="twitter:image" content="https://physarum.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #05070a;
+    --panel: rgba(10, 16, 20, 0.72);
+    --border: rgba(180, 220, 210, 0.18);
+    --ink: #eafff5;
+    --dim: #8fb0a6;
+    --accent: #6dffb8;
+    --accent2: #ffcf4d;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--bg); color: var(--ink); overflow: hidden;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    -webkit-font-smoothing: antialiased;
+  }
+  #stage { position: fixed; inset: 0; display: block; touch-action: none; cursor: crosshair; }
+
+  .hud {
+    position: fixed; left: 0; right: 0; top: 0;
+    padding: 14px 16px 30px;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(5,7,10,0.7) 0%, rgba(5,7,10,0) 100%);
+    z-index: 5;
+  }
+  h1 { margin: 0; font-size: clamp(1.15rem, 3.6vw, 1.7rem); letter-spacing: 0.02em; color: var(--ink); }
+  .tagline {
+    margin: 0.35rem 0 0; font-size: 0.78rem; color: var(--dim);
+    max-width: 42em; line-height: 1.5;
+  }
+
+  #panel {
+    position: fixed; left: 14px; bottom: 14px; z-index: 6;
+    pointer-events: auto;
+    background: var(--panel);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 12px 14px;
+    width: min(320px, calc(100vw - 28px));
+    max-height: calc(100vh - 28px);
+    overflow-y: auto;
+    font-size: 0.78rem;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+  }
+  #panel.collapsed .panel-body { display: none; }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none;
+  }
+  .panel-head b { color: var(--accent); font-size: 0.82rem; }
+  .panel-head .chev { color: var(--dim); transition: transform 0.15s; }
+  #panel.collapsed .chev { transform: rotate(-90deg); }
+
+  .row { margin-top: 0.7rem; }
+  .row label {
+    display: flex; justify-content: space-between; color: var(--dim);
+    font-size: 0.7rem; letter-spacing: 0.02em; margin-bottom: 0.3rem;
+    text-transform: uppercase;
+  }
+  .row label span.val { color: var(--accent2); text-transform: none; }
+  select, input[type="text"] {
+    width: 100%; font: inherit; font-size: 0.82rem;
+    background: rgba(255,255,255,0.05); color: var(--ink);
+    border: 1px solid var(--border); border-radius: 8px; padding: 0.45rem 0.55rem;
+  }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .btnrow { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.7rem; }
+  button {
+    font: inherit; font-size: 0.76rem; cursor: pointer;
+    border: 1px solid var(--border); background: rgba(255,255,255,0.06);
+    color: var(--ink); border-radius: 999px; padding: 0.4rem 0.75rem;
+  }
+  button:hover { background: rgba(255,255,255,0.12); }
+  button:active { transform: translateY(1px); }
+  button.primary { background: var(--accent); color: #04140c; border: none; font-weight: 700; }
+  button.primary:hover { filter: brightness(1.08); }
+  .btnrow a {
+    font: inherit; font-size: 0.76rem; cursor: pointer; text-decoration: none;
+    display: inline-block; border: 1px solid var(--border); background: rgba(255,255,255,0.06);
+    color: var(--ink); border-radius: 999px; padding: 0.4rem 0.75rem;
+  }
+  .btnrow a:hover { background: rgba(255,255,255,0.12); }
+
+  #species {
+    margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--border);
+    display: none;
+  }
+  #species.show { display: block; }
+  #species .name { color: var(--accent2); font-weight: 700; font-size: 0.85rem; }
+  #species .sub { color: var(--dim); font-size: 0.7rem; margin-top: 0.15rem; }
+
+  .hint {
+    position: fixed; right: 14px; bottom: 14px; z-index: 6;
+    color: var(--dim); font-size: 0.72rem; background: var(--panel);
+    backdrop-filter: blur(8px); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0.4rem 0.65rem; pointer-events: none;
+  }
+  footer.links {
+    position: fixed; right: 14px; top: 12px; z-index: 6;
+    display: flex; gap: 0.9rem; font-size: 0.72rem; color: var(--dim);
+    pointer-events: auto;
+  }
+  footer.links a { color: var(--dim); }
+  footer.links a:hover { color: var(--accent); }
+
+  @media (max-width: 560px) {
+    .hint { display: none; }
+    footer.links { top: auto; bottom: 14px; right: 14px; flex-direction: column; align-items: flex-end; gap: 0.3rem; }
+    #panel { bottom: 90px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div class="hud">
+  <h1>ph<span id="secret-y" style="cursor:pointer">y</span>sarum</h1>
+  <p class="tagline">
+    A live slime-mold simulation — thousands of simple agents, one shared pheromone
+    trail. No brain, no plan, just sense-and-turn — and a branching foraging network
+    grows anyway. Click or drag on the field to drop food.
+  </p>
+</div>
+
+<footer class="links">
+  <a href="https://bisks.net/" target="_blank" rel="noopener">bisks.net</a>
+  <a href="https://rateyourbuild.bisks.net/site/physarum" target="_blank" rel="noopener">rate this →</a>
+</footer>
+
+<div id="panel">
+  <div class="panel-head" id="panel-toggle">
+    <b>physarum controls</b>
+    <span class="chev">▾</span>
+  </div>
+  <div class="panel-body">
+    <div class="row">
+      <label>palette <span class="val" id="palette-val"></span></label>
+      <select id="palette-select">
+        <option value="auto">auto (from seed)</option>
+        <option value="bio">bio — green glow</option>
+        <option value="ember">ember — fire</option>
+        <option value="abyssal">abyssal — deep blue</option>
+        <option value="toxic">toxic — magenta/lime</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>growth pattern <span class="val" id="pattern-val"></span></label>
+      <select id="pattern-select">
+        <option value="web">web — classic branching</option>
+        <option value="veins" selected>veins — thin &amp; sprawling</option>
+        <option value="coral">coral — blobby clumps</option>
+        <option value="storm">storm — chaotic swirl</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>agents <span class="val" id="agents-val">6000</span></label>
+      <input type="range" id="agents-range" min="500" max="12000" step="500" value="6000" />
+    </div>
+    <div class="row">
+      <label>seed with a bluesky handle (optional)</label>
+      <input type="text" id="handle-input" placeholder="you.bsky.social" autocomplete="off" maxlength="60" />
+    </div>
+    <div id="species">
+      <div class="name" id="species-name"></div>
+      <div class="sub" id="species-sub"></div>
+    </div>
+    <div class="btnrow">
+      <button class="primary" id="grow-btn">grow</button>
+      <button id="reset-btn">reset field</button>
+    </div>
+    <div class="btnrow">
+      <a id="share-bsky" href="#" target="_blank" rel="noopener">share to bluesky</a>
+      <button id="share-card-btn">save/share image</button>
+    </div>
+  </div>
+</div>
+
+<p class="hint">drag anywhere to drop food</p>
+
+<canvas id="shareCanvas" width="1200" height="630" style="display:none"></canvas>
+<script src="app.js"></script>
+</body>
+</html>
