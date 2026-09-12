@@ -10,6 +10,18 @@
 
 const BASE = "https://constellation.microcosm.blue";
 
+// Constellation's own index has a hard start — it crawls the firehose live
+// and never backfilled history from before it first came up. `/` on the API
+// reports `started_at` in microseconds since epoch; as of this writing
+// that's 1738083600000000us = 2025-01-28T17:00:00Z, confirmed by curling it
+// and cross-checking: accounts created years earlier still get their oldest
+// returned block/follow backlink landing right around that date. Anything
+// older simply isn't in the index — not a bug in this site's pagination,
+// a floor on the data source itself. Surfaced to the user in app.js when it
+// looks like it's actually biting (2026-09-12, in response to a thread
+// wondering if blockcurve was undercounting old accounts).
+export const CONSTELLATION_INDEXED_SINCE_MS = 1738083600000;
+
 // Legacy REST endpoints (still supported, not going away per the API's own
 // docs) page at up to 1000/request, ~10x the xrpc successors' 100 cap — used
 // here for the two straight backlink walks (direct blocks, listblock

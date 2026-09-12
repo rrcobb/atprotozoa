@@ -1,5 +1,5 @@
 import { resolveHandle, getRecord, cleanHandle } from "./lib/identity.js";
-import { fetchDirectBlocks, fetchListMemberships, fetchListSubscribers, fetchFollowers } from "./lib/constellation.js";
+import { fetchDirectBlocks, fetchListMemberships, fetchListSubscribers, fetchFollowers, CONSTELLATION_INDEXED_SINCE_MS } from "./lib/constellation.js";
 import { tidToMs } from "./lib/tid.js";
 
 const $ = (id) => document.getElementById(id);
@@ -17,6 +17,7 @@ const els = {
   svg: $("chart"),
   crosshair: $("crosshair-line"),
   tooltip: $("tooltip"),
+  dataWindowNote: $("data-window-note"),
   tableToggle: $("table-toggle"),
   tableWrap: $("table-wrap"),
   spike: $("spike"),
@@ -344,6 +345,7 @@ async function trace(rawHandle) {
   els.btn.disabled = true;
   els.result.hidden = true;
   els.spike.hidden = true;
+  els.dataWindowNote.hidden = true;
   els.blocklists.hidden = true;
   els.legend.hidden = true;
   els.tableWrap.hidden = true;
@@ -473,6 +475,20 @@ function renderResult({ handle, direct, total, allEvents, spike, followers, bloc
       const recentF = followers.ts.length - cumulativeAt(followers, thirtyDaysAgo);
       els.stats.appendChild(statTile("last 30 days", "+" + fmtNum(recentF), "new followers"));
     }
+  }
+
+  // Constellation's index doesn't reach back before its own crawl start
+  // (2025-01-28, see constellation.js) — if the earliest datapoint we found
+  // lands suspiciously close to that boundary, it's likely the index running
+  // out of history under the account, not the true first block/follow. Flag
+  // it so a truncated-looking curve doesn't read as blockcurve undercounting.
+  const earliestTs = [direct.ts[0], followers?.ts[0]].filter((t) => t != null).sort((a, b) => a - b)[0];
+  const nearIndexStart = earliestTs != null && earliestTs - CONSTELLATION_INDEXED_SINCE_MS < 21 * 86400000;
+  els.dataWindowNote.hidden = !nearIndexStart;
+  if (nearIndexStart) {
+    els.dataWindowNote.textContent =
+      `earliest datapoint here (${fmtDate(earliestTs)}) lands right where constellation's own index starts (${fmtDate(CONSTELLATION_INDEXED_SINCE_MS)}) — ` +
+      `it doesn't have anything from before it started crawling, for any account, so this is likely a floor on the data, not the true beginning of @${handle}'s history.`;
   }
 
   const titleParts = [total ? "cumulative blocks received (direct + modlists)" : "cumulative blocks received"];
