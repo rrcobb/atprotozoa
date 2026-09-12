@@ -1515,15 +1515,6 @@ async function TrendingView(main) {
 }
 
 async function FeedsView(main) {
-  if (!session) {
-    main.innerHTML =
-      headerHtml("Feeds", "Popular custom feeds, live from Bluesky") +
-      centerMsg(
-        "Log in to browse feeds",
-        `Custom feeds need a signed-in request to personalize — Bluesky's public API returns broken results for them without one. <span class="pill-btn primary" data-action="login">Log in with Bluesky</span>`
-      );
-    return;
-  }
   main.innerHTML = headerHtml("Feeds", "Popular custom feeds, live from Bluesky") + skeleton(6);
   try {
     const data = await xrpc("app.bsky.unspecced.getPopularFeedGenerators", { limit: 40 });
@@ -1548,15 +1539,6 @@ async function FeedsView(main) {
 
 async function CustomFeedView(main, params, args) {
   const { handle, rkey } = args;
-  if (!session) {
-    main.innerHTML =
-      headerHtml("Feed", "", true) +
-      centerMsg(
-        "Log in to view this feed",
-        `Custom feeds need a signed-in request to personalize — Bluesky's public API returns broken results for them without one. <span class="pill-btn primary" data-action="login">Log in with Bluesky</span>`
-      );
-    return;
-  }
   main.innerHTML = headerHtml("Feed", "", true) + skeleton(6);
   try {
     const profile = await xrpc("app.bsky.actor.getProfile", { actor: handle });
