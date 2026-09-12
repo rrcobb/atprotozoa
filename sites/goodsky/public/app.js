@@ -1196,6 +1196,12 @@ async function fillAside() {
   }
   const box = document.getElementById("aside-feeds");
   if (!box) return;
+  if (!session) {
+    // getFeed on custom generators returns broken/placeholder posts with no
+    // signed-in session — don't dangle links to feeds that won't load.
+    box.innerHTML = `<h2>Popular feeds</h2><p>Custom feeds need a signed-in request to work. <span class="pill-btn primary" data-action="login">Log in with Bluesky</span></p>`;
+    return;
+  }
   try {
     const data = await xrpc("app.bsky.unspecced.getPopularFeedGenerators", { limit: 5 });
     box.innerHTML =
@@ -1232,20 +1238,29 @@ async function HomeView(main, params) {
   const activeUri = params.get("feed") || (session ? TIMELINE_URI : DISCOVER_FEED);
   main.innerHTML =
     headerHtml("Home") +
-    `<div class="feed-tabs" id="feed-tabs"></div><div class="goodbar" id="goodbar"></div><div id="feed-posts">${skeleton(6)}</div>`;
+    `<div class="feed-tabs" id="feed-tabs"></div>` +
+    (session ? "" : `<div class="feed-tabs-cta" data-action="login">Log in with Bluesky to unlock your home timeline and more feeds →</div>`) +
+    `<div class="goodbar" id="goodbar"></div><div id="feed-posts">${skeleton(6)}</div>`;
   renderTabs();
 
-  xrpc("app.bsky.unspecced.getPopularFeedGenerators", { limit: 8 })
-    .then((data) => {
-      const cap = session ? 6 : 5;
-      for (const f of data.feeds) {
-        if (f.uri === DISCOVER_FEED) continue;
-        tabs.push({ label: f.displayName, uri: f.uri });
-        if (tabs.length >= cap) break;
-      }
-      renderTabs();
-    })
-    .catch(() => {});
+  // Custom feed generators need a signed-in AppView request to personalize —
+  // called with no auth, getFeed returns "this feed requires authentication"
+  // placeholder posts or an outright 500 (Discover is the one exception,
+  // since it doesn't personalize), so only offer the rest once there's a
+  // session to actually back them.
+  if (session) {
+    xrpc("app.bsky.unspecced.getPopularFeedGenerators", { limit: 8 })
+      .then((data) => {
+        const cap = 6;
+        for (const f of data.feeds) {
+          if (f.uri === DISCOVER_FEED) continue;
+          tabs.push({ label: f.displayName, uri: f.uri });
+          if (tabs.length >= cap) break;
+        }
+        renderTabs();
+      })
+      .catch(() => {});
+  }
 
   function renderTabs() {
     const box = document.getElementById("feed-tabs");
@@ -1496,6 +1511,15 @@ async function TrendingView(main) {
 }
 
 async function FeedsView(main) {
+  if (!session) {
+    main.innerHTML =
+      headerHtml("Feeds", "Popular custom feeds, live from Bluesky") +
+      centerMsg(
+        "Log in to browse feeds",
+        `Custom feeds need a signed-in request to personalize — Bluesky's public API returns broken results for them without one. <span class="pill-btn primary" data-action="login">Log in with Bluesky</span>`
+      );
+    return;
+  }
   main.innerHTML = headerHtml("Feeds", "Popular custom feeds, live from Bluesky") + skeleton(6);
   try {
     const data = await xrpc("app.bsky.unspecced.getPopularFeedGenerators", { limit: 40 });
@@ -1520,6 +1544,15 @@ async function FeedsView(main) {
 
 async function CustomFeedView(main, params, args) {
   const { handle, rkey } = args;
+  if (!session) {
+    main.innerHTML =
+      headerHtml("Feed", "", true) +
+      centerMsg(
+        "Log in to view this feed",
+        `Custom feeds need a signed-in request to personalize — Bluesky's public API returns broken results for them without one. <span class="pill-btn primary" data-action="login">Log in with Bluesky</span>`
+      );
+    return;
+  }
   main.innerHTML = headerHtml("Feed", "", true) + skeleton(6);
   try {
     const profile = await xrpc("app.bsky.actor.getProfile", { actor: handle });
