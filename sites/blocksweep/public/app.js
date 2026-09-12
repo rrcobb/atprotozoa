@@ -1,8 +1,14 @@
 // app.js — blocksweep: paste a Bluesky list link, review its full public
-// membership, sign in, and bulk-create app.bsky.graph.block records for
-// everyone left checked. Membership fetch is sites/rollcall's
-// public/lib/listmembers.js verbatim (CAR-first, paginated fallback); the
-// block write is public/lib/block.js (chunked applyWrites, forked from
+// membership OR its subscribers, sign in, and bulk-create
+// app.bsky.graph.block records for everyone left checked. Membership fetch
+// is sites/rollcall's public/lib/listmembers.js verbatim (CAR-first,
+// paginated fallback); subscriber fetch is public/lib/constellation.js
+// (copied from sites/blockcurve), a Constellation backlink walk over
+// app.bsky.graph.listblock records naming this list — added 2026-09-12 after
+// @aly.codes pointed out constellation.microcosm.blue indexes exactly that
+// relationship, closing the gap this site originally launched with ("we
+// can't enumerate subscribers, so we sweep membership instead"). The block
+// write is public/lib/block.js (chunked applyWrites, forked from
 // sites/listenheimer's modlist.js). OAuth is public/lib/oauth.js, forked
 // from sites/blocknotes and narrowed to create-only on app.bsky.graph.block.
 
@@ -10,6 +16,7 @@ import { parseListInput, fetchListMeta, fetchAllMembers } from "./lib/listmember
 import { getProfilesBatch } from "./lib/identity.js";
 import { bulkBlock } from "./lib/block.js";
 import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch } from "./lib/oauth.js";
+import { fetchListSubscribers, CONSTELLATION_INDEXED_SINCE_MS } from "./lib/constellation.js";
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -34,7 +41,14 @@ const els = {
   selectNone: document.getElementById("selectNone"),
   blockBtn: document.getElementById("blockBtn"),
   memberwrap: document.getElementById("memberwrap"),
+  modeMembers: document.getElementById("modeMembers"),
+  modeSubscribers: document.getElementById("modeSubscribers"),
+  targetNote: document.getElementById("targetNote"),
 };
+
+function currentMode() {
+  return els.modeSubscribers.checked ? "subscribers" : "members";
+}
 
 let session = null;
 let members = []; // [{did, handle, displayName, avatar}]
@@ -176,6 +190,7 @@ async function run(raw) {
   hideProgress();
   members = [];
   checked.clear();
+  const mode = currentMode();
 
   try {
     setStatus("resolving list link…");
@@ -190,12 +205,30 @@ async function run(raw) {
     els.ldesc.style.display = meta.description ? "" : "none";
     els.listmeta.classList.add("show");
 
-    setProgress(0.05, "downloading list membership…");
-    const { dids: allDids, viaCar } = await fetchAllMembers(ownerDid, listUri, (msg) => setProgress(0.15, msg));
+    let allDids, foundNote;
+    if (mode === "subscribers") {
+      setProgress(0.05, "walking constellation's listblock backlinks…");
+      const links = await fetchListSubscribers(listUri, (n) => setProgress(0.3, `found ${n} subscribers so far…`));
+      const seen = new Set();
+      allDids = [];
+      for (const l of links) {
+        if (l.did && !seen.has(l.did)) {
+          seen.add(l.did);
+          allDids.push(l.did);
+        }
+      }
+      const indexedSince = new Date(CONSTELLATION_INDEXED_SINCE_MS).toISOString().slice(0, 10);
+      foundNote = ` via constellation.microcosm.blue's listblock backlink index (doesn't see subscriptions from before ${indexedSince} that haven't been touched since).`;
+    } else {
+      setProgress(0.05, "downloading list membership…");
+      const { dids, viaCar } = await fetchAllMembers(ownerDid, listUri, (msg) => setProgress(0.15, msg));
+      allDids = dids;
+      foundNote = viaCar ? " via repo download." : " via paginated list read.";
+    }
 
     const dids = allDids.filter((d) => !session || d !== session.did);
     if (!dids.length) {
-      setStatus("this list has no members to block.");
+      setStatus(mode === "subscribers" ? "no subscribers found for this list." : "this list has no members to block.");
       hideProgress();
       return;
     }
@@ -220,9 +253,9 @@ async function run(raw) {
 
     hideProgress();
     setStatus(
-      `${members.length} member${members.length === 1 ? "" : "s"} found` +
-        (viaCar ? " via repo download." : " via paginated list read.") +
-        (allDids.length !== dids.length ? " (you were on the list — skipped yourself.)" : ""),
+      `${members.length} ${mode === "subscribers" ? "subscriber" : "member"}${members.length === 1 ? "" : "s"} found` +
+        foundNote +
+        (allDids.length !== dids.length ? " (that's you in there — skipped yourself.)" : ""),
     );
   } catch (e) {
     setStatus("couldn't load that list: " + e.message, true);
@@ -237,6 +270,16 @@ els.form.addEventListener("submit", (e) => {
   e.preventDefault();
   if (els.listUrl.value.trim()) run(els.listUrl.value);
 });
+
+function updateTargetNote() {
+  els.targetNote.textContent =
+    currentMode() === "subscribers"
+      ? "Blocking the accounts that subscribed to this list as a blocklist (app.bsky.graph.listblock records naming it), found via constellation.microcosm.blue's backlink index — not the list's own curated membership."
+      : "Blocking the list's actual, public membership — the accounts its curator added — not the accounts subscribed to it.";
+}
+els.modeMembers.addEventListener("change", updateTargetNote);
+els.modeSubscribers.addEventListener("change", updateTargetNote);
+updateTargetNote();
 
 // --- blocking --------------------------------------------------------------
 

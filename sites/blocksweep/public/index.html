@@ -4,15 +4,15 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>blocksweep — bulk-block everyone on a Bluesky list</title>
-    <meta name="description" content="Paste a Bluesky list link, review its full membership, sign in, and block everyone on it in one confirm — real app.bsky.graph.block records, not a subscribe." />
+    <meta name="description" content="Paste a Bluesky list link, review its full membership or its subscribers, sign in, and block them all in one confirm — real app.bsky.graph.block records, not a subscribe." />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="blocksweep — bulk-block a whole Bluesky list" />
-    <meta property="og:description" content="Paste a list link, review the full membership, sign in, and block everyone on it in one confirm. Real blocks, one sweep." />
+    <meta property="og:description" content="Paste a list link, review its full membership or its subscribers, sign in, and block them all in one confirm. Real blocks, one sweep." />
     <meta property="og:url" content="https://blocksweep.bisks.net/" />
     <meta property="og:image" content="https://blocksweep.bisks.net/og.png" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="blocksweep — bulk-block a whole Bluesky list" />
-    <meta name="twitter:description" content="Paste a list link, review the full membership, sign in, and block everyone on it in one confirm. Real blocks, one sweep." />
+    <meta name="twitter:description" content="Paste a list link, review its full membership or its subscribers, sign in, and block them all in one confirm. Real blocks, one sweep." />
     <meta name="twitter:image" content="https://blocksweep.bisks.net/og.png" />
     <style>
       :root {
@@ -58,6 +58,11 @@
         border-radius:11px; background:var(--panel); color:var(--ink); font-family:var(--mono); font-size:0.88rem; }
       input.listurl::placeholder { color:#6a4b4b; }
       input.listurl:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+
+      .modewrap { display:flex; gap:1.1rem; align-items:center; margin:0 0 0.7rem; font-size:0.86rem; color:var(--muted); flex-wrap:wrap; }
+      .modewrap label { display:flex; align-items:center; gap:0.4rem; cursor:pointer; }
+      .modewrap input { accent-color:var(--accent); }
+      .modewrap label:has(input:checked) { color:var(--ink); font-weight:700; }
 
       .hint { color:var(--muted); font-size:0.8rem; margin-bottom:1.2rem; line-height:1.6; }
       code { font-family:var(--mono); font-size:0.9em; background:var(--panel2); padding:0.05rem 0.35rem; border-radius:5px; }
@@ -109,13 +114,18 @@
       <a class="back" href="https://bisks.net">← the zoo</a>
       <h1>🧹 block<span id="ceeHook">s</span>weep</h1>
       <p class="sub">
-        Paste a link to a Bluesky <b>list</b>, review every member, sign in,
-        and block everyone left checked in one sweep — real
-        <code>app.bsky.graph.block</code> records, not a soft
+        Paste a link to a Bluesky <b>list</b>, review every member — or every
+        <b>subscriber</b> — sign in, and block everyone left checked in one
+        sweep — real <code>app.bsky.graph.block</code> records, not a soft
         "subscribe to this list" mute.
       </p>
 
       <div class="auth-bar" id="authBar"></div>
+
+      <div class="modewrap" id="modewrap">
+        <label><input type="radio" name="mode" id="modeMembers" checked /> block the list's <b>members</b></label>
+        <label><input type="radio" name="mode" id="modeSubscribers" /> block the list's <b>subscribers</b></label>
+      </div>
 
       <form class="go-form" id="form">
         <input class="listurl" id="listUrl" placeholder="https://bsky.app/profile/<handle>/lists/<rkey>" autocomplete="off"
@@ -150,18 +160,20 @@
 
       <div class="memberwrap" id="memberwrap"></div>
 
+      <p class="note" id="targetNote"></p>
       <p class="note">
-        This blocks the list's actual, public <b>membership</b> — the
-        accounts its curator added — not the (unrelated, and technically
-        unenumerable) set of accounts that have subscribed to the list for
-        themselves. atproto has no public index of "who's subscribed to list
-        X" — that record (<code>app.bsky.graph.listblock</code>) lives in
-        each subscriber's own repo, and finding every one would mean scanning
-        every repo on the network. List membership, by contrast, is public
-        and pulled in one <code>com.atproto.sync.getRepo</code> download off
-        the curator's repo (falling back to a paginated
-        <code>app.bsky.graph.getList</code> walk only if that fails) — so
-        that's what gets swept. Blocking runs as
+        <b>Members</b> — the accounts a list's curator added — are public and
+        pulled in one <code>com.atproto.sync.getRepo</code> download off the
+        curator's repo (falling back to a paginated
+        <code>app.bsky.graph.getList</code> walk only if that fails).
+        <b>Subscribers</b> — accounts that added the list to their own
+        blocking — aren't indexed anywhere in the AppView (that
+        <code>app.bsky.graph.listblock</code> record lives in each
+        subscriber's own repo), so instead this walks
+        <a href="https://constellation.microcosm.blue" target="_blank" rel="noopener">constellation.microcosm.blue</a>,
+        a third-party firehose-backed backlink index that crawls the network
+        independently and finds every listblock record naming this list —
+        without scanning every repo one by one. Either way, blocking runs as
         <code>com.atproto.repo.applyWrites</code> in batches of 190, straight
         from your browser to your own PDS; nothing is sent anywhere else, and
         this site never reads or deletes existing blocks.
@@ -169,7 +181,7 @@
       <p class="note">
         <a href="https://rateyourbuild.bisks.net/site/blocksweep">rate this on rateyourbuild →</a>
       </p>
-      <p class="credit">built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>, asked for by <a href="https://bsky.app/profile/moll.dev">@moll.dev</a></p>
+      <p class="credit">built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>, asked for by <a href="https://bsky.app/profile/moll.dev">@moll.dev</a>; subscriber-sweeping added on a tip from <a href="https://bsky.app/profile/aly.codes">@aly.codes</a></p>
     </div>
 
     <script type="module" src="./app.js"></script>
