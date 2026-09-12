@@ -146,6 +146,9 @@
   const resetBtn = document.getElementById("reset-btn");
   const shareBskyLink = document.getElementById("share-bsky");
   const shareCardBtn = document.getElementById("share-card-btn");
+  const copyLinkBtn = document.getElementById("copy-link-btn");
+  const coverageVal = document.getElementById("coverage-val");
+  const uptimeVal = document.getElementById("uptime-val");
   const panel = document.getElementById("panel");
   const panelToggle = document.getElementById("panel-toggle");
 
@@ -172,6 +175,8 @@
   let offscreen = document.createElement("canvas");
   let offCtx = offscreen.getContext("2d", { alpha: false });
   let imgData = null;
+  let simStartTime = performance.now();
+  let frameCount = 0;
 
   // Cell budget the trail buffer + diffusion pass are sized to, independent
   // of window size — this is a genuine browser-perf cap (diffusion touches
@@ -322,6 +327,7 @@
     updateSpeciesPanel();
     paletteVal.textContent = currentPaletteKey();
     patternVal.textContent = patternKey;
+    simStartTime = performance.now();
   }
 
   // --- Stepping --------------------------------------------------------------
@@ -406,12 +412,30 @@
     ctx.drawImage(offscreen, 0, 0, simW, simH, 0, 0, canvas.width, canvas.height);
   }
 
+  // Coverage/uptime are cheap to compute (TARGET_CELLS is a few tens of
+  // thousands) but the DOM write is pure overhead every frame, so throttle
+  // it to a few times a second rather than 60fps.
+  const COVERAGE_THRESHOLD = 0.04 * TRAIL_CAP;
+  function updateStats() {
+    let covered = 0;
+    const n = simW * simH;
+    for (let i = 0; i < n; i++) {
+      if (trail[i] > COVERAGE_THRESHOLD) covered++;
+    }
+    coverageVal.textContent = ((covered / n) * 100).toFixed(1) + "%";
+    const secs = Math.floor((performance.now() - simStartTime) / 1000);
+    const m = Math.floor(secs / 60), s = secs % 60;
+    uptimeVal.textContent = `${m}:${s < 10 ? "0" : ""}${s}`;
+  }
+
   let rafId = null;
   function loop() {
     const p = currentPatternParams();
     stepAgents(p);
     diffuseAndDecay(p);
     render();
+    frameCount++;
+    if (frameCount % 20 === 0) updateStats();
     rafId = requestAnimationFrame(loop);
   }
 
@@ -486,15 +510,71 @@
   });
 
   // --- Sharing -------------------------------------------------------------
+  // A permalink encodes the exact colony (seed, pattern, palette, agent
+  // count) so a shared link reproduces the same growth on load instead of
+  // making the recipient re-type a handle to get the same shape.
+  function buildPermalink() {
+    const params = new URLSearchParams();
+    if (activeSeed) params.set("seed", activeSeed.text);
+    params.set("pattern", patternKey);
+    params.set("palette", currentPaletteKey());
+    params.set("agents", String(numAgents));
+    return `${SITE_URL}/?${params.toString()}`;
+  }
+
   function buildShareText() {
+    const link = buildPermalink();
     if (activeSeed) {
-      return `my physarum colony, "${activeSeed.common}" (seeded from ${activeSeed.text}, ${patternKey} pattern) — grow your own: ${SITE_URL}`;
+      return `my physarum colony, "${activeSeed.common}" (seeded from ${activeSeed.text}, ${patternKey} pattern) — grow your own: ${link}`;
     }
-    return `watching a slime-mold colony grow its own foraging network, live in the browser (${patternKey} pattern, ${currentPaletteKey()} palette): ${SITE_URL}`;
+    return `watching a slime-mold colony grow its own foraging network, live in the browser (${patternKey} pattern, ${currentPaletteKey()} palette): ${link}`;
   }
 
   function refreshShareLink() {
     shareBskyLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText());
+  }
+
+  copyLinkBtn.addEventListener("click", async () => {
+    const link = buildPermalink();
+    const label = copyLinkBtn.textContent;
+    try {
+      await navigator.clipboard.writeText(link);
+      copyLinkBtn.textContent = "copied!";
+    } catch {
+      window.prompt("copy this link:", link);
+    }
+    setTimeout(() => { copyLinkBtn.textContent = label; }, 1400);
+  });
+
+  // --- Permalink restore ---------------------------------------------------
+  // Reads ?seed=&pattern=&palette=&agents= from the URL (as written by
+  // buildPermalink above) and applies them to the controls before the first
+  // sim allocation, so a shared link grows the same colony on load.
+  function applyUrlParams() {
+    const q = new URLSearchParams(window.location.search);
+    let hasSeed = false;
+    const pattern = q.get("pattern");
+    if (pattern && PATTERNS[pattern]) {
+      patternKey = pattern;
+      patternSelect.value = pattern;
+    }
+    const palette = q.get("palette");
+    if (palette && (palette === "auto" || PALETTES[palette])) {
+      paletteMode = palette;
+      paletteSelect.value = palette;
+    }
+    const agents = parseInt(q.get("agents"), 10);
+    if (Number.isFinite(agents) && agents >= 500 && agents <= 12000) {
+      numAgents = agents;
+      agentsRange.value = String(agents);
+      agentsVal.textContent = String(agents);
+    }
+    const seed = q.get("seed");
+    if (seed) {
+      handleInput.value = seed.slice(0, 60);
+      hasSeed = true;
+    }
+    return hasSeed;
   }
 
   function canShareFiles() {
@@ -580,7 +660,8 @@
 
   resizeCanvas();
   allocateSim();
-  resetSim(false);
+  const hasSeedFromUrl = applyUrlParams();
+  resetSim(hasSeedFromUrl);
   refreshShareLink();
   setInterval(refreshShareLink, 1000);
   loop();
