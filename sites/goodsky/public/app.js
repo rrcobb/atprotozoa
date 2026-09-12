@@ -20,6 +20,7 @@ const FALLBACK_AVATAR =
 
 let session = null; // { did, handle, pdsUrl, accessJwt, ... } | null
 let sessionProfile = null; // { avatar, displayName } for the logged-in user, best-effort
+let autoLoginPromptShown = false; // fire the login modal once per page load, not on every trip back to Home
 let oauthLib = null;
 let goodpostsLib = null;
 
@@ -1183,7 +1184,7 @@ function asideHtml() {
     <p>Browse without an account, or log in with OAuth to see your real home timeline (filtered, same as everything else here), like, repost, and reply — genuine writes to your own repo. goodsky never follows for you. Real notifications live in the 🔔 tab. For DMs, use <a class="link" href="https://bsky.app" target="_blank" rel="noopener">bsky.app</a>.</p>
   </div>
   ${session ? `<div class="aside-card" id="aside-feeds"><h2>Popular feeds</h2><p>Loading…</p></div>` : ""}
-  <div class="aside-foot">Built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a> · part of the <a href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a> experiment garden · <a href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source</a></div>
+  <div class="aside-foot">Built by <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a> · part of the <a href="https://bisks.net" target="_blank" rel="noopener">atprotozoa</a> experiment garden · <a href="https://github.com/rrcobb/atprotozoa" target="_blank" rel="noopener">source</a> · <a href="https://rateyourbuild.bisks.net/site/goodsky" target="_blank" rel="noopener">rate this on rateyourbuild →</a></div>
   `;
 }
 
@@ -1236,9 +1237,15 @@ async function HomeView(main, params) {
   main.innerHTML =
     headerHtml("Home") +
     `<div class="feed-tabs" id="feed-tabs"></div>` +
-    (session ? "" : `<div class="feed-tabs-cta" data-action="login">Log in with Bluesky to unlock your home timeline and more feeds →</div>`) +
     `<div class="goodbar" id="goodbar"></div><div id="feed-posts">${skeleton(6)}</div>`;
   renderTabs();
+
+  // Instead of a CTA line explaining what logging in unlocks, just surface
+  // the login modal itself once per page load when you land here unauthed.
+  if (!session && !autoLoginPromptShown) {
+    autoLoginPromptShown = true;
+    openLoginModal();
+  }
 
   // Custom feed generators need a signed-in AppView request to personalize —
   // called with no auth, getFeed returns "this feed requires authentication"
