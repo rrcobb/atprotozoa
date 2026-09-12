@@ -18,6 +18,7 @@ const els = {
   crosshair: $("crosshair-line"),
   tooltip: $("tooltip"),
   dataWindowNote: $("data-window-note"),
+  unfollowNote: $("unfollow-note"),
   tableToggle: $("table-toggle"),
   tableWrap: $("table-wrap"),
   spike: $("spike"),
@@ -348,6 +349,7 @@ async function trace(rawHandle) {
   els.result.hidden = true;
   els.spike.hidden = true;
   els.dataWindowNote.hidden = true;
+  els.unfollowNote.hidden = true;
   els.blocklists.hidden = true;
   els.legend.hidden = true;
   els.tableWrap.hidden = true;
@@ -491,6 +493,26 @@ function renderResult({ handle, direct, total, allEvents, spike, followers, bloc
     els.dataWindowNote.textContent =
       `earliest datapoint here (${fmtDate(earliestTs)}) lands right where constellation's own index starts (${fmtDate(CONSTELLATION_INDEXED_SINCE_MS)}) — ` +
       `it doesn't have anything from before it started crawling, for any account, so this is likely a floor on the data, not the true beginning of @${handle}'s history.`;
+  }
+
+  // @jaystevens.me asked whether mass UN-follow moments are detectable —
+  // they aren't, and it's worth saying so rather than leaving the follower
+  // curve looking like it just doesn't have that feature. Constellation
+  // indexes *currently existing* app.bsky.graph.follow records; when one
+  // gets deleted (an unfollow), it drops out of the index with no tombstone
+  // or timestamp left behind (confirmed against constellation's own docs —
+  // no history/delta/tombstone endpoint exists, just current-state backlink
+  // lookups). So this curve is built entirely from records that still exist
+  // today: it can only climb, never dip, even on accounts that have
+  // genuinely lost followers in bulk. There's no way to reconstruct *when*
+  // an unfollow happened from data this project (or anyone without their
+  // own running firehose archive) has access to.
+  els.unfollowNote.hidden = !followers;
+  if (followers) {
+    els.unfollowNote.textContent =
+      "can't chart unfollow moments here — constellation only indexes follow records that still exist right now, " +
+      "so a deleted (unfollowed) record just vanishes with no timestamp behind it. this curve can only ever climb, " +
+      "even for accounts that have lost followers in bulk.";
   }
 
   const titleParts = [total ? "cumulative blocks received (direct + modlists)" : "cumulative blocks received"];
