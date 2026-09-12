@@ -20,6 +20,8 @@ const els = {
   tableToggle: $("table-toggle"),
   tableWrap: $("table-wrap"),
   spike: $("spike"),
+  blocklists: $("blocklists"),
+  blocklistsBody: $("blocklists-body"),
   shareRow: $("share-row"),
   shareBluesky: $("share-bluesky"),
   shareCardBtn: $("share-card-btn"),
@@ -52,6 +54,12 @@ function fmtMonth(ms) {
 function setStatus(text, isError) {
   els.status.textContent = text || "";
   els.status.classList.toggle("error", !!isError);
+}
+async function listNameFrom(listUri) {
+  const m = listUri.match(/^at:\/\/([^/]+)\/[^/]+\/([^/]+)$/);
+  if (!m) return null;
+  const rec = await getRecord(m[1], "app.bsky.graph.list", m[2]);
+  return rec?.value?.name || null;
 }
 function niceStep(maxVal, ticks) {
   const rough = Math.max(maxVal, 1) / ticks;
@@ -336,6 +344,7 @@ async function trace(rawHandle) {
   els.btn.disabled = true;
   els.result.hidden = true;
   els.spike.hidden = true;
+  els.blocklists.hidden = true;
   els.legend.hidden = true;
   els.tableWrap.hidden = true;
   els.tableToggle.setAttribute("aria-expanded", "false");
@@ -356,6 +365,7 @@ async function trace(rawHandle) {
 
     let total = null;
     let spike = null;
+    let blocklists = null;
     let allEvents = directEvents;
 
     if (els.includeLists.checked) {
@@ -381,6 +391,12 @@ async function trace(rawHandle) {
             const list = lists[i];
             try {
               const subs = await fetchListSubscribers(list.listUri);
+              list.subscriberCount = subs.length;
+              try {
+                list.name = await listNameFrom(list.listUri);
+              } catch (_) {
+                list.name = null; // record gone (list deleted) shouldn't sink its block-event data
+              }
               let instantCount = 0;
               for (const s of subs) {
                 const subTs = tidToMs(s.rkey);
@@ -401,22 +417,15 @@ async function trace(rawHandle) {
         });
         await Promise.all(workers);
       }
+      blocklists = lists
+        .filter((l) => l.subscriberCount != null)
+        .sort((a, b) => b.subscriberCount - a.subscriberCount);
 
       allEvents = directEvents.concat(listEvents);
       total = buildSeries(allEvents);
 
       if (bestSpike && bestSpike.instantCount > 0) {
-        spike = bestSpike;
-        setStatus("naming the biggest modlist spike…");
-        try {
-          const m = spike.listUri.match(/^at:\/\/([^/]+)\/[^/]+\/([^/]+)$/);
-          if (m) {
-            const rec = await getRecord(m[1], "app.bsky.graph.list", m[2]);
-            spike.name = rec?.value?.name || null;
-          }
-        } catch (_) {
-          spike.name = null;
-        }
+        spike = bestSpike; // .name already fetched in the worker loop above
       }
     }
 
@@ -434,8 +443,8 @@ async function trace(rawHandle) {
     }
 
     setStatus("");
-    renderResult({ handle, did, direct, total, allEvents, spike, followers });
-    lastTrace = { handle, did, direct, total, allEvents, spike, followers };
+    renderResult({ handle, did, direct, total, allEvents, spike, followers, blocklists });
+    lastTrace = { handle, did, direct, total, allEvents, spike, followers, blocklists };
   } catch (err) {
     setStatus("couldn't trace that: " + err.message, true);
   } finally {
@@ -443,7 +452,7 @@ async function trace(rawHandle) {
   }
 }
 
-function renderResult({ handle, direct, total, allEvents, spike, followers }) {
+function renderResult({ handle, direct, total, allEvents, spike, followers, blocklists }) {
   els.result.hidden = false;
   els.stats.innerHTML = "";
 
@@ -505,6 +514,36 @@ function renderResult({ handle, direct, total, allEvents, spike, followers }) {
     nameSpan.textContent = name;
     p.append(nameSpan, ` — every account already subscribed to that list blocked instantly.`);
     els.spike.appendChild(p);
+  }
+
+  if (blocklists) {
+    els.blocklists.hidden = false;
+    els.blocklistsBody.innerHTML = "";
+    if (!blocklists.length) {
+      const p = document.createElement("p");
+      p.className = "blocklists-empty";
+      p.textContent = `no modlists found @${handle} on.`;
+      els.blocklistsBody.appendChild(p);
+    } else {
+      for (const l of blocklists) {
+        const m = l.listUri.match(/^at:\/\/([^/]+)\/[^/]+\/([^/]+)$/);
+        const row = document.createElement("div");
+        row.className = "blocklist-row";
+        const name = document.createElement(m ? "a" : "span");
+        name.className = "blocklist-name";
+        name.textContent = l.name || "(unnamed list)";
+        if (m) {
+          name.href = `https://bsky.app/profile/${m[1]}/lists/${m[2]}`;
+          name.target = "_blank";
+          name.rel = "noopener";
+        }
+        const count = document.createElement("span");
+        count.className = "blocklist-count";
+        count.textContent = `${fmtNum(l.subscriberCount)} subscriber${l.subscriberCount === 1 ? "" : "s"}`;
+        row.append(name, count);
+        els.blocklistsBody.appendChild(row);
+      }
+    }
   }
 
   els.shareRow.hidden = false;
