@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>blocksweep — bulk-block everyone on a Bluesky list</title>
+    <meta name="description" content="Paste a Bluesky list link, review its full membership, sign in, and block everyone on it in one confirm — real app.bsky.graph.block records, not a subscribe." />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="blocksweep — bulk-block a whole Bluesky list" />
+    <meta property="og:description" content="Paste a list link, review the full membership, sign in, and block everyone on it in one confirm. Real blocks, one sweep." />
+    <meta property="og:url" content="https://blocksweep.bisks.net/" />
+    <meta property="og:image" content="https://blocksweep.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="blocksweep — bulk-block a whole Bluesky list" />
+    <meta name="twitter:description" content="Paste a list link, review the full membership, sign in, and block everyone on it in one confirm. Real blocks, one sweep." />
+    <meta name="twitter:image" content="https://blocksweep.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg:#150d0d; --panel:#1e1414; --panel2:#261818; --ink:#f2e4e4;
+        --muted:#a68888; --faint:#3a2424; --accent:#e05c5c; --accent2:#ff8383;
+        --good:#8fbf6f;
+        --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+      }
+      * { box-sizing:border-box; }
+      html,body { margin:0; }
+      body { background:radial-gradient(1100px 560px at 50% -12%, #241414, var(--bg));
+        color:var(--ink); font-family:var(--sans); font-size:16px; line-height:1.5;
+        -webkit-font-smoothing:antialiased; min-height:100vh; }
+      .wrap { max-width:820px; margin:0 auto; padding:2.4rem 1.05rem 6rem; }
+      a { color:var(--accent2); text-decoration:none; }
+      a:hover { text-decoration:underline; }
+      .back { font-size:0.8rem; color:var(--muted); }
+
+      h1 { font-size:1.95rem; font-weight:900; letter-spacing:-0.02em; margin:1.2rem 0 0.25rem;
+        background:linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip:text;
+        background-clip:text; color:transparent; }
+      #ceeHook { cursor:pointer; }
+      .sub { color:var(--muted); font-size:0.92rem; margin:0 0 1.4rem; max-width:68ch; }
+      .sub b { color:var(--ink); }
+
+      .auth-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:0.85rem;
+        color:var(--muted); margin:0 0 1.3rem; padding:0.8rem 0.9rem; border:1px solid var(--faint);
+        border-radius:12px; background:var(--panel); }
+      .auth-bar b { color:var(--ink); }
+      .auth-bar input { font:inherit; padding:0.5rem 0.7rem; border-radius:8px; border:1px solid var(--faint);
+        background:var(--panel2); color:var(--ink); outline:none; width:200px; }
+      .auth-bar input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+      .btn { font:inherit; font-weight:800; border:0; border-radius:9px; padding:0.55rem 1rem;
+        background:var(--accent); color:#2a0e0e; cursor:pointer; }
+      .btn:disabled { opacity:0.5; cursor:default; }
+      .btn.ghost { background:var(--panel2); color:var(--ink); border:1px solid var(--faint); }
+      .btn.danger { background:var(--accent2); }
+      a.linklike { cursor:pointer; text-decoration:underline; }
+
+      form.go-form { display:flex; gap:0.55rem; margin-bottom:0.5rem; flex-wrap:wrap; }
+      input.listurl { flex:1; min-width:220px; font:inherit; padding:0.65rem 0.75rem; border:1px solid var(--faint);
+        border-radius:11px; background:var(--panel); color:var(--ink); font-family:var(--mono); font-size:0.88rem; }
+      input.listurl::placeholder { color:#6a4b4b; }
+      input.listurl:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+
+      .hint { color:var(--muted); font-size:0.8rem; margin-bottom:1.2rem; line-height:1.6; }
+      code { font-family:var(--mono); font-size:0.9em; background:var(--panel2); padding:0.05rem 0.35rem; border-radius:5px; }
+
+      .status { color:var(--muted); font-size:0.85rem; min-height:1.4rem; margin-bottom:0.3rem; font-family:var(--mono); }
+      .status.err { color:var(--accent2); }
+
+      .progwrap { display:none; margin:0.6rem 0 1.2rem; }
+      .progwrap.show { display:block; }
+      .progbar { height:8px; border-radius:5px; background:var(--faint); overflow:hidden; }
+      .progbar i { display:block; height:100%; width:0%; background:linear-gradient(90deg,var(--accent),var(--accent2));
+        transition:width 0.25s ease; }
+      .proglabel { font-size:0.78rem; color:var(--muted); margin-top:0.35rem; font-family:var(--mono); }
+
+      .listmeta { display:none; margin:0.5rem 0 1.1rem; padding:0.9rem 1rem; border-radius:12px;
+        background:var(--panel); border:1px solid var(--faint); }
+      .listmeta.show { display:block; }
+      .listmeta .lname { font-weight:800; font-size:1.1rem; margin-bottom:0.15rem; }
+      .listmeta .lmeta { color:var(--muted); font-size:0.8rem; font-family:var(--mono); }
+      .listmeta .ldesc { color:var(--muted); font-size:0.85rem; margin-top:0.4rem; max-width:70ch; }
+
+      .toolbar { display:none; align-items:center; gap:0.6rem; margin-bottom:0.9rem; flex-wrap:wrap; }
+      .toolbar.show { display:flex; }
+      .toolbar .spacer { flex:1; }
+      .count-label { font-size:0.85rem; color:var(--muted); }
+      .count-label b { color:var(--ink); }
+
+      .memberwrap { display:none; border:1px solid var(--faint); border-radius:14px; max-height:480px; overflow-y:auto; }
+      .memberwrap.show { display:block; }
+      .member { display:flex; align-items:center; gap:0.65rem; padding:0.55rem 0.8rem; border-bottom:1px solid var(--faint); }
+      .member:last-child { border-bottom:0; }
+      .member:hover { background:var(--panel2); }
+      .member img { width:32px; height:32px; border-radius:50%; background:var(--faint); object-fit:cover; flex:none; }
+      .member .noavatar { width:32px; height:32px; border-radius:50%; background:var(--faint); flex:none;
+        display:flex; align-items:center; justify-content:center; font-size:0.68rem; color:var(--muted); }
+      .member .who { flex:1; min-width:0; }
+      .member .rname { font-weight:700; font-size:0.88rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .member .rhandle { color:var(--muted); font-size:0.76rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+      .member a.rlink { font-size:0.72rem; flex:none; }
+      .member input[type=checkbox] { width:18px; height:18px; flex:none; accent-color:var(--accent); }
+
+      .note { margin-top:2.2rem; color:var(--muted); font-size:0.78rem; line-height:1.7; max-width:70ch; }
+      .note b { color:var(--ink); }
+      .credit { margin-top:0.8rem; color:var(--muted); font-size:0.76rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1>🧹 block<span id="ceeHook">s</span>weep</h1>
+      <p class="sub">
+        Paste a link to a Bluesky <b>list</b>, review every member, sign in,
+        and block everyone left checked in one sweep — real
+        <code>app.bsky.graph.block</code> records, not a soft
+        "subscribe to this list" mute.
+      </p>
+
+      <div class="auth-bar" id="authBar"></div>
+
+      <form class="go-form" id="form">
+        <input class="listurl" id="listUrl" placeholder="https://bsky.app/profile/<handle>/lists/<rkey>" autocomplete="off"
+          autocapitalize="off" spellcheck="false" />
+        <button class="btn ghost" id="go" type="submit">load list</button>
+      </form>
+      <p class="hint">
+        Accepts a <code>bsky.app/profile/.../lists/...</code> link or an
+        <code>at://did/app.bsky.graph.list/rkey</code> URI — copy either off
+        any list's "..." menu on Bluesky.
+      </p>
+
+      <div class="status" id="status"></div>
+      <div class="progwrap" id="progwrap">
+        <div class="progbar"><i id="progbarfill"></i></div>
+        <div class="proglabel" id="proglabel"></div>
+      </div>
+
+      <div class="listmeta" id="listmeta">
+        <div class="lname" id="lname"></div>
+        <div class="lmeta" id="lmetaline"></div>
+        <div class="ldesc" id="ldesc"></div>
+      </div>
+
+      <div class="toolbar" id="toolbar">
+        <span class="count-label" id="countLabel"></span>
+        <div class="spacer"></div>
+        <a class="linklike" id="selectAll">select all</a>
+        <a class="linklike" id="selectNone">select none</a>
+        <button class="btn danger" id="blockBtn" type="button" disabled>block checked</button>
+      </div>
+
+      <div class="memberwrap" id="memberwrap"></div>
+
+      <p class="note">
+        This blocks the list's actual, public <b>membership</b> — the
+        accounts its curator added — not the (unrelated, and technically
+        unenumerable) set of accounts that have subscribed to the list for
+        themselves. atproto has no public index of "who's subscribed to list
+        X" — that record (<code>app.bsky.graph.listblock</code>) lives in
+        each subscriber's own repo, and finding every one would mean scanning
+        every repo on the network. List membership, by contrast, is public
+        and pulled in one <code>com.atproto.sync.getRepo</code> download off
+        the curator's repo (falling back to a paginated
+        <code>app.bsky.graph.getList</code> walk only if that fails) — so
+        that's what gets swept. Blocking runs as
+        <code>com.atproto.repo.applyWrites</code> in batches of 190, straight
+        from your browser to your own PDS; nothing is sent anywhere else, and
+        this site never reads or deletes existing blocks.
+      </p>
+      <p class="note">
+        <a href="https://rateyourbuild.bisks.net/site/blocksweep">rate this on rateyourbuild →</a>
+      </p>
+      <p class="credit">built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>, asked for by <a href="https://bsky.app/profile/moll.dev">@moll.dev</a></p>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
