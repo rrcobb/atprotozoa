@@ -34,6 +34,8 @@ const MARGIN = { top: 16, right: 16, bottom: 28, left: 46 };
 const VBW = 960, VBH = 420;
 const DOM_ROW_CAP = 500; // real browser cost: rendering 5000+ table rows is what's actually slow, not the data itself
 
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(els.input);
+
 // ---------- secret handle-prefill (see notes/40-new-site-playbook.md, 2026-08-28 order) ----------
 $("cee-anchor").addEventListener("click", () => {
   els.input.value = "@cee.wtf";
