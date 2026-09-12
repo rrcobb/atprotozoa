@@ -135,14 +135,17 @@ export async function findSelfLikes(did, { onProgress } = {}) {
     out = await fallbackWalk(pds, did, onProgress);
   }
 
+  // A self-like whose post is gone (deleted since) can't be shown as "you
+  // liked this" in any useful way — the pdsls record link doesn't work
+  // either once the record's gone from the repo, not just from the AppView
+  // index, so there's nothing left to point at. Drop those entirely instead
+  // of showing a dead link (@heika.dog, following up after the pdsls-link fix).
+  out = out.filter((sl) => sl.post);
+
   out.sort((a, b) => new Date(b.likedAt) - new Date(a.likedAt));
   return out;
 }
 
 export function postUrl(uri, handle) {
   return `https://bsky.app/profile/${encodeURIComponent(handle)}/post/${rkeyOf(uri)}`;
-}
-
-export function pdslsUrl(uri) {
-  return uri.replace("at://", "https://pdsls.dev/at/");
 }
