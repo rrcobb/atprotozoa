@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>selflikes — have you ever liked your own post? — bisks.net</title>
+    <meta
+      name="description"
+      content="Enter a Bluesky handle and find out whether you've ever liked one of your own posts. No login, public reads only."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="selflikes — have you ever liked your own post?" />
+    <meta
+      property="og:description"
+      content="Downloads your whole repo in one shot and cross-checks your likes against your own posts."
+    />
+    <meta property="og:url" content="https://selflikes.bisks.net/" />
+    <meta property="og:image" content="https://selflikes.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="selflikes — a heart looping back to point at itself." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="selflikes — have you ever liked your own post?" />
+    <meta name="twitter:description" content="Find out whether you've ever liked one of your own posts." />
+    <meta name="twitter:image" content="https://selflikes.bisks.net/og.png" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <span class="brand">selflikes</span>
+        <span class="brand-sub">h<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">a</span>ve you ever liked your own post?</span>
+      </header>
+
+      <section id="gate" class="screen">
+        <div class="intro-card">
+          <p>
+            Someone tagged this bot with a screenshot of "I Accidentally Liked
+            My Own Tweet and I Am Ashamed: The Aaron van Dorn Story" and asked
+            if the Bluesky version is even findable. It is — a like record
+            lives in <b>your own repo</b>, and a self-like's subject just
+            points right back into that same repo's posts. No public index of
+            self-likes exists, but none is needed.
+          </p>
+          <p class="fine">
+            Public reads only — no login, nothing written anywhere. We
+            download your entire repo from your PDS in one request
+            (<code>com.atproto.sync.getRepo</code>) and cross-reference your
+            <code>app.bsky.feed.like</code> records against your own
+            <code>app.bsky.feed.post</code> records, which come out of the
+            same download.
+          </p>
+          <form id="goForm" autocomplete="off">
+            <label class="lbl" for="handle">your handle</label>
+            <div class="row">
+              <input type="text" id="handle" placeholder="e.g. aaronvandorn.bsky.social" spellcheck="false" />
+              <button id="goBtn" type="submit">check</button>
+            </div>
+          </form>
+          <p class="msg" id="goMsg"></p>
+        </div>
+      </section>
+
+      <section id="working" class="screen hidden">
+        <div class="progress-card">
+          <div class="status" id="statusLine">resolving your account…</div>
+          <div class="meter"><i id="meterBar" style="width:8%"></i></div>
+          <div class="substat" id="subStat"></div>
+        </div>
+      </section>
+
+      <section id="result" class="screen hidden">
+        <div class="summary-card" id="summaryCard"></div>
+        <ol id="feed" class="feed"></ol>
+        <div class="startover">
+          <button id="restart" class="ghost small" type="button">check someone else</button>
+        </div>
+      </section>
+
+      <footer>
+        a "self-like" is a like record whose subject points back into your
+        own post history — reposts and quotes of yourself aren't counted,
+        only actual hearts on your own words. sibling of
+        <a href="https://backscroll.bisks.net">backscroll</a> and
+        <a href="https://bisks.net">bisks.net</a> ·
+        built for <a href="https://bsky.app/profile/octopodeeznuts.bsky.social" target="_blank" rel="noopener">@octopodeeznuts.bsky.social</a>
+        by <a href="https://buildthis.bisks.net" target="_blank" rel="noopener">@buildthis</a> ·
+        <a href="https://rateyourbuild.bisks.net/site/selflikes" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script>
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+    </script>
+    <script type="module">
+      import { resolveActor, findSelfLikes, postUrl } from "./lib/selflikes.js";
+
+      const $ = (id) => document.getElementById(id);
+      const gate = $("gate"), goForm = $("goForm"), handleInput = $("handle"),
+        goBtn = $("goBtn"), goMsg = $("goMsg"),
+        working = $("working"), statusLine = $("statusLine"), meterBar = $("meterBar"), subStat = $("subStat"),
+        result = $("result"), summaryCard = $("summaryCard"), feedEl = $("feed"),
+        restartBtn = $("restart");
+
+      function showScreen(id) {
+        for (const s of [gate, working, result]) s.classList.toggle("hidden", s.id !== id);
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function fmtDate(iso) {
+        if (!iso) return "?";
+        try {
+          const d = new Date(iso);
+          return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) +
+            " · " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+        } catch {
+          return iso;
+        }
+      }
+
+      function selfLikeEl(sl, handle) {
+        const li = document.createElement("li");
+        li.className = "post";
+        const av = document.createElement("div");
+        av.className = "av";
+        av.style.background = "#3a2030";
+        av.style.color = "#ff6f9c";
+        av.textContent = "♥";
+        const body = document.createElement("div");
+        body.className = "body";
+        const head = document.createElement("div");
+        head.className = "head";
+        head.innerHTML =
+          `<span class="tag selflike">self-like</span> ` +
+          `<span class="when">liked ${fmtDate(sl.likedAt)}</span>`;
+        body.appendChild(head);
+        if (sl.post) {
+          const text = document.createElement("div");
+          text.className = "text";
+          text.textContent = sl.post.text || "(no text — image or embed only)";
+          body.appendChild(text);
+          const posted = document.createElement("div");
+          posted.className = "missing";
+          posted.textContent = `posted ${fmtDate(sl.post.createdAt)}`;
+          body.appendChild(posted);
+        } else {
+          const missing = document.createElement("div");
+          missing.className = "missing";
+          missing.textContent = "the post itself is gone now (deleted since), but the like record remembers it.";
+          body.appendChild(missing);
+        }
+        const link = document.createElement("a");
+        link.className = "permalink";
+        link.href = postUrl(sl.postUri, handle);
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.textContent = "view on bluesky →";
+        body.appendChild(link);
+        li.appendChild(av);
+        li.appendChild(body);
+        return li;
+      }
+
+      function buildShareText(handle, count) {
+        const url = "https://selflikes.bisks.net/";
+        const line = count === 0
+          ? `checked: @${handle} has never self-liked a single post. clean record.`
+          : `@${handle} has liked ${count} of their own post${count === 1 ? "" : "s"}. caught red-handed.`;
+        return `${line} → ${url}`;
+      }
+
+      function renderSummary(handle, selfLikes) {
+        summaryCard.innerHTML = "";
+        const h = document.createElement("div");
+        h.className = "sumhead";
+        h.textContent = `@${handle}`;
+        const body = document.createElement("div");
+        body.className = "sumbody";
+        if (selfLikes.length === 0) {
+          body.innerHTML = `<div class="bignum">0</div><div class="bignum-sub">self-likes found. clean record — for now.</div>`;
+        } else {
+          body.innerHTML =
+            `<div class="bignum">${selfLikes.length}</div>` +
+            `<div class="bignum-sub">self-like${selfLikes.length === 1 ? "" : "s"} found, newest first.</div>`;
+        }
+        const actions = document.createElement("div");
+        actions.className = "actions";
+        const share = document.createElement("a");
+        share.className = "sharebtn";
+        share.textContent = "share on bluesky";
+        share.target = "_blank";
+        share.rel = "noopener";
+        share.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(handle, selfLikes.length));
+        actions.appendChild(share);
+        summaryCard.appendChild(h);
+        summaryCard.appendChild(body);
+        summaryCard.appendChild(actions);
+      }
+
+      async function run(raw) {
+        showScreen("working");
+        statusLine.textContent = "resolving @" + raw.replace(/^@/, "") + "…";
+        meterBar.style.width = "10%";
+        subStat.textContent = "";
+
+        const { did, handle } = await resolveActor(raw);
+        meterBar.style.width = "20%";
+
+        const selfLikes = await findSelfLikes(did, {
+          onProgress: (msg) => {
+            statusLine.textContent = msg;
+            subStat.textContent = "";
+          },
+        });
+
+        meterBar.style.width = "100%";
+        feedEl.innerHTML = "";
+        document.querySelectorAll(".emptystate").forEach((n) => n.remove());
+        for (const sl of selfLikes) feedEl.appendChild(selfLikeEl(sl, handle));
+        if (selfLikes.length === 0) {
+          const p = document.createElement("p");
+          p.className = "emptystate";
+          p.textContent = "nothing here. either genuinely clean, or just never got around to it yet.";
+          feedEl.parentElement.insertBefore(p, feedEl);
+        }
+        renderSummary(handle, selfLikes);
+        showScreen("result");
+      }
+
+      goForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const raw = handleInput.value.trim();
+        if (!raw) { handleInput.focus(); return; }
+        goBtn.disabled = true;
+        goMsg.className = "msg";
+        goMsg.textContent = "";
+        try {
+          await run(raw);
+        } catch (err) {
+          showScreen("gate");
+          goMsg.className = "msg err";
+          goMsg.textContent = err?.message || "something broke — try again?";
+        } finally {
+          goBtn.disabled = false;
+        }
+      });
+
+      restartBtn.addEventListener("click", () => {
+        feedEl.innerHTML = "";
+        document.querySelectorAll(".emptystate").forEach((n) => n.remove());
+        handleInput.value = "";
+        showScreen("gate");
+        handleInput.focus();
+      });
+    </script>
+  </body>
+</html>
