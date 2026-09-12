@@ -142,3 +142,7 @@ export async function findSelfLikes(did, { onProgress } = {}) {
 export function postUrl(uri, handle) {
   return `https://bsky.app/profile/${encodeURIComponent(handle)}/post/${rkeyOf(uri)}`;
 }
+
+export function pdslsUrl(uri) {
+  return uri.replace("at://", "https://pdsls.dev/at/");
+}
