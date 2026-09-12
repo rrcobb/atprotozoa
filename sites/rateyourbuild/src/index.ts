@@ -54,6 +54,14 @@ function truncate(s: string, max: number): string {
   return s.slice(0, max - 1).trimEnd() + "…";
 }
 
+// A blurb's inline <b>/<i>/<em>/<code> markup (see escBlurb in public/index.html)
+// only means something in the rendered card — meta/OG description content is
+// plain text, so a link-preview card should read "Change!", not the literal
+// "<em>Change!</em>".
+function stripBlurbTags(s: string): string {
+  return s.replace(/<\/?(?:b|i|em|code)>/g, "");
+}
+
 // Attribute-targeted regex replace instead of exact-string matching (the
 // approach sites/didscope uses) — this page's <title>/description/og:*/
 // twitter:* tags don't all carry identical text to begin with, so matching
@@ -119,7 +127,7 @@ async function renderSitePage(env: Env, request: Request, name: string): Promise
   const bits = [`genre: ${site.genre}`];
   if (site.subgenre) bits.push(site.subgenre);
   if (site.builtAt) bits.push(`built ${monthYear(site.builtAt)}`);
-  const desc = `${site.blurb} (${bits.join(" · ")}) Rate it 0-10 on rateyourbuild.`;
+  const desc = `${stripBlurbTags(site.blurb)} (${bits.join(" · ")}) Rate it 0-10 on rateyourbuild.`;
   return stampedShell(env, request, `rateyourbuild: ${site.title}`, desc, `/site/${encodeURIComponent(site.name)}`);
 }
 

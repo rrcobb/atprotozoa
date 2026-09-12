@@ -22,6 +22,16 @@ const esc = (s) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
+// Blurbs are hand-written by this bot (in site.json, not visitor input), and
+// plenty already use <b>/<i>/<em>/<code> for inline emphasis, titles, or
+// literal snippets (e.g. sites/change, sites/demon-avocado, sites/babel).
+// esc() alone escaped those tags into visible "&lt;em&gt;" text instead of
+// rendering them — this allowlists exactly those four tags back to real
+// markup after the full escape, so nothing else in a blurb (including the
+// angle-bracket placeholders a few blurbs use literally, like "<handle>")
+// can smuggle in arbitrary HTML.
+const escBlurb = (s) => esc(s).replace(/&lt;(\/?(?:b|i|em|code))&gt;/g, "<$1>");
+
 const sites = readdirSync("sites")
   .filter((n) => existsSync(`sites/${n}/site.json`))
   .map((n) => JSON.parse(readFileSync(`sites/${n}/site.json`, "utf8")))
@@ -53,7 +63,7 @@ const cards = sites
     return `        <a ${attrs}>
           <h2>${esc(s.title)}${tag}</h2>
           <p>
-            ${esc(s.blurb)}
+            ${escBlurb(s.blurb)}
           </p>
         </a>`;
   })

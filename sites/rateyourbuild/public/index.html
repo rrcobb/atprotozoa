@@ -242,6 +242,15 @@
       function esc(s) {
         return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
       }
+      // site.blurb comes from this bot's own site.json manifests, not visitor
+      // input, and plenty already use <b>/<i>/<em>/<code> for inline emphasis,
+      // titles, or literal snippets. esc() alone turned those into visible
+      // "&lt;em&gt;" text instead of rendering them — allowlist exactly those
+      // four tags back to real markup after the full escape (matches the same
+      // fix in audit/build-gallery.mjs for the apex gallery).
+      function escBlurb(s) {
+        return esc(s).replace(/&lt;(\/?(?:b|i|em|code))&gt;/g, "<$1>");
+      }
       function fmtMonth(ms) {
         if (!ms) return "";
         return new Date(ms).toLocaleDateString(undefined, { month: "short", year: "numeric", timeZone: "UTC" });
@@ -760,7 +769,7 @@
               ${site.subgenre ? `<a class="pill pill-sub" href="/genre/${esc(site.genre)}/${esc(site.subgenre)}">${esc(site.subgenre)}</a>` : ""}
               ${site.builtAt ? `<span class="built-badge">${fmtMonth(Date.parse(site.builtAt))}</span>` : ""}
             </div>
-            <p class="card-blurb">${esc(site.blurb)}</p>
+            <p class="card-blurb">${escBlurb(site.blurb)}</p>
             <p class="card-links">
               <a class="visit-link" href="${esc(site.url)}" target="_blank" rel="noopener">visit ↗</a>
               ${site.by ? ` · asked for by <a href="#" class="prompter-link user-chip" data-prompter="${esc(site.by)}" title="see everything @${esc(site.by)} has prompted">${userChipHtml(prompterProfile(site.by), "@" + site.by)} →</a>` : ""}
@@ -1579,7 +1588,7 @@
         container.innerHTML = `
           <div class="detail-head">
             <h2 class="detail-title">${esc(site.title)}</h2>
-            <p class="detail-blurb">${esc(site.blurb)}</p>
+            <p class="detail-blurb">${escBlurb(site.blurb)}</p>
             <div class="detail-pills">
               <a class="pill" href="/genre/${esc(site.genre)}">${esc(site.genre)}</a>
               ${site.subgenre ? `<a class="pill pill-sub" href="/genre/${esc(site.genre)}/${esc(site.subgenre)}">${esc(site.subgenre)}</a>` : ""}
