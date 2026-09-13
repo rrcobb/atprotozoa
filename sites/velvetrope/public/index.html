@@ -115,6 +115,13 @@
       .list-head .av { border-radius: 8px; }
       .list-head .desc { color: var(--muted); font-size: 0.85rem; margin-top: 0.3rem; white-space: pre-wrap; }
 
+      .card.list-card { display: flex; gap: 0.7rem; align-items: flex-start; }
+      .card.list-card .av {
+        width: 40px; height: 40px; border-radius: 8px; background: #ddd center/cover no-repeat;
+        flex: none; display: flex; align-items: center; justify-content: center; font-size: 1.15rem;
+      }
+      .card.list-card .body { flex: 1; min-width: 0; }
+
       .banner {
         border: 1px solid var(--faint); background: var(--faintbg); border-radius: 6px;
         padding: 0.8rem 1rem; font-size: 0.85rem; margin-bottom: 1.2rem; line-height: 1.6;
@@ -148,7 +155,7 @@
       <nav class="top">
         <a class="brand" href="/">velvetrope <span>· on the list or off it</span></a>
         <form class="search" id="searchForm">
-          <input type="text" id="searchInput" placeholder="find a handle's public lists…" autocomplete="off" />
+          <input type="text" id="searchInput" placeholder="handle" autocomplete="off" />
           <button type="submit" class="ghost">go</button>
         </form>
         <div class="session" id="sessionBox">…</div>
@@ -347,7 +354,7 @@
               style="flex:1; font-family:inherit; font-size:0.9rem; padding:0.5rem 0.6rem; border:1px solid var(--ink); border-radius:3px;" />
             <button type="submit">view their lists</button>
           </form>
-          ${session ? `<p class="meta"><a href="/u/${encodeURIComponent(session.handle)}">→ your own lists, and a scan of lists you might be on</a></p>` : ""}
+          ${session ? `<p class="meta"><a href="/u/${encodeURIComponent(session.handle)}">→ your own lists, and lists you're on</a></p>` : ""}
           <h2 class="section">how it works</h2>
           <p class="meta">
             a "request to be added/removed" is a real <code>net.bisks.velvetrope.request</code> record
@@ -402,11 +409,14 @@
               const pending = counts[l.uri] || 0;
               const rkey = rkeyOf(l.uri);
               return `
-                <div class="card">
-                  <div class="t"><a href="/list/${encodeURIComponent(did)}/${encodeURIComponent(rkey)}">${esc(l.name)}</a>
-                    ${pending ? `<span class="badge pending">${pending} pending</span>` : ""}</div>
-                  ${l.description ? `<div class="s">${esc(l.description)}</div>` : ""}
-                  <div class="m">${l.listItemCount ?? "?"} member${l.listItemCount === 1 ? "" : "s"}</div>
+                <div class="card list-card">
+                  <div class="av" style="${avatarStyle(l.avatar)}">${l.avatar ? "" : "📋"}</div>
+                  <div class="body">
+                    <div class="t"><a href="/list/${encodeURIComponent(did)}/${encodeURIComponent(rkey)}">${esc(l.name)}</a>
+                      ${pending ? `<span class="badge pending">${pending} pending</span>` : ""}</div>
+                    ${l.description ? `<div class="s">${esc(l.description)}</div>` : ""}
+                    <div class="m">${l.listItemCount ?? "?"} member${l.listItemCount === 1 ? "" : "s"}</div>
+                  </div>
                 </div>`;
             })
             .join("");
@@ -448,6 +458,7 @@
                   ownerDid: parsed?.ownerDid,
                   ownerHandle: meta.creator?.handle || parsed?.ownerDid,
                   name: meta.name,
+                  avatar: meta.avatar,
                 });
               }
             } catch {}
@@ -465,9 +476,8 @@
           <div class="banner">
             velvetrope checks Constellation's backlink index for every
             <code>app.bsky.graph.listitem</code> record naming you across the
-            whole network — not just the accounts you follow or who follow
-            you — then keeps only the ones that are moderation lists.
-            <div class="actions"><button id="scanBtn">scan for real</button></div>
+            whole network, then keeps only the ones that are moderation lists.
+            <div class="actions"><button id="scanBtn">scan</button></div>
           </div>`;
         $("scanBtn").addEventListener("click", async () => {
           const btn = $("scanBtn");
@@ -493,9 +503,12 @@
               ${found
                 .map(
                   (l) => `
-                <div class="card">
-                  <div class="t"><a href="/list/${encodeURIComponent(l.ownerDid)}/${encodeURIComponent(rkeyOf(l.uri))}">${esc(l.name)}</a></div>
-                  <div class="s">by @${esc(short(l.ownerHandle))}</div>
+                <div class="card list-card">
+                  <div class="av" style="${avatarStyle(l.avatar)}">${l.avatar ? "" : "📋"}</div>
+                  <div class="body">
+                    <div class="t"><a href="/list/${encodeURIComponent(l.ownerDid)}/${encodeURIComponent(rkeyOf(l.uri))}">${esc(l.name)}</a></div>
+                    <div class="s">by @${esc(short(l.ownerHandle))}</div>
+                  </div>
                 </div>`,
                 )
                 .join("")}
