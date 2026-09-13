@@ -88,7 +88,7 @@ function normalize(did, rkey, record) {
   };
 }
 
-const index = new GlobalIndex(COLLECTION, { normalize, onUpdate: () => renderAll() });
+const index = new GlobalIndex(COLLECTION, { normalize, onUpdate: () => renderRoute() });
 
 // --- lazy profile / PDS resolution (rendered progressively, not blocking) ---
 
@@ -99,7 +99,7 @@ function scheduleRerender() {
   if (rerenderTimer) return;
   rerenderTimer = setTimeout(() => {
     rerenderTimer = null;
-    renderAll();
+    renderRoute();
   }, 150);
 }
 function profileFor(did) {
@@ -143,8 +143,48 @@ function pdsFor(did) {
 let session = null;
 let category = "receipt";
 let filter = "";
+let currentEntry = null; // the single entry loaded for /entry/<did>/<rkey>, else null
+
+// --- routing: /entry/<did>/<rkey> is a real, shareable permalink to one
+// entry (notes/45-sharing-and-virality.md tier 4) — the Worker
+// (src/index.ts) stamps its og:title/description for link unfurlers, and
+// this reads location.pathname to render the same detail view for a real
+// browser. Every other path (including any unrecognized one) falls back to
+// the normal feed.
+function parseRoute() {
+  const m = location.pathname.match(/^\/entry\/([^/]+)\/([^/]+)\/?$/);
+  if (m) return { view: "entry", did: decodeURIComponent(m[1]), rkey: decodeURIComponent(m[2]) };
+  return { view: "feed" };
+}
+let route = parseRoute();
+
+function buildEntryUrl(entry) {
+  return `https://witness.bisks.net/entry/${entry.did}/${entry.rkey}`;
+}
+function buildEntryShareText(entry) {
+  return `witnessed on witness.bisks.net: "${entry.title}" (${entry.category}) — ${buildEntryUrl(entry)}`;
+}
+
+// A direct, unauthenticated com.atproto.repo.getRecord read off the poster's
+// own PDS — no need to wait for the full network-wide GlobalIndex backfill
+// just to render one already-known (did, rkey) permalink. Same resolve step
+// as the Worker's server-side stamping (src/index.ts's getRecord).
+async function fetchEntryDirect(did, rkey) {
+  const pds = await resolvePds(did);
+  if (!pds) throw new Error("could not resolve that account's PDS");
+  const qs = new URLSearchParams({ repo: did, collection: COLLECTION, rkey }).toString();
+  const res = await fetch(`${pds.replace(/\/$/, "")}/xrpc/com.atproto.repo.getRecord?${qs}`);
+  if (!res.ok) throw new Error("that entry doesn't exist — deleted, or a bad link");
+  const data = await res.json();
+  const entry = normalize(did, rkey, data.value);
+  if (!entry) throw new Error("that record isn't a valid witness entry");
+  return entry;
+}
 
 const els = {
+  homeView: document.getElementById("homeView"),
+  entryView: document.getElementById("entryView"),
+  entryBody: document.getElementById("entryBody"),
   form: document.getElementById("f"),
   title: document.getElementById("title"),
   body: document.getElementById("body"),
@@ -335,16 +375,16 @@ function renderEntry(entry, potholeGroups) {
     ${facts.length ? `<div class="facts">${facts.join("")}</div>` : ""}
     ${photoHtml}
     ${entry.sourceUrl ? `<div class="src"><a href="${esc(entry.sourceUrl)}" target="_blank" rel="noopener">view the original document →</a></div>` : ""}
+    <div class="foot"><a href="/entry/${esc(entry.did)}/${esc(entry.rkey)}">permalink →</a></div>
   `;
   return div;
 }
 
-function renderAll() {
-  const snapshot = index.snapshot();
-  const entries = snapshot.entries.slice().sort((a, b) => b.createdAt - a.createdAt);
-
-  // Duplicate-report tally: keyed on normalized pothole location text, built
-  // over every entry the index holds — never truncated by RENDER_CAP.
+// Duplicate-report tally: keyed on normalized pothole location text, built
+// over every entry the index holds (never truncated by RENDER_CAP) — shared
+// by the feed's "most-reported potholes" board and a single entry's own
+// "reported N×" badge on its permalink page.
+function computePotholeGroups(entries) {
   const potholeGroups = new Map();
   for (const e of entries) {
     if (e.category !== "pothole" || !e.location) continue;
@@ -354,6 +394,87 @@ function renderAll() {
     group.count++;
     potholeGroups.set(key, group);
   }
+  return potholeGroups;
+}
+
+// --- single-entry permalink page (/entry/<did>/<rkey>) ----------------------
+// "printed, taped to a door, passed hand to hand" (the thread this site was
+// built off): a printed copy can't be clicked, so the permalink also appears
+// as plain text on the page — hidden on screen, shown only in @media print
+// (see .print-url in style.css) — right on the printout for anyone
+// re-verifying it later.
+
+function renderEntryDetail(entry, potholeGroups) {
+  let dupeBadge = "";
+  if (entry.category === "pothole" && entry.location) {
+    const group = potholeGroups.get(locationKey(entry.location));
+    if (group && group.count > 1) dupeBadge = `<span class="dupe">reported ${group.count}×</span>`;
+  }
+
+  const profile = profileFor(entry.did);
+  const who = profile ? `@${esc(profile.handle)}` : entry.did.slice(0, 16) + "…";
+
+  const facts = [];
+  if (entry.amount) facts.push(`<span><b>amount:</b> ${esc(entry.amount)}</span>`);
+  if (entry.location) facts.push(`<span><b>location:</b> ${esc(entry.location)}</span>`);
+
+  let photoHtml = "";
+  if (entry.photo) {
+    const pds = pdsFor(entry.did);
+    const src = pds ? blobUrl(pds, entry.did, entry.photo) : null;
+    if (src) photoHtml = `<img class="photo" src="${esc(src)}" alt="" loading="lazy" />`;
+  }
+
+  const url = buildEntryUrl(entry);
+  const shareHref = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildEntryShareText(entry));
+
+  els.entryBody.innerHTML = `
+    <div class="entry entry-detail cat-${entry.category}">
+      <div class="top">
+        <span class="badge">${esc(entry.category)}</span>
+        ${dupeBadge}
+        <span class="who">${who} · ${timeAgo(entry.createdAt || Date.now())}</span>
+      </div>
+      <div class="title">${esc(entry.title)}</div>
+      ${entry.body ? `<div class="body">${esc(entry.body)}</div>` : ""}
+      ${facts.length ? `<div class="facts">${facts.join("")}</div>` : ""}
+      ${photoHtml}
+      ${entry.sourceUrl ? `<div class="src"><a href="${esc(entry.sourceUrl)}" target="_blank" rel="noopener">view the original document →</a></div>` : ""}
+      <div class="foot noprint">
+        <button type="button" id="printEntry">🖨 print this entry</button>
+        <a href="${esc(shareHref)}" target="_blank" rel="noopener">🦋 share</a>
+        <button type="button" id="copyEntryLink">🔗 copy link</button>
+      </div>
+      <p class="print-url">witnessed on witness.bisks.net — verify at ${esc(url)}</p>
+    </div>
+  `;
+  document.getElementById("printEntry").addEventListener("click", () => window.print());
+  document.getElementById("copyEntryLink").addEventListener("click", (e) => {
+    navigator.clipboard?.writeText(url)
+      .then(() => {
+        e.target.textContent = "🔗 copied";
+        setTimeout(() => { e.target.textContent = "🔗 copy link"; }, 1500);
+      })
+      .catch(() => {});
+  });
+}
+
+// Dispatches to the entry-permalink view or the normal feed depending on
+// `route` — the one thing the index's onUpdate handler calls on every
+// backfill page and every live commit, so a dupe-report badge on a
+// permalink page fills in progressively same as the feed's tally does.
+function renderRoute() {
+  if (route.view === "entry") {
+    if (currentEntry) renderEntryDetail(currentEntry, computePotholeGroups(index.snapshot().entries));
+    return;
+  }
+  renderAll();
+}
+
+function renderAll() {
+  const snapshot = index.snapshot();
+  const entries = snapshot.entries.slice().sort((a, b) => b.createdAt - a.createdAt);
+  const potholeGroups = computePotholeGroups(entries);
   const tallyRows = [...potholeGroups.values()]
     .filter((g) => g.count > 1)
     .sort((a, b) => b.count - a.count)
@@ -386,7 +507,18 @@ async function init() {
     setStatus("sign-in failed: " + e.message, "err");
   }
   renderSignin();
+
+  if (route.view === "entry") {
+    els.homeView.hidden = true;
+    els.entryView.hidden = false;
+    try {
+      currentEntry = await fetchEntryDirect(route.did, route.rkey);
+    } catch (err) {
+      els.entryBody.innerHTML = `<p class="empty-state">couldn't load that entry: ${esc(err.message)}</p>`;
+    }
+  }
+
   index.start();
-  renderAll();
+  renderRoute();
 }
 init();
