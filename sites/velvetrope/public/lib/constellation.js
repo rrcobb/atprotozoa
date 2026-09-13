@@ -26,7 +26,7 @@ export const CONSTELLATION_INDEXED_SINCE_MS = 1738083600000;
 // record found by its .subject, which list (.list) it belongs to — without
 // this we'd need one com.atproto.repo.getRecord per listitem hit. Only
 // exists as an xrpc endpoint, capped at 100/page.
-async function fetchAllManyToMany(subject, source, pathToOther, onPage) {
+async function fetchAllManyToMany(subject, source, pathToOther, onPage, stopWhen) {
   const out = [];
   let cursor = null;
   let guard = 0;
@@ -41,7 +41,9 @@ async function fetchAllManyToMany(subject, source, pathToOther, onPage) {
     const body = await res.json();
     const items = body.items || [];
     for (const it of items) {
-      out.push({ did: it.linkRecord?.did, rkey: it.linkRecord?.rkey, otherSubject: it.otherSubject });
+      const entry = { did: it.linkRecord?.did, rkey: it.linkRecord?.rkey, otherSubject: it.otherSubject };
+      out.push(entry);
+      if (stopWhen && stopWhen(entry)) return out;
     }
     if (onPage) onPage(out.length);
     cursor = body.cursor || null;
@@ -56,4 +58,21 @@ async function fetchAllManyToMany(subject, source, pathToOther, onPage) {
 // own `.purpose` after resolving each URI.
 export function fetchListMemberships(did, onPage) {
   return fetchAllManyToMany(did, "app.bsky.graph.listitem:subject", "list", onPage);
+}
+
+// Checks whether `did` has an app.bsky.graph.listitem naming `listUri`, by
+// paginating *their own* listitem history instead of the (possibly huge)
+// list's own membership — bounded by how many lists someone is on, not by
+// how big any one list is, and stops the moment a match turns up. Replaces
+// velvetrope's old "download the whole list/whole owner repo just to check
+// one person's membership" approach on an individual list's page
+// (2026-09-13, @heika.dog).
+export function checkListMembership(did, listUri, onPage) {
+  return fetchAllManyToMany(
+    did,
+    "app.bsky.graph.listitem:subject",
+    "list",
+    onPage,
+    (entry) => entry.otherSubject === listUri,
+  ).then((out) => out.some((entry) => entry.otherSubject === listUri));
 }

@@ -152,7 +152,12 @@ const LIST_FALLBACK_MAX_PAGES = 2000; // runaway-loop backstop, not a real limit
 
 // Every member of a list, each carrying `uri` — the AT URI of the
 // app.bsky.graph.listitem record itself, which is exactly what a list owner
-// needs to delete a member later (rkey = last uri segment).
+// needs to delete a member later (rkey = last uri segment). Used only for
+// the owner's own approve/deny execution (writing/removing real listitem
+// records needs to know what already exists) — a visitor's own "am I on
+// this list" check goes through Constellation instead (see
+// checkListMembership in ./constellation.js), which doesn't need this at
+// all since it doesn't require reading the list's own membership.
 //
 // A list's listitems all live in the *owner's own repo* (each just points at
 // the list and a subject DID), so "every member" is really "one person's
@@ -160,24 +165,15 @@ const LIST_FALLBACK_MAX_PAGES = 2000; // runaway-loop backstop, not a real limit
 // (see ./car.js, copied from sites/backscroll) instead of paginating
 // app.bsky.graph.getList a page of 100 at a time, same fix
 // sites/blocksweep/sites/rollcall already use for "give me this list's whole
-// membership." @heika.dog reported (2026-09-13) that checking your own
-// membership on someone's huge blocklist meant waiting through hundreds of
-// sequential AppView pages before the site could even show the list — one
-// CAR download answers "every member" in one request no matter the size.
-//
-// Falls back to paginated app.bsky.graph.getList when the CAR download
-// itself fails (owner's PDS unreachable/non-CORS, oversized repo, malformed
-// CAR). In that fallback walk, when `selfDid` is given and turns up on a
-// page, this returns immediately instead of finishing the walk — the other
-// half of the same ask: don't make someone wait through a whole huge list
-// just to learn they're already on it. There's no early exit on "not
-// found" (only knowable after seeing every member) or on the CAR path
-// (the whole membership already arrives in one request).
-export async function getListMembers(listUri, ownerDid, { onProgress, selfDid } = {}) {
+// membership." One CAR download answers "every member" in one request no
+// matter the size. Falls back to paginated app.bsky.graph.getList when the
+// CAR download itself fails (owner's PDS unreachable/non-CORS, oversized
+// repo, malformed CAR).
+export async function getListMembers(listUri, ownerDid) {
   try {
     const pds = await resolvePds(ownerDid);
     if (!pds) throw new Error("couldn't resolve the list owner's PDS");
-    const { records } = await fetchRepoRecordsWithKeys(pds, ownerDid, "app.bsky.graph.listitem", onProgress);
+    const { records } = await fetchRepoRecordsWithKeys(pds, ownerDid, "app.bsky.graph.listitem");
     const items = [];
     const seen = new Set();
     for (const { uri, value } of records) {
@@ -185,9 +181,8 @@ export async function getListMembers(listUri, ownerDid, { onProgress, selfDid } 
       seen.add(value.subject);
       items.push({ uri, subject: { did: value.subject } });
     }
-    return { items, viaCar: true, foundSelfEarly: false };
-  } catch (err) {
-    if (onProgress) onProgress(`repo CAR download failed (${err.message}) — falling back to paginated list read...`, 0);
+    return { items };
+  } catch {
     const items = [];
     const seen = new Set();
     let cursor;
@@ -197,21 +192,17 @@ export async function getListMembers(listUri, ownerDid, { onProgress, selfDid } 
       u.searchParams.set("limit", "100");
       if (cursor) u.searchParams.set("cursor", cursor);
       const d = await jget(u.toString());
-      let sawSelf = false;
       for (const it of d.items || []) {
         const did = it.subject?.did;
         if (did && !seen.has(did)) {
           seen.add(did);
           items.push({ uri: it.uri, subject: it.subject });
         }
-        if (selfDid && did === selfDid) sawSelf = true;
       }
-      if (onProgress) onProgress(`paginating list membership... page ${pages + 1}, ${items.length} checked so far`, items.length);
-      if (sawSelf) return { items, viaCar: false, foundSelfEarly: true };
       cursor = d.cursor;
       if (!cursor || !(d.items || []).length) break;
     }
-    return { items, viaCar: false, foundSelfEarly: false };
+    return { items };
   }
 }
 

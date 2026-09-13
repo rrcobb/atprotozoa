@@ -129,11 +129,6 @@
       .banner.bad { border-color: var(--bad); background: #fdeef0; }
       .banner.good { border-color: var(--good); background: #eef8f1; }
 
-      .member-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; font-size: 0.85rem; border-bottom: 1px solid var(--faintbg); }
-      .member-row .av { width: 26px; height: 26px; border-radius: 50%; background: #ddd center/cover no-repeat; flex: none; }
-      .member-row a { color: var(--ink); font-weight: 600; }
-      .member-row .h { color: var(--muted); }
-
       .req-row { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0; font-size: 0.85rem; border-bottom: 1px solid var(--faintbg); }
       .req-row .who { font-weight: 700; flex: 1; }
       .req-row .when { color: var(--muted); font-size: 0.72rem; }
@@ -174,8 +169,8 @@
 
     <script type="module">
       import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch } from "./lib/oauth.js";
-      import { resolveDid, getProfile, getModLists, getListMembers, getListMeta, hydrateProfiles, parseListUri, applyListWrites } from "./lib/atproto.js";
-      import { fetchListMemberships } from "./lib/constellation.js";
+      import { resolveDid, getProfile, getModLists, getListMembers, getListMeta, parseListUri, applyListWrites } from "./lib/atproto.js";
+      import { fetchListMemberships, checkListMembership } from "./lib/constellation.js";
 
       const $ = (id) => document.getElementById(id);
       const app = $("app");
@@ -552,65 +547,26 @@
           </div>
           <div id="actionArea"><p class="loading" id="actionStatus">${session ? "checking your membership…" : "loading…"}</p></div>
           ${isOwner ? `<h2 class="section">request queue</h2><div id="queueArea"><p class="loading">loading…</p></div>` : ""}
-          <h2 class="section">members</h2>
-          <div id="memberArea"><p class="loading" id="memberStatus">${totalKnown ? `loading members… 0/${totalKnown}` : "loading members…"}</p></div>
         `;
 
-        let items;
-        try {
-          const memberStatus = $("memberStatus");
-          ({ items } = await getListMembers(listUri, ownerDid, {
-            selfDid: !isOwner && session ? session.did : undefined,
-            onProgress: (msg, count) => {
-              if (!memberStatus) return;
-              memberStatus.textContent = totalKnown != null && typeof count === "number"
-                ? `loading members… ${msg} (${count}/${totalKnown})`
-                : `loading members… ${msg}`;
-            },
-          }));
-        } catch (e) {
-          $("memberArea").innerHTML = `<div class="empty">couldn't load members — ${esc(e.message)}</div>`;
-          $("actionArea").innerHTML = "";
-          return;
+        let isMember = false;
+        if (session && !isOwner) {
+          const actionStatus = $("actionStatus");
+          try {
+            isMember = await checkListMembership(session.did, listUri, (n) => {
+              if (actionStatus) actionStatus.textContent = `checking your membership… ${n} of your list memberships scanned so far`;
+            });
+          } catch (e) {
+            $("actionArea").innerHTML = `<div class="empty">couldn't check your membership — ${esc(e.message)}</div>`;
+            return;
+          }
         }
-        const isMember = session && items.some((it) => it.subject?.did === session.did);
         const policy = await fetchJson(`/api/policy?list=${encodeURIComponent(listUri)}`)
           .then((d) => d.policy)
           .catch(() => null);
 
-        await renderMembers(items, totalKnown);
         await renderActionArea(listUri, ownerDid, isOwner, isMember, policy);
-        if (isOwner) await renderQueue(listUri, ownerDid, items);
-      }
-
-      async function renderMembers(items, totalKnown) {
-        const box = $("memberArea");
-        if (!items.length) {
-          box.innerHTML = `<div class="empty">no members yet.</div>`;
-          return;
-        }
-        const shown = items.slice(0, 60);
-        const needsHydration = shown.filter((it) => it.subject?.did && !it.subject.handle);
-        if (needsHydration.length) {
-          const profiles = await hydrateProfiles(needsHydration.map((it) => it.subject.did));
-          for (const it of needsHydration) {
-            const p = profiles.get(it.subject.did);
-            if (p) it.subject = { ...it.subject, handle: p.handle, avatar: p.avatar, displayName: p.displayName };
-          }
-        }
-        const total = totalKnown != null ? totalKnown : items.length;
-        box.innerHTML =
-          shown
-            .map(
-              (it) => `
-              <div class="member-row">
-                <div class="av" style="${avatarStyle(it.subject?.avatar)}"></div>
-                <a href="/u/${encodeURIComponent(it.subject?.handle || it.subject?.did)}">${esc(it.subject?.displayName || it.subject?.handle || it.subject?.did)}</a>
-                <span class="h">@${esc(short(it.subject?.handle || it.subject?.did))}</span>
-              </div>`,
-            )
-            .join("") +
-          (total > shown.length ? `<div class="meta">+ ${total - shown.length} more</div>` : "");
+        if (isOwner) await renderQueue(listUri, ownerDid);
       }
 
       async function myPendingRequest(listUri) {
@@ -844,7 +800,7 @@
         }
       }
 
-      async function renderQueue(listUri, ownerDid, currentItems) {
+      async function renderQueue(listUri, ownerDid) {
         const box = $("queueArea");
         let requests;
         try {
@@ -885,8 +841,8 @@
             const allOn = [...boxes].every((c) => c.checked);
             boxes.forEach((c) => (c.checked = !allOn));
           });
-          $("approveBtn").addEventListener("click", () => runDecision(listUri, pending, "approve", currentItems));
-          $("denyBtn").addEventListener("click", () => runDecision(listUri, pending, "deny", currentItems));
+          $("approveBtn").addEventListener("click", () => runDecision(listUri, pending, "approve"));
+          $("denyBtn").addEventListener("click", () => runDecision(listUri, pending, "deny"));
         }
 
         if (resolved.length) {
