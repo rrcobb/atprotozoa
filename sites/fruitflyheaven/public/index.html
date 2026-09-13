@@ -82,6 +82,38 @@
 
       .hint { text-align: center; color: var(--muted); font-size: 0.76rem; margin: 0 0 1rem; }
 
+      .real-pane { margin: 0 0 1.4rem; }
+      .real-pane h2 { text-align: center; }
+      .real-intro {
+        color: var(--muted); font-size: 0.8rem; line-height: 1.65; margin: 0 0 0.7rem;
+      }
+      .real-intro a { color: var(--leaf2); }
+      .real-intro b { color: var(--ink); }
+      .real-form { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .real-form input {
+        flex: 1 1 200px; font-family: var(--mono); font-size: 0.85rem;
+        background: #0a0f07; color: var(--ink); border: 1px solid var(--border);
+        border-radius: 8px; padding: 0.55rem 0.7rem;
+      }
+      .real-form input::placeholder { color: #5a6f4f; }
+      .real-form button {
+        background: var(--card); color: var(--leaf2); border: 1px solid var(--leaf);
+      }
+      .real-form button:hover { background: var(--leaf); color: #0e1608; }
+      .real-status { font-size: 0.8rem; color: var(--muted); margin-top: 0.6rem; min-height: 1.2em; }
+      .real-status.err { color: var(--err); }
+      .real-status.ok { color: var(--ok); }
+      .real-results { margin-top: 0.7rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+      @media (max-width: 620px) { .real-results { grid-template-columns: 1fr; } }
+      .real-results h3 {
+        margin: 0 0 0.35rem; font-size: 0.72rem; text-transform: uppercase;
+        letter-spacing: 0.06em; color: var(--muted);
+      }
+      .real-results ol { margin: 0; padding-left: 1.1rem; font-size: 0.82rem; }
+      .real-results li { margin-bottom: 0.2rem; }
+      .real-results .w { color: var(--gold); font-weight: 600; }
+      .real-meta { grid-column: 1 / -1; font-size: 0.76rem; color: var(--muted); }
+
       .controls { display: flex; justify-content: center; gap: 0.6rem; margin: 0 0 1.4rem; flex-wrap: wrap; }
       button {
         font-family: var(--mono); font-size: 0.88rem; font-weight: 600;
@@ -126,7 +158,9 @@
         the central complex's heading and goal rings. Every fruit eaten
         <b>potentiates</b> the mushroom-body pathway for whatever it just smelled
         and saw — so late in a session the fly beelines for fruit it barely
-        noticed at first. Click the garden to drop more fruit.
+        noticed at first. Click the garden to drop more fruit. Further down,
+        query an actual EM-reconstructed connectome live for real neurons and
+        real synapse counts.
       </p>
 
       <div class="stats">
@@ -153,6 +187,28 @@
         <button class="ghost" type="button" id="pauseBtn">pause</button>
       </div>
 
+      <div class="pane real-pane">
+        <h2>query the real connectome</h2>
+        <p class="real-intro">
+          The garden above is a stylized ~50-node model, not the real thing — a literal
+          130,000-neuron brain can't run at 60fps in a tab, and FlyWire's full-brain data
+          (Codex/CAVE) intentionally has no public live-query API, sign-in-gated by design.
+          What <i>is</i> real and publicly queryable: <a href="https://neuprint.janelia.org" target="_blank" rel="noopener">neuPrint</a>'s
+          <b>hemibrain</b> dataset — an actual EM reconstruction of ~25,000 traced neurons in
+          this same fly's central brain. Paste a free personal token
+          (<a href="https://neuprint.janelia.org" target="_blank" rel="noopener">neuprint.janelia.org</a> → account menu → "Auth Token") and look up a
+          real cell type's real synaptic partners, queried live from Janelia's own database —
+          straight from your browser to theirs, your token never touches this site's server.
+        </p>
+        <div class="real-form">
+          <input type="password" id="realToken" placeholder="your neuPrint auth token" autocomplete="off" spellcheck="false" />
+          <input type="text" id="realQuery" placeholder="cell type, e.g. PAM01, MBON01, KCg-m, LC4" autocomplete="off" spellcheck="false" />
+          <button type="button" id="realGo">look it up</button>
+        </div>
+        <div id="realStatus" class="real-status"></div>
+        <div id="realResults" class="real-results" hidden></div>
+      </div>
+
       <div class="share" id="share">
         <div class="share-row">
           <a class="share-post" id="shareBluesky" target="_blank" rel="noopener">🦋 share on Bluesky</a>
@@ -173,6 +229,7 @@
     <script src="brain.js"></script>
     <script src="world.js"></script>
     <script src="scene.js"></script>
+    <script src="realconnectome.js"></script>
     <script>
       const STORE_KEY = "fruitflyheaven.state";
 
@@ -344,6 +401,66 @@
           return false;
         }
       }
+
+      // ---------- real connectome lookup ----------
+      const realEls = {
+        token: document.getElementById("realToken"),
+        query: document.getElementById("realQuery"),
+        go: document.getElementById("realGo"),
+        status: document.getElementById("realStatus"),
+        results: document.getElementById("realResults"),
+      };
+
+      realEls.token.value = RealConnectome.loadToken();
+      realEls.token.addEventListener("change", () => RealConnectome.saveToken(realEls.token.value.trim()));
+
+      function setRealStatus(text, kind) {
+        realEls.status.textContent = text;
+        realEls.status.className = "real-status" + (kind ? " " + kind : "");
+      }
+
+      function renderPartnerList(rows) {
+        if (!rows.length) return "<li>(no synaptic partners above the query's cutoff)</li>";
+        return rows
+          .map((r) => {
+            const label = r.type || r.instance || "(untyped)";
+            return `<li>${escapeHtml(label)} — <span class="w">${r.weight}</span> synapses</li>`;
+          })
+          .join("");
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      async function runRealLookup() {
+        const token = realEls.token.value.trim();
+        const query = realEls.query.value.trim();
+        realEls.go.disabled = true;
+        realEls.results.hidden = true;
+        setRealStatus("querying neuprint.janelia.org…");
+        try {
+          const result = await RealConnectome.lookupNeuron(token, query);
+          RealConnectome.saveToken(token);
+          const m = result.matches[0];
+          setRealStatus(`found ${result.matches.length} traced neuron(s) matching "${result.query}" in ${result.dataset}.`, "ok");
+          realEls.results.hidden = false;
+          realEls.results.innerHTML = `
+            <div class="real-meta">bodyId ${escapeHtml(m.bodyId)} · ${escapeHtml(m.type || m.instance || "")} · ${m.pre} presynaptic sites, ${m.post} postsynaptic sites (real EM counts, this exact neuron)</div>
+            <div><h3>strongest downstream partners</h3><ol>${renderPartnerList(result.downstream)}</ol></div>
+            <div><h3>strongest upstream partners</h3><ol>${renderPartnerList(result.upstream)}</ol></div>
+          `;
+        } catch (err) {
+          setRealStatus(err.message || String(err), "err");
+        } finally {
+          realEls.go.disabled = false;
+        }
+      }
+
+      realEls.go.addEventListener("click", runRealLookup);
+      realEls.query.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") runRealLookup();
+      });
 
       // ---------- boot ----------
       let lastT = performance.now();
