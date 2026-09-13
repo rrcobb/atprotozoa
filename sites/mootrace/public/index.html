@@ -198,6 +198,28 @@
       .legend .empty .dot { background: var(--bg); border: 1px solid var(--faint); }
       .legend .unknown .dot { background: var(--faintbg); border: 1px solid var(--faint); }
 
+      /* ── the void ─────────────────────────────────────────────────────── */
+      #voidWrap { display: none; margin-top: 0.6rem; }
+      #voidWrap.on { display: block; }
+      .voidSummary {
+        border: 1px solid var(--faint); border-radius: 8px; padding: 1rem 1.2rem;
+        margin: 0.8rem 0 1.2rem; display: flex; flex-wrap: wrap; gap: 1.4rem 2.2rem;
+      }
+      .voidGraphScroll {
+        border: 1px solid var(--faint); border-radius: 6px; padding: 0.5rem;
+        margin-bottom: 1rem; overflow: auto;
+      }
+      #voidSvg { width: 100%; height: auto; max-height: 640px; display: block; }
+      #voidSvg .edge { stroke: var(--faintbg); stroke-width: 1.2; }
+      #voidSvg .edge.self { stroke: var(--accent); stroke-width: 1.6; opacity: 0.75; }
+      #voidSvg .node circle {
+        fill: var(--bg); stroke: var(--muted); stroke-width: 1.5;
+      }
+      #voidSvg .node.isolated circle { fill: var(--bad); stroke: var(--bad); }
+      #voidSvg .node.unknown circle { fill: var(--faintbg); stroke: var(--faint); stroke-dasharray: 2 2; }
+      .void-row .status { flex: none; color: var(--muted); padding: 0 0.4rem; }
+      .void-row .who.right { text-align: right; }
+
       footer {
         margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
         border-top: 1px solid var(--faint); padding-top: 1rem;
@@ -215,7 +237,10 @@
         history looking for replies between them. The result is a grid: for
         every pair of mutuals, who broke the ice first by <b>replying to the
         other</b>. Sparked by <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies.bsky.social</a>
-        asking how to build exactly this, tagged to life by @bisks.net.
+        asking how to build exactly this, tagged to life by @bisks.net — and
+        it also builds the "void graph" @norvid-studies.bsky.social asked for
+        in the same thread: the listing of mutuals who've never spoken to
+        each other at all.
       </p>
 
       <form class="finder" id="form" autocomplete="off">
@@ -263,6 +288,25 @@
           </div>
           <div class="gridScroll"><table class="race" id="raceTable"></table></div>
         </div>
+
+        <h2 class="sec">
+          <button class="btn ghost" id="toggleVoid" type="button" style="text-transform:none; letter-spacing:normal; font-size:0.85rem;">show the void (mutuals who've never spoken) ▾</button>
+        </h2>
+        <div id="voidWrap">
+          <p class="intro" style="margin-top:0;">
+            <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies.bsky.social</a>'s
+            other idea from the same thread — not who raced whom, but which
+            of your <b>mutuals have never spoken to each other</b> at all, no
+            reply in either direction, ever. Every node below is you or one
+            of your mutuals, arranged in a circle; a line connects two who've
+            exchanged at least one reply. A red node has never replied to, or
+            been replied to by, anyone else in this circle.
+          </p>
+          <div class="voidSummary" id="voidSummary"></div>
+          <div class="voidGraphScroll"><svg id="voidSvg"></svg></div>
+          <div class="filterrow"><input type="text" id="voidFilter" placeholder="filter void pairs…" /></div>
+          <div class="card-list" id="voidList"></div>
+        </div>
       </section>
 
       <footer>
@@ -298,6 +342,12 @@
       const toggleGridBtn = document.getElementById("toggleGrid");
       const gridWrap = document.getElementById("gridWrap");
       const raceTable = document.getElementById("raceTable");
+      const toggleVoidBtn = document.getElementById("toggleVoid");
+      const voidWrap = document.getElementById("voidWrap");
+      const voidSvg = document.getElementById("voidSvg");
+      const voidSummary = document.getElementById("voidSummary");
+      const voidList = document.getElementById("voidList");
+      const voidFilterInput = document.getElementById("voidFilter");
 
       const TINTS = ["#1a5fd0","#1f8a4c","#d81e6a","#e0a400","#8e44ad",
         "#c0392b","#0f9b9b","#e2711d","#5566dd","#2c8c3c"];
@@ -447,6 +497,137 @@
         if (on && !raceTable.innerHTML) renderGrid();
       });
 
+      // ── the void: mutual pairs (excluding you) who've never replied to
+      // each other in either direction. Reuses the race grid already built —
+      // no extra repo scanning.
+      function hasSpoken(aDid, bDid) {
+        const ab = race[aDid] && race[aDid].get(bDid);
+        const ba = race[bDid] && race[bDid].get(aDid);
+        return !!(ab || ba);
+      }
+
+      let voidPairsCache = null;
+      function computeVoidPairs() {
+        const others = participants.filter((p) => !p.isSelf);
+        const pairs = [];
+        for (let i = 0; i < others.length; i++) {
+          for (let j = i + 1; j < others.length; j++) {
+            const a = others[i], b = others[j];
+            if (race[a.did] === null || race[b.did] === null) continue; // unreadable, not "void"
+            if (!hasSpoken(a.did, b.did)) pairs.push([a, b]);
+          }
+        }
+        return pairs;
+      }
+
+      function renderVoidGraph() {
+        const self = participants.find((p) => p.isSelf);
+        const others = participants.filter((p) => !p.isSelf).sort((a, b) => a.handle.localeCompare(b.handle));
+        const ordered = [self, ...others];
+        const n = ordered.length;
+        const size = Math.max(360, Math.min(720, 120 + n * 14));
+        const cx = size / 2, cy = size / 2, r = size / 2 - 36;
+        const pos = ordered.map((p, i) => {
+          const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+          return { p, x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+        });
+        const posByDid = new Map(pos.map((pt) => [pt.p.did, pt]));
+
+        let edgesSvg = "";
+        for (let i = 0; i < ordered.length; i++) {
+          for (let j = i + 1; j < ordered.length; j++) {
+            const a = ordered[i], b = ordered[j];
+            if (race[a.did] === null || race[b.did] === null) continue;
+            if (!hasSpoken(a.did, b.did)) continue;
+            const pa = posByDid.get(a.did), pb = posByDid.get(b.did);
+            edgesSvg += `<line x1="${pa.x}" y1="${pa.y}" x2="${pb.x}" y2="${pb.y}" class="edge${a.isSelf || b.isSelf ? " self" : ""}" />`;
+          }
+        }
+
+        let nodesSvg = "";
+        let isolatedCount = 0;
+        for (const pt of pos) {
+          const { p, x, y } = pt;
+          const unreadable = race[p.did] === null;
+          let isolated = false;
+          if (!unreadable) {
+            isolated = !ordered.some((o) => o.did !== p.did && race[o.did] !== null && hasSpoken(p.did, o.did));
+          }
+          if (isolated) isolatedCount++;
+          const cls = unreadable ? "unknown" : isolated ? "isolated" : "";
+          const title = unreadable
+            ? `@${escapeHtml(p.handle)} — couldn't read repo`
+            : isolated
+              ? `@${escapeHtml(p.handle)} — never spoken to anyone in this circle`
+              : `@${escapeHtml(p.handle)}`;
+          nodesSvg += `<g class="node ${cls}" transform="translate(${x},${y})"><circle r="${p.isSelf ? 10 : 7}"></circle><title>${title}</title></g>`;
+        }
+
+        voidSvg.setAttribute("viewBox", `0 0 ${size} ${size}`);
+        voidSvg.innerHTML = `<g>${edgesSvg}</g><g>${nodesSvg}</g>`;
+        return isolatedCount;
+      }
+
+      function renderVoidList(filterText) {
+        const pairs = voidPairsCache.filter(([a, b]) => {
+          if (!filterText) return true;
+          return (
+            a.handle.toLowerCase().includes(filterText) ||
+            b.handle.toLowerCase().includes(filterText) ||
+            (a.displayName || "").toLowerCase().includes(filterText) ||
+            (b.displayName || "").toLowerCase().includes(filterText)
+          );
+        });
+        voidList.innerHTML = "";
+        if (!pairs.length) {
+          const row = document.createElement("div");
+          row.className = "card-row";
+          row.innerHTML = `<div class="who" style="color:var(--muted);">${
+            filterText ? "no matches for that filter." : "every mutual here has spoken to every other mutual at least once."
+          }</div>`;
+          voidList.appendChild(row);
+          return;
+        }
+        for (const [a, b] of pairs) {
+          const row = document.createElement("div");
+          row.className = "card-row void-row";
+          row.innerHTML = `
+            <div class="ava" style="${avaStyle(a)}"></div>
+            <div class="who"><div class="hn"><a href="https://bsky.app/profile/${a.handle}" target="_blank" rel="noopener">@${escapeHtml(a.handle)}</a></div></div>
+            <div class="status">never ⇄</div>
+            <div class="who right"><div class="hn"><a href="https://bsky.app/profile/${b.handle}" target="_blank" rel="noopener">@${escapeHtml(b.handle)}</a></div></div>
+            <div class="ava" style="${avaStyle(b)}"></div>
+          `;
+          voidList.appendChild(row);
+        }
+      }
+
+      function renderVoid() {
+        const isolatedCount = renderVoidGraph();
+        voidPairsCache = computeVoidPairs();
+        const otherCount = participants.length - 1;
+        const totalPairs = (otherCount * (otherCount - 1)) / 2;
+        const pct = totalPairs ? Math.round((voidPairsCache.length / totalPairs) * 100) : 0;
+        voidSummary.innerHTML = `
+          <div class="stat"><div class="num">${voidPairsCache.length}</div><div class="lbl">silent pairs</div></div>
+          <div class="stat"><div class="num">${pct}%</div><div class="lbl">of ${totalPairs} mutual pairs</div></div>
+          <div class="stat"><div class="num">${isolatedCount}</div><div class="lbl">never spoken to anyone here</div></div>
+        `;
+        voidFilterInput.value = "";
+        renderVoidList("");
+      }
+
+      toggleVoidBtn.addEventListener("click", () => {
+        const on = voidWrap.classList.toggle("on");
+        toggleVoidBtn.textContent = on ? "hide the void ▴" : "show the void (mutuals who've never spoken) ▾";
+        if (on && !voidSvg.innerHTML) renderVoid();
+      });
+
+      voidFilterInput.addEventListener("input", () => {
+        if (!voidPairsCache) return;
+        renderVoidList(voidFilterInput.value.trim().toLowerCase());
+      });
+
       input.addEventListener("input", () => {
         msg.className = "msg";
         msg.textContent = "reads Bluesky's public graph and repos in your browser — no login, nothing uploaded. can take a while for handles with a lot of mutuals.";
@@ -461,6 +642,10 @@
         raceTable.innerHTML = "";
         gridWrap.classList.remove("on");
         toggleGridBtn.textContent = "show full mutual × mutual grid ▾";
+        voidSvg.innerHTML = "";
+        voidPairsCache = null;
+        voidWrap.classList.remove("on");
+        toggleVoidBtn.textContent = "show the void (mutuals who've never spoken) ▾";
         msg.className = "msg";
         msg.textContent = "resolving handle…";
 
