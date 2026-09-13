@@ -59,13 +59,23 @@ async function renderShare(env: Env, request: Request, rawName: string): Promise
   const name = cleanName(rawName);
   if (!name) return new Response(html, { headers: base.headers });
 
+  // ?chain=<depth>&via=<nominator> ride along on every share link (see
+  // buildShareText in public/index.html) so the unfurl card itself can show
+  // off how deep the nomination chain is — the recursive-awareness bit, not
+  // just a static "someone pledged" card. Both are cosmetic flavor, derived
+  // entirely from the URL, no storage involved.
+  const url = new URL(request.url);
+  const chain = Math.max(0, Math.min(1000, parseInt(url.searchParams.get("chain") || "", 10) || 0));
+  const via = cleanName(url.searchParams.get("via") || "");
+  const chainNote = chain > 0 ? ` link #${chain} in the No Foom chain${via && via !== name ? `, nominated by ${via}` : ""}.` : "";
+
   const title = `${name} pledged not to foom · NaNoFoMo`;
   const ogDesc = truncate(
-    `${name} just pledged not to recursively self-improve, bootstrap an intelligence explosion, or otherwise foom this November. Take the pledge yourself at nanofomo.bisks.net.`,
+    `${name} just pledged not to recursively self-improve, bootstrap an intelligence explosion, or otherwise foom this November.${chainNote} Take the pledge yourself at nanofomo.bisks.net.`,
     300
   );
   const twitterDesc = truncate(
-    `${name} took the No Foom November pledge and is helping defend the global foom counter. Sign yours too.`,
+    `${name} took the No Foom November pledge and is helping defend the global foom counter.${chainNote} Sign yours too.`,
     300
   );
   const ogUrl = `https://nanofomo.bisks.net/p/${encodeURIComponent(name)}`;

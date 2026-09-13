@@ -179,7 +179,9 @@
         intelligence explosion. No quietly bootstrapping a superintelligence in
         your garage between November 1st and 30th. That's the whole ask.
         Sign the pledge, help hold the counter at zero, and if you slip up,
-        there's a confession booth for that too.
+        there's a confession booth for that too. Recursion is the one thing
+        we're against here, except for one: nominate a few people below and
+        make this the one recursive process we actually want to run away.
       </p>
 
       <div class="panel" id="statusPanel">
@@ -197,10 +199,19 @@
         <div class="meter-note" id="meterNote">P(foom | this November), community estimate. holding, thanks to everyone below.</div>
       </div>
 
+      <div class="panel" id="chainBanner" style="display:none;">
+        <h2>you were nominated</h2>
+        <div class="status-sub" id="chainBannerText"></div>
+      </div>
+
       <div class="panel">
         <h2>take the pledge</h2>
         <label class="lbl" for="handle">your handle (optional)</label>
         <input type="text" id="handle" placeholder="you.bsky.social" autocomplete="off" />
+
+        <label class="lbl" for="nominees" style="margin-top: 0.9rem;">nominate up to 3 people to pledge next (optional)</label>
+        <input type="text" id="nominees" placeholder="alice.bsky.social, bob.bsky.social, carol.bsky.social" autocomplete="off" />
+
         <div class="row">
           <button class="pledge" id="pledgeBtn">🧯 pledge not to foom</button>
           <span class="tally" id="tally"></span>
@@ -211,12 +222,14 @@
           <div class="name" id="certName">anonymous non-foomer</div>
           <p class="line">has pledged not to recursively self-improve, bootstrap an intelligence explosion,<br />or otherwise foom for the duration of November.</p>
           <p class="line" id="certDate"></p>
+          <p class="line" id="certChain"></p>
         </div>
 
         <div class="sharewrap" id="sharewrap">
           <a class="btn" id="shareBluesky" target="_blank" rel="noopener">share your pledge on bluesky</a>
           <button class="btn" id="downloadCert">download certificate</button>
         </div>
+        <p class="meter-note" id="reachNote" style="text-align:center; margin-top: 0.6rem;"></p>
 
         <div class="row" style="margin-top: 1.1rem;">
           <button class="btn warn" id="confessBtn">😬 i fear i may have fooming tendencies</button>
@@ -250,17 +263,33 @@
       const meterPct = document.getElementById("meterPct");
       const meterNote = document.getElementById("meterNote");
       const handle = document.getElementById("handle");
+      const nominees = document.getElementById("nominees");
       const pledgeBtn = document.getElementById("pledgeBtn");
       const tally = document.getElementById("tally");
       const cert = document.getElementById("cert");
       const certName = document.getElementById("certName");
       const certDate = document.getElementById("certDate");
+      const certChain = document.getElementById("certChain");
       const sharewrap = document.getElementById("sharewrap");
       const shareBluesky = document.getElementById("shareBluesky");
       const downloadCert = document.getElementById("downloadCert");
       const confessBtn = document.getElementById("confessBtn");
       const confessBox = document.getElementById("confessBox");
       const checklist = document.getElementById("checklist");
+      const chainBanner = document.getElementById("chainBanner");
+      const chainBannerText = document.getElementById("chainBannerText");
+      const reachNote = document.getElementById("reachNote");
+
+      // ── recursive nomination chain: who sent me here, how deep is this ──
+      const params = new URLSearchParams(location.search);
+      const incomingChain = Math.max(0, Math.min(1000, parseInt(params.get("chain"), 10) || 0));
+      const incomingVia = (params.get("via") || "").trim().slice(0, 60);
+      const myChain = incomingChain + 1;
+
+      if (incomingVia) {
+        chainBanner.style.display = "";
+        chainBannerText.innerHTML = `<b>${escapeHtml(incomingVia)}</b> nominated you. that makes you link <b>#${myChain}</b> in this No Foom chain — pledge, then nominate a few more to keep the recursion going (the good kind, for once).`;
+      }
 
       function escapeHtml(s) {
         return (s || "").replace(/[&<>"']/g, (c) => ({
@@ -315,6 +344,15 @@
       }
       renderTally();
 
+      function parseNominees(raw) {
+        return (raw || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((s) => (s.startsWith("@") ? s : "@" + s))
+          .slice(0, 3);
+      }
+
       pledgeBtn.addEventListener("click", () => {
         fooming = false;
         const name = handle.value.trim() || "anonymous non-foomer";
@@ -324,24 +362,38 @@
         sharewrap.classList.add("show");
         confessBox.classList.remove("show");
 
+        const noms = parseNominees(nominees.value);
+        certChain.textContent = incomingVia
+          ? `link #${myChain} in the chain, nominated by ${incomingVia}`
+          : `link #${myChain}, starting a new chain`;
+
+        const reach = Math.min(Math.pow(3, myChain + 1), 1e9);
+        reachNote.textContent = noms.length
+          ? `if your ${noms.length} nomination${noms.length === 1 ? "" : "s"} each nominate 3 more, this chain could reach ~${Math.round(reach).toLocaleString()} people by the time it's ${myChain + 3} links deep.`
+          : `chains that don't nominate anyone stop at link #${myChain}. nominate someone above to keep it recursive.`;
+
         pledgeCount++;
         try { localStorage.setItem("nanofomo:pledges", String(pledgeCount)); } catch {}
         renderTally();
         renderMeter();
 
-        shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(certName.textContent));
-        drawCertificate(certName.textContent, certDate.textContent);
+        shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(certName.textContent, noms));
+        drawCertificate(certName.textContent, certDate.textContent, certChain.textContent);
       });
 
-      function buildShareText(name) {
-        const url = "https://nanofomo.bisks.net/p/" + encodeURIComponent(name);
+      function buildShareText(name, noms) {
+        const url = "https://nanofomo.bisks.net/p/" + encodeURIComponent(name) +
+          "?chain=" + myChain + "&via=" + encodeURIComponent(name);
+        if (noms && noms.length) {
+          return `🧯 ${name} just pledged not to foom this November, and nominates ${noms.join(" ")} to pledge next (and nominate a few more — that's the recursive part we actually want). ` + url;
+        }
         return `🧯 ${name} just pledged not to foom this November. National No Foom Month starts now. ` + url;
       }
 
       // ── certificate image, drawn to canvas ───────────────────────────────
       const canvas = document.getElementById("certCanvas");
       const ctx = canvas.getContext("2d");
-      function drawCertificate(name, dateLine) {
+      function drawCertificate(name, dateLine, chainLine) {
         const W = canvas.width, H = canvas.height;
         ctx.fillStyle = "#0b0d10";
         ctx.fillRect(0, 0, W, H);
@@ -375,8 +427,9 @@
 
         ctx.fillStyle = "#8b96a3";
         ctx.font = "20px monospace";
-        ctx.fillText(dateLine, W / 2, 560);
-        ctx.fillText("nanofomo.bisks.net", W / 2, 600);
+        ctx.fillText(dateLine, W / 2, 550);
+        if (chainLine) ctx.fillText(chainLine, W / 2, 578);
+        ctx.fillText("nanofomo.bisks.net", W / 2, 610);
       }
 
       downloadCert.addEventListener("click", () => {
