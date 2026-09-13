@@ -5,6 +5,8 @@
 // sites/paintmoot/public/lib/atproto.js, with the graph/list-specific bits
 // added for velvetrope.
 
+import { fetchRepoRecordsWithKeys } from "./car.js";
+
 const PUB = "https://api.bsky.app/xrpc";
 const PLC_DIR = "https://plc.directory";
 
@@ -133,36 +135,10 @@ export async function getModLists(actorDid) {
   return out;
 }
 
-// One list's metadata + every member. Each item carries `uri` — the AT URI
-// of the app.bsky.graph.listitem record itself — which is exactly what a
-// list owner needs to delete a member later (rkey = last uri segment).
-//
-// capPages is a runaway-loop backstop, not a real limit — 20 pages (2000
-// members) used to double as both, which silently truncated any list past
-// that size (reported 2026-08-04: a member past #2000 read as "not on the
-// list"). 2000 pages (200k members) is far past any real mod list.
-export async function getListFull(listUri, capPages = 2000) {
-  let list = null;
-  const items = [];
-  let cursor;
-  for (let p = 0; p < capPages; p++) {
-    const u = new URL(`${PUB}/app.bsky.graph.getList`);
-    u.searchParams.set("list", listUri);
-    u.searchParams.set("limit", "100");
-    if (cursor) u.searchParams.set("cursor", cursor);
-    const d = await jget(u.toString());
-    if (!list) list = d.list;
-    for (const it of d.items || []) items.push(it);
-    cursor = d.cursor;
-    if (!cursor || !(d.items || []).length) break;
-  }
-  if (!list) throw new Error("list not found");
-  return { list, items };
-}
-
-// List metadata only (name, purpose, creator, counts) — a single call with
-// no member-page walk, for callers that just need to know what a list is
-// before deciding whether to fetch it in full.
+// List metadata only (name, avatar, description, creator, listItemCount) —
+// a single call with no member-page walk, so a page can render its header
+// and known total before the (potentially much slower) full membership read
+// below finishes.
 export async function getListMeta(listUri) {
   const u = new URL(`${PUB}/app.bsky.graph.getList`);
   u.searchParams.set("list", listUri);
@@ -170,6 +146,93 @@ export async function getListMeta(listUri) {
   const d = await jget(u.toString());
   if (!d.list) throw new Error("list not found");
   return d.list;
+}
+
+const LIST_FALLBACK_MAX_PAGES = 2000; // runaway-loop backstop, not a real limit — 200k members is far past any real mod list
+
+// Every member of a list, each carrying `uri` — the AT URI of the
+// app.bsky.graph.listitem record itself, which is exactly what a list owner
+// needs to delete a member later (rkey = last uri segment).
+//
+// A list's listitems all live in the *owner's own repo* (each just points at
+// the list and a subject DID), so "every member" is really "one person's
+// whole listitem history" — pull it as a single com.atproto.sync.getRepo CAR
+// (see ./car.js, copied from sites/backscroll) instead of paginating
+// app.bsky.graph.getList a page of 100 at a time, same fix
+// sites/blocksweep/sites/rollcall already use for "give me this list's whole
+// membership." @heika.dog reported (2026-09-13) that checking your own
+// membership on someone's huge blocklist meant waiting through hundreds of
+// sequential AppView pages before the site could even show the list — one
+// CAR download answers "every member" in one request no matter the size.
+//
+// Falls back to paginated app.bsky.graph.getList when the CAR download
+// itself fails (owner's PDS unreachable/non-CORS, oversized repo, malformed
+// CAR). In that fallback walk, when `selfDid` is given and turns up on a
+// page, this returns immediately instead of finishing the walk — the other
+// half of the same ask: don't make someone wait through a whole huge list
+// just to learn they're already on it. There's no early exit on "not
+// found" (only knowable after seeing every member) or on the CAR path
+// (the whole membership already arrives in one request).
+export async function getListMembers(listUri, ownerDid, { onProgress, selfDid } = {}) {
+  try {
+    const pds = await resolvePds(ownerDid);
+    if (!pds) throw new Error("couldn't resolve the list owner's PDS");
+    const { records } = await fetchRepoRecordsWithKeys(pds, ownerDid, "app.bsky.graph.listitem", onProgress);
+    const items = [];
+    const seen = new Set();
+    for (const { uri, value } of records) {
+      if (value.list !== listUri || !value.subject || seen.has(value.subject)) continue;
+      seen.add(value.subject);
+      items.push({ uri, subject: { did: value.subject } });
+    }
+    return { items, viaCar: true, foundSelfEarly: false };
+  } catch (err) {
+    if (onProgress) onProgress(`repo CAR download failed (${err.message}) — falling back to paginated list read...`, 0);
+    const items = [];
+    const seen = new Set();
+    let cursor;
+    for (let pages = 0; pages < LIST_FALLBACK_MAX_PAGES; pages++) {
+      const u = new URL(`${PUB}/app.bsky.graph.getList`);
+      u.searchParams.set("list", listUri);
+      u.searchParams.set("limit", "100");
+      if (cursor) u.searchParams.set("cursor", cursor);
+      const d = await jget(u.toString());
+      let sawSelf = false;
+      for (const it of d.items || []) {
+        const did = it.subject?.did;
+        if (did && !seen.has(did)) {
+          seen.add(did);
+          items.push({ uri: it.uri, subject: it.subject });
+        }
+        if (selfDid && did === selfDid) sawSelf = true;
+      }
+      if (onProgress) onProgress(`paginating list membership... page ${pages + 1}, ${items.length} checked so far`, items.length);
+      if (sawSelf) return { items, viaCar: false, foundSelfEarly: true };
+      cursor = d.cursor;
+      if (!cursor || !(d.items || []).length) break;
+    }
+    return { items, viaCar: false, foundSelfEarly: false };
+  }
+}
+
+// Batch-resolves profiles (avatar, displayName, handle) for a list of DIDs.
+// The CAR path above only knows members by DID, so this hydrates just the
+// handful actually shown on screen (velvetrope's member list caps at 60)
+// rather than every member of a possibly huge list. 25 actors/call is
+// app.bsky.actor.getProfiles's own limit.
+export async function hydrateProfiles(dids) {
+  const out = new Map();
+  for (let i = 0; i < dids.length; i += 25) {
+    const batch = dids.slice(i, i + 25);
+    if (!batch.length) continue;
+    const u = new URL(`${PUB}/app.bsky.actor.getProfiles`);
+    for (const d of batch) u.searchParams.append("actors", d);
+    try {
+      const d = await jget(u.toString());
+      for (const p of d.profiles || []) out.set(p.did, p);
+    } catch {}
+  }
+  return out;
 }
 
 export function parseListUri(uri) {
