@@ -12,7 +12,7 @@
 // asked for the opposite of a scoreboard. Each act just gets a dot on a
 // shared sky — a pulse to notice, not a stat to chase.
 
-import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch, resolvePds } from "./lib/oauth.js";
+import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch, resolvePds, resolveHandle } from "./lib/oauth.js";
 import { GlobalIndex } from "./lib/global-index.js";
 
 const COLLECTION = "net.bisks.mutualpulse.act";
@@ -31,6 +31,9 @@ const CATEGORY_MAP = new Map(CATEGORIES.map((c) => [c.id, c]));
 const RENDER_CAP = 300;
 const SKY_DOT_CAP = 600;
 const FRESH_MS = 60 * 60 * 1000; // dots glow brighter for their first hour
+// A UI/readability limit on one pulse's chip row, not a network cap — the
+// lexicon's `tags` array shares this same bound.
+const MAX_TAGS = 8;
 
 function esc(s) {
   return String(s || "").replace(/[&<>"']/g, (c) => ({
@@ -81,6 +84,9 @@ function normalize(did, rkey, record) {
   const text = cleanStr(record.text, 300);
   if (!text) return null;
   const createdAtMs = Date.parse(record.createdAt || "");
+  const tags = Array.isArray(record.tags)
+    ? [...new Set(record.tags.filter((t) => typeof t === "string" && t.startsWith("did:")))].slice(0, MAX_TAGS)
+    : [];
   return {
     did,
     rkey,
@@ -88,6 +94,7 @@ function normalize(did, rkey, record) {
     category,
     text,
     place: cleanStr(record.place, 100),
+    tags,
     createdAt: Number.isFinite(createdAtMs) ? createdAtMs : 0,
   };
 }
@@ -133,6 +140,8 @@ let session = null;
 let category = "food";
 let filter = "";
 let currentEntry = null; // the single act loaded for /pulse/<did>/<rkey>, else null
+let taggedHandles = []; // [{ did, handle }] — people tagged as having helped on the pulse being composed
+let editingEntry = null; // the entry currently being edited (putRecord over its rkey), or null for a fresh post
 const seenKeys = new Set(); // keys already painted on the sky at least once — everything else flares in
 const selectedKey = { current: null }; // the dot currently pinned in the readout line
 
@@ -182,10 +191,17 @@ const els = {
   text: document.getElementById("text"),
   place: document.getElementById("place"),
   go: document.getElementById("go"),
+  cancelEdit: document.getElementById("cancelEdit"),
+  composeTitle: document.getElementById("composeTitle"),
   status: document.getElementById("status"),
   signinBar: document.getElementById("signinBar"),
   composeHint: document.getElementById("composeHint"),
   catRow: document.getElementById("catRow"),
+  tagChips: document.getElementById("tagChips"),
+  tagsInput: document.getElementById("tagsInput"),
+  tagsErr: document.getElementById("tagsErr"),
+  notifPanel: document.getElementById("notifPanel"),
+  notifList: document.getElementById("notifList"),
   tabs: document.getElementById("tabs"),
   feedEmpty: document.getElementById("feedEmpty"),
   feedMeta: document.getElementById("feedMeta"),
@@ -204,6 +220,59 @@ els.catRow.innerHTML = CATEGORIES
     category = btn.dataset.cat;
     els.catRow.querySelectorAll(".catbtn").forEach((b) => b.classList.toggle("active", b === btn));
   });
+});
+
+// --- tag-people-who-helped picker (multi-handle chips) ----------------------
+
+function renderTagChips() {
+  els.tagChips.innerHTML = taggedHandles
+    .map((t, i) => `<span class="chip">@${esc(t.handle)}<button type="button" class="chip-x" data-i="${i}" aria-label="remove @${esc(t.handle)}">×</button></span>`)
+    .join("");
+  [...els.tagChips.querySelectorAll(".chip-x")].forEach((btn) => {
+    btn.addEventListener("click", () => {
+      taggedHandles.splice(Number(btn.dataset.i), 1);
+      renderTagChips();
+    });
+  });
+}
+
+function addTag(did, handle) {
+  if (!did || taggedHandles.some((t) => t.did === did)) return;
+  if (taggedHandles.length >= MAX_TAGS) {
+    els.tagsErr.textContent = `up to ${MAX_TAGS} people per pulse.`;
+    return;
+  }
+  els.tagsErr.textContent = "";
+  taggedHandles.push({ did, handle });
+  renderTagChips();
+}
+
+if (window.attachHandleTypeahead) {
+  window.attachHandleTypeahead(els.tagsInput, {
+    onSelect: (actor) => {
+      addTag(actor.did, actor.handle);
+      els.tagsInput.value = "";
+    },
+  });
+}
+// Fallback for a handle typed and entered without picking a dropdown
+// suggestion. Attached after attachHandleTypeahead so its own Enter handling
+// (selecting an active suggestion) runs first and clears the input — if that
+// already happened this tick, cleanHandle(value) is empty and this is a no-op.
+els.tagsInput.addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  const raw = cleanHandle(els.tagsInput.value);
+  if (!raw) return;
+  els.tagsErr.textContent = "looking that handle up...";
+  try {
+    const did = raw.startsWith("did:") ? raw : await resolveHandle(raw);
+    if (!did) throw new Error("not found");
+    addTag(did, raw);
+    els.tagsInput.value = "";
+  } catch (_) {
+    els.tagsErr.textContent = `couldn't find @${esc(raw)} — check the spelling.`;
+  }
 });
 
 els.tabs.innerHTML =
@@ -266,6 +335,87 @@ els.shareCopy.addEventListener("click", () => {
     .catch(() => {});
 });
 
+// --- edit / delete -----------------------------------------------------------
+
+function enterEditMode(entry) {
+  editingEntry = entry;
+  category = entry.category;
+  els.catRow.querySelectorAll(".catbtn").forEach((b) => b.classList.toggle("active", b.dataset.cat === category));
+  els.text.value = entry.text;
+  els.place.value = entry.place || "";
+  taggedHandles = (entry.tags || []).map((did) => {
+    const p = profileFor(did);
+    return { did, handle: p ? p.handle : did.slice(0, 10) + "…" };
+  });
+  renderTagChips();
+  // profileFor() may still be resolving for a tagged DID the first time it's
+  // seen — one retry once the lazy lookup has had a moment to land, so a chip
+  // doesn't keep showing a truncated DID forever.
+  if (taggedHandles.some((t) => t.handle.endsWith("…"))) {
+    setTimeout(() => {
+      taggedHandles = taggedHandles.map((t) => {
+        const p = profileFor(t.did);
+        return p ? { did: t.did, handle: p.handle } : t;
+      });
+      renderTagChips();
+    }, 600);
+  }
+  els.composeTitle.textContent = "edit this pulse";
+  els.go.textContent = "save changes";
+  els.cancelEdit.hidden = false;
+  setStatus("", "");
+  els.text.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function exitEditMode() {
+  editingEntry = null;
+  els.composeTitle.textContent = "log a pulse";
+  els.go.textContent = "send a pulse";
+  els.cancelEdit.hidden = true;
+}
+
+function resetComposeForm() {
+  els.form.reset();
+  taggedHandles = [];
+  renderTagChips();
+  els.tagsErr.textContent = "";
+}
+
+els.cancelEdit.addEventListener("click", () => {
+  exitEditMode();
+  resetComposeForm();
+  setStatus("edit cancelled.", "");
+});
+
+// opts.onDeleted / opts.onError let the entry-detail permalink page (which
+// has no compose form or #status element visible) redirect instead of
+// writing a status line the viewer would never see.
+async function deleteEntry(entry, opts = {}) {
+  if (!session || entry.did !== session.did) return;
+  if (!confirm("delete this pulse? this can't be undone.")) return;
+  try {
+    const res = await dpopFetch(session, `${session.pdsUrl}/xrpc/com.atproto.repo.deleteRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: session.did, collection: COLLECTION, rkey: entry.rkey }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || "couldn't delete that record");
+    }
+    index.removeOwn(entry.did, entry.rkey);
+    if (editingEntry && editingEntry.rkey === entry.rkey) {
+      exitEditMode();
+      resetComposeForm();
+    }
+    if (opts.onDeleted) opts.onDeleted();
+    else setStatus("pulse deleted.", "ok");
+  } catch (err) {
+    if (opts.onError) opts.onError(err);
+    else setStatus("couldn't delete that: " + err.message, "err");
+  }
+}
+
 // --- submit ------------------------------------------------------------------
 
 async function postEntry() {
@@ -274,31 +424,38 @@ async function postEntry() {
   if (!session) { setStatus("sign in above first.", "err"); return; }
 
   els.go.disabled = true;
-  setStatus("writing to your PDS...");
+  setStatus(editingEntry ? "saving changes..." : "writing to your PDS...");
 
   try {
     const record = {
       $type: COLLECTION,
       category,
       text: text.slice(0, 140),
-      createdAt: new Date().toISOString(),
+      createdAt: editingEntry ? new Date(editingEntry.createdAt || Date.now()).toISOString() : new Date().toISOString(),
     };
     const place = els.place.value.trim();
     if (place) record.place = place.slice(0, 100);
+    if (taggedHandles.length) record.tags = taggedHandles.map((t) => t.did);
 
-    const writeRes = await dpopFetch(session, `${session.pdsUrl}/xrpc/com.atproto.repo.createRecord`, {
+    const method = editingEntry ? "com.atproto.repo.putRecord" : "com.atproto.repo.createRecord";
+    const body = editingEntry
+      ? { repo: session.did, collection: COLLECTION, rkey: editingEntry.rkey, record }
+      : { repo: session.did, collection: COLLECTION, record };
+
+    const writeRes = await dpopFetch(session, `${session.pdsUrl}/xrpc/${method}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ repo: session.did, collection: COLLECTION, record }),
+      body: JSON.stringify(body),
     });
     const written = await writeRes.json().catch(() => ({}));
     if (!writeRes.ok) throw new Error(written.message || "couldn't write that record to your PDS");
 
-    const rkey = String(written.uri || "").split("/").pop();
+    const rkey = editingEntry ? editingEntry.rkey : String(written.uri || "").split("/").pop();
     if (rkey) index.applyOwn(session.did, rkey, record);
 
-    setStatus("sent. it's glowing.", "ok");
-    els.form.reset();
+    setStatus(editingEntry ? "saved." : "sent. it's glowing.", "ok");
+    exitEditMode();
+    resetComposeForm();
   } catch (err) {
     setStatus("couldn't post that: " + err.message, "err");
   } finally {
@@ -309,6 +466,17 @@ els.form.addEventListener("submit", (e) => {
   e.preventDefault();
   postEntry();
 });
+
+// --- render: shared bits (tag line, own edit/delete controls) ---------------
+
+function tagsLine(entry) {
+  if (!entry.tags || !entry.tags.length) return "";
+  const names = entry.tags.map((did) => {
+    const p = profileFor(did);
+    return p ? `@${esc(p.handle)}` : did.slice(0, 10) + "…";
+  });
+  return `<div class="facts"><span><b>with:</b> ${names.join(", ")}</span></div>`;
+}
 
 // --- render: the sky (ambient, deterministic dot field) ---------------------
 
@@ -373,6 +541,7 @@ function renderEntry(entry) {
 
   const profile = profileFor(entry.did);
   const who = profile ? `@${esc(profile.handle)}` : entry.did.slice(0, 16) + "…";
+  const own = session && session.did === entry.did;
 
   div.innerHTML = `
     <div class="top">
@@ -381,8 +550,16 @@ function renderEntry(entry) {
     </div>
     <div class="title">${esc(entry.text)}</div>
     ${entry.place ? `<div class="facts"><span><b>place:</b> ${esc(entry.place)}</span></div>` : ""}
-    <div class="foot"><a href="/pulse/${esc(entry.did)}/${esc(entry.rkey)}">permalink →</a></div>
+    ${tagsLine(entry)}
+    <div class="foot">
+      <a href="/pulse/${esc(entry.did)}/${esc(entry.rkey)}">permalink →</a>
+      ${own ? `<button type="button" class="editBtn">edit</button><button type="button" class="deleteBtn">delete</button>` : ""}
+    </div>
   `;
+  if (own) {
+    div.querySelector(".editBtn").addEventListener("click", () => enterEditMode(entry));
+    div.querySelector(".deleteBtn").addEventListener("click", () => deleteEntry(entry));
+  }
   return div;
 }
 
@@ -392,6 +569,7 @@ function renderEntryDetail(entry) {
   const cat = CATEGORY_MAP.get(entry.category);
   const profile = profileFor(entry.did);
   const who = profile ? `@${esc(profile.handle)}` : entry.did.slice(0, 16) + "…";
+  const own = session && session.did === entry.did;
 
   const url = buildEntryUrl(entry);
   const shareHref = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildEntryShareText(entry));
@@ -404,9 +582,11 @@ function renderEntryDetail(entry) {
       </div>
       <div class="title">${esc(entry.text)}</div>
       ${entry.place ? `<div class="facts"><span><b>place:</b> ${esc(entry.place)}</span></div>` : ""}
+      ${tagsLine(entry)}
       <div class="foot">
         <a href="${esc(shareHref)}" target="_blank" rel="noopener">🦋 share</a>
         <button type="button" id="copyEntryLink">🔗 copy link</button>
+        ${own ? `<button type="button" id="editEntryBtn">edit</button><button type="button" id="deleteEntryBtn">delete</button>` : ""}
       </div>
     </div>
   `;
@@ -418,6 +598,27 @@ function renderEntryDetail(entry) {
       })
       .catch(() => {});
   });
+  if (own) {
+    // Editing lives on the home view's compose form, which this permalink
+    // page hides — hop back to it (a real navigation entry, not a silent
+    // DOM swap) and drop the same entry straight into edit mode there.
+    document.getElementById("editEntryBtn").addEventListener("click", () => {
+      route = { view: "feed" };
+      history.pushState({}, "", "/");
+      els.homeView.hidden = false;
+      els.entryView.hidden = true;
+      renderAll();
+      enterEditMode(entry);
+    });
+    document.getElementById("deleteEntryBtn").addEventListener("click", () => {
+      deleteEntry(entry, {
+        onDeleted: () => { location.href = "/"; },
+        onError: (err) => {
+          els.entryBody.insertAdjacentHTML("beforeend", `<p class="empty-state">couldn't delete: ${esc(err.message)}</p>`);
+        },
+      });
+    });
+  }
 }
 
 // Dispatches to the act-permalink view or the normal feed depending on
@@ -431,11 +632,29 @@ function renderRoute() {
   renderAll();
 }
 
+// Not a server-side notification system — there is no server. Signed-in
+// visitors already replay the entire network's acts into this same
+// GlobalIndex (see the file banner), so "notifications" is just that index
+// filtered to pulses tagging the viewer's own DID. It only surfaces what
+// this browser has backfilled/heard on Jetstream so far, same honesty
+// caveat as every other view here.
+function renderNotifications(entries) {
+  if (!session) { els.notifPanel.hidden = true; return; }
+  const mine = entries.filter((e) => e.tags.includes(session.did) && e.did !== session.did);
+  els.notifPanel.hidden = !mine.length;
+  if (!mine.length) return;
+  els.notifList.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  for (const entry of mine.slice(0, RENDER_CAP)) frag.appendChild(renderEntry(entry));
+  els.notifList.appendChild(frag);
+}
+
 function renderAll() {
   const snapshot = index.snapshot();
   const entries = snapshot.entries.slice().sort((a, b) => b.createdAt - a.createdAt);
 
   renderSky(entries);
+  renderNotifications(entries);
 
   const filtered = filter ? entries.filter((e) => e.category === filter) : entries;
   els.feedEmpty.hidden = !!entries.length;

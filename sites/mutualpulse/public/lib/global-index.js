@@ -135,6 +135,21 @@ export class GlobalIndex {
     this.emit();
   }
 
+  // Mirrors applyOwn: removes a just-deleted record from the index before
+  // Jetstream necessarily echoes the delete back, so the poster sees it gone
+  // instantly instead of waiting on the firehose round trip.
+  removeOwn(did, rkey) {
+    const key = `${did}::${rkey}`;
+    this.liveKeys.add(key);
+    this.rawRecords.delete(key);
+    const changed = this.entries.delete(key);
+    if (changed) {
+      this.lastUpdated = Date.now();
+      this.schedulePersist();
+      this.emit();
+    }
+  }
+
   pause() {
     this.paused = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);

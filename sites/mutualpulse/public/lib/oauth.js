@@ -10,7 +10,9 @@
 // mount prefix to worry about.
 //
 // Scope: narrowed per notes/50-oauth-scopes.md — mutualpulse only ever
-// creates net.bisks.mutualpulse.act records, nothing else. Must match
+// creates/updates/deletes its own net.bisks.mutualpulse.act records, nothing
+// else. No ?action=... suffix since it genuinely uses all three (create,
+// edit, delete a pulse) — that's the unqualified default. Must match
 // public/client-metadata.json's `scope` field exactly.
 
 import {
@@ -28,7 +30,7 @@ const ORIGIN = location.origin; // https://mutualpulse.bisks.net (or localhost i
 const MOUNT = "";
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto repo:net.bisks.mutualpulse.act?action=create";
+const SCOPE = "atproto repo:net.bisks.mutualpulse.act";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";
