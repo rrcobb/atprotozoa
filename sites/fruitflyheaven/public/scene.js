@@ -149,8 +149,8 @@ const FlyScene = (() => {
     ["lcFood", "lh"],
     ["lcWall", "lh"],
     ["odor", "lh"],
-    ["mbon", "eb"],
-    ["lh", "eb"],
+    ["mbon", "fb"],
+    ["lh", "fb"],
     ["eb", "fb"],
     ["fb", "dn"],
   ];

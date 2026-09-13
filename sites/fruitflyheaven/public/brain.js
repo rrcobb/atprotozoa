@@ -16,8 +16,10 @@
 //     real appetitive conditioning
 //   lateral horn (LH): the *innate* pathway, fixed weights, running in
 //     parallel to the mushroom body from the same LC/glomerulus input
-//   MBON + LH -> central complex (ellipsoid body heading ring + fan-shaped
-//     body goal ring) -> steering error -> descending neurons -> wing motor
+//   MBON + LH -> fan-shaped body (goal ring, encodes the heading worth
+//     steering toward); ellipsoid body (heading ring) tracks the fly's
+//     actual current heading directly, no MBON/LH input needed for that part
+//   EB vs FB -> steering error -> descending neurons -> wing motor
 //
 // Everything here is a scalar per node, computed fresh each tick from
 // FlyWorld's sensory snapshot. No DOM, no canvas — see scene.js for that.
