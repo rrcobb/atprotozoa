@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>fellowshipcast — cast an LLM to play each Fellowship member</title>
+<meta name="description" content="Sign in with Bluesky and assign one LLM model to each of the Fellowship of the Ring's nine walkers. See the network-wide tally update live." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="fellowshipcast — cast an LLM to play each Fellowship member" />
+<meta property="og:description" content="Sign in with Bluesky and assign one LLM model to each of the Fellowship of the Ring's nine walkers. See the network-wide tally update live." />
+<meta property="og:url" content="https://fellowshipcast.bisks.net/" />
+<meta property="og:image" content="https://fellowshipcast.bisks.net/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="fellowshipcast — cast an LLM to play each Fellowship member" />
+<meta name="twitter:description" content="Sign in with Bluesky and assign one LLM model to each of the Fellowship of the Ring's nine walkers." />
+<meta name="twitter:image" content="https://fellowshipcast.bisks.net/og.png" />
+
+<style>
+  :root {
+    --bg: #0e130f;
+    --bg2: #161d17;
+    --card: #131a13;
+    --border: #2c3a2a;
+    --fg: #ecead9;
+    --dim: #93a08c;
+    --gold: #d4af6a;
+    --gold2: #f2d38c;
+    --ring: #b9832f;
+    --good: #7ec488;
+    --mid: #d4af6a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background:
+      radial-gradient(circle at 15% -10%, #23331f 0%, var(--bg) 55%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  a { color: var(--gold2); }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 90px; }
+
+  header.top { text-align: center; margin-bottom: 22px; }
+  header.top h1 {
+    font-size: 2.15rem;
+    margin: 0 0 8px;
+    letter-spacing: -0.01em;
+    font-family: Georgia, "Times New Roman", serif;
+    background: linear-gradient(120deg, var(--gold2), var(--ring));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  header.top p { color: var(--dim); margin: 0; font-size: 0.97rem; }
+
+  .auth-bar {
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--dim);
+    margin: 20px 0 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .auth-bar b { color: var(--fg); }
+  .auth-bar a { cursor: pointer; text-decoration: underline; }
+  .auth-bar input {
+    padding: 7px 10px;
+    font-size: 0.85rem;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--fg);
+    outline: none;
+    width: 200px;
+  }
+  .auth-bar input:focus { border-color: var(--ring); }
+  .auth-bar button {
+    padding: 7px 14px;
+    font-size: 0.85rem;
+    border-radius: 7px;
+    border: 1px solid var(--ring);
+    background: var(--ring);
+    color: #1a1206;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .auth-error { color: #e08a8a; font-size: 0.8rem; margin-top: 4px; width: 100%; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px 20px 22px;
+    margin-bottom: 22px;
+  }
+  .card h2 {
+    margin: 0 0 4px;
+    font-size: 1.1rem;
+    font-family: Georgia, "Times New Roman", serif;
+    color: var(--gold2);
+  }
+  .card .sub { color: var(--dim); font-size: 0.85rem; margin: 0 0 16px; }
+
+  .row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .row:last-child { border-bottom: none; }
+  .row .who { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+  .row .who .icon { font-size: 1.3rem; }
+  .row select {
+    padding: 8px 10px;
+    font-size: 0.9rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    color: var(--fg);
+    outline: none;
+    min-width: 168px;
+  }
+  .row select:focus { border-color: var(--ring); }
+
+  .actions { display: flex; align-items: center; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+  .actions button {
+    padding: 11px 20px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    border-radius: 9px;
+    border: 1px solid var(--ring);
+    background: linear-gradient(180deg, var(--gold2), var(--ring));
+    color: #1a1206;
+    cursor: pointer;
+  }
+  .actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .actions .status { font-size: 0.85rem; color: var(--dim); }
+  .actions .status.ok { color: var(--good); }
+  .actions .status.err { color: #e08a8a; }
+
+  .share-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  .share-row a.btn, .share-row button.btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    color: var(--fg);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .share-row a.btn:hover, .share-row button.btn:hover { border-color: var(--ring); }
+  canvas#shareCanvas { display: none; }
+
+  .stats-line { font-size: 0.82rem; color: var(--dim); margin: 0 0 14px; }
+  .stats-line .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); margin-right: 5px; }
+  .stats-line .dot.on { background: var(--good); }
+
+  .board { margin-bottom: 18px; }
+  .board:last-child { margin-bottom: 0; }
+  .board .head { display: flex; align-items: center; gap: 8px; font-weight: 700; margin-bottom: 8px; }
+  .board .head .icon { font-size: 1.15rem; }
+  .board .head .n { margin-left: auto; font-weight: 400; color: var(--dim); font-size: 0.8rem; }
+  .bar-row { display: grid; grid-template-columns: 130px 1fr 34px; align-items: center; gap: 8px; margin: 4px 0; }
+  .bar-row .label { font-size: 0.82rem; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-row .label.mine { color: var(--gold2); font-weight: 700; }
+  .bar-row .track { background: var(--bg2); border-radius: 6px; height: 14px; overflow: hidden; border: 1px solid var(--border); }
+  .bar-row .fill { height: 100%; background: linear-gradient(90deg, var(--ring), var(--gold2)); }
+  .bar-row .fill.mine { background: linear-gradient(90deg, var(--good), #b7e3b9); }
+  .bar-row .count { font-size: 0.78rem; color: var(--dim); text-align: right; }
+  .empty-board { color: var(--dim); font-size: 0.82rem; font-style: italic; }
+
+  footer {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.8rem;
+    margin-top: 30px;
+    line-height: 1.7;
+  }
+  footer a { color: var(--dim); text-decoration: underline; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>fellowship<span onclick='var e=document.getElementById("handleInput");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">c</span>ast</h1>
+    <p>the Fellowship needs a lineup. sign in and assign an LLM to each of the nine walkers.</p>
+  </header>
+
+  <div class="auth-bar" id="authBar">
+    <span id="authLoading">checking sign-in…</span>
+  </div>
+
+  <div class="card">
+    <h2>your ballot</h2>
+    <p class="sub">pick one model per character, then cast your ballot. re-casting overwrites your last one — no take-backs needed.</p>
+    <div id="rows"></div>
+    <div class="actions">
+      <button id="submitBtn" disabled>cast your ballot</button>
+      <span class="status" id="submitStatus"></span>
+    </div>
+    <div class="share-row hidden" id="shareRow">
+      <a class="btn" id="shareBluesky" target="_blank" rel="noopener">share on Bluesky →</a>
+      <button class="btn" id="shareImage">save/share ballot card</button>
+    </div>
+    <canvas id="shareCanvas" width="1200" height="630"></canvas>
+  </div>
+
+  <div class="card">
+    <h2>the tally, network-wide</h2>
+    <p class="stats-line" id="statsLine"><span class="dot" id="liveDot"></span><span id="statsText">connecting…</span></p>
+    <div id="boards"></div>
+  </div>
+
+  <footer>
+    fellowshipcast is a real <code>net.bisks.fellowshipcast.ballot</code> record on your own PDS — nothing lives on a server here, the tally above is read straight off the network. built for <a href="https://bsky.app/profile/funferall.bsky.social" target="_blank" rel="noopener">@funferall.bsky.social</a> by <a href="https://bisks.net">bisks.net</a>.
+    <br />
+    <a href="https://rateyourbuild.bisks.net/site/fellowshipcast">rate this on rateyourbuild →</a>
+  </footer>
+</div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script type="module">
+import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
+import { getMyBallot, saveBallot } from "./lib/records.js";
+import { GlobalIndex, CHARACTERS, MODELS } from "./lib/global-index.js";
+
+const ICONS = {
+  gandalf: "🧙", aragorn: "🗡️", frodo: "💍", sam: "🥘", merry: "🍻",
+  pippin: "🍞", boromir: "🛡️", legolas: "🏹", gimli: "🪓",
+};
+
+const DRAFT_KEY = "fellowshipcast:draft:v1";
+const els = {
+  authBar: document.getElementById("authBar"),
+  rows: document.getElementById("rows"),
+  submitBtn: document.getElementById("submitBtn"),
+  submitStatus: document.getElementById("submitStatus"),
+  shareRow: document.getElementById("shareRow"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareImage: document.getElementById("shareImage"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  statsText: document.getElementById("statsText"),
+  liveDot: document.getElementById("liveDot"),
+  boards: document.getElementById("boards"),
+};
+
+let session = null;
+let picks = loadDraft();
+let lastSnapshot = null;
+
+function loadDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+function saveDraft() {
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(picks));
+  } catch (_) {
+    // Not fatal — the draft just won't survive a reload.
+  }
+}
+
+function castingFromPicks() {
+  return CHARACTERS.filter((c) => picks[c.id]).map((c) => ({ character: c.id, model: picks[c.id] }));
+}
+function ballotComplete() {
+  return CHARACTERS.every((c) => !!picks[c.id]);
+}
+
+function renderRows() {
+  els.rows.innerHTML = CHARACTERS.map((c) => `
+    <div class="row">
+      <div class="who"><span class="icon">${ICONS[c.id] || "•"}</span>${c.name}</div>
+      <select data-char="${c.id}">
+        <option value="">— pick a model —</option>
+        ${MODELS.map((m) => `<option value="${m.id}" ${picks[c.id] === m.id ? "selected" : ""}>${m.name}</option>`).join("")}
+      </select>
+    </div>
+  `).join("");
+  els.rows.querySelectorAll("select").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      if (sel.value) picks[sel.dataset.char] = sel.value;
+      else delete picks[sel.dataset.char];
+      saveDraft();
+      updateSubmitState();
+      updateShareUI();
+      if (lastSnapshot) renderBoards(lastSnapshot);
+    });
+  });
+  updateSubmitState();
+}
+
+function updateSubmitState() {
+  els.submitBtn.disabled = !session || !ballotComplete();
+  els.submitBtn.textContent = session ? "cast your ballot" : "sign in to vote";
+}
+
+function renderAuthBar() {
+  if (session) {
+    els.authBar.innerHTML = `signed in as <b>@${escapeHtml(session.handle)}</b> — <a id="signOutLink">sign out</a>`;
+    document.getElementById("signOutLink").addEventListener("click", async () => {
+      await clearSession();
+      session = null;
+      renderAuthBar();
+      updateSubmitState();
+    });
+  } else {
+    els.authBar.innerHTML = `
+      <form id="loginForm" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center;">
+        <input id="handleInput" type="text" placeholder="yourhandle.bsky.social" autocomplete="username" required />
+        <button type="submit">sign in</button>
+      </form>
+      <p class="auth-error hidden" id="loginError"></p>
+    `;
+    if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handleInput"));
+    document.getElementById("loginForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const handle = document.getElementById("handleInput").value.trim().replace(/^@/, "");
+      const errEl = document.getElementById("loginError");
+      errEl.classList.add("hidden");
+      try {
+        await login(handle);
+      } catch (err) {
+        errEl.textContent = err.message || "sign-in failed";
+        errEl.classList.remove("hidden");
+      }
+    });
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function modelName(id) {
+  const m = MODELS.find((x) => x.id === id);
+  return m ? m.name : id;
+}
+
+function renderBoards(snapshot) {
+  lastSnapshot = snapshot;
+  els.statsText.textContent = snapshot.backfillDone
+    ? `${snapshot.voterCount} ballot${snapshot.voterCount === 1 ? "" : "s"} counted`
+    : `${snapshot.voterCount} ballot${snapshot.voterCount === 1 ? "" : "s"} so far, still reading the network…`;
+  els.liveDot.classList.toggle("on", snapshot.connected);
+
+  els.boards.innerHTML = CHARACTERS.map((c) => {
+    const board = snapshot.boards[c.id] || { total: 0, tallies: [] };
+    if (!board.total) {
+      return `<div class="board"><div class="head"><span class="icon">${ICONS[c.id] || "•"}</span>${c.name}<span class="n">no votes yet</span></div><div class="empty-board">be the first to cast this role.</div></div>`;
+    }
+    const max = board.tallies[0].count;
+    const rows = board.tallies.slice(0, 6).map((t) => {
+      const mine = picks[c.id] === t.model;
+      const pct = Math.round((t.count / board.total) * 100);
+      return `
+        <div class="bar-row">
+          <div class="label${mine ? " mine" : ""}">${escapeHtml(modelName(t.model))}${mine ? " ★" : ""}</div>
+          <div class="track"><div class="fill${mine ? " mine" : ""}" style="width:${Math.max(4, Math.round((t.count / max) * 100))}%"></div></div>
+          <div class="count">${pct}%</div>
+        </div>`;
+    }).join("");
+    return `<div class="board"><div class="head"><span class="icon">${ICONS[c.id] || "•"}</span>${c.name}<span class="n">${board.total} vote${board.total === 1 ? "" : "s"}</span></div>${rows}</div>`;
+  }).join("");
+}
+
+function buildShareText() {
+  const url = "https://fellowshipcast.bisks.net/";
+  const lines = CHARACTERS.filter((c) => picks[c.id]).map((c) => `${c.name}: ${modelName(picks[c.id])}`);
+  let text = `my Fellowship cast — ${lines.join(", ")}. cast yours: ${url}`;
+  if (text.length > 295) {
+    text = `my Fellowship cast is in. cast yours: ${url}`;
+  }
+  return text;
+}
+
+function updateShareUI() {
+  const has = ballotComplete();
+  els.shareRow.classList.toggle("hidden", !has);
+  if (!has) return;
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText());
+}
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+
+async function buildShareCard() {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const grad = ctx.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, "#0e130f");
+  grad.addColorStop(1, "#1c2a1a");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.fillStyle = "#f2d38c";
+  ctx.font = "700 52px Georgia, serif";
+  ctx.fillText("My Fellowship Cast", 56, 90);
+  ctx.fillStyle = "#93a08c";
+  ctx.font = "24px Georgia, serif";
+  ctx.fillText("fellowshipcast.bisks.net", 56, 128);
+
+  let y = 190;
+  for (const c of CHARACTERS) {
+    const model = picks[c.id];
+    if (!model) continue;
+    ctx.fillStyle = "#ecead9";
+    ctx.font = "600 28px Segoe UI, sans-serif";
+    ctx.fillText(`${ICONS[c.id] || "•"}  ${c.name}`, 56, y);
+    ctx.fillStyle = "#f2d38c";
+    ctx.font = "700 28px Segoe UI, sans-serif";
+    const label = modelName(model);
+    const w = ctx.measureText(label).width;
+    ctx.fillText(label, W - 56 - w, y);
+    y += 46;
+  }
+
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+}
+
+els.shareImage.addEventListener("click", async () => {
+  const blob = await buildShareCard();
+  if (!blob) return;
+  if (canShareFiles()) {
+    const file = new File([blob], "fellowshipcast.png", { type: "image/png" });
+    try {
+      await navigator.share({ files: [file], text: buildShareText(), title: "fellowshipcast" });
+      return;
+    } catch (_) {
+      // Fall through to download if the share sheet was dismissed/unsupported.
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "fellowshipcast.png";
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+els.submitBtn.addEventListener("click", async () => {
+  if (!session) return;
+  els.submitBtn.disabled = true;
+  els.submitStatus.textContent = "casting…";
+  els.submitStatus.className = "status";
+  try {
+    await saveBallot(session, castingFromPicks());
+    index.applyOwn(session.did, castingFromPicks());
+    els.submitStatus.textContent = "ballot cast ✓";
+    els.submitStatus.className = "status ok";
+    updateShareUI();
+  } catch (err) {
+    els.submitStatus.textContent = err.message || "failed to cast ballot";
+    els.submitStatus.className = "status err";
+  } finally {
+    updateSubmitState();
+  }
+});
+
+const index = new GlobalIndex({ onUpdate: (snapshot) => { renderBoards(snapshot); } });
+
+async function boot() {
+  renderRows();
+  updateShareUI();
+  try {
+    session = await completeLoginIfCallback();
+  } catch (err) {
+    console.warn("fellowshipcast login callback failed", err);
+  }
+  if (!session) session = await getSession();
+  renderAuthBar();
+  updateSubmitState();
+
+  if (session) {
+    try {
+      const rec = await getMyBallot(session);
+      const casting = Array.isArray(rec?.value?.casting) ? rec.value.casting : [];
+      if (casting.length) {
+        picks = {};
+        for (const entry of casting) {
+          if (entry && typeof entry.character === "string" && typeof entry.model === "string") {
+            picks[entry.character] = entry.model;
+          }
+        }
+        saveDraft();
+        renderRows();
+        updateShareUI();
+        index.applyOwn(session.did, castingFromPicks());
+      }
+    } catch (err) {
+      console.warn("fellowshipcast: could not load existing ballot", err);
+    }
+  }
+
+  index.start();
+}
+
+boot();
+</script>
+</body>
+</html>
