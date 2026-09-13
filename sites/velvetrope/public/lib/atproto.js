@@ -160,6 +160,18 @@ export async function getListFull(listUri, capPages = 2000) {
   return { list, items };
 }
 
+// List metadata only (name, purpose, creator, counts) — a single call with
+// no member-page walk, for callers that just need to know what a list is
+// before deciding whether to fetch it in full.
+export async function getListMeta(listUri) {
+  const u = new URL(`${PUB}/app.bsky.graph.getList`);
+  u.searchParams.set("list", listUri);
+  u.searchParams.set("limit", "1");
+  const d = await jget(u.toString());
+  if (!d.list) throw new Error("list not found");
+  return d.list;
+}
+
 export function parseListUri(uri) {
   const m = /^at:\/\/(did:[^/]+)\/app\.bsky\.graph\.list\/([^/]+)$/.exec(String(uri || ""));
   if (!m) return null;

@@ -167,7 +167,8 @@
 
     <script type="module">
       import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch } from "./lib/oauth.js";
-      import { resolveDid, getProfile, getModLists, getListFull, parseListUri, applyListWrites, getFollows, getFollowers } from "./lib/atproto.js";
+      import { resolveDid, getProfile, getModLists, getListFull, getListMeta, parseListUri, applyListWrites } from "./lib/atproto.js";
+      import { fetchListMemberships } from "./lib/constellation.js";
 
       const $ = (id) => document.getElementById(id);
       const app = $("app");
@@ -390,7 +391,7 @@
           </div>
           <h2 class="section">${isSelf ? "your" : "public"} moderation lists</h2>
           <div id="lists"></div>
-          ${isSelf ? `<h2 class="section">lists you might be on</h2><div id="membershipArea"></div>` : ""}
+          ${isSelf ? `<h2 class="section">lists you're on</h2><div id="membershipArea"></div>` : ""}
         `;
         const box = $("lists");
         if (!lists.length) {
@@ -413,51 +414,60 @@
         if (isSelf) renderMembershipScan(did);
       }
 
-      // --- self: scan your network for mod lists you're on -----------------
+      // --- self: lists you're actually on, via Constellation's backlinks ---
       //
       // No AppView endpoint answers "which lists is DID X on" — membership
-      // only indexes forward (owner -> members). So this checks the mod
-      // lists made by people in your own network (who you follow, who
-      // follows you) rather than claiming to cover the whole network.
+      // only indexes forward (owner -> members). Constellation crawls the
+      // firehose independently and indexes every app.bsky.graph.listitem
+      // record by its .subject regardless of who's connected to whom, so
+      // this queries it directly for every listitem naming you, paired with
+      // the list URI (.list) each one lives on — then keeps only the ones
+      // whose list purpose is app.bsky.graph.defs#modlist, since curation
+      // lists aren't what this site is about.
 
       async function scanMemberships(selfDid, onProgress) {
-        const [follows, followers] = await Promise.all([getFollows(selfDid), getFollowers(selfDid)]);
-        const pool = [...new Set([...follows, ...followers])].filter((d) => d !== selfDid);
+        const memberships = await fetchListMemberships(selfDid, (n) => onProgress?.(0, 0, 0, n));
+        const byList = new Map();
+        for (const m of memberships) {
+          if (m.otherSubject && !byList.has(m.otherSubject)) byList.set(m.otherSubject, m);
+        }
+        const listUris = [...byList.keys()];
         const found = [];
         let checked = 0;
         let idx = 0;
         const CONCURRENCY = 8;
         async function worker() {
-          while (idx < pool.length) {
-            const ownerDid = pool[idx++];
+          while (idx < listUris.length) {
+            const uri = listUris[idx++];
             try {
-              const lists = await getModLists(ownerDid);
-              for (const l of lists) {
-                try {
-                  const { items } = await getListFull(l.uri);
-                  if (items.some((it) => it.subject?.did === selfDid)) {
-                    found.push({ uri: l.uri, ownerDid, ownerHandle: l.creator?.handle || ownerDid, name: l.name });
-                  }
-                } catch {}
+              const meta = await getListMeta(uri);
+              if (meta.purpose === "app.bsky.graph.defs#modlist") {
+                const parsed = parseListUri(uri);
+                found.push({
+                  uri,
+                  ownerDid: parsed?.ownerDid,
+                  ownerHandle: meta.creator?.handle || parsed?.ownerDid,
+                  name: meta.name,
+                });
               }
             } catch {}
             checked++;
-            onProgress?.(checked, pool.length, found.length);
+            onProgress?.(checked, listUris.length, found.length);
           }
         }
-        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pool.length) || 1 }, worker));
-        return { found, checkedCount: pool.length };
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, listUris.length) || 1 }, worker));
+        return { found, checkedCount: listUris.length };
       }
 
       function renderMembershipScan(selfDid) {
         const box = $("membershipArea");
         box.innerHTML = `
           <div class="banner">
-            velvetrope can't see every mod list on the network (nothing indexes
-            "which lists is this DID on" in reverse) — but it can check the public
-            mod lists made by people you follow or who follow you, which is
-            usually where you'd actually turn up.
-            <div class="actions"><button id="scanBtn">scan your network</button></div>
+            velvetrope checks Constellation's backlink index for every
+            <code>app.bsky.graph.listitem</code> record naming you across the
+            whole network — not just the accounts you follow or who follow
+            you — then keeps only the ones that are moderation lists.
+            <div class="actions"><button id="scanBtn">scan for real</button></div>
           </div>`;
         $("scanBtn").addEventListener("click", async () => {
           const btn = $("scanBtn");
@@ -467,16 +477,19 @@
           status.className = "meta";
           status.style.marginTop = "0.5rem";
           banner.appendChild(status);
+          status.textContent = "querying constellation…";
           try {
-            const { found, checkedCount } = await scanMemberships(selfDid, (checked, total, foundSoFar) => {
-              status.textContent = `checked ${checked}/${total} accounts in your network… ${foundSoFar} match${foundSoFar === 1 ? "" : "es"} so far`;
+            const { found, checkedCount } = await scanMemberships(selfDid, (checked, total, foundSoFar, linksSoFar) => {
+              status.textContent = total
+                ? `checked ${checked}/${total} lists you're on… ${foundSoFar} modlist match${foundSoFar === 1 ? "" : "es"} so far`
+                : `found ${linksSoFar} list membership${linksSoFar === 1 ? "" : "s"} so far…`;
             });
             if (!found.length) {
-              box.innerHTML = `<div class="empty">checked ${checkedCount} accounts you follow or who follow you — no matches. (that's not a guarantee for the whole network, just the part velvetrope could see.)</div>`;
+              box.innerHTML = `<div class="empty">checked ${checkedCount} list${checkedCount === 1 ? "" : "s"} you're on — none are moderation lists. (curation lists you're on, if any, aren't shown here — this site is only about mod lists.)</div>`;
               return;
             }
             box.innerHTML = `
-              <p class="meta">found on ${found.length} list${found.length === 1 ? "" : "s"} among the ${checkedCount} accounts in your network — click through to request removal.</p>
+              <p class="meta">you're on ${found.length} moderation list${found.length === 1 ? "" : "s"} — click through to request removal.</p>
               ${found
                 .map(
                   (l) => `
