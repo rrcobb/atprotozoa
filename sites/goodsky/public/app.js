@@ -1060,8 +1060,7 @@ function filterBarHtml(enabled, thresholdKey, hiddenCount, showHidden) {
            <span>show hidden</span>
          </label>`
       : "";
-  return `<div class="goodbar">
-    <label class="goodbar-toggle">
+  return `<label class="goodbar-toggle">
       <input type="checkbox" id="goodbar-enabled"${enabled ? " checked" : ""}>
       <span class="goodbar-switch"></span>
       <span class="goodbar-label">Good posts only</span>
@@ -1070,8 +1069,7 @@ function filterBarHtml(enabled, thresholdKey, hiddenCount, showHidden) {
       ${opt("lenient", "Lenient")}${opt("balanced", "Balanced")}${opt("strict", "Strict")}
     </select>
     ${hiddenBit}
-    <a class="goodbar-why" href="${MOUNT}/about" data-link>why?</a>
-  </div>`;
+    <a class="goodbar-why" href="${MOUNT}/about" data-link>why?</a>`;
 }
 
 function thresholdKeyOf(n, THRESHOLDS) {
@@ -1160,7 +1158,7 @@ function shellHtml(activePath) {
     <nav class="nav">
       <a class="nav-logo" href="${MOUNT}/" data-link><span class="wing">✅</span><span class="word">goodsky</span></a>
       <div class="nav-items">${NAV_ITEMS.map((i) => navItem(i, false)).join("")}</div>
-      <div class="nav-compose" data-action="compose"><span class="ic">✏️</span><span class="label">New Post</span></div>
+      ${session ? `<div class="nav-compose" data-action="compose"><span class="ic">✏️</span><span class="label">New Post</span></div>` : ""}
       ${navCtaHtml()}
       <div class="nav-spacer"></div>
     </nav>
@@ -1168,7 +1166,7 @@ function shellHtml(activePath) {
     <aside class="aside" id="aside"></aside>
   </div>
   <div class="mobile-tabbar">${NAV_ITEMS.map((i) => navItem(i, true)).join("")}</div>
-  <div class="compose-fab" data-action="compose" title="New post">✏️</div>
+  ${session ? `<div class="compose-fab" data-action="compose" title="New post">✏️</div>` : ""}
   `;
 }
 
