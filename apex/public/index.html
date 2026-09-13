@@ -75,6 +75,31 @@
         padding:0.15rem 0.3rem; }
       .controls .count { margin-left:auto; color:var(--muted); }
       .card[hidden] { display:none; }
+
+      .chat { margin: 0 0 2.25rem; padding: 1rem 1.1rem; border: 1px solid var(--faint);
+        border-radius: 6px; }
+      .chat-intro { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.82rem; }
+      .chat-log { display: flex; flex-direction: column; gap: 0.5rem; margin: 0 0 0.75rem;
+        max-height: 340px; overflow-y: auto; }
+      .chat-log:empty { display: none; margin: 0; }
+      .chat-msg { font-size: 0.86rem; line-height: 1.55; padding: 0.5rem 0.7rem;
+        border-radius: 6px; max-width: 88%; }
+      .chat-msg.user { align-self: flex-end; background: var(--ink); color: var(--bg); }
+      .chat-msg.bot { align-self: flex-start; background: var(--faint); color: var(--ink); }
+      .chat-msg.bot code { font-size: 0.82em; }
+      .chat-msg .hit { display: block; text-decoration: none; color: var(--accent);
+        font-weight: 600; margin-top: 0.4rem; }
+      .chat-msg .hit:hover { text-decoration: underline; }
+      .chat-msg .hit .blurb { display: block; color: var(--muted); font-weight: 400;
+        font-size: 0.82rem; text-decoration: none; margin-top: 0.1rem; }
+      .chat-form { display: flex; gap: 0.5rem; }
+      .chat-form input { flex: 1; font-family: var(--mono); font-size: 0.86rem;
+        color: var(--ink); background: var(--bg); border: 1px solid var(--faint);
+        border-radius: 4px; padding: 0.4rem 0.55rem; }
+      .chat-form button { font-family: var(--mono); font-size: 0.86rem; color: var(--bg);
+        background: var(--ink); border: none; border-radius: 4px; padding: 0.4rem 0.9rem;
+        cursor: pointer; }
+      .chat-form button:hover { background: var(--accent); }
     </style>
   </head>
   <body>
@@ -83,6 +108,19 @@
         <h1>bisks.net</h1>
         <p>a little zoo of tiny atproto experiments</p>
       </header>
+
+      <section class="chat" aria-label="ask about the zoo">
+        <p class="chat-intro">
+          looking for a specific site? ask below — it searches titles, blurbs,
+          types, and who asked for it. plain string matching, no AI, no API key.
+        </p>
+        <div class="chat-log" id="chat-log" role="log" aria-live="polite"></div>
+        <form class="chat-form" id="chat-form">
+          <label for="chat-input" class="sr-only" style="position:absolute;left:-9999px;">ask about the zoo</label>
+          <input type="text" id="chat-input" placeholder="e.g. &quot;games by cee.wtf&quot; or &quot;trigram&quot;" autocomplete="off" />
+          <button type="submit">ask</button>
+        </form>
+      </section>
 
       <nav class="controls" aria-label="filter and sort the gallery">
         <label>by <select id="f-by"><option value="">everyone</option></select></label>
@@ -4032,6 +4070,137 @@
           el.addEventListener("change", apply);
         });
         apply();
+      })();
+    </script>
+
+    <!-- A little search-by-keyword "chatbot" over the cards above — no model,
+         no API key, just scoring plain-text matches against what's already in
+         the DOM. Independent of the filter/sort script above; doesn't touch
+         <main>, so audit/build-gallery.mjs regenerating it never breaks this. -->
+    <script>
+      (function () {
+        var main = document.querySelector("main");
+        var log = document.getElementById("chat-log");
+        var form = document.getElementById("chat-form");
+        var input = document.getElementById("chat-input");
+        if (!main || !log || !form || !input) return;
+
+        var STOP = ["a", "an", "the", "for", "me", "find", "show", "something",
+          "site", "sites", "website", "websites", "that", "with", "about", "is",
+          "are", "of", "to", "please", "can", "you", "i", "want", "any", "some",
+          "from", "like", "looking", "search", "got", "have", "gimme", "give",
+          "there", "this", "one", "ones", "and", "or"];
+
+        function esc(s) {
+          var d = document.createElement("div");
+          d.textContent = String(s);
+          return d.innerHTML;
+        }
+
+        function cards() {
+          return Array.prototype.slice.call(main.querySelectorAll(".card[data-site]"));
+        }
+
+        function tokenize(s) {
+          return s.toLowerCase().match(/[a-z0-9.@_-]+/g) || [];
+        }
+
+        function bubble(role, html) {
+          var d = document.createElement("div");
+          d.className = "chat-msg " + role;
+          if (role === "bot") d.innerHTML = html;
+          else d.textContent = html;
+          log.appendChild(d);
+          log.scrollTop = log.scrollHeight;
+        }
+
+        function cardText(c) {
+          var h2 = c.querySelector("h2");
+          var title = h2 && h2.firstChild ? h2.firstChild.textContent.trim() : c.dataset.site;
+          var p = c.querySelector("p");
+          var blurb = p ? p.textContent.trim().replace(/\s+/g, " ") : "";
+          return { title: title, blurb: blurb };
+        }
+
+        function score(c, ql, words) {
+          var t = cardText(c);
+          var titleL = t.title.toLowerCase();
+          var blurbL = t.blurb.toLowerCase();
+          var type = (c.dataset.type || "").toLowerCase();
+          var by = (c.dataset.by || "").toLowerCase();
+          var site = c.dataset.site.toLowerCase();
+          var s = 0;
+          if (ql && (titleL.indexOf(ql) !== -1 || site.indexOf(ql) !== -1)) s += 6;
+          if (ql && blurbL.indexOf(ql) !== -1) s += 3;
+          words.forEach(function (w) {
+            var wh = w.replace(/^@/, "");
+            if (titleL.indexOf(w) !== -1 || site.indexOf(w) !== -1) s += 3;
+            if (type === w) s += 4;
+            if (by.indexOf(wh) !== -1) s += 4;
+            if (blurbL.indexOf(w) !== -1) s += 1;
+          });
+          return s;
+        }
+
+        function randomCard() {
+          var all = cards();
+          return all.length ? all[Math.floor(Math.random() * all.length)] : null;
+        }
+
+        function hitHtml(c) {
+          var t = cardText(c);
+          return '<a class="hit" href="' + esc(c.getAttribute("href")) + '">' +
+            esc(t.title) + '<span class="blurb">' + esc(t.blurb) + "</span></a>";
+        }
+
+        function respond(raw) {
+          var query = raw.trim();
+          var ql = query.toLowerCase();
+          if (!query) return;
+
+          if (/^(hi|hello|hey|yo)\b/.test(ql)) {
+            bubble("bot", "hey — tell me what you're looking for (a type, a word " +
+              "from a blurb, who asked for it) and I'll dig through the zoo.");
+            return;
+          }
+          if (/^help$/.test(ql) || ql.indexOf("how do") !== -1 || ql === "?") {
+            bubble("bot", "try things like <code>games</code>, <code>trigram</code>, " +
+              "<code>by cee.wtf</code>, or <code>random</code>. it's plain string " +
+              "matching over titles/blurbs/type/requester &mdash; nothing fancier.");
+            return;
+          }
+          if (/^(random|surprise|surprise me|anything|idk)$/.test(ql)) {
+            var r = randomCard();
+            bubble("bot", r ? "how about this: " + hitHtml(r) : "the zoo's empty right now, somehow.");
+            return;
+          }
+
+          var words = tokenize(ql).filter(function (w) {
+            return w.length > 1 && STOP.indexOf(w) === -1;
+          });
+          var scored = cards()
+            .map(function (c) { return { c: c, s: score(c, ql, words) }; })
+            .filter(function (x) { return x.s > 0; })
+            .sort(function (a, b) { return b.s - a.s; })
+            .slice(0, 5);
+
+          if (!scored.length) {
+            bubble("bot", 'nothing matched "' + esc(query) + '" — try a type ' +
+              "(toy/game/tool/joke/explainer/art), a word from a blurb, or <code>random</code>.");
+            return;
+          }
+          var label = scored.length === 1 ? "found one:" : "found " + scored.length + ":";
+          bubble("bot", label + scored.map(function (x) { return hitHtml(x.c); }).join(""));
+        }
+
+        form.addEventListener("submit", function (e) {
+          e.preventDefault();
+          var v = input.value;
+          if (!v.trim()) return;
+          bubble("user", v);
+          input.value = "";
+          respond(v);
+        });
       })();
     </script>
   </body>
