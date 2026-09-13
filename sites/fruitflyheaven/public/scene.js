@@ -26,7 +26,7 @@ const FlyScene = (() => {
     ctx.scale(sx, sy);
 
     for (const f of world.fruits) {
-      const age = Math.min(1, (world.time - f.bornAt) / 0.5);
+      const age = Math.max(0, Math.min(1, (world.time - f.bornAt) / 0.5));
       const r = 9 * age;
       ctx.save();
       ctx.globalAlpha = age;
