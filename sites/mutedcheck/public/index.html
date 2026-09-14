@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>mutedcheck — does this post trip your muted words?</title>
+<meta name="description" content="Sign in with Bluesky, load your muted words, then paste a post URL — mutedcheck tells you which of your muted words (if any) show up in it." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="mutedcheck — does this post trip your muted words?" />
+<meta property="og:description" content="Sign in with Bluesky, load your muted words, then paste a post URL — mutedcheck tells you which of your muted words (if any) show up in it." />
+<meta property="og:url" content="https://mutedcheck.bisks.net/" />
+<meta property="og:image" content="https://mutedcheck.bisks.net/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="mutedcheck — does this post trip your muted words?" />
+<meta name="twitter:description" content="Sign in with Bluesky, load your muted words, then paste a post URL — mutedcheck tells you which of your muted words (if any) show up in it." />
+<meta name="twitter:image" content="https://mutedcheck.bisks.net/og.png" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<style>
+  :root {
+    --bg: #14120f;
+    --bg2: #1c1913;
+    --ink: #f2ead8;
+    --dim: #a8977a;
+    --card: #201c16;
+    --border: #423a2c;
+    --accent: #e8b23d;
+    --good: #5fae7a;
+    --bad: #d9634a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background:
+      repeating-linear-gradient(135deg, rgba(232, 178, 61, 0.05) 0 10px, transparent 10px 20px),
+      var(--bg);
+    color: var(--ink);
+    font-family: "DM Mono", ui-monospace, Menlo, monospace;
+  }
+  a { color: var(--accent); }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 32px 20px 90px; }
+
+  header.top { text-align: center; margin-bottom: 4px; }
+  header.top h1 {
+    font-size: 2rem;
+    letter-spacing: -0.02em;
+    margin: 0;
+    color: var(--accent);
+  }
+  #ceeHook { cursor: pointer; }
+  header.top p.blurb {
+    color: var(--dim);
+    max-width: 480px;
+    margin: 14px auto 0;
+    font-size: 0.86rem;
+    line-height: 1.55;
+  }
+
+  .auth-bar {
+    text-align: center;
+    font-size: 0.82rem;
+    color: var(--dim);
+    margin: 24px 0 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .auth-bar b { color: var(--ink); }
+  .auth-bar a { cursor: pointer; text-decoration: underline; }
+  .auth-bar input, .check-panel input {
+    padding: 7px 10px;
+    font-size: 0.82rem;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--ink);
+    outline: none;
+    font-family: inherit;
+  }
+  .auth-bar input { width: 200px; }
+  .auth-msg, .check-msg { color: var(--dim); font-size: 0.78rem; text-align: center; margin: -4px 0 12px; min-height: 1em; }
+
+  .btn {
+    padding: 8px 14px;
+    font-size: 0.82rem;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--ink);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+
+  .privacy-note {
+    color: var(--dim);
+    font-size: 0.74rem;
+    line-height: 1.5;
+    text-align: center;
+    max-width: 480px;
+    margin: 0 auto 8px;
+  }
+  .privacy-note code { color: var(--accent); }
+
+  .panel {
+    margin-top: 22px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 18px;
+  }
+  .panel h2 {
+    font-size: 0.78rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin: 0 0 10px;
+  }
+
+  #wordsList { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    font-size: 0.78rem;
+    color: var(--ink);
+  }
+
+  .check-panel .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .check-panel input { flex: 1; min-width: 220px; }
+
+  .post-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    background: var(--bg2);
+    margin-bottom: 12px;
+  }
+  .post-author { color: var(--dim); font-size: 0.78rem; margin-bottom: 6px; }
+  .post-text { font-size: 0.92rem; line-height: 1.5; white-space: pre-wrap; }
+
+  .verdict { font-weight: 600; font-size: 0.95rem; margin-bottom: 8px; }
+  .verdict.good { color: var(--good); }
+  .verdict.bad { color: var(--bad); }
+  ul.hits { margin: 0; padding-left: 1.2em; font-size: 0.88rem; }
+  ul.hits .dim { color: var(--dim); }
+
+  .share-bar { text-align: center; margin-top: 18px; }
+  .share-bar a.btn { text-decoration: none; display: inline-block; }
+
+  footer {
+    text-align: center;
+    color: var(--dim);
+    font-size: 0.76rem;
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+  }
+  footer a { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>mut<span id="ceeHook">e</span>dcheck</h1>
+    <p class="blurb">Sign in with Bluesky to load your muted words, then paste a post URL — mutedcheck tells you which of them (if any) show up in it.</p>
+  </header>
+
+  <div class="auth-bar" id="authBar"></div>
+  <div class="auth-msg" id="authMsg"></div>
+  <p class="privacy-note">mutedcheck asks for exactly one read-only permission (<code>app.bsky.actor.getPreferences</code>) to read your muted-words list, and never writes anything. Your muted words never leave your browser — the check runs entirely client-side.</p>
+
+  <div class="panel" id="wordsPanel" hidden>
+    <h2 id="wordsCount">muted words</h2>
+    <div id="wordsList"></div>
+  </div>
+
+  <div class="panel check-panel" id="checkPanel" hidden>
+    <h2>check a post</h2>
+    <div class="row">
+      <input id="postUrl" placeholder="https://bsky.app/profile/handle.bsky.social/post/abc123" autocomplete="off" />
+      <button id="checkBtn" class="btn primary">check</button>
+    </div>
+    <div class="check-msg" id="checkMsg"></div>
+  </div>
+
+  <div id="result" hidden></div>
+
+  <div class="share-bar" id="shareBar" hidden>
+    <a id="shareLink" class="btn primary" target="_blank" rel="noopener">skeet the result →</a>
+  </div>
+
+  <footer>
+    mutedcheck.bisks.net — one of 190+ tiny <a href="https://bisks.net/" target="_blank" rel="noopener">atprotozoa</a> experiments. Built for <a href="https://bsky.app/profile/jessehattabaugh.com" target="_blank" rel="noopener">@jessehattabaugh.com</a>. <a href="https://rateyourbuild.bisks.net/site/mutedcheck" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+  </footer>
+</div>
+<script type="module" src="/app.js"></script>
+<script src="lib/handle-typeahead.js"></script>
+</body>
+</html>
