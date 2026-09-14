@@ -836,10 +836,17 @@ async function buildShareCard({ profile, verdictText, pro, anti, unclear, proRec
   const proTop = sectionTop, proBottom = proTop + sectionH;
   const antiTop = proBottom + sectionGap, antiBottom = sectionBottom;
   const quoteFont = `italic 14px ${mono}`;
+  const authorFont = `400 12px ${mono}`;
   const lineHeight = 19;
+  const authorLineHeight = 17;
   const quoteGap = 18;
+  const isNetwork = scope && scope !== "posts";
 
-  function drawReceiptSection(list, top, bottom, label, color) {
+  // When a receipt comes from someone other than the scanned account (the
+  // followers/following/network scopes), attribute it below the quote in
+  // smaller, dimmer text — same treatment as .receipt-author on the live
+  // page (renderReceipts' showAuthor path).
+  function drawReceiptSection(list, top, bottom, label, color, showAuthor) {
     ctx.textAlign = "left";
     ctx.fillStyle = color;
     ctx.font = `700 13px ${mono}`;
@@ -853,23 +860,32 @@ async function buildShareCard({ profile, verdictText, pro, anti, unclear, proRec
       ctx.fillText("none found", barX, y);
       return;
     }
-    ctx.font = quoteFont;
     for (const r of items) {
       if (y >= bottom) break;
+      ctx.font = quoteFont;
       const lines = wrapLinesForCanvas(ctx, "“" + r.text + "”", barW);
-      const h = lines.length * lineHeight;
+      const authorLine = showAuthor && r.authorHandle ? "— @" + r.authorHandle : null;
+      const h = lines.length * lineHeight + (authorLine ? authorLineHeight : 0);
       if (y + h > bottom) continue;
+      ctx.font = quoteFont;
       ctx.fillStyle = "#eef1f5";
       for (const l of lines) {
         ctx.fillText(l, barX, y);
         y += lineHeight;
       }
+      if (authorLine) {
+        ctx.font = authorFont;
+        ctx.fillStyle = "#8891a0";
+        y += 2;
+        ctx.fillText(authorLine, barX, y);
+        y += authorLineHeight - 2;
+      }
       y += quoteGap;
     }
   }
 
-  drawReceiptSection(proReceipts, proTop, proBottom, "STRONGEST PRO-LLM", "#35d488");
-  drawReceiptSection(antiReceipts, antiTop, antiBottom, "STRONGEST ANTI-LLM", "#ff5f6d");
+  drawReceiptSection(proReceipts, proTop, proBottom, "STRONGEST PRO-LLM", "#35d488", isNetwork);
+  drawReceiptSection(antiReceipts, antiTop, antiBottom, "STRONGEST ANTI-LLM", "#ff5f6d", isNetwork);
 
   ctx.textAlign = "left";
   ctx.fillStyle = "#5fc9ff";
