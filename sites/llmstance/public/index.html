@@ -346,7 +346,7 @@
       </div>
 
       <div class="share">
-        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <canvas id="shareCanvas" width="800" height="750"></canvas>
         <div class="share-actions">
           <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
           <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share the verdict</a>
@@ -357,7 +357,8 @@
 
     <footer>
       part of <a href="https://bisks.net">atprotozoa</a> ·
-      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+      <a href="https://rateyourbuild.bisks.net/site/llmstance">rate this on rateyourbuild →</a>
     </footer>
   </div>
 
@@ -714,7 +715,42 @@ function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
   return cy;
 }
 
-async function buildShareCard({ profile, verdictText, pro, anti, unclear, topReceipt, scope, accountCount }) {
+// Same as wrapCanvasText, but caps the number of lines and ellipsizes the
+// last one instead of overflowing — used for the receipt columns, which have
+// a fixed vertical budget so several quotes can fit on the card at once.
+function wrapCanvasTextCapped(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const words = text.split(" ");
+  const lines = [];
+  let line = "";
+  for (const w of words) {
+    const test = line ? line + " " + w : w;
+    if (line && ctx.measureText(test).width > maxWidth) {
+      lines.push(line);
+      line = w;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+
+  if (lines.length > maxLines) {
+    lines.length = maxLines;
+    let last = lines[maxLines - 1];
+    while (last.length > 1 && ctx.measureText(last + "…").width > maxWidth) {
+      last = last.slice(0, -1);
+    }
+    lines[maxLines - 1] = last.replace(/[.,;:!?…"“”]+$/, "") + "…";
+  }
+
+  let cy = y;
+  for (const l of lines) {
+    ctx.fillText(l, x, cy);
+    cy += lineHeight;
+  }
+  return cy - lineHeight;
+}
+
+async function buildShareCard({ profile, verdictText, pro, anti, unclear, proReceipts, antiReceipts, scope, accountCount }) {
   const canvas = els.shareCanvas;
   const ctx = canvas.getContext("2d");
   const W = canvas.width, H = canvas.height;
@@ -738,30 +774,30 @@ async function buildShareCard({ profile, verdictText, pro, anti, unclear, topRec
 
   ctx.textAlign = "left";
   ctx.fillStyle = "#5fc9ff";
-  ctx.font = `800 52px ${mono}`;
-  ctx.fillText("llmstance", 60, 96);
+  ctx.font = `800 34px ${mono}`;
+  ctx.fillText("llmstance", 48, 58);
 
   const scopeCard = scope && scope !== "posts" ? (SCOPE_INFO[scope] || SCOPE_INFO.posts).card : "";
   const who = "@" + profile.handle + (scopeCard ? `'s ${scopeCard}${accountCount ? ` (${accountCount})` : ""}` : "");
   ctx.fillStyle = "#eef1f5";
-  ctx.font = `700 28px ${mono}`;
-  let textX = 60;
-  let textY = 156;
+  ctx.font = `700 20px ${mono}`;
+  let textX = 48;
+  const textY = 108;
   if (avatar) {
     ctx.save();
     ctx.beginPath();
-    ctx.arc(88, 146, 28, 0, Math.PI * 2);
+    ctx.arc(72, 100, 24, 0, Math.PI * 2);
     ctx.closePath();
     ctx.clip();
-    ctx.drawImage(avatar, 60, 118, 56, 56);
+    ctx.drawImage(avatar, 48, 76, 48, 48);
     ctx.restore();
-    textX = 132;
+    textX = 112;
   }
   ctx.fillText(who, textX, textY);
 
   ctx.strokeStyle = "#262b36";
   ctx.lineWidth = 1.5;
-  const cardX = 60, cardY = 210, cardW = W - 120, cardH = H - 270;
+  const cardX = 40, cardY = 140, cardW = W - 80, cardH = H - 190;
   ctx.fillStyle = "#12151c";
   ctx.beginPath();
   ctx.roundRect(cardX, cardY, cardW, cardH, 18);
@@ -770,11 +806,11 @@ async function buildShareCard({ profile, verdictText, pro, anti, unclear, topRec
 
   ctx.textAlign = "center";
   ctx.fillStyle = "#eef1f5";
-  ctx.font = `800 34px ${mono}`;
-  wrapCanvasText(ctx, verdictText, W / 2, cardY + 56, cardW - 96, 40);
+  ctx.font = `800 28px ${mono}`;
+  wrapCanvasText(ctx, verdictText, W / 2, cardY + 50, cardW - 100, 34);
 
   // stacked bar
-  const barX = cardX + 48, barY = cardY + 108, barW = cardW - 96, barH = 26;
+  const barX = cardX + 44, barY = cardY + 108, barW = cardW - 88, barH = 24;
   const proW = (pro / total) * barW;
   const antiW = (anti / total) * barW;
   const unclearW = barW - proW - antiW;
@@ -787,22 +823,59 @@ async function buildShareCard({ profile, verdictText, pro, anti, unclear, topRec
 
   ctx.textAlign = "left";
   ctx.fillStyle = "#8891a0";
-  ctx.font = `400 17px ${mono}`;
-  ctx.fillText(pro + " pro-llm  ·  " + anti + " anti-llm  ·  " + unclear + " unclear", barX, barY + 56);
+  ctx.font = `400 15px ${mono}`;
+  ctx.fillText(pro + " pro-llm  ·  " + anti + " anti-llm  ·  " + unclear + " unclear", barX, barY + 44);
 
-  if (topReceipt) {
-    ctx.fillStyle = topReceipt.kind === "pro" ? "#35d488" : "#ff5f6d";
-    ctx.font = `700 13px ${mono}`;
-    ctx.fillText((topReceipt.kind === "pro" ? "STRONGEST PRO-LLM POST" : "STRONGEST ANTI-LLM POST"), barX, cardY + cardH - 70);
-    ctx.fillStyle = "#eef1f5";
-    ctx.font = `italic 16px ${mono}`;
-    wrapCanvasText(ctx, "“" + topReceipt.text + "”", barX, cardY + cardH - 44, barW, 22);
+  // receipts, flanking the scoreboard: strongest pro-llm quotes on the left,
+  // strongest anti-llm quotes on the right — same split as the page below.
+  const dividerY = barY + 70;
+  ctx.strokeStyle = "#262b36";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 4]);
+  ctx.beginPath();
+  ctx.moveTo(barX, dividerY);
+  ctx.lineTo(cardX + cardW - 44, dividerY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  const headerY = dividerY + 26;
+  const colGap = 28;
+  const colW = (barW - colGap) / 2;
+  const proColX = barX;
+  const antiColX = barX + colW + colGap;
+  const colBottom = cardY + cardH - 32;
+  const RECEIPTS_PER_SIDE = 3;
+
+  function drawReceiptColumn(list, x, label, color) {
+    ctx.textAlign = "left";
+    ctx.fillStyle = color;
+    ctx.font = `700 12px ${mono}`;
+    ctx.fillText(label, x, headerY);
+
+    let y = headerY + 24;
+    const items = (list || []).slice(0, RECEIPTS_PER_SIDE);
+    if (!items.length) {
+      ctx.fillStyle = "#8891a0";
+      ctx.font = `italic 13px ${mono}`;
+      ctx.fillText("none found", x, y);
+      return;
+    }
+    for (const r of items) {
+      if (y > colBottom) break;
+      ctx.fillStyle = "#eef1f5";
+      ctx.font = `italic 13px ${mono}`;
+      const endY = wrapCanvasTextCapped(ctx, "“" + r.text + "”", x, y, colW, 17, 3);
+      y = endY + 22;
+    }
   }
+
+  drawReceiptColumn(proReceipts, proColX, "STRONGEST PRO-LLM", "#35d488");
+  drawReceiptColumn(antiReceipts, antiColX, "STRONGEST ANTI-LLM", "#ff5f6d");
 
   ctx.textAlign = "left";
   ctx.fillStyle = "#5fc9ff";
-  ctx.font = `700 20px ${mono}`;
-  ctx.fillText("llmstance.bisks.net", 60, H - 40);
+  ctx.font = `700 18px ${mono}`;
+  ctx.fillText("llmstance.bisks.net", 48, H - 26);
 }
 
 async function reveal(rawHandle, scopeOverride) {
@@ -898,14 +971,9 @@ async function reveal(rawHandle, scopeOverride) {
     setStatus("");
     els.card.classList.add("show");
 
-    const topReceipt = proReceipts[0] && antiReceipts[0]
-      ? (proReceipts[0].hits >= antiReceipts[0].hits ? { ...proReceipts[0], kind: "pro" } : { ...antiReceipts[0], kind: "anti" })
-      : (proReceipts[0] ? { ...proReceipts[0], kind: "pro" } : (antiReceipts[0] ? { ...antiReceipts[0], kind: "anti" } : null));
-    if (topReceipt) topReceipt.text = truncate(topReceipt.text, 110);
-
     lastShareText = shareText(resolvedHandle, verdictText, pro, anti, unclear, scope, accountCount);
     els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
-    buildShareCard({ profile, verdictText, pro, anti, unclear, topReceipt, scope, accountCount });
+    buildShareCard({ profile, verdictText, pro, anti, unclear, proReceipts, antiReceipts, scope, accountCount });
   } catch (err) {
     setStatus("couldn't scan that: " + err.message, true);
   } finally {
