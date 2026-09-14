@@ -715,10 +715,11 @@ function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight) {
   return cy;
 }
 
-// Same as wrapCanvasText, but caps the number of lines and ellipsizes the
-// last one instead of overflowing — used for the receipt columns, which have
-// a fixed vertical budget so several quotes can fit on the card at once.
-function wrapCanvasTextCapped(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+// Wraps text into an array of lines at the current ctx.font, without
+// drawing — used by the receipt sections to measure a quote's height before
+// committing to drawing it, so a quote either renders whole or not at all
+// (no mid-sentence ellipsis truncation).
+function wrapLinesForCanvas(ctx, text, maxWidth) {
   const words = text.split(" ");
   const lines = [];
   let line = "";
@@ -732,22 +733,7 @@ function wrapCanvasTextCapped(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
     }
   }
   if (line) lines.push(line);
-
-  if (lines.length > maxLines) {
-    lines.length = maxLines;
-    let last = lines[maxLines - 1];
-    while (last.length > 1 && ctx.measureText(last + "…").width > maxWidth) {
-      last = last.slice(0, -1);
-    }
-    lines[maxLines - 1] = last.replace(/[.,;:!?…"“”]+$/, "") + "…";
-  }
-
-  let cy = y;
-  for (const l of lines) {
-    ctx.fillText(l, x, cy);
-    cy += lineHeight;
-  }
-  return cy - lineHeight;
+  return lines;
 }
 
 async function buildShareCard({ profile, verdictText, pro, anti, unclear, proReceipts, antiReceipts, scope, accountCount }) {
@@ -826,8 +812,13 @@ async function buildShareCard({ profile, verdictText, pro, anti, unclear, proRec
   ctx.font = `400 15px ${mono}`;
   ctx.fillText(pro + " pro-llm  ·  " + anti + " anti-llm  ·  " + unclear + " unclear", barX, barY + 44);
 
-  // receipts, flanking the scoreboard: strongest pro-llm quotes on the left,
-  // strongest anti-llm quotes on the right — same split as the page below.
+  // receipts, stacked pro-over-anti at full card width — same top-to-bottom
+  // order as the page below (pro block, then anti block), instead of
+  // squeezing each into a half-width side column. A quote is only ever drawn
+  // whole: wrapLinesForCanvas measures its wrapped height first, and it's
+  // skipped (not ellipsized mid-sentence) if it won't fit the section's
+  // remaining budget — trying shorter receipts further down the ranked list
+  // instead of just giving up, so the space actually gets used.
   const dividerY = barY + 70;
   ctx.strokeStyle = "#262b36";
   ctx.lineWidth = 1;
@@ -838,39 +829,47 @@ async function buildShareCard({ profile, verdictText, pro, anti, unclear, proRec
   ctx.stroke();
   ctx.setLineDash([]);
 
-  const headerY = dividerY + 26;
-  const colGap = 28;
-  const colW = (barW - colGap) / 2;
-  const proColX = barX;
-  const antiColX = barX + colW + colGap;
-  const colBottom = cardY + cardH - 32;
-  const RECEIPTS_PER_SIDE = 3;
+  const sectionTop = dividerY + 26;
+  const sectionBottom = cardY + cardH - 32;
+  const sectionGap = 22;
+  const sectionH = (sectionBottom - sectionTop - sectionGap) / 2;
+  const proTop = sectionTop, proBottom = proTop + sectionH;
+  const antiTop = proBottom + sectionGap, antiBottom = sectionBottom;
+  const quoteFont = `italic 14px ${mono}`;
+  const lineHeight = 19;
+  const quoteGap = 18;
 
-  function drawReceiptColumn(list, x, label, color) {
+  function drawReceiptSection(list, top, bottom, label, color) {
     ctx.textAlign = "left";
     ctx.fillStyle = color;
-    ctx.font = `700 12px ${mono}`;
-    ctx.fillText(label, x, headerY);
+    ctx.font = `700 13px ${mono}`;
+    ctx.fillText(label, barX, top);
 
-    let y = headerY + 24;
-    const items = (list || []).slice(0, RECEIPTS_PER_SIDE);
+    let y = top + 24;
+    const items = list || [];
     if (!items.length) {
       ctx.fillStyle = "#8891a0";
-      ctx.font = `italic 13px ${mono}`;
-      ctx.fillText("none found", x, y);
+      ctx.font = quoteFont;
+      ctx.fillText("none found", barX, y);
       return;
     }
+    ctx.font = quoteFont;
     for (const r of items) {
-      if (y > colBottom) break;
+      if (y >= bottom) break;
+      const lines = wrapLinesForCanvas(ctx, "“" + r.text + "”", barW);
+      const h = lines.length * lineHeight;
+      if (y + h > bottom) continue;
       ctx.fillStyle = "#eef1f5";
-      ctx.font = `italic 13px ${mono}`;
-      const endY = wrapCanvasTextCapped(ctx, "“" + r.text + "”", x, y, colW, 17, 3);
-      y = endY + 22;
+      for (const l of lines) {
+        ctx.fillText(l, barX, y);
+        y += lineHeight;
+      }
+      y += quoteGap;
     }
   }
 
-  drawReceiptColumn(proReceipts, proColX, "STRONGEST PRO-LLM", "#35d488");
-  drawReceiptColumn(antiReceipts, antiColX, "STRONGEST ANTI-LLM", "#ff5f6d");
+  drawReceiptSection(proReceipts, proTop, proBottom, "STRONGEST PRO-LLM", "#35d488");
+  drawReceiptSection(antiReceipts, antiTop, antiBottom, "STRONGEST ANTI-LLM", "#ff5f6d");
 
   ctx.textAlign = "left";
   ctx.fillStyle = "#5fc9ff";
