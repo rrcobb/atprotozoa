@@ -273,6 +273,18 @@ for followers, falling back to the old paginated AppView walk on error.
 Spacedust (live filtered firehose) and Slingshot (identity/record cache) were
 surveyed but not tried — see the note for where they'd fit.
 
+**Cerulea backlinks — surveyed, not adopted.** (`cerulea-backlinks.md`,
+surveyed 2026-09-14 at octopodeeznuts.bsky.social's request, prompted by
+bisks.net quoting char.lt's "atproto full-net backlinks" post) A second,
+API-incompatible implementation of the same idea as Constellation above —
+confirmed live to index replies, follow/like subjects, and (not documented
+by its author, found only by querying it) mention facets. Its demo,
+`bsky-thread.bun.how`, reconstructs threads past the AppView's real
+`getPostThread` depth=1000 ceiling, which `sites/coliseum` already hits.
+Candidates flagged, nothing wired in — see the note for the specific list
+(listenheimer and snubbed's `getLikes` walks, coliseum's thread depth,
+quotehof's quote lookup, hindex's mention tracking).
+
 ---
 
 ## The threads
