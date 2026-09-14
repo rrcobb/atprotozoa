@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎛️</text></svg>" />
+<title>cymatics — a plate finds its own resonance</title>
+<meta
+  name="description"
+  content="A live Chladni-plate simulation: thousands of sand grains bounce on a vibrating plate and settle along its nodal lines, tracing the resonant mode's shape in your browser. Tune the mode by hand, ring the plate to hear it, or seed it with a Bluesky handle for a deterministic pattern of your own."
+/>
+<meta property="og:title" content="cymatics — a plate finds its own resonance" />
+<meta property="og:description" content="Thousands of grains, one vibrating plate — watch a Chladni figure trace itself live. Tune the mode, ring the plate, or grow one from a handle." />
+<meta property="og:url" content="https://cymatics.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://cymatics.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="cymatics: a glowing Chladni figure traced by sand grains settling on a vibrating plate's nodal lines." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="cymatics — a plate finds its own resonance" />
+<meta name="twitter:description" content="Thousands of grains, one vibrating plate — watch a Chladni figure trace itself live. Tune the mode, ring the plate, or grow one from a handle." />
+<meta name="twitter:image" content="https://cymatics.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #07080c;
+    --panel: rgba(12, 14, 20, 0.72);
+    --border: rgba(200, 210, 230, 0.16);
+    --ink: #f2f5ff;
+    --dim: #9aa3c0;
+    --accent: #8fd6ff;
+    --accent2: #ffcf4d;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--bg); color: var(--ink); overflow: hidden;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    -webkit-font-smoothing: antialiased;
+  }
+  #stage { position: fixed; inset: 0; display: block; touch-action: none; cursor: crosshair; }
+
+  .hud {
+    position: fixed; left: 0; right: 0; top: 0;
+    padding: 14px 16px 30px;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(7,8,12,0.7) 0%, rgba(7,8,12,0) 100%);
+    z-index: 5;
+  }
+  h1 { margin: 0; font-size: clamp(1.15rem, 3.6vw, 1.7rem); letter-spacing: 0.02em; color: var(--ink); }
+  .tagline {
+    margin: 0.35rem 0 0; font-size: 0.78rem; color: var(--dim);
+    max-width: 42em; line-height: 1.5;
+  }
+
+  #panel {
+    position: fixed; left: 14px; bottom: 14px; z-index: 6;
+    pointer-events: auto;
+    background: var(--panel);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 12px 14px;
+    width: min(320px, calc(100vw - 28px));
+    max-height: calc(100vh - 28px);
+    overflow-y: auto;
+    font-size: 0.78rem;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+  }
+  #panel.collapsed .panel-body { display: none; }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; user-select: none;
+  }
+  .panel-head b { color: var(--accent); font-size: 0.82rem; }
+  .panel-head .chev { color: var(--dim); transition: transform 0.15s; }
+  #panel.collapsed .chev { transform: rotate(-90deg); }
+
+  .row { margin-top: 0.7rem; }
+  .row label {
+    display: flex; justify-content: space-between; color: var(--dim);
+    font-size: 0.7rem; letter-spacing: 0.02em; margin-bottom: 0.3rem;
+    text-transform: uppercase;
+  }
+  .row label span.val { color: var(--accent2); text-transform: none; }
+  .row.pair { display: flex; gap: 0.6rem; }
+  .row.pair > div { flex: 1; }
+  select, input[type="text"] {
+    width: 100%; font: inherit; font-size: 0.82rem;
+    background: rgba(255,255,255,0.05); color: var(--ink);
+    border: 1px solid var(--border); border-radius: 8px; padding: 0.45rem 0.55rem;
+  }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .btnrow { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.7rem; }
+  button {
+    font: inherit; font-size: 0.76rem; cursor: pointer;
+    border: 1px solid var(--border); background: rgba(255,255,255,0.06);
+    color: var(--ink); border-radius: 999px; padding: 0.4rem 0.75rem;
+  }
+  button:hover { background: rgba(255,255,255,0.12); }
+  button:active { transform: translateY(1px); }
+  button.primary { background: var(--accent); color: #04141f; border: none; font-weight: 700; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.ringing { background: var(--accent2); color: #241800; border: none; }
+  .btnrow a {
+    font: inherit; font-size: 0.76rem; cursor: pointer; text-decoration: none;
+    display: inline-block; border: 1px solid var(--border); background: rgba(255,255,255,0.06);
+    color: var(--ink); border-radius: 999px; padding: 0.4rem 0.75rem;
+  }
+  .btnrow a:hover { background: rgba(255,255,255,0.12); }
+
+  #resonance {
+    margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--border);
+    display: none;
+  }
+  #resonance.show { display: block; }
+  #resonance .name { color: var(--accent2); font-weight: 700; font-size: 0.85rem; }
+  #resonance .sub { color: var(--dim); font-size: 0.7rem; margin-top: 0.15rem; }
+
+  .stats {
+    margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px solid var(--border);
+    display: flex; justify-content: space-between; color: var(--dim); font-size: 0.7rem;
+  }
+  .stats b { color: var(--accent); font-weight: 700; }
+
+  .hint {
+    position: fixed; right: 14px; bottom: 14px; z-index: 6;
+    color: var(--dim); font-size: 0.72rem; background: var(--panel);
+    backdrop-filter: blur(8px); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0.4rem 0.65rem; pointer-events: none;
+    text-align: right; max-width: 220px;
+  }
+  footer.links {
+    position: fixed; right: 14px; top: 12px; z-index: 6;
+    display: flex; gap: 0.9rem; font-size: 0.72rem; color: var(--dim);
+    pointer-events: auto;
+  }
+  footer.links a { color: var(--dim); }
+  footer.links a:hover { color: var(--accent); }
+
+  @media (max-width: 560px) {
+    .hint { display: none; }
+    footer.links { top: auto; bottom: 14px; right: 14px; flex-direction: column; align-items: flex-end; gap: 0.3rem; }
+    #panel { bottom: 90px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div class="hud">
+  <h1>c<span id="secret-y" style="cursor:pointer">y</span>matics</h1>
+  <p class="tagline">
+    A live Chladni-plate simulation — thousands of sand grains bounce on a vibrating
+    plate and settle wherever it barely moves at all, tracing the shape of a resonant
+    mode. Tap the plate to jolt the sand, or drag to nudge it by hand.
+  </p>
+</div>
+
+<footer class="links">
+  <a href="https://bisks.net/" target="_blank" rel="noopener">bisks.net</a>
+  <a href="https://rateyourbuild.bisks.net/site/cymatics" target="_blank" rel="noopener">rate this →</a>
+</footer>
+
+<div id="panel">
+  <div class="panel-head" id="panel-toggle">
+    <b>plate controls</b>
+    <span class="chev">▾</span>
+  </div>
+  <div class="panel-body">
+    <div class="row pair">
+      <div>
+        <label>mode n <span class="val" id="n-val">3</span></label>
+        <input type="range" id="n-range" min="1" max="9" step="1" value="3" />
+      </div>
+      <div>
+        <label>mode m <span class="val" id="m-val">5</span></label>
+        <input type="range" id="m-range" min="1" max="9" step="1" value="5" />
+      </div>
+    </div>
+    <div class="row">
+      <label>symmetry <span class="val" id="symmetry-val"></span></label>
+      <select id="symmetry-select">
+        <option value="classic" selected>classic — mirrored nodes</option>
+        <option value="plus">plus — overlaid nodes</option>
+        <option value="off">off-axis — asymmetric drift</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>palette <span class="val" id="palette-val"></span></label>
+      <select id="palette-select">
+        <option value="auto">auto (from seed)</option>
+        <option value="steel">steel — cold glow</option>
+        <option value="brass">brass — warm metal</option>
+        <option value="aurora">aurora — green/violet</option>
+        <option value="ultraviolet">ultraviolet — magenta/cyan</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>grains <span class="val" id="grains-val">8000</span></label>
+      <input type="range" id="grains-range" min="1000" max="16000" step="1000" value="8000" />
+    </div>
+    <div class="row">
+      <label>seed with a bluesky handle (optional)</label>
+      <input type="text" id="handle-input" placeholder="you.bsky.social" autocomplete="off" maxlength="60" />
+    </div>
+    <div id="resonance">
+      <div class="name" id="resonance-name"></div>
+      <div class="sub" id="resonance-sub"></div>
+    </div>
+    <div class="btnrow">
+      <button class="primary" id="tap-btn">tap the plate</button>
+      <button id="ring-btn">ring it</button>
+    </div>
+    <div class="btnrow">
+      <button id="grow-btn">apply seed</button>
+      <button id="reset-btn">scatter sand</button>
+    </div>
+    <div class="btnrow">
+      <a id="share-bsky" href="#" target="_blank" rel="noopener">share to bluesky</a>
+      <button id="share-card-btn">save/share image</button>
+      <button id="copy-link-btn">copy permalink</button>
+    </div>
+    <div class="stats">
+      <span>settled <b id="settled-val">0%</b></span>
+      <span>running <b id="uptime-val">0:00</b></span>
+    </div>
+  </div>
+</div>
+
+<p class="hint">drag to nudge sand · tap to jolt the plate</p>
+
+<canvas id="shareCanvas" width="1200" height="630" style="display:none"></canvas>
+<script src="app.js"></script>
+<script src="lib/handle-typeahead.js"></script>
+<script>if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle-input"));</script>
+</body>
+</html>
