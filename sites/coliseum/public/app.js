@@ -1,4 +1,5 @@
 import { resolveInput, getThread, flattenThread, pickGladiators, assignTeam } from "./lib/atproto.js";
+import { getThreadViaBacklinks } from "./lib/backlinks.js";
 
 const SITE_URL = "https://coliseum.bisks.net/";
 const $ = (sel) => document.querySelector(sel);
@@ -14,6 +15,8 @@ const els = {
   barA: $("#bar-a"),
   barB: $("#bar-b"),
   crowdCount: $("#crowd-count"),
+  deepscan: $("#deepscan"),
+  deepscanGo: $("#deepscan-go"),
   captainA: $("#captain-a"),
   captainB: $("#captain-b"),
   crowdA: $("#crowd-a"),
@@ -359,12 +362,35 @@ async function render(root, gladiators, all, resolved) {
   els.result.style.display = "";
 }
 
+// getPostThread's depth=1000 is a real API ceiling, not a guessed cap (see
+// atproto.js's getThread) — so any node coming back *at* depth 1000 means the
+// walk hit that wall, not that the chain happened to stop exactly there.
+// That's the only reliable signal we get that there might be more beneath it.
+function hitDepthCeiling(all) {
+  return all.some((n) => n.depth >= 1000);
+}
+
+async function rebuildViaBacklinks(rootUri) {
+  els.deepscanGo.textContent = "rebuilding…";
+  try {
+    const { root, topLevel, all } = await getThreadViaBacklinks(rootUri);
+    const gladiators = pickGladiators(topLevel);
+    els.deepscan.style.display = "none";
+    setStatus(`rebuilt via backlinks — ${all.length} replies found beyond the arena's normal view.`);
+    await render(root, gladiators, all, { uri: rootUri, chosen: false });
+  } catch (e) {
+    els.deepscanGo.textContent = "rebuild it via backlinks →";
+    setStatus(e.message || String(e), true);
+  }
+}
+
 async function run() {
   const raw = els.input.value.trim();
   if (!raw) return setStatus("paste a post link or a handle first.", true);
 
   els.go.disabled = true;
   els.result.style.display = "none";
+  els.deepscan.style.display = "none";
   setStatus("descending into the arena…");
 
   try {
@@ -375,6 +401,14 @@ async function run() {
     const gladiators = pickGladiators(topLevel);
     setStatus("");
     await render(root, gladiators, all, resolved);
+    if (hitDepthCeiling(all)) {
+      els.deepscanGo.textContent = "rebuild it via backlinks →";
+      els.deepscan.style.display = "";
+      els.deepscanGo.onclick = (e) => {
+        e.preventDefault();
+        rebuildViaBacklinks(root.uri);
+      };
+    }
   } catch (e) {
     setStatus(e.message || String(e), true);
   } finally {

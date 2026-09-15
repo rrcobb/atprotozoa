@@ -273,17 +273,21 @@ for followers, falling back to the old paginated AppView walk on error.
 Spacedust (live filtered firehose) and Slingshot (identity/record cache) were
 surveyed but not tried — see the note for where they'd fit.
 
-**Cerulea backlinks — surveyed, not adopted.** (`cerulea-backlinks.md`,
-surveyed 2026-09-14 at octopodeeznuts.bsky.social's request, prompted by
-bisks.net quoting char.lt's "atproto full-net backlinks" post) A second,
-API-incompatible implementation of the same idea as Constellation above —
-confirmed live to index replies, follow/like subjects, and (not documented
-by its author, found only by querying it) mention facets. Its demo,
-`bsky-thread.bun.how`, reconstructs threads past the AppView's real
-`getPostThread` depth=1000 ceiling, which `sites/coliseum` already hits.
-Candidates flagged, nothing wired in — see the note for the specific list
-(listenheimer and snubbed's `getLikes` walks, coliseum's thread depth,
-quotehof's quote lookup, hindex's mention tracking).
+**Cerulea backlinks — surveyed 2026-09-14, partially adopted 2026-09-15.**
+(`cerulea-backlinks.md`, surveyed at octopodeeznuts.bsky.social's request,
+prompted by bisks.net quoting char.lt's "atproto full-net backlinks" post) A
+second, API-incompatible implementation of the same idea as Constellation
+above — confirmed live to index replies, follow/like subjects, quote-post
+embeds, and (not documented by its author, found only by querying it) mention
+facets. Its demo, `bsky-thread.bun.how`, reconstructs threads past the
+AppView's real `getPostThread` depth=1000 ceiling, which `sites/coliseum`
+already hit — a 2026-09-15 daily-slot pass wired that one case in
+(`sites/coliseum/public/lib/backlinks.js`: BFS the backlink index past the
+ceiling, then bulk-hydrate with `getPosts`), gated behind a "did we actually
+hit depth 1000" check rather than always paying for the walk. Other candidates
+from the same survey are still just flagged, nothing wired in — listenheimer
+and snubbed's `getLikes` walks, quotehof's quote lookup, hindex's mention
+tracking.
 
 ---
 

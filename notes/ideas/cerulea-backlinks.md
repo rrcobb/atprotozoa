@@ -133,10 +133,29 @@ API-incompatible backlink source alongside a working one just because it
 exists. Worth remembering as a fallback if Constellation ever has an outage,
 not worth wiring in proactively.
 
-## Not done here
+## Wired in: coliseum, 2026-09-15
 
-Nothing wired in — the ask was explicitly notes-only. If a future build picks
-one of the above up, re-confirm `$.embed.record` indexing live first (the one
-gap in this survey), and decide per-site whether Cerulea's page size actually
-beats the AppView's before treating it as a real win rather than a
-maybe-parallel data source.
+A daily-slot pass picked up the clearest concrete fit flagged above.
+`sites/coliseum/public/lib/backlinks.js` reconstructs a thread past
+`getPostThread`'s depth=1000 ceiling: BFS over `$.reply.parent` backlinks
+(unbounded depth, one paginated cursor walk per node — Cerulea has no bulk
+whole-subtree call), then a bulk `app.bsky.feed.getPosts` hydrate (25 URIs/call)
+for the actual post content. `app.js`'s `hitDepthCeiling()` checks whether any
+node in the normal `getPostThread` result landed exactly at depth 1000 — the
+one reliable signal that the AppView wall was actually hit, not that the chain
+just happened to stop there — and if so shows a "rebuild it via backlinks →"
+link that swaps in the full reconstruction.
+
+Confirmed live while building this: `$.embed.record` and `$.embed.record.record`
+*are* indexed (the one gap flagged below as untested) — a real
+`did:plc:z72i7hdynmk6r22z27h6tvur` post with 1010 replies returned both groups
+alongside `$.reply.parent`/`$.reply.root`/`$.subject`. Also confirmed: the
+`$.reply.parent` group for a single target pages at roughly 50 backlinks total
+per response *across all location groups combined*, not 50 per group — so a
+busy node's direct-reply count needs the full cursor walk, not just the first
+page, which `directReplyUris()` in the new file does.
+
+Not done here: `quotehof` (quote-post hall of fame, flagged above as the other
+`$.embed.record` candidate) and the mention-tracking (`hindex`) / engagement-
+graph (`metamoots`, `mootflow`, etc.) candidates from the same survey — this
+pass scoped to the one clear win, not the whole list.
