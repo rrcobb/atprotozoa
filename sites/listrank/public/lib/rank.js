@@ -15,82 +15,59 @@
 // constellation.js). Once a list is a genuine blocklist candidate, its own
 // full membership (for the follow-overlap count and the .bsky.social share)
 // comes from the reverse side of that same index.
+//
+// @vikanezrimaya.xyz reported the progress bar freezing the tab on a big
+// scan and asked whether this ran on a web worker. It didn't — every repo
+// CAR download's DAG-CBOR/MST decode (car.js's cborValue/walk, no yield
+// points) was landing on whichever thread called rankBlocklists. The two
+// stages that do that decode (this account's own blocks+follows, and each
+// candidate list's full membership) now dispatch into a small pool of real
+// Worker threads (workerpool.js + rank-pool-worker.js) instead — off the
+// calling thread entirely, and spread across more than one thread for
+// genuine parallelism, not just relief. Falls back to running inline,
+// single-threaded, if Worker construction fails for any reason (unsupported
+// runtime, blocked by a CSP, etc.) — same result, just slower.
 
-import { resolveHandle, resolvePds, pooledEach, getHandles, jget } from "./identity.js";
-import { fetchRepoRecordsWithKeys } from "./car.js";
+import { resolveHandle, pooledEach, getHandles } from "./identity.js";
 import { fetchListMemberships, listWebUrl, CONSTELLATION_INDEXED_SINCE_MS } from "./constellation.js";
+import { getListRecord, fetchOwnRecords, fetchListMembers, fullListStats } from "./list-io.js";
+import { createWorkerPool } from "./workerpool.js";
 
-const PUB = "https://public.api.bsky.app/xrpc";
-const FETCH_CONCURRENCY = 8; // browser connection-pool courtesy, not a data cap
-const FALLBACK_PAGES = 400; // paginated listRecords fallback if the CAR read fails — same backstop value as kevinmoot's GRAPH_PAGES, see notes/40-new-site-playbook.md 2026-08-28
-const LIST_MEMBERS_PAGES = 400; // fallback-only paginated getList walk, same backstop value as kevinmoot's GRAPH_PAGES — the primary path below is a bulk CAR read with no page cap at all
-const SHARE_SAMPLE_SIZE = 300; // a percentage doesn't need a full census — 300 resolved handles is plenty for a stable estimate, and keeps getProfiles calls from scaling with a mega-list's true size (same "sample for an estimate, census for a count" split as the vulnscope precedent in notes/40-new-site-playbook.md)
+const FETCH_CONCURRENCY = 8; // browser connection-pool courtesy, not a data cap — only used for the metadata pass below, which is plain JSON fetches with no pool worth pooling
 
-// A candidate list's own record (purpose/name/description/creator DID), used
-// to filter discovery candidates down to actual moderation lists. One direct
-// record fetch — not a Constellation lookup, not getList pagination — since
-// a single at:// URI already names exactly which repo + rkey to read.
-async function getListRecord(listUri) {
-  const m = /^at:\/\/([^/]+)\/app\.bsky\.graph\.list\/([^/]+)$/.exec(listUri || "");
-  if (!m) throw new Error("malformed list uri");
-  const [, did, rkey] = m;
-  const u = new URL(`${PUB}/com.atproto.repo.getRecord`);
-  u.searchParams.set("repo", did);
-  u.searchParams.set("collection", "app.bsky.graph.list");
-  u.searchParams.set("rkey", rkey);
-  const d = await jget(u.toString());
-  return { did, value: d.value };
+function makePool() {
+  if (typeof Worker === "undefined") return null;
+  try {
+    const size = Math.max(2, Math.min(6, (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 4));
+    return createWorkerPool(new URL("./rank-pool-worker.js", import.meta.url), size);
+  } catch {
+    return null; // e.g. module workers unsupported, or blocked — inline fallback below still works
+  }
 }
 
-// Full membership of a surviving candidate list. Every app.bsky.graph.listitem
-// naming this list lives in the *list owner's own repo* (same shape as the
-// user's own blocks/follows above), so the preferred path is one repo CAR
-// download rather than paginating app.bsky.graph.getList — the 2026-08-25
-// bulk-reads order. Falls back to paginated getList (owner PDS
-// unreachable/non-CORS, oversized repo, malformed CAR) — same fallback
-// sites/rollcall's listmembers.js uses for the same reason.
-async function fetchListMembers(listUri) {
-  const m = /^at:\/\/([^/]+)\//.exec(listUri || "");
-  const ownerDid = m && m[1];
-  if (ownerDid) {
-    try {
-      const pds = await resolvePds(ownerDid);
-      if (pds) {
-        const { records } = await fetchRepoRecordsWithKeys(pds, ownerDid, "app.bsky.graph.listitem");
-        const dids = [];
-        const seen = new Set();
-        for (const { value } of records) {
-          if (value.list !== listUri) continue;
-          if (!value.subject || seen.has(value.subject)) continue;
-          seen.add(value.subject);
-          dids.push(value.subject);
-        }
-        return dids;
+// Runs `task` for every item via the worker pool when one exists (dispatched
+// all at once — the pool's own queue bounds real concurrency to its size, so
+// no separate concurrency cap is needed here), or via `fallbackFn` under a
+// pooledEach concurrency cap when it doesn't. Either way `onDone` fires once
+// per item as it resolves, for progress reporting.
+async function poolMap(items, pool, task, toPayload, fallbackFn, onDone) {
+  if (pool) {
+    await Promise.all(items.map(async (item) => {
+      let r;
+      try {
+        r = await pool.run(task, toPayload(item));
+      } catch {
+        try { r = await fallbackFn(item); } catch { r = null; }
       }
-    } catch {
-      // fall through to the paginated walk below
-    }
+      if (onDone) onDone(item, r);
+    }));
+  } else {
+    await pooledEach(items, FETCH_CONCURRENCY, async (item) => {
+      let r;
+      try { r = await fallbackFn(item); } catch { r = null; }
+      if (onDone) onDone(item, r);
+    });
   }
-  const dids = [];
-  const seen = new Set();
-  let cursor = "";
-  for (let p = 0; p < LIST_MEMBERS_PAGES; p++) {
-    const u = new URL(`${PUB}/app.bsky.graph.getList`);
-    u.searchParams.set("list", listUri);
-    u.searchParams.set("limit", "100");
-    if (cursor) u.searchParams.set("cursor", cursor);
-    const d = await jget(u.toString());
-    for (const item of d.items || []) {
-      const did = item.subject && item.subject.did;
-      if (did && !seen.has(did)) {
-        seen.add(did);
-        dids.push(did);
-      }
-    }
-    cursor = d.cursor;
-    if (!cursor || !(d.items || []).length) break;
-  }
-  return dids;
 }
 
 // Discovery can genuinely turn up thousands of candidate lists — verified
@@ -108,50 +85,28 @@ async function fetchListMembers(listUri) {
 // the rest are dropped with a visible count, never silently.
 const MAX_CANDIDATES = 200;
 
-async function fetchOwnRecords(did) {
-  const pds = await resolvePds(did);
-  if (pds) {
-    try {
-      const { records } = await fetchRepoRecordsWithKeys(pds, did, ["app.bsky.graph.block", "app.bsky.graph.follow"]);
-      return records;
-    } catch {
-      // fall through to the paginated walk below
-    }
-  }
-  // Fallback: page com.atproto.repo.listRecords directly against the PDS
-  // (public AppView doesn't implement this method for arbitrary repos).
-  const out = [];
-  if (!pds) return out;
-  for (const collection of ["app.bsky.graph.block", "app.bsky.graph.follow"]) {
-    let cursor = "";
-    for (let p = 0; p < FALLBACK_PAGES; p++) {
-      const u = new URL(pds.replace(/\/$/, "") + "/xrpc/com.atproto.repo.listRecords");
-      u.searchParams.set("repo", did);
-      u.searchParams.set("collection", collection);
-      u.searchParams.set("limit", "100");
-      if (cursor) u.searchParams.set("cursor", cursor);
-      let d;
-      try {
-        d = await jget(u.toString());
-      } catch {
-        break;
-      }
-      for (const r of d.records || []) out.push({ uri: r.uri, value: r.value });
-      cursor = d.cursor;
-      if (!cursor || !(d.records || []).length) break;
-    }
-  }
-  return out;
-}
-
 export async function rankBlocklists(rawHandle, { onProgress } = {}) {
   const step = (msg) => onProgress && onProgress(msg);
+  const pool = makePool();
 
+  try {
+    return await runPipeline(rawHandle, step, pool);
+  } finally {
+    if (pool) pool.terminate();
+  }
+}
+
+async function runPipeline(rawHandle, step, pool) {
   step("resolving handle…");
   const { did, handle, profile } = await resolveHandle(rawHandle);
 
   step(`reading @${handle}'s blocks + follows…`);
-  const records = await fetchOwnRecords(did);
+  let records;
+  try {
+    records = pool ? await pool.run("ownRecords", { did }) : await fetchOwnRecords(did);
+  } catch {
+    records = await fetchOwnRecords(did);
+  }
   const blockedDids = new Set();
   const followDids = new Set();
   for (const r of records) {
@@ -176,17 +131,18 @@ export async function rankBlocklists(rawHandle, { onProgress } = {}) {
   const hitCounts = new Map(); // list uri -> count of your blocked accounts found on it
   let scanned = 0;
   const blockedArr = Array.from(blockedDids);
-  await pooledEach(blockedArr, FETCH_CONCURRENCY, async (bdid) => {
-    let lists = [];
-    try {
-      lists = await fetchListMemberships(bdid);
-    } catch {
-      // one account's membership lookup failing shouldn't sink the whole scan
+  await poolMap(
+    blockedArr,
+    pool,
+    "discover",
+    (bdid) => ({ did: bdid }),
+    (bdid) => fetchListMemberships(bdid).then((lists) => Array.from(new Set(lists))),
+    (bdid, lists) => {
+      for (const l of new Set(lists || [])) hitCounts.set(l, (hitCounts.get(l) || 0) + 1);
+      scanned++;
+      step(`scanning list memberships for your blocks… ${scanned}/${blockedArr.length} (${hitCounts.size} candidate list${hitCounts.size === 1 ? "" : "s"} found)`);
     }
-    for (const l of new Set(lists)) hitCounts.set(l, (hitCounts.get(l) || 0) + 1);
-    scanned++;
-    step(`scanning list memberships for your blocks… ${scanned}/${blockedArr.length} (${hitCounts.size} candidate list${hitCounts.size === 1 ? "" : "s"} found)`);
-  });
+  );
 
   if (hitCounts.size === 0) return result;
 
@@ -227,47 +183,33 @@ export async function rankBlocklists(rawHandle, { onProgress } = {}) {
   }
 
   // Full-membership pass per surviving list: exact block/follow overlap
-  // counts, plus a sampled .bsky.social share.
+  // counts, plus a sampled .bsky.social share. This is the heaviest stage
+  // (a repo CAR download + DAG-CBOR/MST decode per list), so it's the main
+  // beneficiary of the worker pool — see this file's header.
+  const followArr = Array.from(followDids);
   let done = 0;
-  await pooledEach(modlists, FETCH_CONCURRENCY, async (list) => {
+  const fallbackFull = async (list) => {
     let memberDids = [];
     try {
       memberDids = await fetchListMembers(list.uri);
     } catch {
       memberDids = [];
     }
-    const memberSet = new Set(memberDids);
-    list.memberCount = memberSet.size;
-    let blocksInList = 0;
-    for (const d of blockedDids) if (memberSet.has(d)) blocksInList++;
-    let followsInList = 0;
-    for (const d of followDids) if (memberSet.has(d)) followsInList++;
-    list.blocksInList = blocksInList;
-    list.followsInList = followsInList;
-
-    const sample = memberDids.slice(0, SHARE_SAMPLE_SIZE);
-    list.sampled = memberDids.length > sample.length;
-    list.sampleSize = sample.length;
-    if (sample.length) {
-      let handles;
-      try {
-        handles = await getHandles(sample);
-      } catch {
-        handles = new Map();
-      }
-      let bskySocial = 0;
-      for (const h of handles.values()) if (/\.bsky\.social$/i.test(h)) bskySocial++;
-      list.shareResolved = handles.size;
-      list.shareBskySocial = bskySocial;
-    } else {
-      list.shareResolved = 0;
-      list.shareBskySocial = 0;
+    return fullListStats(memberDids, blockedArr, followArr);
+  };
+  await poolMap(
+    modlists,
+    pool,
+    "fullMembership",
+    (list) => ({ uri: list.uri, blockedDids: blockedArr, followDids: followArr }),
+    fallbackFull,
+    (list, stats) => {
+      Object.assign(list, stats || { memberCount: 0, blocksInList: 0, followsInList: 0, sampled: false, sampleSize: 0, shareResolved: 0, shareBskySocial: 0 });
+      list.webUrl = listWebUrl(list.uri);
+      done++;
+      step(`reading full membership… ${done}/${modlists.length} lists`);
     }
-
-    list.webUrl = listWebUrl(list.uri);
-    done++;
-    step(`reading full membership… ${done}/${modlists.length} lists`);
-  });
+  );
 
   // Rank: most of your blocks first, fewest of your follows breaking ties.
   modlists.sort((a, b) => (b.blocksInList - a.blocksInList) || (a.followsInList - b.followsInList) || (b.memberCount - a.memberCount));
