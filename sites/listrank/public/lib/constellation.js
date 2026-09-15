@@ -13,13 +13,14 @@
 //
 // This file is deliberately one-directional (subject DID -> lists it's on).
 // A candidate list's own full membership (for the .bsky.social share sample
-// and its exact member count) comes from app.bsky.graph.getList instead —
-// see rank.js — because that endpoint already bundles handle resolution and
-// an exact listItemCount into the same page fetch; walking Constellation's
-// reverse direction would mean a second per-member handle-resolution pass on
-// top of an membership walk that, for a genuinely large blocklist, has no
-// natural stopping point short of the whole list (see rank.js's header for
-// why that isn't the shape this needs).
+// and its exact member count) comes from a repo CAR download of the list
+// owner's own listitem records instead — see rank.js's fetchListMembers —
+// because every listitem lives in the owner's repo already, same as this
+// site's own blocks/follows read; walking Constellation's reverse direction
+// would mean a second per-member handle-resolution pass on top of a
+// membership walk that, for a genuinely large blocklist, has no natural
+// stopping point short of the whole list (see rank.js's header for why that
+// isn't the shape this needs).
 
 const BASE = "https://constellation.microcosm.blue";
 

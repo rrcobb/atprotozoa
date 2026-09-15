@@ -18,11 +18,80 @@
 
 import { resolveHandle, resolvePds, pooledEach, getHandles, jget } from "./identity.js";
 import { fetchRepoRecordsWithKeys } from "./car.js";
-import { fetchListMemberships, fetchListMembers, getListRecord, listWebUrl, CONSTELLATION_INDEXED_SINCE_MS } from "./constellation.js";
+import { fetchListMemberships, listWebUrl, CONSTELLATION_INDEXED_SINCE_MS } from "./constellation.js";
 
+const PUB = "https://public.api.bsky.app/xrpc";
 const FETCH_CONCURRENCY = 8; // browser connection-pool courtesy, not a data cap
 const FALLBACK_PAGES = 400; // paginated listRecords fallback if the CAR read fails — same backstop value as kevinmoot's GRAPH_PAGES, see notes/40-new-site-playbook.md 2026-08-28
+const LIST_MEMBERS_PAGES = 400; // fallback-only paginated getList walk, same backstop value as kevinmoot's GRAPH_PAGES — the primary path below is a bulk CAR read with no page cap at all
 const SHARE_SAMPLE_SIZE = 300; // a percentage doesn't need a full census — 300 resolved handles is plenty for a stable estimate, and keeps getProfiles calls from scaling with a mega-list's true size (same "sample for an estimate, census for a count" split as the vulnscope precedent in notes/40-new-site-playbook.md)
+
+// A candidate list's own record (purpose/name/description/creator DID), used
+// to filter discovery candidates down to actual moderation lists. One direct
+// record fetch — not a Constellation lookup, not getList pagination — since
+// a single at:// URI already names exactly which repo + rkey to read.
+async function getListRecord(listUri) {
+  const m = /^at:\/\/([^/]+)\/app\.bsky\.graph\.list\/([^/]+)$/.exec(listUri || "");
+  if (!m) throw new Error("malformed list uri");
+  const [, did, rkey] = m;
+  const u = new URL(`${PUB}/com.atproto.repo.getRecord`);
+  u.searchParams.set("repo", did);
+  u.searchParams.set("collection", "app.bsky.graph.list");
+  u.searchParams.set("rkey", rkey);
+  const d = await jget(u.toString());
+  return { did, value: d.value };
+}
+
+// Full membership of a surviving candidate list. Every app.bsky.graph.listitem
+// naming this list lives in the *list owner's own repo* (same shape as the
+// user's own blocks/follows above), so the preferred path is one repo CAR
+// download rather than paginating app.bsky.graph.getList — the 2026-08-25
+// bulk-reads order. Falls back to paginated getList (owner PDS
+// unreachable/non-CORS, oversized repo, malformed CAR) — same fallback
+// sites/rollcall's listmembers.js uses for the same reason.
+async function fetchListMembers(listUri) {
+  const m = /^at:\/\/([^/]+)\//.exec(listUri || "");
+  const ownerDid = m && m[1];
+  if (ownerDid) {
+    try {
+      const pds = await resolvePds(ownerDid);
+      if (pds) {
+        const { records } = await fetchRepoRecordsWithKeys(pds, ownerDid, "app.bsky.graph.listitem");
+        const dids = [];
+        const seen = new Set();
+        for (const { value } of records) {
+          if (value.list !== listUri) continue;
+          if (!value.subject || seen.has(value.subject)) continue;
+          seen.add(value.subject);
+          dids.push(value.subject);
+        }
+        return dids;
+      }
+    } catch {
+      // fall through to the paginated walk below
+    }
+  }
+  const dids = [];
+  const seen = new Set();
+  let cursor = "";
+  for (let p = 0; p < LIST_MEMBERS_PAGES; p++) {
+    const u = new URL(`${PUB}/app.bsky.graph.getList`);
+    u.searchParams.set("list", listUri);
+    u.searchParams.set("limit", "100");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    const d = await jget(u.toString());
+    for (const item of d.items || []) {
+      const did = item.subject && item.subject.did;
+      if (did && !seen.has(did)) {
+        seen.add(did);
+        dids.push(did);
+      }
+    }
+    cursor = d.cursor;
+    if (!cursor || !(d.items || []).length) break;
+  }
+  return dids;
+}
 
 // Discovery can genuinely turn up thousands of candidate lists — verified
 // live against pfrazee.com (477 blocks, 8591 candidate lists): blocking even
