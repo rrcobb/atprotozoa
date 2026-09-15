@@ -176,10 +176,22 @@
 
       let lastResult = null;
 
-      function shareLine(prof, top) {
-        if (!top) return `@${prof.handle}'s blocks don't turn up on any moderation lists, per listrank.`;
+      // Compact per-result share code, shared with src/index.ts's decodeShare
+      // — the Worker just decodes this (no re-running the whole scan
+      // server-side) to stamp a personalized og:title/description onto
+      // /s/<code>, so a shared link unfurls with the actual match instead of
+      // one generic card for every share (see notes/45-sharing-and-virality.md
+      // tier 4; pattern copied from sites/windmill + sites/polcompass).
+      function encodeShare(o) {
+        const json = JSON.stringify(o);
+        const b64 = btoa(unescape(encodeURIComponent(json)));
+        return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      }
+
+      function shareLine(prof, top, url) {
+        if (!top) return `@${prof.handle}'s blocks don't turn up on any moderation lists, per listrank. ${url}`;
         const pct = top.blocksInList && top.blockTotal ? Math.round((top.blocksInList / top.blockTotal) * 100) : null;
-        return `@${prof.handle}'s top blocklist match on listrank: "${top.name}" — ${top.blocksInList}${pct ? ` (${pct}%)` : ""} of my blocks, only ${top.followsInList} of my follows. https://listrank.bisks.net/`;
+        return `@${prof.handle}'s top blocklist match on listrank: "${top.name}" — ${top.blocksInList}${pct ? ` (${pct}%)` : ""} of my blocks, only ${top.followsInList} of my follows. ${url}`;
       }
 
       function listRowHTML(l, i, blockTotal) {
@@ -231,7 +243,22 @@
       shareBtn.addEventListener("click", () => {
         if (!lastResult) return;
         const top = lastResult.lists[0];
-        const text = shareLine(lastResult.profile || { handle: lastResult.handle }, top && { ...top, blockTotal: lastResult.totalBlocks });
+        let shareUrl = "https://listrank.bisks.net/";
+        if (top) {
+          const sharePct = top.shareResolved ? Math.round((top.shareBskySocial / top.shareResolved) * 100) : null;
+          const code = encodeShare({
+            h: lastResult.handle,
+            n: (top.name || "").slice(0, 60),
+            b: top.blocksInList,
+            bt: lastResult.totalBlocks,
+            f: top.followsInList,
+            mc: top.memberCount,
+            s: sharePct === null ? -1 : sharePct,
+            lc: lastResult.lists.length,
+          });
+          shareUrl = `https://listrank.bisks.net/s/${code}`;
+        }
+        const text = shareLine(lastResult.profile || { handle: lastResult.handle }, top && { ...top, blockTotal: lastResult.totalBlocks }, shareUrl);
         const url = `https://bsky.app/intent/compose?text=${encodeURIComponent(text)}`;
         window.open(url, "_blank", "noopener");
       });
