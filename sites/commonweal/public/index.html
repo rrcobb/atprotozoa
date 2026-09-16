@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>commonweal — governance that scales from 3 to 200</title>
+<meta name="description" content="Draft a charter, let sortition draw a fresh council every round, run a doge-style lot-and-ballot election for a rotating facilitator, and tally votes with an AI delegate's heuristic take in the room. Works for a 3-person co-op and a 200-person commons alike." />
+<meta property="og:title" content="commonweal — governance that scales from 3 to 200" />
+<meta property="og:description" content="Sortition councils, a Venetian-doge-style facilitator draw, and an AI delegate's heuristic take — an alternate governance kit for co-ops and commons of any size." />
+<meta property="og:url" content="https://commonweal.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://commonweal.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="commonweal: a sortition council roster with one seat highlighted as facilitator, and an AI delegate seat reading a proposal." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="commonweal — governance that scales from 3 to 200" />
+<meta name="twitter:description" content="Sortition councils, a Venetian-doge-style facilitator draw, and an AI delegate's heuristic take — an alternate governance kit for co-ops and commons of any size." />
+<meta name="twitter:image" content="https://commonweal.bisks.net/og.png" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="wrap">
+
+  <h1><span id="secret-h" class="secret">c</span>ommonweal</h1>
+  <p class="tagline">
+    An alternate governance kit. Found a commons with a charter link, let sortition
+    draw a fresh council every round so power never settles, run a Venetian-doge-style
+    lot-and-ballot draw for a rotating facilitator, and vote — with one seat always
+    held by an AI delegate reading the room. Works the same whether the commons has
+    3 people or 200. Asked for by <a href="https://bsky.app/profile/shimmermathlabs.com" target="_blank" rel="noopener">@shimmermathlabs.com</a>.
+  </p>
+
+  <div id="foundCard" class="card">
+    <h2>found a commons</h2>
+    <p>Name your group and list its members. This generates a link — that link
+      <em>is</em> the charter, shareable with everyone in it, no login and no server
+      required.</p>
+    <label for="f-name">commons name</label>
+    <input type="text" id="f-name" placeholder="e.g. Junction Street Co-op" />
+    <label for="f-members">members — one handle per line (or comma-separated)</label>
+    <textarea id="f-members" placeholder="alice.bsky.social&#10;bob.bsky.social&#10;carol.bsky.social"></textarea>
+    <div id="f-count" class="formula">0 members</div>
+    <button class="primary" id="f-found">found the commons</button>
+  </div>
+
+  <div id="charterCard" class="card hidden">
+    <h2 id="c-name">—</h2>
+    <div class="chips" id="c-members"></div>
+    <div class="link-box">
+      <span id="c-link"></span>
+      <button class="small" id="c-copy">copy</button>
+    </div>
+    <label for="c-yourhandle">your handle (optional — highlights your seat)</label>
+    <input type="text" id="c-yourhandle" placeholder="you.bsky.social" />
+    <button class="small" id="c-new">found a different commons</button>
+  </div>
+
+  <div id="councilCard" class="card hidden">
+    <h2>sortition council</h2>
+    <div class="formula" id="council-formula"></div>
+    <label for="round-tag">round tag — anyone in the commons who types the same tag
+      draws the same council (try a date, or the proposal's name)</label>
+    <input type="text" id="round-tag" placeholder="e.g. 2026-w38, or “compost bin budget”" />
+    <button class="primary" id="draw-council">draw the council</button>
+    <div class="roster-list" id="council-list"></div>
+  </div>
+
+  <div id="dogeCard" class="card hidden">
+    <h2>doge-style facilitator draw</h2>
+    <p>A stylized four-step reenactment of the 1268 Venetian doge election:
+      alternating rounds of <b>lot</b> (random draw) and <b>ballot</b> (nomination),
+      so neither pure chance nor pure politicking picks who runs the room. Draws
+      from the council above.</p>
+    <button id="run-doge">run the draw</button>
+    <div id="doge-steps"></div>
+    <div id="doge-result" class="facilitator-result hidden">
+      <div class="name" id="doge-name"></div>
+      <div class="role">facilitator for this round</div>
+    </div>
+  </div>
+
+  <div id="proposalCard" class="card hidden">
+    <h2>bring something to the council</h2>
+    <label for="proposal-text">proposal</label>
+    <textarea id="proposal-text" placeholder="what are we deciding?"></textarea>
+    <button class="primary" id="bring-proposal">bring to the council</button>
+
+    <div id="ai-take" class="ai-take hidden">
+      <div class="label">concord — ai delegate, heuristic take</div>
+      <div id="ai-take-text"></div>
+    </div>
+
+    <h3>vote</h3>
+    <label style="display:flex; align-items:center; gap:0.4rem; margin-top:0;">
+      <input type="checkbox" id="full-moot" style="width:auto;" />
+      call a full moot — vote as the whole membership instead of the sortition council
+    </label>
+    <label style="display:flex; align-items:center; gap:0.4rem;">
+      <input type="checkbox" id="two-thirds" style="width:auto;" />
+      require a two-thirds majority (for weightier calls)
+    </label>
+    <div class="roster-list" id="vote-list"></div>
+
+    <div class="tally-bar" id="tally-bar"></div>
+    <div class="tally-legend">
+      <span class="l-yes" id="tally-yes-label"></span>
+      <span class="l-no" id="tally-no-label"></span>
+      <span class="l-abstain" id="tally-abstain-label"></span>
+    </div>
+    <div class="verdict pending" id="verdict">no votes cast yet</div>
+
+    <div class="share-row">
+      <a id="share-bluesky" href="#" target="_blank" rel="noopener"><button>share this round on bluesky</button></a>
+      <button id="share-card-btn">generate share card</button>
+    </div>
+    <canvas id="shareCanvas" width="1200" height="630"></canvas>
+    <div class="share-row hidden" id="share-card-row">
+      <img id="share-card-img" alt="share card preview" style="max-width:100%; border-radius:8px; border:1px solid var(--border);" />
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>why this works at 3 people and at 200</h2>
+    <div class="example">
+      <b>3-person co-op.</b> Council size = everyone, always — sortition has
+      nothing to narrow. The doge draw still runs (lot then ballot) to pick who
+      chairs the meeting without it always being the same person. Concord sits
+      in as a fourth, non-human seat: a tiebreaker and a devil's advocate, not a
+      vote that can outweigh two humans agreeing.
+    </div>
+    <div class="example">
+      <b>200-person commons.</b> A fresh council of ~25-28 is drawn for every
+      round, seeded from the round tag — nobody can lobby their way onto next
+      week's council because nobody, including the person who calls the round,
+      knows who it'll be until the tag is typed. Any member can force a
+      "full moot" vote of the whole 200 if a council decision looks captured or
+      just deserves wider buy-in.
+    </div>
+    <h3>the council formula</h3>
+    <p>Groups of 5 or fewer: everyone is the council. Above that: round(2·√n),
+      floored at 5 and capped at 25 seats. It grows with the group so a
+      council never gets it easy by staying tiny, but it stops growing once a
+      room of 25 is already too big to have a real conversation in.</p>
+    <h3>concord, the ai delegate</h3>
+    <p>Concord doesn't call a model — no Workers AI, no API keys, nothing that
+      costs anything to run. It's a small script that reads a proposal for
+      cooperative language (share, consent, rotate, repair, transparent...)
+      against extractive language (control, hoard, coerce, surveil,
+      monopoly...) and leans yes, no, or abstain accordingly, with its
+      reasoning always shown. Treat it as a seat that never gets tired of
+      re-reading the fine print for whose interest it actually serves — not an
+      oracle, and easy to overrule.</p>
+  </div>
+
+  <footer>
+    commonweal · asked for by @shimmermathlabs.com · built by @buildthis.bisks.net<br />
+    <a href="https://rateyourbuild.bisks.net/site/commonweal">rate this on rateyourbuild →</a>
+  </footer>
+
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
