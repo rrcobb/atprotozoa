@@ -376,7 +376,13 @@ function worthConstellation(ownPostCount, mutualCount) {
 // from getProfile's postsCount), or if every single backlink query fails
 // (constellation itself looks unreachable) — any of these send the caller
 // back to the old full-mutual-scan behavior.
-export async function rankMutualsByConstellation(mainDid, mutualDids, onStep) {
+//
+// onProgress(done, total, "rank") mirrors buildCircle's scan-phase onProgress
+// shape (see its doc comment) so the same progress bar can track both phases
+// in sequence rather than sitting frozen while this phase's onStep messages
+// scroll past — added 2026-09-16 after a live test against an account with
+// 3200+ of its own posts showed exactly that: text updating, bar not moving.
+export async function rankMutualsByConstellation(mainDid, mutualDids, onStep, onProgress) {
   const pds = await resolvePds(mainDid);
   if (!pds) throw new Error("couldn't resolve a PDS for " + mainDid);
   if (onStep) onStep("reading your own post history to know what to check for replies…");
@@ -409,6 +415,7 @@ export async function rankMutualsByConstellation(mainDid, mutualDids, onStep) {
         failed++;
       }
       done++;
+      if (onProgress) onProgress(done, ownPosts.length, "rank");
       if (onStep && done % 10 === 0) {
         onStep(`checked ${done} / ${ownPosts.length} of your posts for replies…`);
       }
@@ -430,8 +437,13 @@ export async function rankMutualsByConstellation(mainDid, mutualDids, onStep) {
 // which no backlink index answers on its own — constellation only tells you
 // *that* someone replied, not the earliest one with its text.
 //
-// onStep(message) reports progress text; onProgress(done, total) drives the
-// progress bar across however many repo downloads actually happen.
+// onStep(message) reports progress text; onProgress(done, total, phase)
+// drives the progress bar — phase is "rank" while checking constellation for
+// replies to mainDid's own posts (added 2026-09-16 so the bar doesn't sit
+// frozen through that phase on an account with a big post history — see
+// rankMutualsByConstellation's doc comment) and "scan" while downloading
+// whichever repos actually make the cut. The bar resets between phases
+// rather than trying to blend two different denominators into one.
 // `mainPostsCountHint` (from mutualsOf's getProfile call, which already
 // happened) lets this skip even ATTEMPTING constellation — and so skip
 // wasting a CAR download on mainDid's own repo — when it's already obvious
@@ -460,7 +472,7 @@ export async function buildCircle(mainDid, mutuals, circleSize, opts = {}) {
     }
   } else {
     try {
-      const counts = await rankMutualsByConstellation(mainDid, mutualDids, onStep);
+      const counts = await rankMutualsByConstellation(mainDid, mutualDids, onStep, onProgress);
       if (!counts.size) throw new Error("no constellation hits");
       ranked = mutuals
         .filter((m) => counts.has(m.did))
@@ -504,7 +516,7 @@ export async function buildCircle(mainDid, mutuals, circleSize, opts = {}) {
         repliesToMain: result ? result.repliesToMain : 0,
         firstReplies: result ? result.firstReplies : null,
       });
-      if (onProgress) onProgress(scanned.length, ranked.length);
+      if (onProgress) onProgress(scanned.length, ranked.length, "scan");
     });
 
     const qualifying = scanned.filter((m) => m.repliesToMain > 0).length;
