@@ -49,6 +49,22 @@
 //       Only once ranking picks the top 40 does this fetch the actual
 //       record (one targeted com.atproto.repo.getRecord per mutual, for
 //       text) — a "select" read, not a repo download.
+//
+// 2026-09-16, same day, "keep going": tagged again after that rewrite landed
+// as a "first pass." Actually ran mutualsOf/buildCircle live against
+// heika.dog's real account (12k+ posts, 138 mutuals) instead of just reading
+// the diff, the way the frozen-progress-bar gap got caught last time — this
+// time the pipeline itself checked out (correct ranking, correct first-reply
+// text/timestamps, ~3.6 min end to end), but it surfaced a real waste: this
+// account's own posts got downloaded and parsed as a full repo CAR *twice* —
+// once inside fetchFollows (to read the .follow records) and again inside
+// buildCircle (to read the .post records), because those started as two
+// separate functions. fetchOwnRepo below merges them into one CAR read for
+// both $types, and mutualsOf now hands its already-downloaded posts to
+// buildCircle via opts.ownPosts so it never re-fetches — a second exhibit,
+// after the whole-repo-per-mutual scan, of "don't scan more than the request
+// needs," just aimed at this site's own single account read instead of its
+// mutuals'.
 import { fetchRepoRecordsWithKeys } from "./car.js";
 import { resolvePds } from "./identity.js";
 import { tidToMs } from "./tid.js";
@@ -136,18 +152,32 @@ async function graphAll(endpoint, key, did) {
   return out;
 }
 
-// Follows are records in the account's own repo — one CAR download, no
-// pagination (see notes/40-new-site-playbook.md's cee.wtf bulk-read order).
-// Falls back to the paginated AppView walk only if the repo read itself
-// fails (PDS unreachable, oversized repo, etc).
-async function fetchFollows(did) {
+// Follows AND the searched account's own posts are both records in the same
+// repo — buildCircle needs that same account's posts a few seconds later to
+// rank against, and fetchRepoRecordsWithKeys already takes an array of
+// wanted $types, so one CAR download covers both instead of two. Tested
+// live against @heika.dog (12k+ posts): downloading and parsing a prolific
+// poster's whole repo twice, just because the follows read and the post
+// read used to be two separate functions, wasted a real chunk of the wait
+// this build already got flagged for being slow. Falls back to the
+// paginated AppView walk for follows only if the repo read itself fails
+// (PDS unreachable, oversized repo, etc) — `posts: null` in that case tells
+// buildCircle it still needs its own (separate, one-shot) download.
+async function fetchOwnRepo(did) {
   try {
     const pds = await resolvePds(did);
     if (!pds) throw new Error("no PDS");
-    const { records } = await fetchRepoRecordsWithKeys(pds, did, FOLLOW_TYPE);
-    return records.map((r) => r.value && r.value.subject).filter(Boolean);
+    const { records } = await fetchRepoRecordsWithKeys(pds, did, [FOLLOW_TYPE, POST_TYPE]);
+    const follows = [];
+    const posts = [];
+    for (const r of records) {
+      const type = r.value && r.value.$type;
+      if (type === FOLLOW_TYPE && r.value.subject) follows.push(r.value.subject);
+      else if (type === POST_TYPE) posts.push(r);
+    }
+    return { follows, posts };
   } catch {
-    return graphAll("app.bsky.graph.getFollows", "follows", did);
+    return { follows: await graphAll("app.bsky.graph.getFollows", "follows", did), posts: null };
   }
 }
 
@@ -208,12 +238,16 @@ async function getProfiles(dids) {
   return out;
 }
 
-// Resolve a handle to { did, handle, self, mutuals }. `mutuals` is the plain
-// follow ∩ follow-back set, self excluded, no widening.
+// Resolve a handle to { did, handle, self, mutuals, ownPosts }. `mutuals` is
+// the plain follow ∩ follow-back set, self excluded, no widening. `ownPosts`
+// is the same CAR read's post records, handed to buildCircle below so it
+// doesn't have to download the same repo a second time — null if the repo
+// read failed and follows fell back to the paginated walk, in which case
+// buildCircle downloads posts itself instead.
 export async function mutualsOf(actor, { onStep } = {}) {
   const did = await resolveDid(actor);
-  if (onStep) onStep("mapping who they follow…");
-  const follows = await fetchFollows(did);
+  if (onStep) onStep("reading their own repo for follows and posts…");
+  const { follows, posts: ownPosts } = await fetchOwnRepo(did);
   if (onStep) onStep("mapping who follows them back…");
   const followers = await fetchFollowers(did);
 
@@ -245,7 +279,7 @@ export async function mutualsOf(actor, { onStep } = {}) {
     (d) => profiles.get(d) || { did: d, handle: d, displayName: d, avatar: "" },
   );
 
-  return { did, handle: self.handle, self, mutuals };
+  return { did, handle: self.handle, self, mutuals, ownPosts };
 }
 
 function didFromUri(uri) {
@@ -293,12 +327,18 @@ async function fetchRecord(did, rkey) {
   }
 }
 
-// The full pipeline. Downloads mainDid's own posts once (a single repo read
-// of the searched account, not a mutual — needed to know which post URIs to
-// ask constellation about), ranks every mutual purely from constellation
-// backlinks to those posts, then — only for the mutuals who make the final
+// The full pipeline. Ranks every mutual purely from constellation backlinks
+// to mainDid's own posts, then — only for the mutuals who make the final
 // top `circleSize` — fetches the one record needed to show the real text of
 // their earliest reply.
+//
+// opts.ownPosts, if given (mutualsOf's combined follows+posts CAR read),
+// skips this function's own repo download entirely — mainDid's posts were
+// already pulled down once to find its follows, so re-downloading and
+// re-parsing the same repo here would be the exact kind of redundant
+// whole-repo work this rewrite exists to cut out. Still downloads them
+// itself if called without that (e.g. mutualsOf's own repo read failed and
+// fell back to the paginated follows walk, which doesn't fetch posts).
 //
 // onStep(message) reports progress text; onProgress(done, total, phase)
 // drives the progress bar — phase is "rank" while checking constellation for
@@ -307,13 +347,16 @@ async function fetchRecord(did, rkey) {
 // faster fallback anymore) and "text" while fetching the handful of records
 // needed for the final top 40.
 export async function buildCircle(mainDid, mutuals, circleSize, opts = {}) {
-  const { onStep, onProgress } = opts;
+  const { onStep, onProgress, ownPosts: providedOwnPosts } = opts;
   const mutualSet = new Set(mutuals.map((m) => m.did));
 
-  const pds = await resolvePds(mainDid);
-  if (!pds) throw new Error("couldn't resolve a PDS for " + mainDid);
-  if (onStep) onStep("reading your own post history to know what to check for replies…");
-  const { records: ownPosts } = await fetchRepoRecordsWithKeys(pds, mainDid, POST_TYPE);
+  let ownPosts = providedOwnPosts;
+  if (!ownPosts) {
+    const pds = await resolvePds(mainDid);
+    if (!pds) throw new Error("couldn't resolve a PDS for " + mainDid);
+    if (onStep) onStep("reading your own post history to know what to check for replies…");
+    ({ records: ownPosts } = await fetchRepoRecordsWithKeys(pds, mainDid, POST_TYPE));
+  }
 
   // you → mutual: already in hand from your own downloaded posts, no extra
   // fetch needed. Earliest reply per target DID.
