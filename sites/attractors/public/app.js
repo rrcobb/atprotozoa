@@ -468,22 +468,96 @@
   });
   handleInput.addEventListener("change", () => resetSim("input"));
 
+  // --- Drag-to-pan, scroll-to-zoom -----------------------------------------
+  // The density buffer is a fixed grid in sim-pixel space, not a map of
+  // attractor-space coordinates — so panning/zooming has to reset the
+  // accumulation the same way changing a param or family already does,
+  // otherwise old deposits stay put under the new mapping and the shape
+  // visibly smears instead of just moving.
+  function clearAccumulation() {
+    density.fill(0);
+    runningMax = 1;
+    totalPoints = 0;
+    simStartTime = performance.now();
+  }
+
+  function canvasToSim(clientX, clientY) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((clientX - rect.left) / rect.width) * simW,
+      y: ((clientY - rect.top) / rect.height) * simH,
+    };
+  }
+
+  function zoomAt(clientX, clientY, factor) {
+    const p = canvasToSim(clientX, clientY);
+    const ax = transform.cx + (p.x - simW / 2) / transform.scale;
+    const ay = transform.cy + (p.y - simH / 2) / transform.scale;
+    const newScale = Math.min(1e6, Math.max(1e-3, transform.scale * factor));
+    transform = {
+      scale: newScale,
+      cx: ax - (p.x - simW / 2) / newScale,
+      cy: ay - (p.y - simH / 2) / newScale,
+    };
+    clearAccumulation();
+  }
+
+  let dragging = false;
+  let lastSim = null;
+  canvas.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    lastSim = canvasToSim(e.clientX, e.clientY);
+    canvas.setPointerCapture(e.pointerId);
+    canvas.style.cursor = "grabbing";
+  });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const p = canvasToSim(e.clientX, e.clientY);
+    const dx = p.x - lastSim.x, dy = p.y - lastSim.y;
+    if (dx || dy) {
+      transform.cx -= dx / transform.scale;
+      transform.cy -= dy / transform.scale;
+      clearAccumulation();
+      lastSim = p;
+    }
+  });
+  function endDrag() {
+    dragging = false;
+    lastSim = null;
+    canvas.style.cursor = "grab";
+  }
+  canvas.addEventListener("pointerup", endDrag);
+  canvas.addEventListener("pointercancel", endDrag);
+  canvas.style.cursor = "grab";
+
+  canvas.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      zoomAt(e.clientX, e.clientY, factor);
+    },
+    { passive: false }
+  );
+
   // --- Sharing -------------------------------------------------------------
   // A permalink encodes the exact recipe (family, a/b/c/d, palette, walkers)
   // so a shared link reproduces the same shape instead of the recipient
   // having to re-type a handle to get it back.
   function buildPermalink() {
     const params2 = new URLSearchParams();
-    if (activeSeed) params2.set("seed", activeSeed.text);
-    else {
-      params2.set("family", familyKey);
-      params2.set("a", params.a.toFixed(3));
-      params2.set("b", params.b.toFixed(3));
-      params2.set("c", params.c.toFixed(3));
-      params2.set("d", params.d.toFixed(3));
-    }
     params2.set("palette", currentPaletteKey());
     params2.set("walkers", String(numWalkers));
+    // A handle-seeded shape gets its own real path (/s/<seed>) instead of a
+    // query param on the root — the Worker's renderShare gives that path a
+    // personalized og:title/og:description per seed, so every share unfurls
+    // with its own preview instead of every link showing one generic card.
+    if (activeSeed) return `${SITE_URL}/s/${encodeURIComponent(activeSeed.text)}?${params2.toString()}`;
+    params2.set("family", familyKey);
+    params2.set("a", params.a.toFixed(3));
+    params2.set("b", params.b.toFixed(3));
+    params2.set("c", params.c.toFixed(3));
+    params2.set("d", params.d.toFixed(3));
     return `${SITE_URL}/?${params2.toString()}`;
   }
 
@@ -525,7 +599,8 @@
       walkersRange.value = String(walkers);
       walkersVal.textContent = String(walkers);
     }
-    const seed = q.get("seed");
+    const pathSeed = window.location.pathname.match(/^\/s\/([^/]+)\/?$/);
+    const seed = q.get("seed") || (pathSeed && decodeURIComponent(pathSeed[1]));
     if (seed) {
       handleInput.value = seed.slice(0, 60);
       return "input";
