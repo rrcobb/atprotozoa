@@ -187,6 +187,7 @@
 
       // ---- state ---------------------------------------------------------
       const catalog = new Map(); // normalized palindrome -> entry
+      const cardEls = new Map(); // normalized palindrome -> rendered <article> element, reused across renders
       let statPosts = 0;
       let statFound = 0;
       let paused = false;
@@ -314,14 +315,16 @@
 
       // ---- author profiles (public AppView, cached) ------------------------
       const PROFILE_API = "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=";
-      const profileCache = new Map();
+      const profileCache = new Map(); // did -> Promise
+      const profileResolved = new Map(); // did -> settled result, for synchronous re-renders (avoids an avatar flash on cards we've already resolved)
       function fetchProfile(did) {
         let p = profileCache.get(did);
         if (p) return p;
         p = fetch(PROFILE_API + encodeURIComponent(did))
           .then((r) => (r.ok ? r.json() : null))
           .then((d) => (d && d.handle ? { handle: d.handle, avatar: d.avatar } : null))
-          .catch(() => null);
+          .catch(() => null)
+          .then((result) => { profileResolved.set(did, result); return result; });
         profileCache.set(did, p);
         return p;
       }
@@ -355,19 +358,53 @@
         return list.slice(0, MAX_CARDS);
       }
 
+      // Renders the feed by diffing against the previous pass (cardEls) instead
+      // of tearing the whole list down and rebuilding it every tick — a full
+      // innerHTML wipe blanked and repainted every card (replaying its fade-in
+      // and flashing every avatar back to "resolving…") on every throttled
+      // render, which is what read as "flickering" whenever a new palindrome
+      // rolled in. Now an existing card is only touched if its entry actually
+      // changed (a fresh sighting bumped lastSeen); untouched cards are just
+      // repositioned via insertBefore, which doesn't restart CSS animations or
+      // re-trigger image loads.
       function renderFeed() {
         const list = sortedEntries();
-        feed.innerHTML = "";
         if (!list.length) {
-          feed.appendChild(emptyMsg);
+          if (!feed.contains(emptyMsg)) {
+            feed.innerHTML = "";
+            feed.appendChild(emptyMsg);
+          }
+          cardEls.clear();
           return;
         }
-        for (const entry of list) feed.appendChild(renderCard(entry));
+        if (feed.contains(emptyMsg)) emptyMsg.remove();
+
+        const seen = new Set();
+        let prevEl = null;
+        for (const entry of list) {
+          seen.add(entry.key);
+          let card = cardEls.get(entry.key);
+          if (!card) {
+            card = document.createElement("article");
+            card.className = "card";
+            applyCardContent(card, entry);
+            cardEls.set(entry.key, card);
+          } else if (card.dataset.lastSeen !== String(entry.lastSeen)) {
+            applyCardContent(card, entry);
+          }
+          const wantNext = prevEl ? prevEl.nextElementSibling : feed.firstElementChild;
+          if (wantNext !== card) feed.insertBefore(card, wantNext || null);
+          prevEl = card;
+        }
+        for (const [key, el] of cardEls) {
+          if (!seen.has(key)) {
+            el.remove();
+            cardEls.delete(key);
+          }
+        }
       }
 
-      function renderCard(entry) {
-        const card = document.createElement("article");
-        card.className = "card";
+      function applyCardContent(card, entry) {
         const ex = entry.examples[0];
         const title =
           `<span class="pal">${escapeHtml(entry.key)}` +
@@ -376,29 +413,41 @@
           (entry.count > 1 ? `<span class="cnt">seen ${entry.count}×</span>` : "") +
           `</span>`;
         const snippet = ex ? `<p class="snippet">${highlight(ex.sourceText, ex.text)}</p>` : "";
-        const who = ex
-          ? `<div class="who"><span class="avatar"></span>` +
-            `<a class="handle" target="_blank" rel="noopener" href="#">resolving…</a></div>`
-          : "";
+        const who = ex ? `<div class="who"><span class="avatar"></span>${whoLinkHtml(ex.did)}</div>` : "";
         const perma = ex ? `<a href="${postUrl(ex.did, ex.rkey)}" target="_blank" rel="noopener">see the post →</a>` : "";
         const share = `<a href="https://bsky.app/intent/compose?text=${encodeURIComponent(shareText(entry))}" target="_blank" rel="noopener">share this find</a>`;
         card.innerHTML = who + title + snippet + `<div class="cardfoot">${perma}${share}</div>`;
-        if (ex) fillAuthor(card, ex.did);
-        return card;
+        card.dataset.lastSeen = String(entry.lastSeen);
+        if (ex && !profileResolved.has(ex.did)) fillAuthor(card, ex.did);
+        else if (ex) applyProfileToCard(card, ex.did, profileResolved.get(ex.did));
+      }
+
+      // A DID we've already resolved on a prior card gets its handle/avatar
+      // inlined immediately instead of showing "resolving…" and popping in a
+      // moment later once the (cached) fetch settles.
+      function whoLinkHtml(did) {
+        const prof = profileResolved.get(did);
+        if (prof === undefined) return `<a class="handle" target="_blank" rel="noopener" href="#">resolving…</a>`;
+        if (prof && prof.handle) return `<a class="handle" target="_blank" rel="noopener" href="https://bsky.app/profile/${prof.handle}">@${escapeHtml(prof.handle)}</a>`;
+        return `<a class="handle" target="_blank" rel="noopener" href="#">${escapeHtml(did.slice(0, 20))}…</a>`;
+      }
+
+      function applyProfileToCard(card, did, prof) {
+        const avatarEl = card.querySelector(".avatar");
+        if (avatarEl && prof && prof.avatar) avatarEl.style.backgroundImage = `url("${prof.avatar}")`;
       }
 
       async function fillAuthor(card, did) {
         const prof = await fetchProfile(did);
         const handleEl = card.querySelector(".handle");
-        const avatarEl = card.querySelector(".avatar");
         if (!handleEl) return;
         if (prof && prof.handle) {
           handleEl.textContent = "@" + prof.handle;
           handleEl.href = "https://bsky.app/profile/" + prof.handle;
-          if (avatarEl && prof.avatar) avatarEl.style.backgroundImage = `url("${prof.avatar}")`;
         } else {
           handleEl.textContent = did.slice(0, 20) + "…";
         }
+        applyProfileToCard(card, did, prof);
       }
 
       function updateStats() {
