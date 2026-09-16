@@ -50,6 +50,13 @@ const els = {
   zoomSlider: document.getElementById("zoom-slider"),
   zoomFit: document.getElementById("zoom-fit"),
   zoomLabel: document.getElementById("zoom-label"),
+  searchForm: document.getElementById("search-form"),
+  searchInput: document.getElementById("search-input"),
+  searchPrev: document.getElementById("search-prev"),
+  searchNext: document.getElementById("search-next"),
+  searchStatus: document.getElementById("search-status"),
+  branchPanel: document.getElementById("branch-panel"),
+  branchList: document.getElementById("branch-list"),
   stats: document.getElementById("stats"),
   canvasWrap: document.getElementById("canvas-wrap"),
   canvas: document.getElementById("sankey"),
@@ -226,6 +233,8 @@ function render() {
     `<span><b>${fmt(state.data.maxDepth)}</b> replies deep</span>`,
   ].join("");
 
+  renderBranches();
+
   const rootAuthor = state.data.nodes.find((n) => n.id === state.data.rootId)?.author;
   els.caption.textContent =
     (rootAuthor ? `Rooted at @${rootAuthor.handle}'s post. ` : "") +
@@ -234,6 +243,123 @@ function render() {
 
   buildShareCard();
 }
+
+// The top few branches straight off the root, ranked by whichever weight is
+// currently shown — a big thread can fork into thousands of direct replies,
+// so this is a quick-nav shortlist, not a limit on what the sankey itself
+// draws (that still renders every branch, however wide the thread goes).
+function computeTopBranches(data, weightMode, limit) {
+  const key = weightMode === "engagement" ? "engagement" : "posts";
+  const byId = new Map(data.nodes.map((n) => [n.id, n]));
+  return data.links
+    .filter((l) => l.source === data.rootId)
+    .map((l) => ({ node: byId.get(l.target), weight: l[key] }))
+    .filter((b) => b.node)
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, limit || 8);
+}
+
+function renderBranches() {
+  const key = state.weightMode === "engagement" ? "engagement" : "posts";
+  const branches = computeTopBranches(state.data, state.weightMode);
+  els.branchPanel.style.display = branches.length ? "" : "none";
+  els.branchList.innerHTML = branches
+    .map(({ node: n, weight }) => {
+      const who = n.stub ? (n.stub === "deleted" ? "🗑 deleted" : "🚫 blocked") : `@${escapeHtml(n.author.handle)}`;
+      const text = n.stub ? "" : truncate(n.text, 44);
+      return (
+        `<button type="button" class="branch-chip" data-id="${escapeHtml(n.id)}">` +
+        `<span class="bc-who">${who}</span>` +
+        (text ? `<span class="bc-text">${escapeHtml(text)}</span>` : "") +
+        `<span class="bc-weight">${fmt(Math.round(weight))} ${key}</span>` +
+        `</button>`
+      );
+    })
+    .join("");
+}
+
+els.branchList.addEventListener("click", (evt) => {
+  const btn = evt.target.closest(".branch-chip");
+  if (btn) focusNode(btn.dataset.id);
+});
+
+// ---- pinned focus + search --------------------------------------------------
+// "Hover" (below) is transient; "pinned" is the last thing explicitly picked
+// via search or a branch chip, and stays highlighted until replaced — needed
+// so jumping to a match doesn't get wiped the moment the mouse leaves the
+// canvas.
+let pinnedId = null;
+
+function scrollNodeIntoView(node) {
+  const z = state.zoom || 1;
+  const wrap = els.canvasWrap;
+  const cx = ((node.x0 + node.x1) / 2) * z;
+  const cy = ((node.y0 + node.y1) / 2) * z;
+  wrap.scrollLeft = Math.max(0, cx - wrap.clientWidth / 2);
+  wrap.scrollTop = Math.max(0, cy - wrap.clientHeight / 2);
+}
+
+function focusNode(id) {
+  if (!state || !state.graph) return;
+  const node = state.graph.nodes.find((n) => n.id === id);
+  if (!node) return;
+  pinnedId = id;
+  draw(els.canvas, state.graph, state.maxDepth, id, state.index);
+  scrollNodeIntoView(node);
+}
+
+function findMatches(query) {
+  const q = query.trim().toLowerCase().replace(/^@/, "");
+  if (!q) return [];
+  return state.data.nodes.filter(
+    (n) => !n.stub && n.author && ((n.author.handle || "").toLowerCase().includes(q) || (n.author.displayName || "").toLowerCase().includes(q)),
+  );
+}
+
+function updateSearchStatus() {
+  const matches = state.searchMatches;
+  if (!matches) {
+    els.searchStatus.textContent = "";
+    els.searchStatus.classList.remove("err");
+  } else if (!matches.length) {
+    els.searchStatus.textContent = "no matches";
+    els.searchStatus.classList.add("err");
+  } else {
+    els.searchStatus.textContent = `${state.searchIndex + 1} / ${matches.length}`;
+    els.searchStatus.classList.remove("err");
+  }
+  els.searchPrev.disabled = els.searchNext.disabled = !matches || matches.length < 2;
+}
+
+function runSearch(query) {
+  if (!state) return;
+  state.searchMatches = findMatches(query);
+  state.searchIndex = 0;
+  state.searchFocused = false;
+  updateSearchStatus();
+}
+
+function cycleSearch(delta) {
+  if (!state || !state.searchMatches || !state.searchMatches.length) return;
+  state.searchFocused = true;
+  state.searchIndex = (state.searchIndex + delta + state.searchMatches.length) % state.searchMatches.length;
+  focusNode(state.searchMatches[state.searchIndex].id);
+  updateSearchStatus();
+}
+
+els.searchInput.addEventListener("input", () => runSearch(els.searchInput.value));
+els.searchForm.addEventListener("submit", (evt) => {
+  evt.preventDefault();
+  if (!state || !state.searchMatches || !state.searchMatches.length) return;
+  if (state.searchFocused) cycleSearch(1);
+  else {
+    state.searchFocused = true;
+    focusNode(state.searchMatches[0].id);
+    updateSearchStatus();
+  }
+});
+els.searchPrev.addEventListener("click", () => cycleSearch(-1));
+els.searchNext.addEventListener("click", () => cycleSearch(1));
 
 function applyZoom() {
   const z = state.zoom || 1;
@@ -271,7 +397,7 @@ els.canvas.addEventListener("mousemove", (evt) => {
     const n = nodeAt(state.index, x, y);
     if (n !== hovered) {
       hovered = n;
-      draw(els.canvas, state.graph, state.maxDepth, n ? n.id : null, state.index);
+      draw(els.canvas, state.graph, state.maxDepth, n ? n.id : pinnedId, state.index);
     }
     if (n) showTip(tooltipHtml(n), evt);
     else hideTip();
@@ -280,7 +406,7 @@ els.canvas.addEventListener("mousemove", (evt) => {
 els.canvas.addEventListener("mouseleave", () => {
   hovered = null;
   hideTip();
-  if (state && state.graph) draw(els.canvas, state.graph, state.maxDepth, null, state.index);
+  if (state && state.graph) draw(els.canvas, state.graph, state.maxDepth, pinnedId, state.index);
 });
 els.canvas.addEventListener("click", (evt) => {
   const { x, y } = canvasPoint(evt);
@@ -477,7 +603,10 @@ async function run(rawInput) {
     setStatus("mapping the flow...");
     const data = buildGraph(thread);
 
-    state = { data, weightMode: "posts", zoom: 1 };
+    state = { data, weightMode: "posts", zoom: 1, searchMatches: null, searchIndex: 0, searchFocused: false };
+    pinnedId = null;
+    els.searchInput.value = "";
+    updateSearchStatus();
     els.weightToggle.textContent = "weighting: posts";
     els.results.classList.add("show");
     render();
