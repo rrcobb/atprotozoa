@@ -1,0 +1,27 @@
+# Everything runs client-side (public/index.html + public/lib/*.js): sign
+# in, then bulk-download the signed-in account's own repo as one CAR
+# (lib/car.js, copied from sites/innercircle — see notes/40-new-site-playbook.md's
+# cee.wtf bulk-read order) to get every post they've ever made. For each post,
+# lib/engagement.js reads every liker (app.bsky.feed.getLikes, paginated to
+# exhaustion — no bulk equivalent) and every direct reply (via Cerulea's
+# backlink index, same trick as sites/coliseum's lib/backlinks.js) to build a
+# per-account tally of likes-given and replies-given. That tally is then split
+# against the account's mutuals (moots) for the relegation boards and against
+# its non-mutual followers for the promotion board. The only server surface is
+# /summary/<handle>/<moots>/<candidates> (src/index.ts): a distinct, shareable
+# URL per result with personalized OG tags built straight from the path
+# segments — no server-side recompute of the (expensive) scan, same trick
+# innercircle/mootrace/dial-a-mutual use.
+name = "atprotozoa-relegation"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+routes = [{ pattern = "relegation.bisks.net/*", zone_name = "bisks.net" }]
+
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes
+# (same gotcha called out in buildthis/logs/wrangler.toml).
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
