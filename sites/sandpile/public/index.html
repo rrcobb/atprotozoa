@@ -3,33 +3,33 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧫</text></svg>" />
-<title>physarum — a slime mold grows its own network</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⛰️</text></svg>" />
+<title>sandpile — every pile finds the same shape</title>
 <meta
   name="description"
-  content="A live physarum (slime mold) simulation: thousands of agents deposit and follow a pheromone trail, growing branching foraging networks in your browser. Click or drag to drop food. Seed it with a Bluesky handle for a deterministic shape of your own."
+  content="A live abelian sandpile automaton: drop chips on a grid, watch every cell holding four or more topple into its neighbors, and see the cascade settle into the same self-similar fractal every time. Seed it with a Bluesky handle for a deterministic pile of your own."
 />
-<meta property="og:title" content="physarum — a slime mold grows its own network" />
-<meta property="og:description" content="Thousands of simple agents, one shared pheromone trail — watch branching networks emerge live. Click to drop food, seed it with a handle to grow your own." />
-<meta property="og:url" content="https://physarum.bisks.net/" />
+<meta property="og:title" content="sandpile — every pile finds the same shape" />
+<meta property="og:description" content="Drop chips, watch them topple, watch the fractal emerge. The same handle always grows the same pile." />
+<meta property="og:url" content="https://sandpile.bisks.net/" />
 <meta property="og:type" content="website" />
-<meta property="og:image" content="https://physarum.bisks.net/og.png" />
+<meta property="og:image" content="https://sandpile.bisks.net/og.png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
-<meta property="og:image:alt" content="physarum: glowing branching filament networks grown by a slime-mold agent simulation." />
+<meta property="og:image:alt" content="sandpile: a self-similar fractal traced by a cascading abelian sandpile toppling automaton." />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="physarum — a slime mold grows its own network" />
-<meta name="twitter:description" content="Thousands of simple agents, one shared pheromone trail — watch branching networks emerge live. Click to drop food, seed it with a handle to grow your own." />
-<meta name="twitter:image" content="https://physarum.bisks.net/og.png" />
+<meta name="twitter:title" content="sandpile — every pile finds the same shape" />
+<meta name="twitter:description" content="Drop chips, watch them topple, watch the fractal emerge. The same handle always grows the same pile." />
+<meta name="twitter:image" content="https://sandpile.bisks.net/og.png" />
 <style>
   :root {
-    --bg: #05070a;
-    --panel: rgba(10, 16, 20, 0.72);
-    --border: rgba(180, 220, 210, 0.18);
-    --ink: #eafff5;
-    --dim: #8fb0a6;
-    --accent: #6dffb8;
-    --accent2: #ffcf4d;
+    --bg: #0a0805;
+    --panel: rgba(18, 14, 10, 0.74);
+    --border: rgba(230, 210, 180, 0.16);
+    --ink: #fbf3e6;
+    --dim: #b3a48c;
+    --accent: #e8b86d;
+    --accent2: #ff8a5c;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -44,7 +44,7 @@
     position: fixed; left: 0; right: 0; top: 0;
     padding: 14px 16px 30px;
     pointer-events: none;
-    background: linear-gradient(180deg, rgba(5,7,10,0.7) 0%, rgba(5,7,10,0) 100%);
+    background: linear-gradient(180deg, rgba(10,8,5,0.72) 0%, rgba(10,8,5,0) 100%);
     z-index: 5;
   }
   h1 { margin: 0; font-size: clamp(1.15rem, 3.6vw, 1.7rem); letter-spacing: 0.02em; color: var(--ink); }
@@ -97,7 +97,7 @@
   }
   button:hover { background: rgba(255,255,255,0.12); }
   button:active { transform: translateY(1px); }
-  button.primary { background: var(--accent); color: #04140c; border: none; font-weight: 700; }
+  button.primary { background: var(--accent); color: #2a1a05; border: none; font-weight: 700; }
   button.primary:hover { filter: brightness(1.08); }
   .btnrow a {
     font: inherit; font-size: 0.76rem; cursor: pointer; text-decoration: none;
@@ -106,17 +106,18 @@
   }
   .btnrow a:hover { background: rgba(255,255,255,0.12); }
 
-  #species {
+  #pilename {
     margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--border);
     display: none;
   }
-  #species.show { display: block; }
-  #species .name { color: var(--accent2); font-weight: 700; font-size: 0.85rem; }
-  #species .sub { color: var(--dim); font-size: 0.7rem; margin-top: 0.15rem; }
+  #pilename.show { display: block; }
+  #pilename .name { color: var(--accent2); font-weight: 700; font-size: 0.85rem; }
+  #pilename .sub { color: var(--dim); font-size: 0.7rem; margin-top: 0.15rem; }
 
   .stats {
     margin-top: 0.6rem; padding-top: 0.5rem; border-top: 1px solid var(--border);
-    display: flex; justify-content: space-between; color: var(--dim); font-size: 0.7rem;
+    display: flex; justify-content: space-between; color: var(--dim); font-size: 0.68rem;
+    flex-wrap: wrap; gap: 0.3rem 0.6rem;
   }
   .stats b { color: var(--accent); font-weight: 700; }
 
@@ -125,6 +126,7 @@
     color: var(--dim); font-size: 0.72rem; background: var(--panel);
     backdrop-filter: blur(8px); border: 1px solid var(--border);
     border-radius: 10px; padding: 0.4rem 0.65rem; pointer-events: none;
+    text-align: right; max-width: 220px;
   }
   footer.links {
     position: fixed; right: 14px; top: 12px; z-index: 6;
@@ -145,59 +147,57 @@
 <canvas id="stage"></canvas>
 
 <div class="hud">
-  <h1>ph<span id="secret-y" style="cursor:pointer; pointer-events:auto">y</span>sarum</h1>
+  <h1>s<span id="secret-a" style="cursor:pointer; pointer-events:auto">a</span>ndpile</h1>
   <p class="tagline">
-    A live slime-mold simulation — thousands of simple agents, one shared pheromone
-    trail. No brain, no plan, just sense-and-turn — and a branching foraging network
-    grows anyway. Click or drag on the field to drop food.
+    A live abelian sandpile automaton — every cell holding four or more chips
+    topples one into each neighbor, and the cascade always settles into the
+    same self-similar shape. Tap the grid to drop a pile of your own.
   </p>
 </div>
 
 <footer class="links">
   <a href="https://bisks.net/" target="_blank" rel="noopener">bisks.net</a>
-  <a href="https://rateyourbuild.bisks.net/site/physarum" target="_blank" rel="noopener">rate this →</a>
+  <a href="https://rateyourbuild.bisks.net/site/sandpile" target="_blank" rel="noopener">rate this →</a>
 </footer>
 
 <div id="panel">
   <div class="panel-head" id="panel-toggle">
-    <b>physarum controls</b>
+    <b>pile controls</b>
     <span class="chev">▾</span>
   </div>
   <div class="panel-body">
     <div class="row">
+      <label>drop size <span class="val" id="drop-val">4000</span></label>
+      <input type="range" id="drop-range" min="200" max="20000" step="200" value="4000" />
+    </div>
+    <div class="row">
+      <label>grid detail <span class="val" id="grid-val">200</span></label>
+      <input type="range" id="grid-range" min="100" max="320" step="20" value="200" />
+    </div>
+    <div class="row">
       <label>palette <span class="val" id="palette-val"></span></label>
       <select id="palette-select">
         <option value="auto">auto (from seed)</option>
-        <option value="bio">bio — green glow</option>
-        <option value="ember">ember — fire</option>
-        <option value="abyssal">abyssal — deep blue</option>
-        <option value="toxic">toxic — magenta/lime</option>
+        <option value="clay">clay — warm earth</option>
+        <option value="dune">dune — pale sand</option>
+        <option value="ember">ember — smoldering</option>
+        <option value="glacier">glacier — cold mineral</option>
       </select>
-    </div>
-    <div class="row">
-      <label>growth pattern <span class="val" id="pattern-val"></span></label>
-      <select id="pattern-select">
-        <option value="web">web — classic branching</option>
-        <option value="veins" selected>veins — thin &amp; sprawling</option>
-        <option value="coral">coral — blobby clumps</option>
-        <option value="storm">storm — chaotic swirl</option>
-      </select>
-    </div>
-    <div class="row">
-      <label>agents <span class="val" id="agents-val">6000</span></label>
-      <input type="range" id="agents-range" min="500" max="12000" step="500" value="6000" />
     </div>
     <div class="row">
       <label>seed with a bluesky handle (optional)</label>
       <input type="text" id="handle-input" placeholder="you.bsky.social" autocomplete="off" maxlength="60" />
     </div>
-    <div id="species">
-      <div class="name" id="species-name"></div>
-      <div class="sub" id="species-sub"></div>
+    <div id="pilename">
+      <div class="name" id="pilename-name"></div>
+      <div class="sub" id="pilename-sub"></div>
     </div>
     <div class="btnrow">
-      <button class="primary" id="grow-btn">grow</button>
-      <button id="reset-btn">reset field</button>
+      <button class="primary" id="grow-btn">grow from seed</button>
+      <button id="mega-btn">mega drop</button>
+    </div>
+    <div class="btnrow">
+      <button id="reset-btn">clear grid</button>
     </div>
     <div class="btnrow">
       <a id="share-bsky" href="#" target="_blank" rel="noopener">share to bluesky</a>
@@ -205,13 +205,15 @@
       <button id="copy-link-btn">copy permalink</button>
     </div>
     <div class="stats">
-      <span>coverage <b id="coverage-val">0%</b></span>
+      <span>chips <b id="chips-val">0</b></span>
+      <span>topples <b id="topples-val">0</b></span>
+      <span>spilled <b id="spilled-val">0</b></span>
       <span>running <b id="uptime-val">0:00</b></span>
     </div>
   </div>
 </div>
 
-<p class="hint">drag anywhere to drop food</p>
+<p class="hint">click/drag to drop chips · watch them topple</p>
 
 <canvas id="shareCanvas" width="1200" height="630" style="display:none"></canvas>
 <script src="app.js"></script>
