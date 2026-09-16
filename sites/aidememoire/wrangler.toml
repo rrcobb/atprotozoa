@@ -1,0 +1,35 @@
+# aidememoire.bisks.net — @nequals001.bsky.social quoted a post calling for
+# an "AI-assisted aide memoire" that would impute and explicate why you
+# muted or blocked someone, from what they were posting at the time plus a
+# psychological profile built from your own years of tweets. Workers AI is
+# off the table (Cloudflare cost wall), so this is the closest honest
+# version: no LLM anywhere, just a real-data heuristic word/structure
+# classifier run entirely client-side.
+#
+# Everything happens in public/app.js:
+#   - app.bsky.graph.block is a public repo record, so the "who did you
+#     block, and when" half needs no OAuth — resolve both handles, then
+#     bulk-download *your* repo as one CAR (lib/car.js, copied from
+#     sites/innercircle — see notes/40-new-site-playbook.md's cee.wtf bulk-
+#     read order) filtered to app.bsky.graph.block + app.bsky.feed.post in
+#     one request. That gets the block record for the target (with its
+#     createdAt) AND every post you've ever made ("years of tweets") in one
+#     download.
+#   - A second CAR download, this time of the *target's* repo, filtered to
+#     app.bsky.feed.post, supplies "what they were posting at the time of
+#     my block" — windowed around the block's createdAt.
+#   - Category scoring is plain keyword/regex + structural checks (reply
+#     ratio, quote ratio, caps ratio), not an AI call of any kind.
+#
+# Brand-new site — served at the root of its own hostname, no
+# bisks.net/<name> path route and no prefix-stripping needed.
+name = "atprotozoa-aidememoire"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+routes = [{ pattern = "aidememoire.bisks.net/*", zone_name = "bisks.net" }]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
