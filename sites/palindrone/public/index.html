@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>palindrone — catalogs every palindrome on the firehose</title>
+    <meta
+      name="description"
+      content="Watches the live Bluesky firehose and catalogs every palindromic string over 6 characters it finds in a post — segyges, racecar, tacocat, the works."
+    />
+    <meta property="og:title" content="palindrone — catalogs every palindrome on the firehose" />
+    <meta
+      property="og:description"
+      content="A live catalog of palindromic strings (7+ characters) spotted in real posts on the Bluesky firehose, updating as they happen."
+    />
+    <meta property="og:image" content="https://palindrone.bisks.net/og.png" />
+    <meta property="og:url" content="https://palindrone.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="palindrone — catalogs every palindrome on the firehose" />
+    <meta name="twitter:description" content="A live catalog of palindromic strings (7+ characters) spotted in real posts on the Bluesky firehose." />
+    <meta name="twitter:image" content="https://palindrone.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --hit: #b3170a;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 700px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      a { color: var(--accent); }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { color: var(--ink); }
+
+      header { margin: 1.1rem 0 0.4rem; display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+      h1 { font-size: 1.4rem; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+      .status { display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--muted); }
+      .dot { width: 7px; height: 7px; border-radius: 50%; background: #ccc; transition: background 0.3s; }
+      .dot.live { background: var(--accent); animation: pulse 2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+      .intro { color: var(--muted); font-size: 0.9rem; line-height: 1.7; margin: 0.4rem 0 1.4rem; max-width: 60ch; }
+      .intro b { color: var(--ink); }
+
+      .stats {
+        display: flex; gap: 1.4rem; flex-wrap: wrap; margin: 0 0 1.3rem;
+        padding: 0.85rem 1rem; background: #fafafa; border: 1px solid var(--faint); border-radius: 8px;
+        font-size: 0.78rem; color: var(--muted);
+      }
+      .stats b { color: var(--ink); font-size: 0.95rem; display: block; }
+
+      .controls {
+        display: flex; align-items: center; gap: 0.85rem 1rem; flex-wrap: wrap;
+        margin: 0 0 1.5rem; padding-bottom: 1.1rem; border-bottom: 1px solid var(--faint);
+        font-size: 0.78rem;
+      }
+      .controls button, .controls select {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--ink);
+        background: none; border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.3rem 0.6rem; cursor: pointer; line-height: 1.3;
+      }
+      .controls button:hover, .controls select:hover { border-color: var(--muted); }
+      .controls button.on { border-color: var(--accent); color: var(--accent); }
+      .controls label { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--muted); }
+      .controls input[type="text"], .controls input[type="number"] {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--ink);
+        background: none; border: 1px solid var(--faint); border-radius: 4px;
+        padding: 0.28rem 0.5rem;
+      }
+      #searchInput { width: 11rem; }
+      #minLenInput { width: 3.4rem; }
+      .spacer { flex: 1 1 auto; }
+      #clearBtn { color: var(--hit); border-color: #f0d5d2; }
+      #clearBtn:hover { border-color: var(--hit); }
+
+      .empty { color: var(--muted); font-size: 0.85rem; padding: 2rem 0; text-align: center; }
+
+      .card { padding: 1.05rem 0; border-top: 1px solid var(--faint); animation: fade 0.28s ease both; }
+      .card:first-child { border-top: none; }
+      @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+      .card .pal {
+        font-size: 1.2rem; font-weight: 700; letter-spacing: 0.01em; word-break: break-word;
+      }
+      .card .pal .len { font-size: 0.68rem; font-weight: 400; color: var(--accent); margin-left: 0.5rem; vertical-align: middle; }
+      .card .pal .cnt {
+        font-size: 0.68rem; font-weight: 400; color: var(--muted); margin-left: 0.4rem; vertical-align: middle;
+      }
+      .card .kind {
+        font-size: 0.68rem; font-weight: 400; color: var(--muted); margin-left: 0.4rem; vertical-align: middle;
+        text-transform: uppercase; letter-spacing: 0.04em;
+      }
+      .card .snippet {
+        margin: 0.5rem 0 0.55rem; color: var(--muted); font-size: 0.88rem; line-height: 1.6; word-break: break-word;
+      }
+      .card .snippet b { color: var(--ink); font-weight: 700; }
+      .card .who { display: flex; align-items: center; gap: 0.45rem; margin: 0 0 0.5rem; font-size: 0.8rem; }
+      .card .who .avatar {
+        width: 18px; height: 18px; border-radius: 50%; flex: none;
+        background: var(--faint) center/cover no-repeat; border: 1px solid var(--faint);
+      }
+      .card .who .handle { color: var(--muted); text-decoration: none; word-break: break-all; }
+      .card .who .handle:hover { color: var(--accent); text-decoration: underline; }
+      .cardfoot { display: flex; align-items: center; gap: 1rem; font-size: 0.78rem; }
+      .cardfoot a { color: var(--accent); text-decoration: none; }
+      .cardfoot a:hover { text-decoration: underline; }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; line-height: 1.8; }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <header>
+        <h1>palindr<span onclick='var e=document.getElementById("searchInput");if(e){e.value="";e.dispatchEvent(new Event("input",{bubbles:true}));}' style="cursor:pointer">o</span>ne</h1>
+        <div class="status"><span class="dot" id="dot"></span><span id="statusText">connecting…</span></div>
+      </header>
+
+      <p class="intro">
+        <a href="https://bsky.app/profile/ver.ooo" target="_blank" rel="noopener">@ver.ooo</a> pointed out mid-thread
+        that <b>SE Gyges</b> is a palindrome; <a href="https://bsky.app/profile/words.bsky.social" target="_blank" rel="noopener">@words.bsky.social</a>
+        asked for a site that watches for that on purpose. This strips every live post down to letters and digits,
+        finds the <b>longest palindromic run</b> inside it, and — if it's over <b>6 characters</b> and not just one
+        letter repeated — files it into the catalog below, forever (or at least as long as this browser tab keeps
+        the tally in <code>localStorage</code>). One catalog entry per distinct palindrome; repeats bump its count
+        instead of cluttering the list.
+      </p>
+
+      <div class="stats">
+        <div><b id="statPosts">0</b>posts scanned</div>
+        <div><b id="statFound">0</b>palindromes found</div>
+        <div><b id="statCatalog">0</b>in catalog</div>
+      </div>
+
+      <div class="controls">
+        <button id="pauseBtn" title="freeze the display; the catalog keeps growing underneath">pause</button>
+        <label title="only file palindromes at least this long">
+          min len <input id="minLenInput" type="number" min="7" step="1" value="7" />
+        </label>
+        <select id="sortSelect" title="how to order the catalog below">
+          <option value="newest">newest first</option>
+          <option value="longest">longest first</option>
+          <option value="most">most seen</option>
+        </select>
+        <input id="searchInput" type="text" placeholder="filter the catalog…" autocomplete="off" spellcheck="false" />
+        <span class="spacer"></span>
+        <button id="clearBtn" title="wipe this browser's catalog and start over">clear catalog</button>
+      </div>
+
+      <main id="feed"><p class="empty" id="emptyMsg">waiting for the first palindrome to roll by…</p></main>
+
+      <footer>
+        watching <a href="https://github.com/bluesky-social/jetstream" target="_blank" rel="noopener">jetstream</a>'s
+        <code>app.bsky.feed.post</code> firehose, entirely client-side — the catalog lives in this browser's
+        <code>localStorage</code>, not a server, so it's yours alone and starts fresh in a new browser.
+        asked for by <a href="https://bsky.app/profile/words.bsky.social">@words.bsky.social</a>, after
+        <a href="https://bsky.app/profile/ver.ooo">@ver.ooo</a>'s "segyges" observation
+        · built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+        · <a href="https://rateyourbuild.bisks.net/site/palindrone">rate this on rateyourbuild →</a>
+      </footer>
+    </div>
+
+    <script>
+      // ---- config ------------------------------------------------------
+      const JETSTREAM = "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
+      const MAX_CARDS = 80; // cap the DOM; oldest cards drop off the bottom
+      const MAX_CATALOG = 4000; // cap in-memory catalog entries — bounds a long-running tab's memory
+      const MAX_STORED = 500; // cap what's written to localStorage — bounds against the ~5-10MB quota
+      const MAX_EXAMPLES_PER_ENTRY = 5; // cap posts kept per catalog entry — a viral palindrome shouldn't balloon storage
+      const STORAGE_KEY = "palindrone-catalog-v1";
+      const MIN_DISTINCT_CHARS = 3; // filters out "aaaaaaaa"-style repeated-char spam, which is technically a
+                                     // palindrome but never an interesting one — real palindromes need variety
+
+      // ---- state ---------------------------------------------------------
+      const catalog = new Map(); // normalized palindrome -> entry
+      let statPosts = 0;
+      let statFound = 0;
+      let paused = false;
+      let minLen = 7;
+      let sortMode = "newest";
+      let searchTerm = "";
+      let dirty = false; // catalog changed since last localStorage save
+
+      const feed = document.getElementById("feed");
+      const emptyMsg = document.getElementById("emptyMsg");
+      const dot = document.getElementById("dot");
+      const statusText = document.getElementById("statusText");
+      const statPostsEl = document.getElementById("statPosts");
+      const statFoundEl = document.getElementById("statFound");
+      const statCatalogEl = document.getElementById("statCatalog");
+      const pauseBtn = document.getElementById("pauseBtn");
+      const minLenInput = document.getElementById("minLenInput");
+      const sortSelect = document.getElementById("sortSelect");
+      const searchInput = document.getElementById("searchInput");
+      const clearBtn = document.getElementById("clearBtn");
+
+      // ---- palindrome engine ----------------------------------------------
+      // Normalize to lowercase letters + digits only, keeping a parallel index
+      // map back into the original text so we can show real context (spacing,
+      // punctuation, casing) around whatever substring we find. This lets a
+      // phrase like "A man, a plan, a canal: Panama" register as one long
+      // palindrome even though spaces/punctuation break it up visually.
+      function normalize(text) {
+        const chars = [];
+        const origIndex = [];
+        for (let i = 0; i < text.length; i++) {
+          const c = text[i];
+          if (/[\p{L}\p{N}]/u.test(c)) {
+            chars.push(c.toLowerCase());
+            origIndex.push(i);
+          }
+        }
+        return { chars, origIndex };
+      }
+
+      // Longest palindromic substring via expand-around-center. O(n^2) worst
+      // case, but posts are short (well under 1000 normalized chars), so this
+      // easily keeps pace with the firehose without needing Manacher's O(n).
+      function longestPalindrome(chars) {
+        let best = { start: 0, end: -1, len: 0 };
+        const n = chars.length;
+        for (let center = 0; center < 2 * n - 1; center++) {
+          let l = Math.floor(center / 2);
+          let r = l + (center % 2);
+          while (l >= 0 && r < n && chars[l] === chars[r]) { l--; r++; }
+          l++; r--;
+          const len = r - l + 1;
+          if (len > best.len) best = { start: l, end: r, len };
+        }
+        return best;
+      }
+
+      function distinctCharCount(chars, start, end) {
+        const s = new Set();
+        for (let i = start; i <= end; i++) s.add(chars[i]);
+        return s.size;
+      }
+
+      // One find per post keeps the catalog readable and matches how the rest
+      // of the constellation's live feeds work (e.g. trigrams takes the first
+      // novel trigram per post rather than every nested match).
+      function findPalindrome(text) {
+        const { chars, origIndex } = normalize(text);
+        if (chars.length < minLen) return null;
+        const best = longestPalindrome(chars);
+        if (best.len < minLen) return null;
+        if (distinctCharCount(chars, best.start, best.end) < MIN_DISTINCT_CHARS) return null;
+        const key = chars.slice(best.start, best.end + 1).join("");
+        const origStart = origIndex[best.start];
+        const origEnd = origIndex[best.end];
+        return {
+          key,
+          len: best.len,
+          original: text.slice(origStart, origEnd + 1),
+          // a "word" palindrome exactly matches one whitespace-delimited token
+          // in the source text; anything longer than that crossed a space or
+          // punctuation boundary to form, so it's a "phrase" find.
+          kind: /^\S+$/.test(text.slice(origStart, origEnd + 1)) ? "word" : "phrase",
+        };
+      }
+
+      // ---- catalog -----------------------------------------------------
+      function fileEntry(found, ctx) {
+        let entry = catalog.get(found.key);
+        if (!entry) {
+          if (catalog.size >= MAX_CATALOG) return null; // memory backstop
+          entry = { key: found.key, len: found.len, kind: found.kind, count: 0, lastSeen: 0, examples: [] };
+          catalog.set(found.key, entry);
+        }
+        entry.count++;
+        entry.lastSeen = ctx.ts;
+        entry.examples.unshift({ text: found.original, sourceText: ctx.text, did: ctx.did, rkey: ctx.rkey, ts: ctx.ts });
+        if (entry.examples.length > MAX_EXAMPLES_PER_ENTRY) entry.examples.length = MAX_EXAMPLES_PER_ENTRY;
+        dirty = true;
+        return entry;
+      }
+
+      // ---- persistence (this browser's own catalog; no server involved) ---
+      function loadCatalog() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return;
+          const data = JSON.parse(raw);
+          if (!Array.isArray(data.entries)) return;
+          for (const e of data.entries) catalog.set(e.key, e);
+          statPosts = data.statPosts || 0;
+          statFound = data.statFound || 0;
+        } catch {}
+      }
+      function saveCatalog() {
+        if (!dirty) return;
+        dirty = false;
+        try {
+          const entries = [...catalog.values()].sort((a, b) => b.lastSeen - a.lastSeen).slice(0, MAX_STORED);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ entries, statPosts, statFound }));
+        } catch {}
+      }
+      setInterval(saveCatalog, 4000);
+      window.addEventListener("beforeunload", saveCatalog);
+
+      // ---- author profiles (public AppView, cached) ------------------------
+      const PROFILE_API = "https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=";
+      const profileCache = new Map();
+      function fetchProfile(did) {
+        let p = profileCache.get(did);
+        if (p) return p;
+        p = fetch(PROFILE_API + encodeURIComponent(did))
+          .then((r) => (r.ok ? r.json() : null))
+          .then((d) => (d && d.handle ? { handle: d.handle, avatar: d.avatar } : null))
+          .catch(() => null);
+        profileCache.set(did, p);
+        return p;
+      }
+      function postUrl(did, rkey) {
+        return `https://bsky.app/profile/${did}/post/${rkey}`;
+      }
+
+      // ---- rendering ---------------------------------------------------
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+      function highlight(text, needle) {
+        const escaped = escapeHtml(text);
+        try {
+          const re = new RegExp("(" + needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "i");
+          return escaped.replace(re, "<b>$1</b>");
+        } catch {
+          return escaped;
+        }
+      }
+      function shareText(entry) {
+        return `spotted a ${entry.len}-character palindrome on the firehose: "${entry.key}" — palindrone.bisks.net`;
+      }
+
+      function sortedEntries() {
+        let list = [...catalog.values()];
+        if (searchTerm) list = list.filter((e) => e.key.includes(searchTerm));
+        if (sortMode === "longest") list.sort((a, b) => b.len - a.len || b.lastSeen - a.lastSeen);
+        else if (sortMode === "most") list.sort((a, b) => b.count - a.count || b.lastSeen - a.lastSeen);
+        else list.sort((a, b) => b.lastSeen - a.lastSeen);
+        return list.slice(0, MAX_CARDS);
+      }
+
+      function renderFeed() {
+        const list = sortedEntries();
+        feed.innerHTML = "";
+        if (!list.length) {
+          feed.appendChild(emptyMsg);
+          return;
+        }
+        for (const entry of list) feed.appendChild(renderCard(entry));
+      }
+
+      function renderCard(entry) {
+        const card = document.createElement("article");
+        card.className = "card";
+        const ex = entry.examples[0];
+        const title =
+          `<span class="pal">${escapeHtml(entry.key)}` +
+          `<span class="len">${entry.len} chars</span>` +
+          `<span class="kind">${entry.kind}</span>` +
+          (entry.count > 1 ? `<span class="cnt">seen ${entry.count}×</span>` : "") +
+          `</span>`;
+        const snippet = ex ? `<p class="snippet">${highlight(ex.sourceText, ex.text)}</p>` : "";
+        const who = ex
+          ? `<div class="who"><span class="avatar"></span>` +
+            `<a class="handle" target="_blank" rel="noopener" href="#">resolving…</a></div>`
+          : "";
+        const perma = ex ? `<a href="${postUrl(ex.did, ex.rkey)}" target="_blank" rel="noopener">see the post →</a>` : "";
+        const share = `<a href="https://bsky.app/intent/compose?text=${encodeURIComponent(shareText(entry))}" target="_blank" rel="noopener">share this find</a>`;
+        card.innerHTML = who + title + snippet + `<div class="cardfoot">${perma}${share}</div>`;
+        if (ex) fillAuthor(card, ex.did);
+        return card;
+      }
+
+      async function fillAuthor(card, did) {
+        const prof = await fetchProfile(did);
+        const handleEl = card.querySelector(".handle");
+        const avatarEl = card.querySelector(".avatar");
+        if (!handleEl) return;
+        if (prof && prof.handle) {
+          handleEl.textContent = "@" + prof.handle;
+          handleEl.href = "https://bsky.app/profile/" + prof.handle;
+          if (avatarEl && prof.avatar) avatarEl.style.backgroundImage = `url("${prof.avatar}")`;
+        } else {
+          handleEl.textContent = did.slice(0, 20) + "…";
+        }
+      }
+
+      function updateStats() {
+        statPostsEl.textContent = statPosts.toLocaleString();
+        statFoundEl.textContent = statFound.toLocaleString();
+        statCatalogEl.textContent = catalog.size.toLocaleString();
+      }
+
+      // Throttle re-renders: the firehose can produce several finds a second,
+      // but redrawing the whole list that often is wasted DOM churn.
+      let renderPending = false;
+      function scheduleRender() {
+        updateStats();
+        if (renderPending || paused) return;
+        renderPending = true;
+        setTimeout(() => { renderPending = false; renderFeed(); }, 400);
+      }
+
+      // ---- controls ------------------------------------------------------
+      pauseBtn.addEventListener("click", () => {
+        paused = !paused;
+        pauseBtn.textContent = paused ? "resume" : "pause";
+        pauseBtn.classList.toggle("on", paused);
+        statusText.textContent = paused ? "paused (catalog still growing)" : "live";
+        if (!paused) renderFeed();
+      });
+      minLenInput.addEventListener("input", () => {
+        const v = parseInt(minLenInput.value, 10);
+        minLen = isFinite(v) && v >= 7 ? v : 7;
+      });
+      sortSelect.addEventListener("change", () => { sortMode = sortSelect.value; renderFeed(); });
+      searchInput.addEventListener("input", () => {
+        searchTerm = searchInput.value.trim().toLowerCase();
+        renderFeed();
+      });
+      clearBtn.addEventListener("click", () => {
+        if (!confirm("Clear this browser's whole palindrome catalog? This can't be undone.")) return;
+        catalog.clear();
+        statPosts = 0;
+        statFound = 0;
+        dirty = true;
+        saveCatalog();
+        updateStats();
+        renderFeed();
+      });
+
+      // ---- firehose --------------------------------------------------------
+      function handlePost(evt) {
+        const commit = evt.commit;
+        if (!commit || commit.operation !== "create") return;
+        const rec = commit.record;
+        if (!rec || typeof rec.text !== "string") return;
+        const text = rec.text.trim();
+        if (!text) return;
+
+        statPosts++;
+        const found = findPalindrome(text);
+        if (found) {
+          statFound++;
+          fileEntry(found, { text, did: evt.did, rkey: commit.rkey, ts: Date.now() });
+        }
+        if (statPosts % 25 === 0 || found) scheduleRender();
+      }
+
+      function setStatus(live, msg) {
+        dot.classList.toggle("live", live);
+        if (!paused) statusText.textContent = msg;
+      }
+
+      let ws;
+      let reconnectDelay = 1000;
+      function connect() {
+        setStatus(false, "connecting…");
+        ws = new WebSocket(JETSTREAM);
+        ws.onopen = () => { reconnectDelay = 1000; setStatus(true, "live"); };
+        ws.onmessage = (m) => {
+          let evt;
+          try { evt = JSON.parse(m.data); } catch { return; }
+          if (evt.kind === "commit") handlePost(evt);
+        };
+        ws.onclose = () => {
+          setStatus(false, "reconnecting…");
+          setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+        };
+        ws.onerror = () => { try { ws.close(); } catch {} };
+      }
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+        } else if (!ws || ws.readyState > WebSocket.OPEN) {
+          connect();
+        }
+      });
+
+      loadCatalog();
+      updateStats();
+      renderFeed();
+      connect();
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed; right: 0.85rem; bottom: 0.85rem; z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 0.7rem; line-height: 1;
+        background: rgba(20, 20, 20, 0.72); color: #ddd; border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px; padding: 0.45rem 0.6rem; cursor: pointer;
+        -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed; left: 0; right: 0; bottom: 0; height: 2.2rem; overflow: hidden;
+        pointer-events: none; z-index: 2147483000; display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute; bottom: 0.1rem; font-size: 1.5rem; transform: scaleX(-1);
+        animation-name: cm-strut; animation-timing-function: linear; animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () { setMode(!coop.classList.contains("on")); });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+  </body>
+</html>
