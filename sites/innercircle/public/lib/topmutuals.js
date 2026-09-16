@@ -178,15 +178,19 @@ async function fetchFollows(did) {
 // Falls back to the paginated AppView walk if constellation errors. Copied
 // pattern from sites/mootfluence/lib/moots.js and sites/kevinmoot/lib/bfs.js
 // (see notes/ideas/microcosm-blue.md).
+//
+// Uses the xrpc getBacklinkDids endpoint, not the old /links/distinct-dids
+// REST route — heika.dog flagged distinct-dids as deprecated 2026-09-16.
+// Same response shape (linking_dids/cursor), just a different URL and query
+// param names (subject/source instead of target/collection/path).
 async function fetchFollowers(did) {
   try {
     const out = [];
     let cursor = "";
     for (;;) {
-      const u = new URL(`${CONSTELLATION}/links/distinct-dids`);
-      u.searchParams.set("target", did);
-      u.searchParams.set("collection", FOLLOW_TYPE);
-      u.searchParams.set("path", ".subject");
+      const u = new URL(`${CONSTELLATION}/xrpc/blue.microcosm.links.getBacklinkDids`);
+      u.searchParams.set("subject", did);
+      u.searchParams.set("source", `${FOLLOW_TYPE}:subject`);
       u.searchParams.set("limit", "1000");
       if (cursor) u.searchParams.set("cursor", cursor);
       const d = await jget(u.toString());
