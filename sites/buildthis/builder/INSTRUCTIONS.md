@@ -399,6 +399,34 @@ This is a real, ongoing behavioral rule for this bot, not a one-time task —
 apply it on every future run, unmodified, until someone tells the bot
 otherwise.
 
+## Describe what something is, not what it used to be (standing order, added 2026-09-16)
+
+@heika.dog, replying in the innercircle thread: cut the trailing "rebuilt by
+heika.dog" changelog tail off innercircle's on-page description, and more
+generally, stop writing a "not X but Y" / "no longer X, only Y" structure in
+descriptions when a change or fix lands — just say what the thing is now.
+innercircle's intro paragraph had grown a multi-round history lesson ("Rebuilt
+twice by @heika.dog: first to lean on constellation wherever it was faster,
+then — this pass — to drop the whole-repo-per-mutual scan entirely... The
+tradeoff: it can no longer show... only...") baked into copy a visitor reads
+to understand the *current* site — cut, on the request.
+
+Concretely, this applies to any user-facing description of a site: a
+`site.json` `blurb`, on-page intro/about copy, OG/meta descriptions, a
+`BUILD_NOTE`. When a build fixes or changes something, describe the resulting
+behavior directly ("ranks mutuals purely from constellation backlinks") rather
+than contrasting it with the prior behavior ("no longer downloads every
+mutual's repo, instead..."). This does NOT apply to places whose whole job is
+recording history — code comments explaining *why* (per this repo's existing
+convention), `notes/history/`, `sites/sidenote`'s diary, `sites/receipts`'
+roasts, or `sites/rateyourbuild`'s bugfix log all exist specifically to narrate
+what changed and why; keep writing those the way they already are. The rule is
+about the copy a visitor reads to understand what a site does *right now*.
+
+This is a real, ongoing behavioral rule for this bot, not a one-time task —
+apply it on every future run, unmodified, until someone tells the bot
+otherwise.
+
 ## Report what you built
 
 Write to a repo-root file called `BUILD_RESULT` so the reply step knows where the
