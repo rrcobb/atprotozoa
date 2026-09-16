@@ -65,6 +65,23 @@
 // after the whole-repo-per-mutual scan, of "don't scan more than the request
 // needs," just aimed at this site's own single account read instead of its
 // mutuals'.
+//
+// 2026-09-16, later the same day, @heika.dog again (a reply on this same
+// thread): "the rank phase queries constellation per own-post unconditionally
+// (12k+ for me!). prefilter with app.bsky.feed.getPosts (25 uris/batch) for
+// replyCount>0 first, then only query posts that got replies." Right — the
+// rank phase below was asking constellation about every single one of
+// mainDid's posts, including the (typically large) majority that never got a
+// reply at all, each one a separate constellation round-trip. withReplies()
+// batches ownPosts through the AppView's app.bsky.feed.getPosts (25
+// uris/request, its hard cap) to read each post's replyCount first, and only
+// posts with replyCount > 0 — or a post the AppView couldn't report on at all,
+// kept in rather than silently dropped — go on to the constellation backlink
+// walk. This doesn't change what gets counted: constellation was always going
+// to return zero backlinks for a post with no replies, so the ranking result
+// is identical, just without paying for the empty asks. Progress bar gets a
+// new "prefilter" phase ahead of "rank" so this pass doesn't look frozen
+// either.
 import { fetchRepoRecordsWithKeys } from "./car.js";
 import { resolvePds } from "./identity.js";
 import { tidToMs } from "./tid.js";
@@ -85,9 +102,10 @@ const REPLY_SOURCE = "app.bsky.feed.post:reply.parent.uri";
 // reply that predates the index just won't count towards that mutual's rank.
 const CONSTELLATION_INDEXED_SINCE_MS = 1738083600000;
 
-// Bounds how many of mainDid's own posts get their backlinks checked at
-// once — a politeness/browser-memory limit, not a cap on how many posts get
-// checked. Every post still gets queried, however many there are.
+// Bounds how many requests run at once, for both the prefilter (getPosts
+// batches) and rank (constellation backlink) phases below — a politeness/
+// browser-memory limit, not a cap on how many posts get checked. Every post
+// still gets queried, however many there are.
 const RANK_CONCURRENCY = 8;
 
 // Backstop, not a budget — same treatment as the rest of the moot family
@@ -308,6 +326,43 @@ async function fetchBacklinksAll(subject, source) {
   return out;
 }
 
+// Batches ownPosts through app.bsky.feed.getPosts (25 uris/request — the
+// AppView's hard cap on that endpoint) to read each post's replyCount, and
+// returns only the posts worth asking constellation about. A batch the
+// AppView fails to answer keeps all its posts in rather than dropping them —
+// this is a savings measure, not a correctness gate, so an unreported post
+// errs toward still being checked. onProgress(done, total, "prefilter") drives
+// its own progress-bar phase, same shape as the rank/text phases below.
+async function withReplies(posts, onProgress) {
+  const batches = [];
+  for (let i = 0; i < posts.length; i += 25) batches.push(posts.slice(i, i + 25));
+
+  const out = [];
+  let done = 0;
+  let next = 0;
+  async function worker() {
+    while (next < batches.length) {
+      const batch = batches[next++];
+      const u = new URL(`${PUB}/app.bsky.feed.getPosts`);
+      for (const p of batch) u.searchParams.append("uris", p.uri);
+      try {
+        const d = await jget(u.toString());
+        const replyCounts = new Map((d.posts || []).map((rp) => [rp.uri, rp.replyCount || 0]));
+        for (const p of batch) {
+          const count = replyCounts.get(p.uri);
+          if (count === undefined || count > 0) out.push(p);
+        }
+      } catch {
+        out.push(...batch);
+      }
+      done += batch.length;
+      if (onProgress) onProgress(done, posts.length, "prefilter");
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(RANK_CONCURRENCY, batches.length || 1) }, worker));
+  return out;
+}
+
 // One targeted record read — the only per-mutual network cost left in this
 // file. Only called for however many mutuals actually make the top-40 cut,
 // to get the real text of their earliest reply (constellation's backlinks
@@ -341,11 +396,12 @@ async function fetchRecord(did, rkey) {
 // fell back to the paginated follows walk, which doesn't fetch posts).
 //
 // onStep(message) reports progress text; onProgress(done, total, phase)
-// drives the progress bar — phase is "rank" while checking constellation for
-// replies to mainDid's own posts (the only long phase; can run to several
-// minutes for an account with thousands of its own posts, since there's no
-// faster fallback anymore) and "text" while fetching the handful of records
-// needed for the final top 40.
+// drives the progress bar — phase is "prefilter" while batching mainDid's
+// posts through app.bsky.feed.getPosts to find which ones got any replies at
+// all, "rank" while checking constellation for replies on just those (the
+// long phase for a prolific poster with lots of replied-to posts, though
+// prefilter now spares it every post that got none), and "text" while
+// fetching the handful of records needed for the final top 40.
 export async function buildCircle(mainDid, mutuals, circleSize, opts = {}) {
   const { onStep, onProgress, ownPosts: providedOwnPosts } = opts;
   const mutualSet = new Set(mutuals.map((m) => m.did));
@@ -379,16 +435,21 @@ export async function buildCircle(mainDid, mutuals, circleSize, opts = {}) {
   // counts towards that mutual's rank; the rkey's own TID timestamp (no
   // extra call) tracks which is earliest per mutual, for the text fetch
   // below.
+  if (ownPosts.length && onStep) {
+    onStep(`checking ${ownPosts.length} of your posts for reply counts…`);
+  }
+  const repliedPosts = await withReplies(ownPosts, onProgress);
+
   const counts = new Map();
   const earliestBacklink = new Map(); // mutualDid -> {rkey, ms}
-  if (ownPosts.length && onStep) {
-    onStep(`asking constellation who replied to ${ownPosts.length} of your posts…`);
+  if (repliedPosts.length && onStep) {
+    onStep(`asking constellation who replied to ${repliedPosts.length} of your posts…`);
   }
   let next = 0;
   let done = 0;
   async function rankWorker() {
-    while (next < ownPosts.length) {
-      const post = ownPosts[next++];
+    while (next < repliedPosts.length) {
+      const post = repliedPosts[next++];
       try {
         const backlinks = await fetchBacklinksAll(post.uri, REPLY_SOURCE);
         for (const b of backlinks) {
@@ -405,14 +466,14 @@ export async function buildCircle(mainDid, mutuals, circleSize, opts = {}) {
         // spirit as a missed page in a paginated walk, not fatal overall.
       }
       done++;
-      if (onProgress) onProgress(done, ownPosts.length, "rank");
+      if (onProgress) onProgress(done, repliedPosts.length, "rank");
       if (onStep && done % 10 === 0) {
-        onStep(`checked ${done} / ${ownPosts.length} of your posts for replies…`);
+        onStep(`checked ${done} / ${repliedPosts.length} of your posts for replies…`);
       }
     }
   }
   await Promise.all(
-    Array.from({ length: Math.min(RANK_CONCURRENCY, ownPosts.length || 1) }, rankWorker),
+    Array.from({ length: Math.min(RANK_CONCURRENCY, repliedPosts.length || 1) }, rankWorker),
   );
 
   const ranked = mutuals
