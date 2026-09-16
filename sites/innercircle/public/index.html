@@ -218,10 +218,18 @@
       <h1>inner<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">c</span>ircle <span class="slash">· your top mutuals' first words to each other</span></h1>
       <p class="intro">
         Type a Bluesky handle. It maps every <b>mutual</b> (people it follows
-        who follow it back), reads each one's whole post history to see how
-        often they've replied to that handle, and ranks the top 40 by that
-        count — the account's "inner circle." Then, reusing the same repo
-        scan, it builds the grid: for every pair inside that circle, each
+        who follow it back) using a bulk repo download plus
+        <a href="https://constellation.microcosm.blue" target="_blank" rel="noopener">constellation</a>'s
+        public backlink index, instead of paginating Bluesky's follow/follower
+        lists — then ranks them by how often they've replied to that
+        handle, the account's "inner circle." Ranking checks constellation
+        for who replied to each of the searched account's own posts when
+        that's actually the cheaper option (few enough of their own posts
+        relative to their mutual count); for accounts that post a lot more
+        than they have mutuals, it downloads every mutual's repo directly
+        instead, since that ends up faster. Whichever way ranking goes,
+        only the mutuals who make the top 40 get their whole repo downloaded
+        for real, to build the grid: for every pair inside that circle, each
         one's very first reply to the other — with the actual text and a
         link to the post. Asked for by
         <a href="https://bsky.app/profile/norvid-studies.bsky.social" target="_blank" rel="noopener">@norvid-studies.bsky.social</a>,
@@ -230,7 +238,10 @@
         first meeting, with text and links, not just who won a race. Relayed
         by <a href="https://bsky.app/profile/7778777.online" target="_blank" rel="noopener">@7778777.online</a>
         tagging the bot to build it. mootrace itself stays put, unreplaced —
-        this is the separate site norvid actually wanted.
+        this is the separate site norvid actually wanted. Mapping and ranking
+        rebuilt to lean on constellation wherever it's actually the faster
+        path, asked for by
+        <a href="https://bsky.app/profile/heika.dog" target="_blank" rel="noopener">@heika.dog</a>.
       </p>
 
       <form class="finder" id="form" autocomplete="off">
@@ -245,7 +256,7 @@
           <button class="go" id="load" type="submit">build my inner circle</button>
         </div>
       </form>
-      <p class="msg" id="msg">reads Bluesky's public graph and repos in your browser — no login, nothing uploaded. this scans every mutual's whole repo to rank them, so it can take a while for handles with a lot of mutuals.</p>
+      <p class="msg" id="msg">reads Bluesky's public graph, constellation's backlink index, and repos in your browser — no login, nothing uploaded. ranking uses constellation when that's the faster option, so it usually stays fast even with a lot of mutuals; only the top 40 get a full repo download, to build the grid.</p>
 
       <div id="progress">
         <div class="barTrack"><div class="barFill" id="barFill"></div></div>
@@ -304,7 +315,7 @@
       if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
     </script>
     <script type="module">
-      import { mutualsOf, scanAll } from "./lib/topmutuals.js";
+      import { mutualsOf, buildCircle } from "./lib/topmutuals.js";
 
       const CIRCLE_SIZE = 40;
 
@@ -483,7 +494,7 @@
 
       input.addEventListener("input", () => {
         msg.className = "msg";
-        msg.textContent = "reads Bluesky's public graph and repos in your browser — no login, nothing uploaded. this scans every mutual's whole repo to rank them, so it can take a while for handles with a lot of mutuals.";
+        msg.textContent = "reads Bluesky's public graph, constellation's backlink index, and repos in your browser — no login, nothing uploaded. ranking uses constellation when that's the faster option, so it usually stays fast even with a lot of mutuals; only the top 40 get a full repo download, to build the grid.";
       });
 
       form.addEventListener("submit", async (e) => {
@@ -509,35 +520,25 @@
           }
 
           mainInfo = res;
-          const scanned = [];
 
           msg.className = "msg";
-          msg.textContent = `found ${res.mutuals.length} mutuals — scanning each one's whole repo to rank them by replies to @${res.handle} (this is the slow part)…`;
+          msg.textContent = `found ${res.mutuals.length} mutuals — figuring out the fastest way to rank them by replies to @${res.handle}…`;
           progress.classList.add("on");
           barFill.style.width = "0%";
-          barLabel.textContent = `0 / ${res.mutuals.length} repos scanned`;
+          barLabel.textContent = "0 / ? repos scanned";
 
-          await scanAll(res.mutuals, res.did, (m, result, done, total) => {
-            scanned.push({
-              ...m,
-              repliesToMain: result ? result.repliesToMain : 0,
-              firstReplies: result ? result.firstReplies : null,
-            });
-            const pct = Math.round((done / total) * 100);
-            barFill.style.width = pct + "%";
-            barLabel.textContent = `${done} / ${total} repos scanned`;
+          const built = await buildCircle(res.did, res.mutuals, CIRCLE_SIZE, {
+            mainPostsCountHint: res.mainPostsCount,
+            onStep: (s) => { msg.className = "msg"; msg.textContent = s; },
+            onProgress: (done, total) => {
+              const pct = total ? Math.round((done / total) * 100) : 0;
+              barFill.style.width = pct + "%";
+              barLabel.textContent = `${done} / ${total} repos scanned`;
+            },
           });
+          circle = built.circle;
 
           progress.classList.remove("on");
-
-          // Rank: highest replies-to-main first, ties by handle. Only
-          // mutuals who've actually replied at least once make the circle —
-          // "top mutuals (the ones who reply to them the most)" implies
-          // they've replied — but if fewer than 40 qualify, the circle is
-          // just whatever size that is; no padding with zero-reply mutuals.
-          const withReplies = scanned.filter((m) => m.repliesToMain > 0);
-          withReplies.sort((a, b) => b.repliesToMain - a.repliesToMain || a.handle.localeCompare(b.handle));
-          circle = withReplies.slice(0, CIRCLE_SIZE);
 
           if (!circle.length) {
             msg.className = "msg err";
@@ -547,7 +548,7 @@
           }
 
           msg.className = "msg ok";
-          msg.textContent = `done — built the inner circle for @${res.handle} (${circle.length} of ${res.mutuals.length} mutuals qualified).`;
+          msg.textContent = `done — built the inner circle for @${res.handle} (${circle.length} of ${res.mutuals.length} mutuals qualified; ranked via ${built.rankMethod === "constellation" ? "constellation, only " + built.scannedCount + " whole repos downloaded" : "a full scan of all " + built.scannedCount + " mutuals (faster than constellation would’ve been for this account)"}).`;
 
           mainHandleLabel.textContent = `@${res.handle}`;
 
