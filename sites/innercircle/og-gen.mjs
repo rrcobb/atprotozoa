@@ -1,15 +1,16 @@
 // Generates public/og.png — the Open Graph preview card for innercircle, so
-// a shared link auto-renders a picture of the grid in Bluesky / other
-// unfurlers.
+// a shared link auto-renders a picture in Bluesky / other unfurlers.
 //
-// Hand-draws a representative "screenshot" of the grid as an SVG (a corner
-// of avatar dots, a matrix of cells with little text-snippet lines instead
-// of mootrace's plain dots — this site's whole point is quoted text in the
-// grid) at the canonical OG size, then rasterises it with @resvg/resvg-js
-// (pure native module, no system Chromium needed — this box has no
-// fontconfig/system fonts either, so the font is bundled in ./fonts and
-// loaded explicitly). Copied from sites/mootrace/og-gen.mjs (copy, don't
-// abstract).
+// Hand-draws a stylized matrix as an SVG (a corner of avatar dots, cells
+// with little text-snippet lines instead of mootrace's plain dots — this
+// site's whole point is quoted text) at the canonical OG size, then
+// rasterises it with @resvg/resvg-js (pure native module, no system Chromium
+// needed — this box has no fontconfig/system fonts either, so the font is
+// bundled in ./fonts and loaded explicitly). Copied from
+// sites/mootrace/og-gen.mjs (copy, don't abstract). Purely decorative now —
+// the real feature it's illustrating is "first reply each way with each
+// mutual," not a literal mutual×mutual grid (see topmutuals.js), but the
+// matrix motif still reads fine as a stand-in.
 //
 //   npm install @resvg/resvg-js --no-save   # one-time, not a project dependency
 //   node og-gen.mjs                         # writes ./public/og.png
@@ -75,17 +76,17 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <text x="64" y="90" font-family="JetBrains Mono" font-weight="700"
     font-size="42" fill="${INK}">innercircle</text>
   <text x="64" y="128" font-family="JetBrains Mono" font-size="18"
-    fill="${MUTED}">your top mutuals' first words</text>
+    fill="${MUTED}">your top mutuals' first</text>
   <text x="64" y="152" font-family="JetBrains Mono" font-size="18"
-    fill="${MUTED}">to each other</text>
+    fill="${MUTED}">words with you</text>
 
   <!-- blurb on the left -->
   <text x="64" y="230" font-family="JetBrains Mono" font-size="17" fill="${INK}">Rank the top 40</text>
-  <text x="64" y="260" font-family="JetBrains Mono" font-size="17" fill="${INK}">mutuals by who</text>
-  <text x="64" y="290" font-family="JetBrains Mono" font-size="17" fill="${INK}">replies most, then</text>
-  <text x="64" y="320" font-family="JetBrains Mono" font-size="17" fill="${INK}">see every pair's</text>
-  <text x="64" y="350" font-family="JetBrains Mono" font-size="17" fill="${INK}">first reply —</text>
-  <text x="64" y="380" font-family="JetBrains Mono" font-size="17" fill="${INK}">text and link.</text>
+  <text x="64" y="260" font-family="JetBrains Mono" font-size="17" fill="${INK}">mutuals purely from</text>
+  <text x="64" y="290" font-family="JetBrains Mono" font-size="17" fill="${INK}">constellation</text>
+  <text x="64" y="320" font-family="JetBrains Mono" font-size="17" fill="${INK}">backlinks, then see</text>
+  <text x="64" y="350" font-family="JetBrains Mono" font-size="17" fill="${INK}">the first reply each</text>
+  <text x="64" y="380" font-family="JetBrains Mono" font-size="17" fill="${INK}">way — text and link.</text>
 
   <rect x="56" y="440" width="18" height="18" rx="3" fill="${GOOD_BG}" stroke="${GOOD}"/>
   <rect x="60" y="446" width="10" height="3" rx="1.5" fill="${GOOD}"/>
