@@ -48,6 +48,8 @@ const els = {
   barLabel: document.getElementById("barLabel"),
   results: document.getElementById("results"),
   summary: document.getElementById("summary"),
+  swapsList: document.getElementById("swapsList"),
+  standingsList: document.getElementById("standingsList"),
   leastLikesList: document.getElementById("leastLikesList"),
   leastRepliesList: document.getElementById("leastRepliesList"),
   promoteList: document.getElementById("promoteList"),
@@ -126,6 +128,60 @@ function renderBoard(el, entries, kind, zoneClass) {
         ? `<b>${entry.replies}</b> ${entry.replies === 1 ? "reply" : "replies"}`
         : `<b>${entry.likes}</b> likes · <b>${entry.replies}</b> replies`;
     el.appendChild(renderRow(i + 1, entry, label, zoneClass));
+  });
+}
+
+function renderStandings(el, list, zoneSize) {
+  el.innerHTML = "";
+  if (!list.length) {
+    el.innerHTML = `<div class="empty">nothing to show here.</div>`;
+    return;
+  }
+  list.forEach((entry, i) => {
+    const zoneClass = i >= list.length - zoneSize ? "zone-bad" : "";
+    const label = `<b>${entry.likes}</b> likes · <b>${entry.replies}</b> replies · <b>${entry.total}</b> total`;
+    el.appendChild(renderRow(i + 1, entry, label, zoneClass));
+  });
+}
+
+function renderSwaps(el, swaps) {
+  el.innerHTML = "";
+  if (!swaps.length) {
+    el.innerHTML = `<div class="empty">not enough moots (or engaged non-mutual followers) to suggest a swap.</div>`;
+    return;
+  }
+  swaps.forEach((s, i) => {
+    const row = document.createElement("div");
+    row.className = "swap-row";
+    const outName = s.out.displayName && s.out.displayName !== s.out.handle ? `<span class="name">${esc(s.out.displayName)}</span>` : "";
+    const inSide = s.in
+      ? (() => {
+          const inName = s.in.displayName && s.in.displayName !== s.in.handle ? `<span class="name">${esc(s.in.displayName)}</span>` : "";
+          return `
+            <div class="side in">
+              <div class="ava" style="${avaStyle(s.in)}"></div>
+              <div class="who">
+                <a href="https://bsky.app/profile/${encodeURIComponent(s.in.handle)}" target="_blank" rel="noopener">@${esc(s.in.handle)}</a>
+                ${inName}
+              </div>
+              <div class="count">${s.in.likes} likes · ${s.in.replies} replies</div>
+            </div>`;
+        })()
+      : `<div class="side in empty-side">no engaged non-mutual follower left to suggest</div>`;
+    row.innerHTML = `
+      <div class="rank">${i + 1}</div>
+      <div class="side out">
+        <div class="ava" style="${avaStyle(s.out)}"></div>
+        <div class="who">
+          <a href="https://bsky.app/profile/${encodeURIComponent(s.out.handle)}" target="_blank" rel="noopener">@${esc(s.out.handle)}</a>
+          ${outName}
+        </div>
+        <div class="count">${s.out.likes} likes · ${s.out.replies} replies</div>
+      </div>
+      <div class="arrow">&rarr;</div>
+      ${inSide}
+    `;
+    el.appendChild(row);
   });
 }
 
@@ -216,14 +272,41 @@ async function runAudit() {
       .sort((a, b) => (b.likes + b.replies) - (a.likes + a.replies) || a.handle.localeCompare(b.handle))
       .slice(0, BOARD_SIZE);
 
+    // Full standings: every moot, best to worst by total engagement — the
+    // actual league table, not just the worst-of-the-worst slices above.
+    const standings = mootStats
+      .map((p) => ({ ...p, total: p.likes + p.replies }))
+      .sort((a, b) => b.total - a.total || a.handle.localeCompare(b.handle));
+
+    // Real relegation zones are a fraction of the table (3 of 20 ≈ 15% in
+    // most football leagues), not a fixed headcount — this only decides how
+    // many rows at the bottom of the FULL standings get the "zone-bad"
+    // highlight and get paired with a replacement below. It doesn't cap what
+    // gets scanned or shown: every moot is still in `standings`.
+    const zoneSize = Math.max(1, Math.round(standings.length * 0.15));
+    const relegationZone = standings.slice(-zoneSize).reverse(); // worst first
+
+    const candidatesByTotal = candidateStats
+      .map((p) => ({ ...p, total: p.likes + p.replies }))
+      .filter((c) => c.total > 0)
+      .sort((a, b) => b.total - a.total || a.handle.localeCompare(b.handle));
+
+    // 1:1 swaps — literal "who replaces who": worst moot in the relegation
+    // zone paired against the next-best unclaimed candidate by total
+    // engagement. `in: null` when there aren't enough engaged non-mutual
+    // followers to fill every slot.
+    const swaps = relegationZone.map((worst, i) => ({ out: worst, in: candidatesByTotal[i] || null }));
+
+    renderStandings(els.standingsList, standings, zoneSize);
+    renderSwaps(els.swapsList, swaps);
     renderBoard(els.leastLikesList, leastLikes, "likes", "zone-bad");
     renderBoard(els.leastRepliesList, leastReplies, "replies", "zone-bad");
     renderBoard(els.promoteList, promote, "both", "zone-good");
 
     renderSummary(
       { posts: posts.length, moots: moots.length, candidates: candidates.length, handle: session.handle },
-      leastLikes[0],
-      promote[0],
+      relegationZone[0],
+      swaps[0] && swaps[0].in,
     );
 
     setMsg(`done — scanned ${posts.length} posts across ${moots.length} moots and ${candidates.length} non-mutual followers.`, "ok");
