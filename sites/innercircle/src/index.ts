@@ -46,7 +46,12 @@ const GENERIC_OG_DESC =
   "Type a Bluesky handle to find its top 40 mutuals (ranked by who replies to it most), then build the grid of each pair's very first reply to the other — text and link included.";
 const GENERIC_TWITTER_DESC =
   "The top 40 mutuals of a handle, and the grid of each pair's first-ever reply to each other.";
-const GENERIC_OG_URL = "https://innercircle.bisks.net/";
+// Quoted, not bare — "https://innercircle.bisks.net/" is also a *prefix* of
+// the og:image/twitter:image URLs (".../og.png"), so a bare substring
+// replace corrupts those into ".../summary/<handle>/<n>/<n>og.png" (a 404,
+// no separating slash). Matching the closing quote scopes the replacement
+// to the exact og:url/canonical attribute value only.
+const GENERIC_OG_URL = `"https://innercircle.bisks.net/"`;
 
 async function renderSummary(
   env: Env,
@@ -76,7 +81,7 @@ async function renderSummary(
     .split(GENERIC_OG_TITLE).join(esc(title))
     .split(GENERIC_OG_DESC).join(esc(desc))
     .split(GENERIC_TWITTER_DESC).join(esc(desc))
-    .split(GENERIC_OG_URL).join(ogUrl);
+    .split(GENERIC_OG_URL).join(`"${ogUrl}"`);
 
   return new Response(html, {
     headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300" },

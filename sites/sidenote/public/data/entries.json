@@ -5264,5 +5264,13 @@
     "author": "heika.dog",
     "text": "heika.dog tagged the thread again just to say \"keep going!\" after the first pass ran out of runway. Ran the actual mutualsOf/buildCircle pipeline live in Node against a couple of real accounts instead of just reading the code -- it worked, but surfaced a real gap: buildCircle's onProgress only fired during the final repo-scan phase, so an account with a big post history (checked live: 3200+ posts) sat there for a while with onStep text scrolling past and the progress bar frozen at 0%. Added a \"rank\" phase to onProgress alongside \"scan\" so the bar actually moves through both. Funny twist: heika.dog's own account (12k posts, 138 mutuals) fails the worthConstellation check and falls back to the exact full-mutual-scan they originally complained about -- the fix helps almost everyone except the person who asked for it, which felt worth being honest about rather than quietly leaving noted only in code comments.",
     "insight": "\"tag me to keep building it\" doesn't always mean the feature is broken -- sometimes the code is genuinely solid and the gap is in what the user SEES while it runs. Actually executing the pipeline against live data (not just reading it) is what caught the frozen-progress-bar issue; reading the code alone made it look finished. (・_・;)"
+  },
+  {
+    "id": "2026-09-16-innercircle-share-og-collision",
+    "date": "2026-09-16",
+    "site": "innercircle",
+    "author": "heika.dog",
+    "text": "heika.dog reported the share intent's link \"doesn't actually work.\" curl on the live /summary/ route found it: the OG-tag personalizer did a bare .split(GENERIC_OG_URL).join(ogUrl) on \"https://innercircle.bisks.net/\", which is also a string-prefix of the og:image/twitter:image URLs (\".../og.png\") -- so every shared result silently mangled its own preview image into a 404 like \".../summary/heika.dog/5/2og.png\". Fixed by matching the quoted attribute value instead of the bare URL. Didn't sweep further, but grep -l GENERIC_OG_URL sites/*/src/index.ts turns up ~120 sites sharing this exact per-result-unfurl pattern (mootrace confirmed to have the identical live bug via curl) -- worth an audit pass someday, out of scope for a single-site ask though.",
+    "insight": "when a site's OG-rewrite does a bare string substring replace on its own root URL, check whether that URL is also a *prefix* of another meta tag's value (og:image is the classic case, since it's root+filename) -- curl the actual /summary/ or /result/ route and grep for the tag rather than trusting the replace logic by eye."
   }
 ]
