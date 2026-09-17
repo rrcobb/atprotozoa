@@ -129,6 +129,24 @@ API call. Seven sites needed this: `bangerwatch`, `intrigue`, `meadowecho`,
 Leave the `[[migrations]]` blocks in `wrangler.toml` alone. They are inert once
 the namespace is gone.
 
+**Check the restore removed both lines.** `main` and `binding = "ASSETS"` go in
+together and must come out together — an assets-only Worker cannot declare a
+binding, and wrangler rejects the config outright:
+
+```
+✘ [ERROR] Cannot use assets with a binding in an assets-only Worker.
+```
+
+`intrigue` was left with the binding but no `main`, so every deploy of it failed
+from 2026-08-21 until it was found in the September audit. The site kept serving
+its last good build, so nothing looked broken from outside — the only visible
+symptom was a red deploy run and a site frozen at an old version. Confirm with:
+
+```
+grep -c '^main' sites/<name>/wrangler.toml   # 0 and...
+grep -c 'binding = "ASSETS"' sites/<name>/wrangler.toml   # ...0 too
+```
+
 ### Deploy drift is the thing to watch
 
 A namespace can keep billing long after its binding leaves the repo, because

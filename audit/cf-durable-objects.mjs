@@ -23,7 +23,12 @@ import { readFileSync, readdirSync, existsSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const ACCOUNT_ID = "83803d427e6fd1a7d6408ed63e0a9191";
+// The personal account that owns bisks.net. Overridable because a laptop can
+// hold more than one Cloudflare identity: a `wrangler login` session for work
+// authenticates fine but cannot see this account, and the resulting 403 used to
+// read as "your token expired".
+const ACCOUNT_ID =
+  process.env.CLOUDFLARE_ACCOUNT_ID || "83803d427e6fd1a7d6408ed63e0a9191";
 const API = "https://api.cloudflare.com/client/v4";
 
 // Prefer an explicit API token; otherwise reuse the wrangler OAuth session.
@@ -166,7 +171,20 @@ try {
 } catch (err) {
   // The stored wrangler OAuth token expires; a raw stack here reads like a bug
   // in this script rather than "log in again".
-  if (/9109|Invalid access token|10000|Authentication/i.test(err.message)) {
+  // A 403 means the credentials are valid but cannot see THIS account — a
+  // different failure from an expired token, and telling someone to log in
+  // again when they are already logged in sends them the wrong way.
+  if (/-> 403|9109/.test(err.message)) {
+    console.error(
+      `Authenticated, but this identity cannot see account ${ACCOUNT_ID}.\n` +
+        "That usually means the active credentials belong to a different\n" +
+        "Cloudflare login (e.g. a work account) than the one owning bisks.net.\n" +
+        "Check with `wrangler whoami`, then either set CLOUDFLARE_API_TOKEN to a\n" +
+        "token for the right account or set CLOUDFLARE_ACCOUNT_ID to override.",
+    );
+    process.exit(1);
+  }
+  if (/Invalid access token|10000|Authentication/i.test(err.message)) {
     console.error(
       "Cloudflare rejected the credentials. The wrangler OAuth token expires —\n" +
         "run `wrangler login`, or set CLOUDFLARE_API_TOKEN to a token with\n" +
