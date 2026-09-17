@@ -39,6 +39,15 @@ something browser `fetch()` can even set (browsers own that header), so
 client-side callers can't comply with it even if they wanted to; a
 server-side Worker call could.
 
+## Endpoint change (2026-09-16)
+
+`/links/distinct-dids` is deprecated per heika.dog; the replacement is
+`/xrpc/blue.microcosm.links.getBacklinkDids?subject=<did>&source=<collection>:<path>`
+with the same `{ total, linking_dids, cursor }` response. innercircle shipped
+on the new route; kevinmoot, mootfluence and xbill were migrated 2026-09-17.
+The examples below still show the old URL where they describe what was
+measured at the time.
+
 ## What actually got tried: Constellation for followers
 
 kevinmoot (`sites/kevinmoot`) computes a "moot" (mutual-follow) graph via

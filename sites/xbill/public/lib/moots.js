@@ -60,10 +60,12 @@ async function fetchFollowersConstellation(did) {
   const out = [];
   let cursor = "";
   for (let p = 0; p < CONSTELLATION_PAGES; p++) {
-    const u = new URL(`${CONSTELLATION}/links/distinct-dids`);
-    u.searchParams.set("target", did);
-    u.searchParams.set("collection", "app.bsky.graph.follow");
-    u.searchParams.set("path", ".subject");
+    // xrpc getBacklinkDids, not the old /links/distinct-dids REST route —
+    // heika.dog flagged that one as deprecated 2026-09-16. Same response
+    // shape (linking_dids/cursor); only the URL and param names changed.
+    const u = new URL(`${CONSTELLATION}/xrpc/blue.microcosm.links.getBacklinkDids`);
+    u.searchParams.set("subject", did);
+    u.searchParams.set("source", "app.bsky.graph.follow:subject");
     u.searchParams.set("limit", "1000");
     if (cursor) u.searchParams.set("cursor", cursor);
     const d = await jget(u.toString());

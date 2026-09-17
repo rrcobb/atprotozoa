@@ -189,3 +189,36 @@ serve the site, but login only works on the canonical host.
   default for most sites — see `notes/45-sharing-and-virality.md` for the recipe
   and `sites/didscope` for the reference implementation. Skip it only when the
   site has no per-user "result" to show off.
+
+## Ecosystem tools: copy from these sites
+
+People tagging the bot keep recommending the same third-party atproto tools
+(collected 2026-09-17 from every buildthis thread). Each one below has a
+working, copied-before implementation in the repo. Copy that file; don't
+reinvent the call, and don't wire in a tool that isn't listed without a
+survey note in `notes/ideas/` first.
+
+| need | tool | copy from |
+| --- | --- | --- |
+| who follows / likes / quotes / lists / blocks a DID or URI, in bulk | Constellation (`constellation.microcosm.blue`), the backlink index | `sites/innercircle/public/lib/topmutuals.js` (`getBacklinkDids` + `getBacklinks`) |
+| live records as they land | Jetstream (`wss://jetstream*.us-*.bsky.network/subscribe?wantedCollections=`) | `sites/voidshout/public/lib/ingest.js`, `sites/trigrams/public/firehose/` |
+| handle typeahead at login or in a search box | Bluesky's `searchActorsTypeahead` via the shared lib | `handle-typeahead.js`, already in ~236 sites |
+| every label on an account from every labeler | `atproto-accept-labelers` fan-out over mackuba's labeler directory | `sites/labelmuster` |
+| a link to a raw record | pdsls (`https://pdsls.dev/at://<uri>`), not bsky.app | `sites/selflikes`, `sites/receipts` |
+| how much traffic a site gets | `https://stats.bisks.net/stats/<name>.json` (`notes/86-stats.md`) | any site: one fetch, no token |
+
+Constellation specifics that have bitten before:
+
+- Use the XRPC routes. `/links/distinct-dids` and friends are deprecated
+  (heika.dog, 2026-09-16). `getBacklinkDids?subject=<did>&source=<collection>:<path>`
+  returns the same `{ total, linking_dids, cursor }` shape. `limit=1000`
+  is the max; a page can come back short, so loop on `cursor`.
+- The index starts 2025-01-28. Anything older isn't there, and several
+  people have hit that as a data gap — say so in the UI when it matters.
+- Always keep the AppView walk as the fallback. It's a third-party service
+  with no SLA; every site above does `try constellation, catch → getFollowers`.
+
+Things people asked for that need Rob, not a site: a labeler or feed
+generator as bot output (signing key), storage on the user's own PDS via
+OAuth write scopes (see `notes/50-oauth-scopes.md`), and pre-2025 history
+of any kind.
