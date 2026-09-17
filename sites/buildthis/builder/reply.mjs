@@ -16,6 +16,12 @@
 //                     "built it" reply on a real build, or IS the reply body
 //                     (with BUILD_RESULT's url appended, if set) otherwise.
 //                     Always fit to 300 graphemes, tail preserved whole.
+//   LIVE_STATUS    -> box-build.sh's post-deploy check: "verified" (the url serves
+//                     and, for an edit, serves new bytes), "stale" (2xx but
+//                     byte-identical to before the push — the deploy didn't land),
+//                     or "dead" (never served). Picks the reply's caveat, so the
+//                     bot stops saying "give the deploy a minute" when it knows
+//                     better. Empty for non-shipping dispositions.
 //   MENTION_URI    -> the tagging post's uri; keys the event-log outcome POST
 //   OUTCOME_URL    -> buildthis worker's /outcome endpoint (optional)
 //   OUTCOME_SECRET -> shared secret for the /outcome POST (optional)
@@ -30,6 +36,10 @@
 // build+reply into a red workflow.
 
 import { readFileSync } from "node:fs";
+
+// Graphemes of the agent's note we refuse to trade away for template boilerplate.
+// About one sentence — enough to say what got built.
+const MIN_NOTE = 80;
 
 const PDS = "https://bsky.social";
 const APPVIEW = "https://public.api.bsky.app";
@@ -96,6 +106,7 @@ async function main() {
   const result = (process.env.BUILD_RESULT || "").trim();
   const note = (process.env.BUILD_NOTE || "").trim();
   const partial = (process.env.BUILD_ERROR || "").trim() === "partial";
+  const liveStatus = (process.env.LIVE_STATUS || "").trim();
 
   let text;
   const url = siteUrl(result); // the built-site URL, if any, so we can link-facet it
@@ -105,14 +116,29 @@ async function main() {
     // The partial's whole point is that the work is preserved and CONTINUABLE: the
     // template invites a re-tag on this thread to keep building it (which runs as a
     // normal edit against the now-live site — no special resume machinery).
+    // The tail is honest about whether the URL actually serves the new build.
+    // box-build.sh polls for ~90s and reports LIVE_STATUS: "verified" (serving,
+    // and for an edit serving genuinely new bytes), "stale" (2xx but byte-identical
+    // to before the push — the deploy didn't land), or "dead" (never served).
+    // Previously every one of these got "(give the deploy a minute to go live)",
+    // which reads as reassurance and was wrong exactly when the user most needed
+    // the truth: 90 of 361 successes in the 30-day log were never verified live.
+    const caveat =
+      liveStatus === "verified"
+        ? ""
+        : liveStatus === "stale"
+          ? `\n\nheads up: the deploy hasn't landed yet, so that link may still show the old version for a few minutes.`
+          : `\n\nheads up: i couldn't get the url to respond yet — give it a few minutes, and tag me if it's still down.`;
     const template = partial
-      ? `got a first pass up 🚧 — ${url}\n\nran out of runway before it's fully done; tag me on this thread to keep building it.`
-      : `built it 🎉 — ${url}\n\n(give the deploy a minute to go live)`;
+      ? `got a first pass up 🚧 — ${url}\n\nnot fully done; tag me here to keep building it.${caveat}`
+      : `built it 🎉 — ${url}${caveat || `\n\n(it's live)`}`;
     // Optional: the agent's own short line about what it built, in its voice.
     // Prepended to the template. The tagger is always one of Rob's mutuals, so we
     // trust the phrasing — the only mechanical constraint is Bluesky's 300-grapheme
     // post limit, applied below.
-    text = fitToLimit(note, template, 300);
+    // MIN_NOTE: the note is the only part that says what was built, so guarantee
+    // it at least a sentence's worth even if that costs the template's caveat.
+    text = fitToLimit(note, template, 300, MIN_NOTE);
   } else if ((process.env.BUILD_ERROR || "").trim() === "usage_limit") {
     // Not "your idea flopped" — the bot is out of its monthly build budget. Say so
     // honestly instead of implying the request was the problem, so people know to
@@ -134,7 +160,7 @@ async function main() {
     //     used to silently drop the link the agent asked for and fall back to a
     //     raw character slice with no ellipsis; both are fixed by reusing
     //     fitToLimit, which preserves the url whole and only trims the note.
-    text = fitToLimit(note, url || "", 300);
+    text = fitToLimit(note, url || "", 300, MIN_NOTE);
   } else {
     text = `couldn't build that one, sorry! not every idea lands. try me again with something else?`;
   }
@@ -163,7 +189,7 @@ async function main() {
   // the outcome so /health and the timeline can flag a build that pushed but never
   // came up (a broken deploy) vs. one verified live.
   const liveVerified = process.env.LIVE_VERIFIED === "true";
-  await reportOutcome({ ok, result, url, text, requeue, posted: !skipReply, liveVerified, partial });
+  await reportOutcome({ ok, result, url, text, requeue, posted: !skipReply, liveVerified, liveStatus, partial });
 }
 
 // Count graphemes, not UTF-16 code units — Bluesky's 300 limit is graphemes, so
@@ -199,25 +225,55 @@ function graphemeSlice(s, n) {
 // fit `limit`, `head` is dropped entirely and `tail` is returned as-is — that
 // shouldn't happen for our short fixed templates/urls, and truncating the url
 // itself would just produce a dead link.
-function fitToLimit(head, tail, limit) {
+//
+// `minHead` guarantees the note a floor. The tail used to be sacrosanct and the
+// note got whatever was left, which inverted the priorities: the template is
+// boilerplate the reader can predict, while the note is the only sentence that
+// says WHAT was built. With a long partial template that left almost nothing —
+// 37 of 49 partials in the 30-day log were bare boilerplate, and ~20 per slice
+// ended mid-word right where the caveat was. When the tail is too long to leave
+// `minHead` graphemes, the tail itself is trimmed to its FIRST paragraph (the
+// url line — the part that must survive whole) so the note gets its sentence.
+function fitToLimit(head, tail, limit, minHead = 0) {
   const SEP = head && tail ? "\n\n" : "";
   const full = `${head}${SEP}${tail}`;
   if (graphemeLen(full) <= limit) return full;
-  const tailLen = graphemeLen(tail);
-  const sepLen = graphemeLen(SEP);
   const ELLIPSIS = "…";
+
+  let useTail = tail;
+  if (head && minHead > 0) {
+    const roomFor = (t) =>
+      limit - graphemeLen(t) - graphemeLen(t ? "\n\n" : "") - graphemeLen(ELLIPSIS);
+    if (roomFor(useTail) < minHead) {
+      // Drop everything after the first blank line — the caveat/invitation — and
+      // keep the url line, which is the tail's whole reason to exist.
+      const firstPara = useTail.split("\n\n")[0];
+      if (roomFor(firstPara) >= minHead) useTail = firstPara;
+    }
+  }
+
+  // Trimming the tail may have freed enough room for the head to fit whole — in
+  // which case send it whole, with no ellipsis promising a continuation that
+  // isn't there.
+  const trimmedSep = head && useTail ? "\n\n" : "";
+  if (graphemeLen(`${head}${trimmedSep}${useTail}`) <= limit) {
+    return `${head}${trimmedSep}${useTail}`;
+  }
+
+  const tailLen = graphemeLen(useTail);
+  const sepLen = graphemeLen(trimmedSep);
   // Budget left for head itself, after the separator, tail, and ellipsis.
   const headBudget = limit - tailLen - sepLen - graphemeLen(ELLIPSIS);
-  if (headBudget <= 0) return tail; // no room for any head — send tail alone
+  if (headBudget <= 0) return useTail; // no room for any head — send tail alone
   const truncated = graphemeSlice(head, headBudget).trimEnd() + ELLIPSIS;
-  return `${truncated}${SEP}${tail}`;
+  return `${truncated}${trimmedSep}${useTail}`;
 }
 
 // POST the build outcome to the buildthis worker's /outcome endpoint. No-op (with
 // a log line) if the endpoint or secret isn't configured, so an unconfigured or
 // briefly-down log sink never fails the build. Non-2xx and network errors are
 // logged and swallowed for the same reason.
-async function reportOutcome({ ok, result, url, text, requeue = false, posted = true, liveVerified = false, partial = false }) {
+async function reportOutcome({ ok, result, url, text, requeue = false, posted = true, liveVerified = false, liveStatus = "", partial = false }) {
   const endpoint = process.env.OUTCOME_URL;
   const secret = process.env.OUTCOME_SECRET;
   const mentionUri = process.env.MENTION_URI;
@@ -247,6 +303,10 @@ async function reportOutcome({ ok, result, url, text, requeue = false, posted = 
     // Post-deploy liveness result (success builds only). false here on a success
     // means "pushed but the URL didn't serve in time" — a signal worth surfacing.
     liveVerified: ok && result ? liveVerified : undefined,
+    // Why the liveness check came out that way: "verified" | "stale" | "dead".
+    // liveVerified collapses stale and dead into one false, but they mean very
+    // different things — a stale edit deployed nothing, a dead url never came up.
+    liveStatus: liveStatus || undefined,
     // Unfinished-but-live: a first pass shipped, continuable by re-tagging.
     partial: partial || undefined,
   };
