@@ -1334,17 +1334,23 @@ async function handleLogsRead(env: Env, url: URL): Promise<Response> {
     // the KV key is the mention uri, so we can't slice before reading — but we
     // can still keep the whole log off the wire, which is what made the reader
     // slow. `total` lets a caller show "N of M" without asking for all of them.
+    // `offset` pages past the cap: the log passed 500 events and the oldest
+    // ~100 were unreachable, with nothing in the response saying so beyond
+    // events.length < total. Page with ?limit=500&offset=500 until offset+limit
+    // reaches `total`.
     const total = events.length;
     const limitParam = Number(url.searchParams.get("limit"));
     const limit = Number.isFinite(limitParam) && limitParam > 0
       ? Math.min(limitParam, 500)
       : 60;
-    const page = events.slice(0, limit);
+    const offsetParam = Number(url.searchParams.get("offset"));
+    const offset = Number.isFinite(offsetParam) && offsetParam > 0 ? Math.floor(offsetParam) : 0;
+    const page = events.slice(offset, offset + limit);
 
     // Let the edge hold this briefly. The log changes only when the watcher or
     // builder writes an event, so a short TTL is plenty and it keeps a burst of
     // readers (every /tag/<rkey> permalink hits this too) off KV entirely.
-    return new Response(JSON.stringify({ events: page, total }), {
+    return new Response(JSON.stringify({ events: page, total, offset }), {
       headers: { ...cors, "cache-control": "public, max-age=30" },
     });
   } catch (err) {

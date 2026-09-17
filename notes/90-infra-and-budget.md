@@ -324,7 +324,11 @@ endpoints are the escape hatch if that changes.
   - It's public + read-only (no secrets, just counts), so an uptime check or a cron
     can watch `.ok` without a token.
 - Box loop: `journalctl -u buildthis-poll -f` on the box.
-- Timeline: `logs.bisks.net` (reads `buildthis.bisks.net/logs.json`).
+- Timeline: `logs.bisks.net` (reads `buildthis.bisks.net/logs.json`). The
+  API pages: `?limit=` caps at 500, `?offset=` walks past it, and the response
+  carries `total`, so read until `offset + events.length >= total`. Note that
+  a `shipped` event is a run, not a site: one site edited many times is many
+  events, so count distinct site names if you want "sites built".
 - Watcher: `pnpm --filter @atprotozoa/buildthis logs`, or the Cloudflare
   dashboard (observability is on).
 
