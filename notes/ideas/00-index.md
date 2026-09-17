@@ -21,11 +21,12 @@ from the steamtags template. Catches the class of bug `padmoot` and
 `paintmoot` both shipped independently (atproto records take integers, not
 floats).
 
-**2. Publish the lexicons.** (`pds-and-lexicons.md`) **Half done, 2026-08-16.**
-All 32 schemas are now served under one path, `bisks.net/lexicons/`
-(`audit/build-lexicons.mjs --apply`). Still open: the `_lexicon.bisks.net` DNS
-TXT record so NSIDs actually resolve — needs a human with Cloudflare dashboard
-access, not something the builder can do from the repo.
+**2. Publish the lexicons.** (`pds-and-lexicons.md`) **Done, 2026-09-17.**
+All 57 schemas are served under one path, `bisks.net/lexicons/`
+(`audit/build-lexicons.mjs --apply`), and `_lexicon.bisks.net` now carries
+`did=did:plc:f6n22z62adionrvb5s6n6vfk`, so NSIDs resolve. Rob added the record
+by hand, then minted a DNS-scoped Cloudflare token so the next one needn't be
+(`notes/90-infra-and-budget.md`).
 
 **3. Aggregate views via `listReposByCollection`.** (`pds-and-lexicons.md`)
 Find every repo holding a given collection. **Done for thirteen sites so far:**

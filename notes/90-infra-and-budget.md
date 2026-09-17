@@ -275,10 +275,24 @@ while the box is down — not somewhere to sit.
 | `BOT_APP_PASSWORD` | box env | bot's Bluesky app-password (posts replies) |
 | `OUTCOME_SECRET` | box env + Worker + GH secret | auths POST /outcome |
 | `QUEUE_TOKEN` | box env + Worker | auths POST /next-job |
+| `CLOUDFLARE_API_TOKEN` | 1Password only | Workers admin for the `audit/cf-*.mjs` scripts |
+| Cloudflare DNS token | 1Password only | `Zone → DNS → Edit` on `bisks.net` |
 
 All also mirrored in 1Password (Personal vault). The box env is root-owned,
 group-readable by `builder` via the `buildthis-env` group (640) — not
 world-readable.
+
+**There are two Cloudflare tokens, and the Workers one can't write DNS.**
+
+- `op read "op://Personal/Cloudflare/api token edit workers bisks.net"` —
+  Workers scripts and custom domains, what the `audit/cf-*.mjs` scripts use.
+  Every `/zones/<id>/dns_records` call returns "Authentication error".
+- `op read "op://Personal/Cloudflare/DNS edit bisks.net token"` — DNS records
+  on the zone (added 2026-09-17, after the `_lexicon` record had to be done by
+  hand). Use this one for anything touching DNS.
+
+The zone id is `1a089c79698cad41f55b2179d7880f25`; the account id is in
+`audit/cf-custom-domains.mjs`.
 
 ## The provider is still a swappable env var
 

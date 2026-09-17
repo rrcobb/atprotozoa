@@ -18,12 +18,13 @@ from the apex "about the zoo" section). Re-run that script after adding or
 changing a lexicon; it's the same pattern as `build-gallery.mjs` for the
 site cards.
 
-**Resolution is still not wired up.** There's no `_lexicon.bisks.net` TXT
-record, so a schema still isn't resolvable by NSID the way the ecosystem
-expects — `bisks.net/lexicons/<nsid>.json` is a documented, fetchable file,
-not a published lexicon in the formal sense. That DNS record needs dashboard
-access the builder doesn't have; someone with Cloudflare access needs to add
-it by hand. The rest of Tier 2 (the aggregation page) no longer blocks on it.
+**Resolution is wired up, 2026-09-17.** `_lexicon.bisks.net` is a TXT record
+reading `did=did:plc:f6n22z62adionrvb5s6n6vfk` — the apex's own DID, which
+PLC resolves to `at://bisks.net` on `calocybe.us-west.host.bsky.network`. So
+`net.bisks.*` is now a resolvable namespace, not just a fetchable file. Rob
+added it by hand, then minted a DNS-scoped Cloudflare token the same day, so
+the next record like it can be scripted — see the two-token note in
+`notes/90-infra-and-budget.md`.
 
 **Rob's PDS** is `calocybe.us-west.host.bsky.network` — a standard Bluesky-hosted
 one. The handle `bisks.net` is already domain-based, so identity is self-owned in
@@ -43,12 +44,11 @@ The payoff wasn't theoretical:
 - It gives the builder a reference for the next site that wants to persist
   something, instead of re-deriving the rules each time.
 
-**Tier 2 — publish them. Half done.** Every schema is now served under one
+**Tier 2 — publish them. Done, 2026-09-17.** Every schema is served under one
 path, `bisks.net/lexicons/…` (`audit/build-lexicons.mjs --apply` mirrors them
-from each site into `apex/public/lexicons/`). The `_lexicon` DNS TXT record
-that would make NSIDs actually resolve is still missing — that needs
-Cloudflare dashboard access the builder doesn't have. Until then `net.bisks.*`
-is documented and fetchable, not a formally resolvable namespace.
+from each site into `apex/public/lexicons/`), and the `_lexicon` DNS TXT
+record now points at the apex DID, so NSIDs resolve. All 57 schemas verified
+serving 200 on the day the record landed.
 
 **Tier 3 — use `listReposByCollection`.** This is the fun part and the reason to
 bother. It finds every repo on the network holding records in a given collection.
@@ -157,7 +157,7 @@ self-hosting actually helps.
 
 1. ~~Write the missing lexicon schemas.~~ Done (2026-08-16).
 2. ~~Serve them all at one path~~ (`bisks.net/lexicons/`, done 2026-08-16) +
-   add the `_lexicon` DNS record — still needs a human with dashboard access.
+   ~~add the `_lexicon` DNS record~~ (done 2026-09-17).
 3. Build aggregate views off `listReposByCollection` — done for eleven sites so
    far (steamtags, memex, verdict, paintmoot, tallybot, catspace, quadrants,
    docmoot, kolpelor, war, socialcredit). Eight lexicon-bearing sites remain
