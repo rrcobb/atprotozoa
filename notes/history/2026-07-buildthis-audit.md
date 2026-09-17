@@ -153,8 +153,8 @@ might be about to push. Flagging so the mixed commit isn't a surprise.
 
 ## What to do, in order
 
-*(All of 1–4 have since landed; verified 2026-09-17. Item 5 was never done as a
-deliberate pass and is the one thing here still worth picking up.)*
+*(All five are closed out as of 2026-09-17. 1–4 landed and were verified; 5 was
+examined and deliberately declined — see the note under it.)*
 
 1. **Migrate the 5 dead subdomains to path routes** — `wheelhouse` and `solvers` first
    (wheelhouse is the gallery; solvers was publicly reported broken). Then `mcskeets`.
@@ -167,3 +167,10 @@ deliberate pass and is the one thing here still worth picking up.)*
 4. **Re-run the `antiali.as` drivethru edit** (re-tag, or hand-build).
 5. *(after green)* Functionality spot-checks — the interactive sites (games, DO-backed
    canvases, OAuth flows) only got an HTTP-200 check here, not a real does-it-work pass.
+   **Settled 2026-09-17, mostly as "no":** the cheap structural checks all come
+   back clean (1443 JS files parse, 66/66 OAuth metadata correct, no real
+   lexicon integer bugs), and the part that's left — does a click handler do
+   anything — doesn't generalize across ~660 bespoke sites. What shipped
+   instead is a per-site test tool the builder runs on what it just built.
+   Reasoning and numbers: `notes/60-testing.md`. (The DO-backed canvases in
+   this item no longer exist; the cost wall removed every Durable Object.)

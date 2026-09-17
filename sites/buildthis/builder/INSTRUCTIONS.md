@@ -119,7 +119,23 @@ have NOT deployed — the deploy happens after your run ends. So:
 ```
 node audit/smoke-site.mjs <site>      # link-check the site's modules
 pnpm check:imports                    # asset paths that would 404 once deployed
+node audit/run-tests.mjs <site>       # the site's own tests, if it has any
 ```
+
+`run-tests.mjs` is a no-op for most sites — only a few ship tests, and it says
+so and exits 0 when there are none, so it is safe to run every time. When a
+site *does* have `tests/*.test.mjs`, it exits non-zero if they fail, and a
+failure there is a real bug in what you just wrote. Nothing in CI runs tests
+and a red test does not block the deploy, so this run is the only thing that
+catches it.
+
+**Worth writing a test for:** logic you can call without a browser and would
+otherwise have to verify by hand every time — a parser, a scoring formula, a
+geohash, a search ranker. Put it in `sites/<site>/tests/<thing>.test.mjs`
+using `node --test` and `node:assert`, no dependencies, and add
+`"test": "node --test tests/*.test.mjs"` to the site's `package.json`. See
+`sites/voidshout/tests/` for the shape. Not worth it for rendering, layout, or
+anything whose failure you would see instantly on the page.
 
 `smoke-site.mjs` imports every `.js` under the site's `public/`. Node links a
 module graph before it evaluates any module body, so a missing export or a
@@ -156,7 +172,7 @@ render. Two specific traps, each of which shipped more than once:
   `@` (and surrounding whitespace) before you resolve a handle, or login breaks
   for everyone who types it the natural way.
 
-If you run low on turns, the floor is the part to keep — it's two commands.
+If you run low on turns, the floor is the part to keep — it's three commands.
 
 ## Scope of a change
 

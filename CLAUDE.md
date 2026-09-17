@@ -36,6 +36,7 @@ It intentionally runs looser than a shared production codebase.
 - `40-new-site-playbook.md`
 - `45-sharing-and-virality.md`
 - `50-oauth-scopes.md`
+- `60-testing.md`
 - `80-buildthis-bot.md`
 - `85-watchtower.md`
 - `86-stats.md`
