@@ -444,9 +444,28 @@ fi
 #                 not usage-limit). REQUEUE up to MAX_ATTEMPTS; a retry might get through.
 ATTEMPT="${ATTEMPT:-1}"
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-3}"
-if [ "$PUSHED" = "true" ] && [ -n "$REAL_CHANGED" ] && { [ -n "$MAX_TURNS_HIT" ] || [ -n "$BUILD_TIMED_OUT" ]; }; then
-  # Cut off mid-build with real work on disk — by turns or by the clock. Same user-
-  # facing situation either way: a real first pass is live and isn't finished.
+# Did the agent reach its own wrap-up? Writing BOTH scratch files is the last thing
+# BUILD_PROMPT.md asks for, so having both is evidence the agent got to the end of
+# its work rather than being cut off mid-edit — which is exactly what "partial" is
+# supposed to mean and what a non-clean exit alone does NOT establish.
+#
+# This matters because disposition was read off the EXIT, not off what landed: an
+# agent that finished and then kept polishing (or ran the standing-order catalog
+# sync) trips the turn ceiling and had its finished build announced as "ran out of
+# runway before it's fully done; tag me to keep building it." Of the 49 partials in
+# the 30-day log, the 12 that carry a note read as plainly complete ("built X",
+# "did both", "good catch — audited and fixed"), and users re-tagged a finished
+# site to continue it. The 37 with no note are the real mid-build kills — and 15 of
+# those 37 also carry the wrong derived name, the signature of being killed before
+# writing anything.
+WROTE_WRAPUP=""
+{ [ -n "$BUILD_RESULT" ] && [ -n "$BUILD_NOTE" ]; } && WROTE_WRAPUP="1"
+
+if [ "$PUSHED" = "true" ] && [ -n "$REAL_CHANGED" ] \
+   && { [ -n "$MAX_TURNS_HIT" ] || [ -n "$BUILD_TIMED_OUT" ]; } && [ -z "$WROTE_WRAPUP" ]; then
+  # Cut off mid-build with real work on disk — by turns or by the clock, AND without
+  # reaching the wrap-up. Same user-facing situation either way: a real first pass is
+  # live and isn't finished.
   DISPOSITION="partial"
 elif [ "$PUSHED" = "true" ] && [ -n "$REAL_CHANGED" ]; then
   DISPOSITION="success"
