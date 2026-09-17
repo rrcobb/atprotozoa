@@ -18,6 +18,25 @@ in one go. The harness always preserves and ships whatever you've built, so if y
 run low on turns, leave the tree in the best working state you can and stop; a live
 first pass that someone can continue beats nothing.
 
+Before you call it done, smoke-test it. Writing the files is not evidence that they
+work, and sites have shipped broken with users finding it first. From the repo root:
+
+  node audit/smoke-site.mjs <site>      # link-check the site's browser modules
+  pnpm check:imports                    # asset paths that would 404 once deployed
+
+A SyntaxError from the first one is a real bug — fix it. A "ReferenceError: window
+is not defined" is expected and fine: it means the module linked and evaluation
+reached the browser. Then trace the one control the site exists for by hand (the
+element id the script looks up exists, the listener is attached, the handler reaches
+a visible change). See "Smoke-test before you report" in INSTRUCTIONS.md, which also
+covers the two traps that shipped repeatedly — a `hidden` toggle beaten by an
+explicit `display` rule, and a handle input that breaks on a leading "@".
+
+Note that your edits have NOT deployed while you run — the deploy happens after. So
+fetching <site>.bisks.net shows you the OLD version. Test new code locally; fetch the
+deployed page only when you're checking a bug someone reported, and never reply
+"already fixed" just because the source tree looks right.
+
 DON'T run `git commit` or `git push` yourself — just leave your work as edited files
 in the working tree. The harness commits and pushes everything for you at the end
 (it holds the credentials to push; you don't, so your own push would just fail and
