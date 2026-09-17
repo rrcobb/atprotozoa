@@ -271,7 +271,7 @@ class HeadHandler {
   constructor(private base: URL) {}
   element(el: { prepend(s: string, opts: { html: boolean }): void }) {
     el.prepend(
-      `<base href="${esc(this.base.toString())}"><link rel="stylesheet" href="${SELF}/proxy-bar.css">`,
+      `<base href="${esc(this.base.toString())}"><meta name="robots" content="noindex, nofollow"><link rel="stylesheet" href="${SELF}/proxy-bar.css">`,
       { html: true },
     );
   }
@@ -366,6 +366,10 @@ async function handleProxy(raw: string): Promise<Response> {
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
+      // Every link on a proxied page routes back through /go, so an indexer
+      // that follows them crawls the whole web through this Worker. Tell them
+      // not to, in the header and the <head> both.
+      "x-robots-tag": "noindex, nofollow",
       "x-frame-options": "SAMEORIGIN",
       "referrer-policy": "no-referrer",
       // Backstop: even if script-stripping missed something, nothing executes.
@@ -374,11 +378,36 @@ async function handleProxy(raw: string): Promise<Response> {
   });
 }
 
+// Crawler gate for /go. Found 2026-09-17 via stats.bisks.net: spoonternet was
+// doing ~300k requests/day, 50x the next site, and zone analytics showed it
+// was GPTBot (~120k/day), Meta's crawler fleet, Semrush, and one IP sending
+// 116k/day under a fake Chrome UA — all walking the web through the proxy,
+// because every proxied link routes back to /go. Three checks, any one
+// refuses:
+//   - Cloudflare says it's a verified bot (request.cf.verifiedBotCategory)
+//   - the UA names itself a bot/crawler/spider
+//   - the UA claims a modern browser but sends no Sec-Fetch-Mode header, which
+//     every real Chrome/Firefox/Safari navigation does and curl-with-a-UA
+//     doesn't
+// robots.txt disallows /go too, for the ones that ask first.
+function looksLikeCrawler(request: Request): boolean {
+  const cf = (request as Request & { cf?: { verifiedBotCategory?: string } }).cf;
+  if (cf?.verifiedBotCategory) return true;
+  const ua = request.headers.get("user-agent") || "";
+  if (/bot|crawl|spider|slurp|externalagent|externalhit|fetch\b/i.test(ua)) return true;
+  const claimsBrowser = /Chrome\/|Firefox\/|Safari\//.test(ua);
+  if (claimsBrowser && !request.headers.get("sec-fetch-mode")) return true;
+  return false;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/go") {
+      if (looksLikeCrawler(request)) {
+        return errorPage(403, "spoonternet is for people. crawlers: the links on these pages loop back through this proxy, so please don't follow them.");
+      }
       const u = url.searchParams.get("u") || "";
       return handleProxy(u);
     }
