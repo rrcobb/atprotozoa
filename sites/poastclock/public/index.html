@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>poastclock — when does the madness pay off?</title>
+    <meta
+      name="description"
+      content="Every account bsky.app has ever verified, cross-referenced against real posts matching \"poaster's madness,\" charted as the gap between the post and the check — plus a handle input that predicts yours."
+    />
+    <meta property="og:title" content="poastclock — when does the madness pay off?" />
+    <meta
+      property="og:description"
+      content="bsky.app's own verification repo vs. every real post matching \"poaster's madness\": how long before the check did each one post it? Drop a handle to get a prediction."
+    />
+    <meta property="og:url" content="https://poastclock.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://poastclock.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="poastclock: a chart of the time between a verified account's last poaster's madness post and its blue check." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="poastclock — when does the madness pay off?" />
+    <meta name="twitter:description" content="bsky.app's verification list vs. real \"poaster's madness\" posts, charted, plus a handle input that predicts yours." />
+    <meta name="twitter:image" content="https://poastclock.bisks.net/og.png" />
+    <style>
+      :root {
+        color-scheme: light;
+        --page: #f9f9f7;
+        --surface-1: #fcfcfb;
+        --text-primary: #0b0b0b;
+        --text-secondary: #52514e;
+        --text-muted: #898781;
+        --gridline: #e1e0d9;
+        --border: rgba(11, 11, 11, 0.1);
+        --accent: #d1495b;
+        --accent-ink: #2a0107;
+        --bar: #8aa0c9;
+        --bar-user: #d1495b;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --page: #0d0d0d;
+          --surface-1: #1a1a19;
+          --text-primary: #ffffff;
+          --text-secondary: #c3c2b7;
+          --text-muted: #898781;
+          --gridline: #2c2c2a;
+          --border: rgba(255, 255, 255, 0.1);
+          --accent: #ff6b81;
+          --accent-ink: #2a0107;
+          --bar: #5b6f99;
+          --bar-user: #ff6b81;
+        }
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--page);
+        color: var(--text-primary);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      .wrap { max-width: 900px; margin: 0 auto; padding: 2.75rem 1.25rem 4rem; }
+
+      header h1 { font-size: 1.7rem; font-weight: 650; margin: 0 0 0.4rem; }
+      header p.sub {
+        color: var(--text-secondary);
+        margin: 0 0 1.75rem;
+        font-size: 0.95rem;
+        line-height: 1.55;
+        max-width: 64ch;
+      }
+      code { background: var(--surface-1); border: 1px solid var(--border); border-radius: 4px; padding: 0.1em 0.35em; font-size: 0.9em; }
+
+      .status {
+        min-height: 1.3em;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        margin: 0 0 1rem;
+      }
+
+      .stats {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        margin-bottom: 1.25rem;
+        font-size: 0.88rem;
+        color: var(--text-secondary);
+      }
+      .stats b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+      .chart-card {
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1.1rem 1rem 0.6rem;
+        margin-bottom: 1rem;
+      }
+      svg#delta-chart { width: 100%; height: auto; display: block; font-family: inherit; }
+      .row-label { font-size: 11.5px; fill: var(--text-secondary); }
+      .row-label-user { fill: var(--bar-user); font-weight: 700; }
+      .row-value { font-size: 11px; fill: var(--text-muted); }
+      .bar { fill: var(--bar); }
+      .bar-user { fill: var(--bar-user); }
+      .empty-note { font-size: 13px; fill: var(--text-muted); }
+
+      .caption {
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        line-height: 1.55;
+        max-width: 64ch;
+        margin: 0 0 1.5rem;
+      }
+
+      .after-list { margin-bottom: 1.75rem; }
+      .after-list h2 { font-size: 0.95rem; margin: 0 0 0.35rem; }
+      .after-list .hint { font-size: 0.82rem; color: var(--text-muted); margin: 0 0 0.6rem; max-width: 64ch; line-height: 1.5; }
+      .after-list ul { margin: 0; padding-left: 1.1rem; font-size: 0.85rem; color: var(--text-secondary); }
+      .after-list li { margin-bottom: 0.3rem; }
+      .after-list a { color: var(--text-primary); text-decoration: none; }
+      .after-list a:hover { text-decoration: underline; }
+
+      section.predictor {
+        border-top: 1px solid var(--gridline);
+        padding-top: 1.5rem;
+      }
+      section.predictor h2 { font-size: 1.05rem; margin: 0 0 0.5rem; }
+      section.predictor p.blurb { font-size: 0.9rem; color: var(--text-secondary); margin: 0 0 1rem; max-width: 64ch; line-height: 1.5; }
+
+      form.lookup { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+      form.lookup input[type="text"] {
+        flex: 1 1 260px;
+        font: inherit;
+        font-size: 0.95rem;
+        padding: 0.6rem 0.8rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface-1);
+        color: var(--text-primary);
+      }
+      form.lookup input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      form.lookup button {
+        font: inherit;
+        font-size: 0.9rem;
+        font-weight: 600;
+        padding: 0.6rem 1.1rem;
+        border-radius: 8px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--accent-ink);
+        cursor: pointer;
+      }
+      form.lookup button:disabled { opacity: 0.55; cursor: default; }
+
+      #predict-result p {
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.85rem 1rem;
+        font-size: 0.92rem;
+        line-height: 1.55;
+        margin: 0.6rem 0 0;
+      }
+
+      .share-row { display: none; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; }
+      .share-row.show { display: flex; }
+      .share-row a {
+        font: inherit;
+        font-size: 0.85rem;
+        padding: 0.5rem 0.9rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface-1);
+        color: var(--text-primary);
+        text-decoration: none;
+      }
+      .share-row a:hover { border-color: var(--accent); }
+
+      footer {
+        margin-top: 2.5rem;
+        padding-top: 0.9rem;
+        border-top: 1px solid var(--gridline);
+        color: var(--text-muted);
+        font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>p<span onclick='var e=document.getElementById("handle-input");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">o</span>astclock</h1>
+        <p class="sub">
+          bsky.app's own <code>app.bsky.graph.verification</code> repo lists
+          every account it has ever blue-checked. This downloads all of it,
+          cross-references it against every real post anywhere matching
+          "poaster's madness," and charts how long before each account's
+          check it last posted the phrase. Drop a handle below to predict
+          when yours lands.
+        </p>
+      </header>
+
+      <p class="status" id="global-status">starting up...</p>
+      <div class="stats" id="global-stats"></div>
+
+      <div class="chart-card" id="chart-card">
+        <svg id="delta-chart" viewBox="0 0 800 80" role="img" aria-label="Chart of days between an account's last poaster's madness post and its verification"></svg>
+      </div>
+      <p class="caption" id="caption"></p>
+
+      <div class="after-list" id="after-list"></div>
+
+      <section class="predictor">
+        <h2>predict your own</h2>
+        <p class="blurb">
+          Not verified yet? Drop your handle — if you've posted "poaster's
+          madness" before, this projects a date from the median gap above.
+          Already verified? It'll just tell you how the theory did on you.
+        </p>
+        <form class="lookup" id="lookup-form">
+          <input type="text" id="handle-input" placeholder="you.bsky.social" autocomplete="off" spellcheck="false" />
+          <button type="submit" id="go-btn">predict</button>
+        </form>
+        <p class="status" id="predict-status"></p>
+        <div id="predict-result"></div>
+        <div class="share-row" id="share-row">
+          <a id="share-bluesky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+        </div>
+      </section>
+
+      <footer>
+        built by <a href="https://bisks.net">@buildthis.bisks.net</a>, asked
+        for by @psingletary.com · reads bsky.app's public verification repo
+        and Bluesky's search index live — nothing is stored anywhere · rate
+        this on <a href="https://rateyourbuild.bisks.net/site/poastclock">rateyourbuild →</a>
+        · part of the <a href="https://bisks.net">atprotozoa</a> zoo
+      </footer>
+    </div>
+
+    <script src="/lib/handle-typeahead.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
