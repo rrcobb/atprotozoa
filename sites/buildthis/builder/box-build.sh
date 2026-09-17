@@ -288,14 +288,24 @@ CHANGED=""; { [ -n "$DIRTY" ] || [ -n "$AHEAD" ]; } && CHANGED="1"
 # SIDE_EFFECT_PATHS_RE: paths an agent may touch as a SELF-DIRECTED side effect,
 # never as the delivered build itself — sites/sidenote's diary and
 # sites/alignment-autopsies' case log are both "leave a note for later," the same
-# category as the sites/receipts archive resync below. A run that touches ONLY
+# category as the sites/receipts archive resync below. rateyourbuild's catalog.json
+# and bugfixes.json are the same shape: INSTRUCTIONS.md's 2026-08-29 standing orders
+# regenerate the catalog on EVERY run and append a bugfix entry whenever a bug is
+# fixed, so both are dirty on builds that have nothing to do with rateyourbuild.
+# That is the wrong-URL bug: from 2026-08-29 every partial (no BUILD_RESULT, because
+# max-turns killed the run before the agent wrote one) derived its name from the
+# first changed sites/<name> path, and "sites/rateyourbuild" sorts ahead of most of
+# the alphabet — 17 partials linked rateyourbuild.bisks.net for mootfluence,
+# shelfspace, kinesin and others. A run that touches ONLY
 # these (no BUILD_RESULT set) must not be derived-named or counted as REAL_CHANGED,
 # or DERIVED_NAME picks the diary/case-log dir as "the built site" and reply.mjs
 # posts a false "built it 🎉 — https://sidenote.bisks.net"-shaped reply for a
 # request that actually got declined. Caught 2026-08-06 (isolyth.dev's ask; see
 # sites/alignment-autopsies' entry for the full postmortem) and left unfixed there
 # pending exactly this change.
-SIDE_EFFECT_PATHS_RE='^sites/receipts/|^sites/sidenote/public/data/entries\.json$|^sites/alignment-autopsies/public/data/entries\.json$'
+# Note the rateyourbuild entries name the two DATA files, not the site dir: real
+# rateyourbuild work touches the site's own source and must still derive its name.
+SIDE_EFFECT_PATHS_RE='^sites/receipts/|^sites/sidenote/public/data/entries\.json$|^sites/alignment-autopsies/public/data/entries\.json$|^sites/rateyourbuild/public/data/catalog\.json$|^sites/rateyourbuild/public/data/bugfixes\.json$'
 CHANGED_PATHS="$( { git status --porcelain | sed -E 's/^...//; s/^"//'; git diff --name-only origin/main..HEAD 2>/dev/null; } )"
 DERIVED_NAME="$(printf '%s\n' "$CHANGED_PATHS" | grep -vE "$SIDE_EFFECT_PATHS_RE" | grep -oE '^sites/[^/]+' | head -n1 | cut -d/ -f2 || true)"
 BUILT_NAME="${BUILD_RESULT:-$DERIVED_NAME}"
