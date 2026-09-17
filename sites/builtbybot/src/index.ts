@@ -4,6 +4,10 @@
 // posts that announce a site @buildthis.bisks.net shipped, plus on the bot
 // account itself.
 //
+// The label value is likely to change — see notes/ideas/labeler-candidates.md.
+// Only subjectsToLabel and LABEL_VALUE are specific to built-by-bot; the rest
+// is general labeler machinery.
+//
 // Why this exists, and why it's this narrow: notes/ideas/feeds-and-labels.md
 // argued the labeler is the higher-commitment half of the feed/labeler
 // primitive — "a bad feed gets unsubscribed, a bad label lands on someone
