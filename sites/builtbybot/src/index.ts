@@ -386,7 +386,13 @@ async function subjectsToLabel(
 
 async function rebuildLabels(env: Env): Promise<StoredLabel[]> {
   const key = await importSigningKey(env);
-  if (!key || !env.LABELER_DID) return [];
+  if (!key || !env.LABELER_DID) {
+    // Not provisioned yet — the state this ships in. Stamp the clock anyway,
+    // or currentLabels sees a stale cache on every single request and refetches
+    // buildthis's whole event log each time, for a set it can't sign.
+    await env.LABELS.put(LABELS_BUILT_AT_KEY, String(Date.now()));
+    return [];
+  }
 
   const { subjects, truncated, reachable } = await subjectsToLabel(env);
   const existing = await loadLabels(env);
