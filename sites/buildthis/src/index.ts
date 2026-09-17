@@ -212,9 +212,6 @@ export default {
     if (url.pathname === "/digest/preview") {
       return handleDigestPreview(env);
     }
-    if (url.pathname === "/digest/selftest" && request.method === "POST") {
-      return handleDigestSelftest(request, env);
-    }
     if (url.pathname === "/digest" || url.pathname.startsWith("/digest/") ||
         url.pathname === "/digest.json" || url.pathname.startsWith("/digest.json/")) {
       return handleDigest(env, url);
@@ -5147,108 +5144,6 @@ async function handleDigestPreview(env: Env): Promise<Response> {
       status: 500,
       headers: { "content-type": "application/json; charset=utf-8" },
     });
-  }
-}
-
-// POST /digest/selftest — post the current digest for real, then delete it.
-//
-// Exists because the last stretch of this path can't be tested any other way:
-// createRecord, whether Bluesky accepts the facets as posted, and whether part
-// 2 chains as a reply to part 1. Everything before that is covered by
-// /digest/preview; this covers the rest without waiting for Sunday to find out.
-//
-// Mentions are deliberately NOT resolved here. The real digest tags the people
-// who asked for builds, and a test post would send them a genuine notification
-// that deleting the post doesn't retract. With an empty mention map the handles
-// render as plain text and notify nobody, while createRecord, the link facet
-// and the reply chaining — the parts actually under test — behave identically.
-//
-// Authed with OUTCOME_SECRET (already shared with the builder) so a passer-by
-// can't make the bot post. POST only, and it cleans up after itself: every
-// record it creates is deleted before it returns, with the uris reported either
-// way so a failed cleanup is visible rather than silent.
-async function handleDigestSelftest(request: Request, env: Env): Promise<Response> {
-  const auth = request.headers.get("authorization") || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!env.OUTCOME_SECRET || token !== env.OUTCOME_SECRET) {
-    return new Response("unauthorized", { status: 401 });
-  }
-
-  const created: string[] = [];
-  try {
-    const digest = await buildDigest(env, Date.now());
-    const parts = renderDigestPost(digest, `https://buildthis.bisks.net/digest/${digest.week}`);
-    const session = await login(env);
-
-    let root: { uri: string; cid: string } | undefined;
-    let parent: { uri: string; cid: string } | undefined;
-    for (const text of parts) {
-      const record: Record<string, unknown> = {
-        $type: "app.bsky.feed.post",
-        text,
-        createdAt: new Date().toISOString(),
-        facets: digestFacets(text, {}), // no mentions: notify nobody
-      };
-      if (root && parent) record.reply = { root, parent };
-      const res = await fetch(`${PDS}/xrpc/com.atproto.repo.createRecord`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${session.accessJwt}`,
-        },
-        body: JSON.stringify({ repo: session.did, collection: "app.bsky.feed.post", record }),
-      });
-      if (!res.ok) {
-        throw new Error(`createRecord ${res.status}: ${await res.text()}`);
-      }
-      const ref = (await res.json()) as { uri: string; cid: string };
-      created.push(ref.uri);
-      if (!root) root = ref;
-      parent = ref;
-    }
-
-    // Read the thread back before deleting: this is the actual assertion —
-    // that Bluesky stored the facets and the reply linkage we sent.
-    const checked = await digestJson<{
-      thread?: { post?: { record?: { facets?: unknown[] }; replyCount?: number } };
-    }>(`${APPVIEW}/xrpc/app.bsky.feed.getPostThread?uri=${encodeURIComponent(created[0])}&depth=1`);
-
-    const deleted: string[] = [];
-    const failedDeletes: string[] = [];
-    for (const uri of [...created].reverse()) {
-      const rkey = uri.split("/").pop();
-      const res = await fetch(`${PDS}/xrpc/com.atproto.repo.deleteRecord`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${session.accessJwt}`,
-        },
-        body: JSON.stringify({ repo: session.did, collection: "app.bsky.feed.post", rkey }),
-      });
-      (res.ok ? deleted : failedDeletes).push(uri);
-    }
-
-    return new Response(
-      JSON.stringify(
-        {
-          ok: failedDeletes.length === 0,
-          parts: parts.length,
-          posted: created,
-          deleted,
-          failedDeletes,
-          facetsStoredOnPart1: checked?.thread?.post?.record?.facets?.length ?? 0,
-          part2ChainedAsReply: (checked?.thread?.post?.replyCount ?? 0) > 0,
-        },
-        null,
-        2,
-      ),
-      { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } },
-    );
-  } catch (err) {
-    return new Response(
-      JSON.stringify({ ok: false, error: String(err), posted: created, note: "posts may need manual cleanup" }, null, 2),
-      { status: 500, headers: { "content-type": "application/json; charset=utf-8" } },
-    );
   }
 }
 
