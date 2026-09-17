@@ -124,15 +124,42 @@ async function main() {
     // Previously every one of these got "(give the deploy a minute to go live)",
     // which reads as reassurance and was wrong exactly when the user most needed
     // the truth: 90 of 361 successes in the 30-day log were never verified live.
+    //
+    // Neither caveat tells the user to just wait. A failed deploy on this repo is
+    // SILENT AND PERMANENT — there is no retry, the site goes on serving its last
+    // good build indefinitely, and the only signal is a red Actions run (found by
+    // the 2026-09-17 Cloudflare audit). So "give it a few minutes" would be false
+    // comfort for the case that needs action: the fix is another push, which for
+    // a user means re-tagging.
+    // Joined to the headline with a SINGLE newline, so it stays inside the tail's
+    // protected first paragraph rather than becoming a sheddable one of its own.
     const caveat =
       liveStatus === "verified"
         ? ""
         : liveStatus === "stale"
-          ? `\n\nheads up: the deploy hasn't landed yet, so that link may still show the old version for a few minutes.`
-          : `\n\nheads up: i couldn't get the url to respond yet — give it a few minutes, and tag me if it's still down.`;
-    const template = partial
-      ? `got a first pass up 🚧 — ${url}\n\nnot fully done; tag me here to keep building it.${caveat}`
-      : `built it 🎉 — ${url}${caveat || `\n\n(it's live)`}`;
+          ? `\nheads up: the deploy didn't land — that link is still the old version. tag me and i'll push it again.`
+          : `\nheads up: i couldn't get that url to load after building it. tag me and i'll take another run at it.`;
+    // "built it 🎉" next to "the deploy didn't land" reads as the bot not knowing
+    // what happened. When the url isn't confirmed, state what was done without the
+    // celebration and let the caveat carry the news.
+    // fitToLimit sheds tail paragraphs from the END to keep the note whole, and
+    // never sheds the first. So the url line and the caveat are JOINED into that
+    // protected first paragraph: the caveat is news the user acts on (the link
+    // doesn't work), and losing it would leave a broken link presented as a
+    // finished build — worse than the truncation this whole change is fixing.
+    // "not fully done; tag me here" is predictable boilerplate and sits in the
+    // second paragraph, which is what gets dropped under pressure.
+    const shipped = liveStatus === "verified";
+    const headline = partial
+      ? `got a first pass up${shipped ? " 🚧" : ""} — ${url}`
+      : `built it${shipped ? " 🎉" : ""} — ${url}`;
+    const template = shipped
+      ? partial
+        ? `${headline}\n\nnot fully done; tag me here to keep building it.`
+        : `${headline}\n\n(it's live)`
+      // Unverified: caveat rides in the protected paragraph. On a partial it also
+      // carries the "tag me" ask, so the invitation would only repeat it.
+      : `${headline}${caveat}`;
     // Optional: the agent's own short line about what it built, in its voice.
     // Prepended to the template. The tagger is always one of Rob's mutuals, so we
     // trust the phrasing — the only mechanical constraint is Bluesky's 300-grapheme
@@ -227,14 +254,17 @@ function graphemeSlice(s, n) {
 // shouldn't happen for our short fixed templates/urls, and truncating the url
 // itself would just produce a dead link.
 //
-// `minHead` guarantees the note a floor. The tail used to be sacrosanct and the
-// note got whatever was left, which inverted the priorities: the template is
-// boilerplate the reader can predict, while the note is the only sentence that
-// says WHAT was built. With a long partial template that left almost nothing —
-// 37 of 49 partials in the 30-day log were bare boilerplate, and ~20 per slice
-// ended mid-word right where the caveat was. When the tail is too long to leave
-// `minHead` graphemes, the tail itself is trimmed to its FIRST paragraph (the
-// url line — the part that must survive whole) so the note gets its sentence.
+// The tail used to be sacrosanct and the note got whatever was left, which
+// inverted the priorities: the tail's later paragraphs are boilerplate the reader
+// can predict, while the note is the only sentence that says WHAT was built. That
+// left 37 of 49 partials in the 30-day log as bare boilerplate, and truncated 90
+// of 450 replies overall mid-sentence — always in the note, never in the template.
+//
+// So the tail is treated as paragraphs in priority order: the FIRST one (the url
+// line) is never dropped, and each later one is shed, last first, for as long as
+// that helps the note fit whole. `minHead` is the floor below which we stop
+// bothering — if even the bare url line can't leave the note that much, the note
+// gets truncated with an ellipsis as before.
 function fitToLimit(head, tail, limit, minHead = 0) {
   const SEP = head && tail ? "\n\n" : "";
   const full = `${head}${SEP}${tail}`;
@@ -242,14 +272,23 @@ function fitToLimit(head, tail, limit, minHead = 0) {
   const ELLIPSIS = "…";
 
   let useTail = tail;
-  if (head && minHead > 0) {
-    const roomFor = (t) =>
-      limit - graphemeLen(t) - graphemeLen(t ? "\n\n" : "") - graphemeLen(ELLIPSIS);
-    if (roomFor(useTail) < minHead) {
-      // Drop everything after the first blank line — the caveat/invitation — and
-      // keep the url line, which is the tail's whole reason to exist.
-      const firstPara = useTail.split("\n\n")[0];
-      if (roomFor(firstPara) >= minHead) useTail = firstPara;
+  if (head) {
+    const fits = (t) => graphemeLen(head) + (t ? 2 : 0) + graphemeLen(t) <= limit;
+    const paras = tail.split("\n\n");
+    // Shed trailing paragraphs, last first, stopping as soon as the note fits
+    // whole or only the url line is left.
+    for (let keep = paras.length; keep >= 1 && !fits(useTail); keep--) {
+      useTail = paras.slice(0, keep).join("\n\n");
+    }
+    // Nothing we can shed makes the note fit: keep only as much tail as still
+    // leaves the note its floor, so the ellipsis costs boilerplate first.
+    if (!fits(useTail) && minHead > 0) {
+      const roomFor = (t) =>
+        limit - graphemeLen(t) - (t ? 2 : 0) - graphemeLen(ELLIPSIS);
+      if (roomFor(useTail) < minHead) {
+        const firstPara = paras[0];
+        if (roomFor(firstPara) >= minHead) useTail = firstPara;
+      }
     }
   }
 
