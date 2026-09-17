@@ -15,7 +15,8 @@
 //   BUILD_NOTE     -> optional: the agent's own short line — prepended to the
 //                     "built it" reply on a real build, or IS the reply body
 //                     (with BUILD_RESULT's url appended, if set) otherwise.
-//                     Always fit to 300 graphemes, tail preserved whole.
+//                     Always fit to 300 graphemes, keeping the url whole and
+//                     guaranteeing the note at least MIN_NOTE graphemes.
 //   LIVE_STATUS    -> box-build.sh's post-deploy check: "verified" (the url serves
 //                     and, for an edit, serves new bytes), "stale" (2xx but
 //                     byte-identical to before the push — the deploy didn't land),
@@ -218,9 +219,9 @@ function graphemeSlice(s, n) {
 
 // Fit `head` (arbitrary-length, e.g. the agent's own note) plus `tail` (fixed —
 // a template or a bare url, joined with a blank line when both are non-empty)
-// into `limit` graphemes. `tail` is preserved WHOLE — dropping a url to make room
-// would defeat the point of linking it — and only `head` is truncated, with an
-// ellipsis, to fit. `tail` may be "" (a plain note with nothing fixed to keep),
+// into `limit` graphemes. `tail`'s FIRST paragraph is preserved whole — dropping a
+// url to make room would defeat the point of linking it — and `head` is truncated
+// with an ellipsis to fit. `tail` may be "" (a plain note with nothing fixed to keep),
 // in which case `head` alone is trimmed to the limit. If `tail` alone doesn't
 // fit `limit`, `head` is dropped entirely and `tail` is returned as-is — that
 // shouldn't happen for our short fixed templates/urls, and truncating the url
