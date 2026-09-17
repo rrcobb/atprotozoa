@@ -355,6 +355,40 @@ if [ -n "$BUILT_NAME" ] && printf '%s\n' "$CHANGED_PATHS" | grep -q "^sites/${BU
   [ -d "$SITE_DIR" ] && write_provenance "$SITE_DIR/.buildthis.json"
 fi
 
+# Snapshot what the site serves RIGHT NOW, before the push. This is what makes the
+# liveness check below meaningful for an EDIT to an existing site: a bare 2xx passes
+# on the stale page that is already up, so "verified live" used to mean nothing at
+# all for edits — the single largest category of build. By hashing the body before
+# the deploy we get a content marker that needs no cooperation from the site itself
+# (no build stamp to embed, nothing for the agent to remember): if the hash CHANGES,
+# the new bytes are demonstrably served. A new site has nothing to fetch and leaves
+# this empty, which the check below reads as "any 2xx is proof" — correct, since a
+# site that did not exist cannot serve a stale page.
+#
+# Computing the URL here rather than in the liveness block so both use one definition.
+LIVE_URL=""
+PRE_DEPLOY_HASH=""
+if [ -n "$BUILT_NAME" ]; then
+  SITE_HOST="${BUILT_NAME%%/*}"
+  SITE_PATH=""
+  [ "$BUILT_NAME" != "$SITE_HOST" ] && SITE_PATH="/${BUILT_NAME#*/}"
+  if [ "$SITE_HOST" = "apex" ]; then
+    LIVE_URL="https://bisks.net${SITE_PATH}"
+  else
+    LIVE_URL="https://${SITE_HOST}.bisks.net${SITE_PATH}"
+  fi
+  # sha256sum (coreutils), not shasum — the box is Debian, where shasum's perl
+  # package isn't guaranteed. Hash the body only if we actually got one: an empty
+  # body means the site isn't serving yet (a new site), which is "no baseline to
+  # diff against", not a baseline that happens to be empty.
+  PRE_BODY="$(curl -s --max-time 8 "$LIVE_URL" 2>/dev/null || true)"
+  if [ -n "$PRE_BODY" ]; then
+    PRE_DEPLOY_HASH="$(printf '%s' "$PRE_BODY" | sha256sum | cut -d' ' -f1)"
+  fi
+  unset PRE_BODY
+  echo "  pre-deploy snapshot of $LIVE_URL: ${PRE_DEPLOY_HASH:-none (new site or not serving)}"
+fi
+
 echo "=== push to main (PAT, so deploy.yml fires) ==="
 # PRESERVE, don't discard. Commit any uncommitted work (including the provenance we
 # just wrote), then push whatever's ahead of origin — regardless of how the build
@@ -447,30 +481,60 @@ fi
 # pushed, a dead URL is caught here and recorded, instead of the bot cheerfully
 # linking a 404. LIVE_VERIFIED is passed to reply.mjs → logged on the outcome, so
 # /health and the timeline can flag a build that pushed but never came up.
+#
+# For an EDIT, a 2xx alone proves nothing — the old page still serves, so the check
+# passed on every failed edit deploy. When we have a PRE_DEPLOY_HASH (taken above,
+# before the push), require the served body to DIFFER from it: that is positive
+# evidence the new bytes are up. Without a baseline (a new site), a 2xx is proof on
+# its own, since a site that didn't exist can't serve a stale page.
+#
+# LIVE_STATUS records WHICH of those happened, so the reply can be honest rather
+# than always saying "give the deploy a minute":
+#   verified  -> serving, and (for an edit) serving something new.
+#   stale     -> serving, but byte-identical to before the push. The deploy didn't
+#                land, or it landed and changed nothing the URL renders.
+#   dead      -> never returned a 2xx/3xx inside the budget.
 LIVE_VERIFIED=""
-if { [ "$DISPOSITION" = "success" ] || [ "$DISPOSITION" = "partial" ]; } && [ -n "$BUILT_NAME" ]; then
-  # <site> -> https://<site>.bisks.net ; <site>/<path> -> .../<path>
-  SITE_HOST="${BUILT_NAME%%/*}"
-  SITE_PATH=""
-  [ "$BUILT_NAME" != "$SITE_HOST" ] && SITE_PATH="/${BUILT_NAME#*/}"
-  LIVE_URL="https://${SITE_HOST}.bisks.net${SITE_PATH}"
+LIVE_STATUS=""
+if { [ "$DISPOSITION" = "success" ] || [ "$DISPOSITION" = "partial" ]; } && [ -n "$LIVE_URL" ]; then
   echo "=== verify live: $LIVE_URL ==="
-  # ~90s budget (deploy is usually <60s). 2xx/3xx = live. New custom domains can
-  # take longer to provision a cert; a miss here isn't fatal — it's recorded, and
-  # the reply still goes out (the deploy may simply be a touch behind).
+  # ~90s budget (deploy is usually <60s). New custom domains can take longer to
+  # provision a cert; a miss here isn't fatal — it's recorded, and the reply still
+  # goes out, now saying what actually happened.
+  CODE=000
   for i in $(seq 1 9); do
-    CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$LIVE_URL" 2>/dev/null || echo 000)"
+    BODY_FILE="$(mktemp /tmp/buildthis-live.XXXXXX)"
+    CODE="$(curl -s -o "$BODY_FILE" -w '%{http_code}' --max-time 8 "$LIVE_URL" 2>/dev/null || echo 000)"
     if [ "$CODE" -ge 200 ] 2>/dev/null && [ "$CODE" -lt 400 ] 2>/dev/null; then
-      LIVE_VERIFIED="true"
-      echo "  live ($CODE) after ~$((i*10))s"
-      break
+      if [ -z "$PRE_DEPLOY_HASH" ]; then
+        LIVE_VERIFIED="true"; LIVE_STATUS="verified"
+        echo "  live ($CODE) after ~$((i*10))s — new site, no baseline needed"
+        rm -f "$BODY_FILE"; break
+      fi
+      NOW_HASH="$(sha256sum < "$BODY_FILE" | cut -d' ' -f1)"
+      if [ "$NOW_HASH" != "$PRE_DEPLOY_HASH" ]; then
+        LIVE_VERIFIED="true"; LIVE_STATUS="verified"
+        echo "  live ($CODE) after ~$((i*10))s — content changed, new bytes confirmed"
+        rm -f "$BODY_FILE"; break
+      fi
+      # 2xx but byte-identical: the old page. Keep polling — the deploy may land
+      # within the budget — and fall through to "stale" if it never does.
+      LIVE_STATUS="stale"
     fi
+    rm -f "$BODY_FILE"
     sleep 10
   done
-  [ "$LIVE_VERIFIED" = "true" ] || echo "  NOT verified live within ~90s (last=$CODE) — recorded, reply still sent"
+  if [ "$LIVE_VERIFIED" != "true" ]; then
+    [ "$LIVE_STATUS" = "stale" ] || LIVE_STATUS="dead"
+    if [ "$LIVE_STATUS" = "stale" ]; then
+      echo "  serving ($CODE) but byte-identical to pre-deploy — the edit is NOT live yet"
+    else
+      echo "  NOT serving within ~90s (last=$CODE) — recorded, reply still sent"
+    fi
+  fi
 fi
 
-echo "=== build rc=$BUILD_RC name='${BUILT_NAME}' (result='${BUILD_RESULT}' derived='${DERIVED_NAME}') note?=$([ -n "$BUILD_NOTE" ] && echo y || echo n) pushed=$PUSHED live=$([ "$LIVE_VERIFIED" = "true" ] && echo y || echo n) disp=$DISPOSITION attempt=$ATTEMPT/$MAX_ATTEMPTS requeue=$REQUEUE ==="
+echo "=== build rc=$BUILD_RC name='${BUILT_NAME}' (result='${BUILD_RESULT}' derived='${DERIVED_NAME}') note?=$([ -n "$BUILD_NOTE" ] && echo y || echo n) pushed=$PUSHED live=${LIVE_STATUS:-n/a} disp=$DISPOSITION attempt=$ATTEMPT/$MAX_ATTEMPTS requeue=$REQUEUE ==="
 
 # When we're going to retry silently, don't post to the thread — a requeue isn't a
 # user-facing event, and "trying again" spam under every slow build would be noise.
@@ -498,7 +562,8 @@ BUILD_ERROR=""
 echo "=== reply + report outcome (reply.mjs) ==="
 BUILD_OK="$BUILD_OK" BUILD_RESULT="$BUILT_NAME" BUILD_NOTE="$BUILD_NOTE" BUILD_ERROR="$BUILD_ERROR" \
   DISPOSITION="$DISPOSITION" REQUEUE="$REQUEUE" REPLY_SKIP="$REPLY_SKIP" \
-  ATTEMPT="$ATTEMPT" MAX_ATTEMPTS="$MAX_ATTEMPTS" LIVE_VERIFIED="$LIVE_VERIFIED" \
+  ATTEMPT="$ATTEMPT" MAX_ATTEMPTS="$MAX_ATTEMPTS" \
+  LIVE_VERIFIED="$LIVE_VERIFIED" LIVE_STATUS="$LIVE_STATUS" \
   BOT_IDENTIFIER="${BOT_IDENTIFIER}" BOT_APP_PASSWORD="${BOT_APP_PASSWORD}" \
   REPLY_ROOT_URI="${REPLY_ROOT_URI}" REPLY_ROOT_CID="${REPLY_ROOT_CID}" \
   REPLY_PARENT_URI="${REPLY_PARENT_URI}" REPLY_PARENT_CID="${REPLY_PARENT_CID}" \
