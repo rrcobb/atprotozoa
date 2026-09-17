@@ -6,8 +6,15 @@
 // "evil stepmother duck" leading strays into the woods. That part is left
 // out on purpose — the woods don't need a real, non-consenting person cast
 // as their villain for the game to work, so the escort duck below is a
-// generic, unnamed silhouette. See CLAUDE.md's builder instructions,
-// "Declines" / the consent test, for why.
+// generic, unnamed silhouette by default. See CLAUDE.md's builder
+// instructions, "Declines" / the consent test, for why.
+//
+// A later ask ("so they're not so generic") added a villain picker: a preset
+// pool of fictional look-alikes (fox/hawk/cat/raccoon/the original shadow
+// duck) plus an optional freeform nickname. Both are the player's own choice
+// for their own session — never resolved against a real atproto handle or
+// avatar — and neither is baked into the auto-generated share card/text, so
+// a chosen nickname stays on-page rather than becoming a public artifact.
 
 import { moots } from "./lib/moots.js";
 
@@ -76,6 +83,47 @@ const shareSaveBtn = document.getElementById("shareSave");
 const shareNativeBtn = document.getElementById("shareNative");
 const shareCanvas = document.getElementById("shareCanvas");
 const sharePreview = document.getElementById("sharePreview");
+const villainTypeEl = document.getElementById("villainType");
+const villainNameEl = document.getElementById("villainName");
+
+// ---- villain picker -----------------------------------------------------
+// Cosmetic-only presets: a shape and two colors, nothing tied to any real
+// identity. See the file header for why a nickname never resolves to a handle.
+const VILLAINS = {
+  shadow: { shape: "duck", color: "#2a2f2a", eye: "#ff5252" },
+  fox: { shape: "fox", color: "#c9591c", eye: "#3a2410" },
+  hawk: { shape: "hawk", color: "#6b5638", eye: "#2a2010" },
+  cat: { shape: "cat", color: "#33363a", eye: "#8affc1" },
+  raccoon: { shape: "raccoon", color: "#5b5b5b", eye: "#ffffff" },
+};
+const VILLAIN_PREFS_KEY = "duckpond:villain";
+
+function loadVillainPrefs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(VILLAIN_PREFS_KEY) || "null");
+    if (saved && VILLAINS[saved.type]) villainTypeEl.value = saved.type;
+    if (saved && typeof saved.name === "string") villainNameEl.value = saved.name.slice(0, 24);
+  } catch {
+    // no localStorage (private browsing, etc.) — presets just start at default
+  }
+}
+function saveVillainPrefs() {
+  try {
+    localStorage.setItem(
+      VILLAIN_PREFS_KEY,
+      JSON.stringify({ type: villainTypeEl.value, name: villainNameEl.value.trim() })
+    );
+  } catch {
+    // ignore — persistence is a nicety, not required for the picker to work
+  }
+}
+function currentVillain() {
+  const preset = VILLAINS[villainTypeEl.value] || VILLAINS.shadow;
+  return { ...preset, name: villainNameEl.value.trim().slice(0, 24) };
+}
+villainTypeEl.addEventListener("change", saveVillainPrefs);
+villainNameEl.addEventListener("input", saveVillainPrefs);
+loadVillainPrefs();
 
 const dpr = Math.min(window.devicePixelRatio || 1, 2);
 canvas.width = W * dpr;
@@ -243,7 +291,8 @@ function update(dt) {
     if (dist <= step) {
       d.status = "lost";
       lostCount++;
-      addToast(d.x, d.y, "lost to the woods");
+      const v = currentVillain();
+      addToast(d.x, d.y, v.name ? `taken by ${v.name}` : "lost to the woods");
     } else {
       d.x += (dx / dist) * step;
       d.y += (dy / dist) * step;
@@ -353,20 +402,73 @@ function drawAvatarHead(d, x, y, r) {
   ctx.restore();
 }
 
-function drawEscort(d) {
-  // the unnamed "stepmother" — a generic dark silhouette leading a stray
-  // toward the woods. Deliberately not tied to any real handle.
+function drawVillain(d) {
+  // whichever preset the player picked (defaults to the original unnamed
+  // shadow duck) leading a stray toward the woods — cosmetic only, see the
+  // file header for why this never resolves to a real handle.
+  const v = currentVillain();
   const t = 0.35;
   const ex = d.x + (FOREST_X - d.x) * t;
   const ey = d.y + (d.strayY - d.y) * t;
+  const r = DUCK_R * 1.3;
   ctx.save();
   ctx.globalAlpha = 0.55;
-  drawDuckBody(ex, ey, DUCK_R * 1.3, 0, "#2a2f2a");
-  ctx.fillStyle = "#ff5252";
+  ctx.translate(ex, ey);
+  ctx.fillStyle = v.color;
   ctx.beginPath();
-  ctx.arc(ex + DUCK_R * 0.35, ey - DUCK_R * 0.25, 1.6, 0, Math.PI * 2);
+  ctx.ellipse(-r * 0.1, r * 0.5, r * 1.05, r * 0.62, 0, 0, Math.PI * 2);
+  ctx.fill();
+  switch (v.shape) {
+    case "fox":
+    case "cat":
+    case "raccoon": {
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.5, -r * 0.1);
+      ctx.lineTo(-r * 0.75, -r * 0.7);
+      ctx.lineTo(-r * 0.15, -r * 0.25);
+      ctx.closePath();
+      ctx.moveTo(r * 0.05, -r * 0.15);
+      ctx.lineTo(r * 0.15, -r * 0.75);
+      ctx.lineTo(r * 0.45, -r * 0.15);
+      ctx.closePath();
+      ctx.fill();
+      if (v.shape === "raccoon") {
+        ctx.fillStyle = "#1c1c1c";
+        ctx.fillRect(-r * 0.35, -r * 0.15, r * 0.7, r * 0.22);
+      }
+      break;
+    }
+    case "hawk": {
+      ctx.beginPath();
+      ctx.moveTo(0, r * 0.1);
+      ctx.lineTo(-r * 0.9, -r * 0.5);
+      ctx.lineTo(-r * 0.2, r * 0.15);
+      ctx.closePath();
+      ctx.fill();
+      break;
+    }
+    default: {
+      ctx.fillStyle = "#e08a1e";
+      ctx.beginPath();
+      ctx.moveTo(r * 0.55, r * 0.1);
+      ctx.lineTo(r * 1.15, r * 0.02);
+      ctx.lineTo(r * 0.55, -r * 0.28);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  ctx.fillStyle = v.eye;
+  ctx.beginPath();
+  ctx.arc(r * 0.3, -r * 0.1, 1.8, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
+
+  if (v.name) {
+    ctx.font = "bold 10px ui-monospace, monospace";
+    ctx.fillStyle = "rgba(20,20,20,0.75)";
+    ctx.textAlign = "center";
+    ctx.fillText(v.name, ex, ey - r - 6);
+  }
 }
 
 function draw() {
@@ -376,7 +478,7 @@ function draw() {
   // clearly on top
   for (const d of ducks) {
     if (d.status !== "straying") continue;
-    drawEscort(d);
+    drawVillain(d);
     drawDuckBody(d.x, d.y, DUCK_R, Math.atan2(d.strayY - d.y, FOREST_X - d.x), "#e9d17a");
     drawAvatarHead(d, d.x, d.y, DUCK_R * 0.72);
     ctx.strokeStyle = "#8a3b23";
@@ -433,8 +535,11 @@ function stopLoop() {
 function endGame() {
   stopLoop();
   const safe = ducks.length - lostCount;
+  const v = currentVillain();
   overTitle.textContent = lostCount === 0 ? "flawless outing" : safe === 0 ? "the woods won this one" : "the outing's over";
-  overCopy.textContent = `${safe} of ${ducks.length} moots waddled home safe. ${lostCount} wandered into the woods.`;
+  overCopy.textContent = `${safe} of ${ducks.length} moots waddled home safe. ${lostCount} ${
+    v.name ? `taken by ${v.name}` : "wandered into the woods"
+  }.`;
   overlay.classList.add("on");
   buildShareText();
   buildShareCard();
