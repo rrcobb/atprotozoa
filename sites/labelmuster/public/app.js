@@ -1,22 +1,23 @@
-// app.js — labelmuster: enter an account, read the labels already on its
-// public profile (self-applied and moderation both — see lib/identity.js's
-// header for why one fetch covers both), pick one from a dropdown, then
-// search that account's own follows+followers for anyone else carrying the
-// same label. A self-applied label matches by value on any account that
+// app.js — labelmuster: enter an account, scan it against every labeler in
+// mackuba.eu's label-scanner directory (self-applied labels too — see
+// lib/identity.js's header for how getProfileAllLabels gets past the
+// AppView's 20-labeler-per-request header limit), pick one from a dropdown,
+// then search that account's own follows+followers for anyone else carrying
+// the same label. A self-applied label matches by value on any account that
 // also self-applied it (src === that account's own did); a moderation label
 // matches by value AND the same labeler (src === the original label's src)
 // — two different accounts independently getting called "spam" by two
 // different labelers isn't the same label.
 
-import { resolveDid, getProfile, getProfilesBatch, socialPool } from "./lib/identity.js";
+import { resolveDid, getProfileAllLabels, getProfilesBatch, socialPool } from "./lib/identity.js";
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// A couple of well-known labeler dids worth naming instead of showing a raw
-// did: string — not an exhaustive directory, just the one every account
-// might plausibly carry a label from.
+// Fallback for when the labeller-directory fetch itself failed (see
+// lib/identity.js's loadAllLabelers) — the one labeler worth naming even
+// with no directory at all.
 const KNOWN_LABELERS = {
   "did:plc:ar7c4by46qjdydhdevvrndac": "Bluesky Moderation",
 };
@@ -49,6 +50,7 @@ const els = {
 
 let scannedDid = null;
 let scannedProfile = null;
+let labellersMap = new Map(); // did -> {did, name, handle} from the label-scanner directory
 let distinctLabels = []; // [{val, src, isSelf}]
 let members = []; // [{did, handle, displayName, avatar, self, tag}]
 const checked = new Set();
@@ -81,6 +83,8 @@ function isExpired(l) {
 }
 
 function labelerName(src) {
+  const l = labellersMap.get(src);
+  if (l && (l.name || l.handle)) return l.name || l.handle;
   return KNOWN_LABELERS[src] || `labeler ${src.slice(-8)}`;
 }
 
@@ -158,8 +162,12 @@ async function scan(raw) {
     setStatus("resolving account…");
     scannedDid = await resolveDid(raw);
 
-    setStatus("reading its labels…");
-    scannedProfile = await getProfile(scannedDid);
+    setStatus("checking it against every known labeler…");
+    const result = await getProfileAllLabels(scannedDid, (done, total) => {
+      if (total) setProgress(0.05 + 0.9 * (done / total), `checking labelers… (${done}/${total})`);
+    });
+    scannedProfile = result.profile;
+    labellersMap = result.labellersMap;
     renderAcctCard(scannedProfile);
 
     distinctLabels = extractDistinctLabels(scannedProfile);
@@ -272,9 +280,13 @@ els.findBtn.addEventListener("click", async () => {
     }
 
     setProgress(0.35, `checking labels on ${pool.length} accounts…`);
-    const profiles = await getProfilesBatch(pool, (done, total) => {
-      setProgress(0.35 + 0.6 * (done / total), `checking labels on ${pool.length} accounts… (${done}/${total})`);
-    });
+    const profiles = await getProfilesBatch(
+      pool,
+      (done, total) => {
+        setProgress(0.35 + 0.6 * (done / total), `checking labels on ${pool.length} accounts… (${done}/${total})`);
+      },
+      chosen.isSelf ? undefined : chosen.src,
+    );
 
     const matched = [];
     for (const did of pool) {
