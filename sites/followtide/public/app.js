@@ -85,14 +85,14 @@ function bucketOf(date, granularity) {
   const y = date.getUTCFullYear();
   const m = date.getUTCMonth();
   if (granularity === "year") {
-    return { key: `${y}`, label: `${y}`, sortKey: y * 12 };
+    return { key: `${y}`, label: `${y}`, sortKey: y * 12, date: new Date(Date.UTC(y, 0, 1)) };
   }
   if (granularity === "quarter") {
     const q = Math.floor(m / 3) + 1;
-    return { key: `${y}-Q${q}`, label: `Q${q} ${y}`, sortKey: y * 12 + (q - 1) * 3 };
+    return { key: `${y}-Q${q}`, label: `Q${q} ${y}`, sortKey: y * 12 + (q - 1) * 3, date: new Date(Date.UTC(y, (q - 1) * 3, 1)) };
   }
   const label = date.toLocaleString("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
-  return { key: `${y}-${String(m + 1).padStart(2, "0")}`, label, sortKey: y * 12 + m };
+  return { key: `${y}-${String(m + 1).padStart(2, "0")}`, label, sortKey: y * 12 + m, date: new Date(Date.UTC(y, m, 1)) };
 }
 
 function buildBuckets(follows) {
@@ -107,7 +107,7 @@ function buildBuckets(follows) {
     const b = bucketOf(f.date, granularity);
     let entry = map.get(b.key);
     if (!entry) {
-      entry = { key: b.key, label: b.label, sortKey: b.sortKey, count: 0, dids: [] };
+      entry = { key: b.key, label: b.label, sortKey: b.sortKey, date: b.date, count: 0, dids: [] };
       map.set(b.key, entry);
     }
     entry.count++;
@@ -140,7 +140,7 @@ function buildSankeyData(buckets) {
   const n = buckets.length;
   buckets.forEach((b, i) => {
     const t = n > 1 ? i / (n - 1) : 1;
-    nodes.push({ id: b.key, label: b.label, order: i, value: b.count, dids: b.dids, colorT: t });
+    nodes.push({ id: b.key, label: b.label, order: i, value: b.count, dids: b.dids, colorT: t, date: b.date });
     links.push({ source: b.key, target: "sink", value: b.count, colorT: t });
   });
   const total = buckets.reduce((a, b) => a + b.count, 0);
@@ -192,23 +192,59 @@ function renderSankey(nodeDefs, linkDefs, onBucketClick) {
   const nodeColor = (d) => (d.isSink ? colorVar("root-fill") : tideColor(d.colorT, oldHex, newHex));
   const linkColor = (d) => tideColor(d.colorT, oldHex, newHex);
 
-  const W = 860, H = Math.max(420, 30 * nodeDefs.length);
-  svg.attr("viewBox", `0 0 ${W} ${H}`);
-  const margin = { top: 20, right: 170, bottom: 10, left: 100 };
+  const nodeW = 14;
+  const minGap = 4;
+  const baseW = 860;
+  const H = Math.max(420, 30 * nodeDefs.length);
+  const margin = { top: 20, right: 60, bottom: 46, left: 140 };
   const sankeyLayout = d3
     .sankey()
     .nodeId((d) => d.id)
-    .nodeWidth(14)
+    .nodeWidth(nodeW)
     .nodePadding(H > 900 ? 3 : 8)
     .nodeSort((a, b) => a.order - b.order)
     .nodeAlign(d3.sankeyLeft)
-    .extent([[margin.left, margin.top], [W - margin.right, H - margin.bottom]]);
+    .extent([[margin.left, margin.top], [baseW - margin.right, H - margin.bottom]]);
 
   const graph = sankeyLayout({
     nodes: nodeDefs.map((d) => Object.assign({}, d)),
     links: linkDefs.map((d) => Object.assign({}, d)),
   });
-  const maxDepth = d3.max(graph.nodes, (d) => d.depth);
+
+  // d3-sankey only sees a fan-in graph (every cohort feeds the one sink), so
+  // its own depth calculation gives just two columns. Replace the x it
+  // picked with real calendar positions instead: "following now" pinned at
+  // the left edge, each cohort placed however far back its date sits on an
+  // actual time scale reading present-to-earliest, left to right. The y0/y1
+  // it already computed (node heights, vertical stacking, link offsets) are
+  // untouched — only x moves.
+  const now = new Date();
+  const sinkNode = graph.nodes.find((d) => d.isSink);
+  const bucketNodes = graph.nodes.filter((d) => !d.isSink);
+  const earliest = d3.min(bucketNodes, (d) => d.date) || now;
+  const trackStart = margin.left + nodeW + 24;
+  const xScale = d3.scaleTime().domain([now, earliest]).range([trackStart, baseW - margin.right]);
+
+  sinkNode.x0 = margin.left;
+  sinkNode.x1 = margin.left + nodeW;
+
+  // Real time positions can pack adjacent months closer than the bars are
+  // wide (a long history compresses its recent, monthly-granularity end) —
+  // sweep newest-to-oldest and nudge a node right only far enough to clear
+  // the previous one, so bars never overlap but otherwise sit exactly where
+  // their date puts them.
+  const newToOld = bucketNodes.slice().sort((a, b) => b.date - a.date);
+  let prevX1 = trackStart;
+  newToOld.forEach((d) => {
+    const x0 = Math.max(xScale(d.date), prevX1);
+    d.x0 = x0;
+    d.x1 = x0 + nodeW;
+    prevX1 = d.x1 + minGap;
+  });
+
+  const W = Math.max(baseW, prevX1 + margin.right);
+  svg.attr("viewBox", `0 0 ${W} ${H}`);
+
   const linkGen = d3.sankeyLinkHorizontal();
 
   const linkSel = svg
@@ -254,35 +290,66 @@ function renderSankey(nodeDefs, linkDefs, onBucketClick) {
       if (!d.isSink && onBucketClick) onBucketClick(d);
     });
 
-  function labelX(d) {
-    if (d.depth === maxDepth) return d.x1 + 10;
-    return d.x0 - 8;
-  }
-  function labelAnchor(d) {
-    return d.depth === maxDepth ? "start" : "end";
-  }
-
+  // "following now" is the one node worth always labeling inline — it's
+  // alone at the left edge. Every cohort's exact label/count is a hover (or
+  // click, or the table view) away; drawing them all inline too would
+  // collide wherever real-time spacing packs bars close together.
   svg
-    .append("g")
-    .selectAll("text.node-label")
-    .data(graph.nodes)
-    .join("text")
+    .append("text")
     .attr("class", "node-label")
-    .attr("x", labelX)
-    .attr("y", (d) => (d.y0 + d.y1) / 2 - 3)
-    .attr("text-anchor", labelAnchor)
-    .text((d) => d.label);
-
+    .attr("x", sinkNode.x0 - 10)
+    .attr("y", (sinkNode.y0 + sinkNode.y1) / 2 - 3)
+    .attr("text-anchor", "end")
+    .text(sinkNode.label);
   svg
-    .append("g")
-    .selectAll("text.node-value")
-    .data(graph.nodes)
-    .join("text")
+    .append("text")
     .attr("class", "node-value")
-    .attr("x", labelX)
-    .attr("y", (d) => (d.y0 + d.y1) / 2 + 11)
-    .attr("text-anchor", labelAnchor)
-    .text((d) => fmt(d.value));
+    .attr("x", sinkNode.x0 - 10)
+    .attr("y", (sinkNode.y0 + sinkNode.y1) / 2 + 11)
+    .attr("text-anchor", "end")
+    .text(fmt(sinkNode.value));
+
+  // A real time axis under the chart: present at the left tick, oldest
+  // cohort at the right. Ticks skip labels that would land too close to the
+  // previous one instead of hard-capping how many buckets can show — dense
+  // stretches just thin out their own labels.
+  const axisY = H - margin.bottom + 20;
+  const axis = svg.append("g").attr("class", "time-axis");
+  axis
+    .append("line")
+    .attr("x1", margin.left)
+    .attr("x2", W - margin.right)
+    .attr("y1", axisY)
+    .attr("y2", axisY)
+    .attr("stroke", colorVar("gridline"));
+
+  function addTick(cx, label) {
+    axis
+      .append("line")
+      .attr("x1", cx)
+      .attr("x2", cx)
+      .attr("y1", axisY)
+      .attr("y2", axisY + 5)
+      .attr("stroke", colorVar("gridline"));
+    axis
+      .append("text")
+      .attr("x", cx)
+      .attr("y", axisY + 8)
+      .attr("transform", `rotate(-40 ${cx} ${axisY + 8})`)
+      .attr("text-anchor", "end")
+      .attr("font-size", "10px")
+      .attr("fill", colorVar("text-muted"))
+      .text(label);
+  }
+
+  addTick((sinkNode.x0 + sinkNode.x1) / 2, "now");
+  let lastLabelX = -Infinity;
+  newToOld.forEach((d) => {
+    const cx = (d.x0 + d.x1) / 2;
+    if (cx - lastLabelX < 42) return;
+    addTick(cx, d.label);
+    lastLabelX = cx;
+  });
 }
 
 function renderTable(buckets, granularity) {
@@ -380,7 +447,8 @@ function render() {
   els.caption.textContent =
     `Every app.bsky.graph.follow record currently in @${state.profile.handle}'s repo, bucketed by ${granNoun} followed — ` +
     `accounts since unfollowed don't appear, since only the current record set survives in the repo. ` +
-    `Click a band to see who's in it. Bucket width widens automatically (month → quarter → year) once the timeline gets long enough that month-by-month bars would stop being readable.`;
+    `The x-axis is real calendar time: "following now" sits at the present on the left, and each cohort sits however far back its ${granNoun} actually was, so the bands thin out toward the right the further back the account's history goes. ` +
+    `Click a band to see who's in it, or hover any band for its exact count. Bucket width widens automatically (month → quarter → year) once the timeline gets long enough that month-by-month bars would stop being readable.`;
 
   els.bucketDetail.classList.remove("show");
 

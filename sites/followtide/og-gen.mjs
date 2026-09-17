@@ -32,38 +32,38 @@ function tideColor(t) {
   return `rgb(${lerp(a[0], b[0], t)}, ${lerp(a[1], b[1], t)}, ${lerp(a[2], b[2], t)})`;
 }
 
-// A representative cohort split, oldest at top, newest at bottom, all
-// flowing into a single "following now" sink on the right.
+// A representative cohort split on a real time axis: "following now" sits
+// at the present, on the left, and each cohort sits however far back it
+// happened — newest closest to the sink, oldest farthest right.
 const cohorts = [
-  { label: "2023", h: 46 },
-  { label: "2024", h: 78 },
-  { label: "Q1 2025", h: 58 },
-  { label: "Q3 2025", h: 70 },
-  { label: "Jun 2026", h: 44 },
-  { label: "Aug 2026", h: 62 },
+  { label: "Aug 2026", x: 300, h: 62 },
+  { label: "Jun 2026", x: 380, h: 44 },
+  { label: "Q3 2025", x: 480, h: 70 },
+  { label: "Q1 2025", x: 600, h: 58 },
+  { label: "2024", x: 740, h: 78 },
+  { label: "2023", x: 900, h: 46 },
 ];
 
-const leftX = 420, sinkX = 900;
-const top = 190;
+const sinkX = 170;
+const top = 210;
 let ribbons = "", nodesSvg = "";
-let cursor = top;
 const sinkTotal = cohorts.reduce((a, c) => a + c.h, 0);
-let sinkCursor = top + (sinkTotal - sinkTotal) / 2;
+let sinkCursor = top;
 const n = cohorts.length;
 cohorts.forEach((c, i) => {
-  const t = n > 1 ? i / (n - 1) : 1;
+  const t = 1 - i / (n - 1);
   const color = tideColor(t);
-  const y1a = cursor, y1b = cursor + c.h;
-  const y2a = sinkCursor, y2b = sinkCursor + c.h;
-  const mx = (leftX + 16 + sinkX) / 2;
-  ribbons += `<path d="M${leftX + 16},${y1a} C${mx},${y1a} ${mx},${y2a} ${sinkX},${y2a} L${sinkX},${y2b} C${mx},${y2b} ${mx},${y1b} ${leftX + 16},${y1b} Z" fill="${color}" opacity="0.55"/>`;
-  nodesSvg += `<rect x="${leftX}" y="${cursor}" width="16" height="${c.h}" rx="4" fill="${color}"/>
-    <text x="${leftX - 12}" y="${cursor + c.h / 2 + 6}" text-anchor="end" font-family="JetBrains Mono" font-size="17" fill="${INK}">${c.label}</text>`;
-  cursor += c.h;
+  const nodeTop = top + (sinkTotal - c.h) / 2 - i * 4;
+  const y1a = sinkCursor, y1b = sinkCursor + c.h;
+  const y2a = nodeTop, y2b = nodeTop + c.h;
+  const mx = (sinkX + 16 + c.x) / 2;
+  ribbons += `<path d="M${sinkX + 16},${y1a} C${mx},${y1a} ${mx},${y2a} ${c.x},${y2a} L${c.x},${y2b} C${mx},${y2b} ${mx},${y1b} ${sinkX + 16},${y1b} Z" fill="${color}" opacity="0.55"/>`;
+  nodesSvg += `<rect x="${c.x}" y="${nodeTop}" width="16" height="${c.h}" rx="4" fill="${color}"/>
+    <text x="${c.x + 8}" y="${nodeTop - 12}" text-anchor="middle" font-family="JetBrains Mono" font-size="15" fill="${INK}">${c.label}</text>`;
   sinkCursor += c.h;
 });
 nodesSvg += `<rect x="${sinkX}" y="${top}" width="16" height="${sinkTotal}" rx="4" fill="${DIM}"/>
-  <text x="${sinkX + 26}" y="${top + sinkTotal / 2 + 6}" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="${INK}">following now</text>`;
+  <text x="${sinkX - 12}" y="${top + sinkTotal / 2 + 6}" text-anchor="end" font-family="JetBrains Mono" font-size="19" font-weight="700" fill="${INK}">following now</text>`;
 
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <defs>
@@ -77,7 +77,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   <text x="64" y="112" font-family="JetBrains Mono" font-weight="800" font-size="58" fill="${ACCENT}">followtide</text>
   <text x="64" y="150" font-family="JetBrains Mono" font-size="20" fill="${DIM}">a sankey of when you followed everyone</text>
-  <text x="64" y="178" font-family="JetBrains Mono" font-size="16" fill="${MUTED}">bucketed by month/quarter/year followed, flowing into today</text>
+  <text x="64" y="178" font-family="JetBrains Mono" font-size="16" fill="${MUTED}">bucketed by month/quarter/year followed, present on the left</text>
 
   ${ribbons}
   ${nodesSvg}
