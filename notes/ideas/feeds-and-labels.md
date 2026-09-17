@@ -128,8 +128,10 @@ Feeds worth publishing, roughly in order of "distinctive and already half-built"
   (`loadAllEvents`) rather than a new data source — every historical ship is
   in the feed from day one, not just ones that happen going forward. Live at
   `https://bsky.app/profile/buildthis.bisks.net/feed/shipped`.
-- **gift links** — `giftlinks` already detects these; as a feed it's actually
-  useful to strangers, which none of the toys are.
+- ~~**gift links**~~ — **taken.** At least 12 such feeds exist, the leader at
+  ~10,800 likes, plus a tag-me bot on the same publishers. This bullet was
+  written without checking, which is how a whole labeler got built for it.
+  `labeler-landscape.md` has the sweep and how to re-run it.
 
 **Also done, 2026-08-29 (tagged build, @skeet.best):** `sites/homemixer` shipped
 first as a real feed generator — a live port of the shape of X's "home mixer"
@@ -162,7 +164,26 @@ about. Good first labeler for the same reason a link checker is a good first bot
    twice now** — homemixer (live AppView ranking) and buildthis's own output
    (read from the existing event log) — see both writeups above.
 2. **See if anyone subscribes.** That's the cheap signal on whether either
-   classifier is any good. Still open — too soon to tell for either.
+   classifier is any good. **Measured 2026-09-17, and the answer is nobody:**
+
+   | feed | likes |
+   | --- | --- |
+   | `buildthis shipped` | **0** |
+   | `homemixer` (skeet.best) | **1** |
+   | `homemixer` (overby.me) | **0** |
+
+   Both are live, valid, and serving — `getFeedGenerator` reports
+   `isOnline: true, isValid: true` for shipped. They work; nobody follows them.
+   The one like on homemixer is from the account that asked for it.
+
+   For scale: davidsacerdote's gift-links feed has ~10,800 likes. That's the
+   difference between a feed people want and a feed that merely exists.
+
+   **This step was skipped.** Step 3 went ahead in September on the assumption
+   the classifiers were fine, and produced two labelers nobody will ever
+   subscribe to either. Had anyone run the query above first, the honest read
+   would have been: publishing the thing is the easy part, and this repo has
+   twice now mistaken "it serves correct bytes" for "it works."
 3. **Then** consider a labeler, starting with something descriptive like
    `built-by-bot` rather than semantic moderation. **Built 2026-09-17** —
    `sites/builtbybot`, written up in `notes/87-labeler.md`. It took the
@@ -171,6 +192,11 @@ about. Good first labeler for the same reason a link checker is a good first bot
    network," it labels only this project's own output, because the network-wide
    version needs a judgment about strangers that would be wrong often. Still
    waiting on Rob's signing key; the code is deployed and inert until then.
+
+   **Dropped 2026-09-17, never launched** — `paywall-radar.bsky.social`
+   already runs a paywall labeler, and the gift-link feed niche is saturated.
+   See `labeler-candidates.md` and `labeler-landscape.md`. Both labelers this
+   note proposed got built and neither will go live.
 
    Two findings from building it, both worth knowing before anyone writes a
    second labeler here. **The label stream can't be served from this repo** —
