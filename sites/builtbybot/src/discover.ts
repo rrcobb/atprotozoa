@@ -1,33 +1,58 @@
 // Finding posts that carry a gift link.
 //
-// WHY THIS ISN'T A JETSTREAM SUBSCRIPTION, which is what the brief asked for
-// and what sites/giftlinks does in the browser:
+// WHY THIS ISN'T A JETSTREAM SUBSCRIPTION, which is the obvious design and
+// what sites/giftlinks does in the browser:
 //
 // A Jetstream subscription is a standing websocket. This repo has no Durable
 // Objects (notes/11), and a Worker request is too short-lived to hold one, so
 // there is nowhere in a labeler to put one. giftlinks gets away with it by
-// running the socket in each visitor's browser — fine for a page that shows
-// you what's live while you're looking at it, useless for a labeler, which has
-// to have already seen a post by the time someone queries it.
+// running the socket in each visitor's browser — fine for a page showing you
+// what's live while you watch it, useless for a labeler, which has to have
+// already seen a post by the time someone queries a label on it.
 //
-// So discovery is a cron sweep over app.bsky.feed.searchPosts, which is the
-// same shape buildthis's watcher uses for mention discovery. searchPosts is
-// queryable where a stream is not, and it takes a `domain:` filter, so "posts
-// linking to nytimes.com" is one request per publisher rather than a full-
-// firehose scan we'd have to do ourselves.
+// So discovery is a cron sweep over app.bsky.feed.searchPosts, the same shape
+// buildthis's watcher uses for mention discovery. searchPosts is queryable
+// where a stream is not, and it takes a `domain` filter — "posts linking to
+// this hostname" — so the candidate set is one request per publisher rather
+// than a firehose we'd have to scan ourselves. (Checked against the lexicon:
+// `domain` is a real parameter, `q` is required, and `since` takes a sortAt
+// timestamp. Spacedust and the Constellation/Cerulea backlink indexes were the
+// other candidates; Spacedust is a websocket, same problem, and the backlink
+// indexes only index at:// references, not external URLs.)
+//
+// searchPosts NEEDS A SESSION. The public AppView answers getPosts
+// unauthenticated but 403s searchPosts, so this labeler has its own account
+// credentials — the one thing it needed that built-by-bot didn't, since
+// buildthis's event log was plain public JSON.
 //
 // The tradeoffs, stated because they're real and /policy repeats them:
 //
 //   - Coverage is best-effort. Search indexing lags and drops things, so this
-//     finds most gift links, not all of them. An unlabeled post means "not
-//     seen", never "checked and found no token".
-//   - Detection still runs on the record itself (giftdetect.ts), not on the
-//     search query. `domain:nytimes.com` only narrows the candidate set; the
-//     claim is only ever made after reading the URL.
+//     finds most gift links, not all. An unlabeled post means "not seen", never
+//     "checked and found no token".
+//   - Detection runs on the record, not on the query. `domain` only narrows the
+//     candidate set; the claim is only ever made after reading the actual URL
+//     (giftdetect.ts).
 
-import { detectInPost, GIFT_SOURCES, type GiftSource } from "./giftdetect";
+import { detectInPost, GIFT_SOURCES, type GiftSource } from "./giftdetect.ts";
 
-const PUBLIC_APPVIEW = "https://public.api.bsky.app/xrpc";
+const PDS = "https://bsky.social";
+
+export interface Session {
+  accessJwt: string;
+  did: string;
+}
+
+export async function login(identifier: string, password: string): Promise<Session> {
+  const res = await fetch(`${PDS}/xrpc/com.atproto.server.createSession`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ identifier, password }),
+  });
+  if (!res.ok) throw new Error(`createSession failed: ${res.status}`);
+  const j = (await res.json()) as { accessJwt: string; did: string };
+  return { accessJwt: j.accessJwt, did: j.did };
+}
 
 // The distinct hosts worth querying. Derived from GIFT_SOURCES rather than
 // listed twice, so adding a publisher to the detection list also adds it to
@@ -50,18 +75,28 @@ interface SearchPost {
   indexedAt?: string;
 }
 
-// One publisher's worth of recent posts. Unauthenticated public AppView: this
-// reads public posts and needs no session, unlike buildthis's sweep, which
-// searches its own mentions.
-async function searchDomain(domain: string, limit: number): Promise<SearchPost[]> {
-  const u = new URL(`${PUBLIC_APPVIEW}/app.bsky.feed.searchPosts`);
-  // `domain:` is searchPosts' own link filter — it matches posts linking to
-  // the host, which is exactly the candidate set, without a text match that
-  // would also catch people merely talking about the paper.
-  u.searchParams.set("q", `domain:${domain}`);
+// One publisher's worth of recent posts.
+async function searchDomain(
+  session: Session,
+  domain: string,
+  limit: number,
+  since?: string,
+): Promise<SearchPost[]> {
+  const u = new URL(`${PDS}/xrpc/app.bsky.feed.searchPosts`);
+  // `q` is required by the lexicon even when the real filter is `domain`, so
+  // it carries the hostname too. That's a text match as well as a link match,
+  // which only widens the candidate set — detection still decides.
+  u.searchParams.set("q", domain);
+  u.searchParams.set("domain", domain);
   u.searchParams.set("sort", "latest");
   u.searchParams.set("limit", String(limit));
-  const res = await fetch(u.toString(), { headers: { accept: "application/json" } });
+  // Only look at what's arrived since the last sweep. Without it every sweep
+  // re-reads the same window; the merge is idempotent so it would be correct,
+  // just wasteful.
+  if (since) u.searchParams.set("since", since);
+  const res = await fetch(u.toString(), {
+    headers: { authorization: `Bearer ${session.accessJwt}`, accept: "application/json" },
+  });
   if (!res.ok) throw new Error(`searchPosts(${domain}) failed: ${res.status}`);
   const body = (await res.json()) as { posts?: SearchPost[] };
   return Array.isArray(body.posts) ? body.posts : [];
@@ -69,9 +104,13 @@ async function searchDomain(domain: string, limit: number): Promise<SearchPost[]
 
 // Sweep every publisher, keep only the posts whose links actually carry a
 // token. Errors are per-domain: one publisher's search failing shouldn't cost
-// us the other ten, and a sweep that returns fewer posts is a missed label,
-// not a wrong one.
-export async function sweep(limitPerDomain: number): Promise<{ found: FoundPost[]; errors: number }> {
+// the other ten, and a sweep that returns fewer posts is a missed label, not a
+// wrong one.
+export async function sweep(
+  session: Session,
+  limitPerDomain: number,
+  since?: string,
+): Promise<{ found: FoundPost[]; errors: number }> {
   const found: FoundPost[] = [];
   const seen = new Set<string>();
   let errors = 0;
@@ -79,7 +118,7 @@ export async function sweep(limitPerDomain: number): Promise<{ found: FoundPost[
   const results = await Promise.all(
     searchDomains().map(async (domain) => {
       try {
-        return await searchDomain(domain, limitPerDomain);
+        return await searchDomain(session, domain, limitPerDomain, since);
       } catch (err) {
         console.error(`sweep: ${err}`);
         return null;

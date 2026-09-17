@@ -1,0 +1,71 @@
+name = "atprotozoa-listbot"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Two jobs (see notes/88-listbot.md):
+#  1. fetch handler  -> the landing page, the confidential-client OAuth sign-in
+#     (/login, /callback, /client-metadata.json, /jwks.json), /status.json, and
+#     /.well-known/atproto-did for handle verification.
+#  2. scheduled handler -> the watcher: poll the bot's mentions and act on each
+#     tagger's OWN repo with their stored OAuth session.
+assets = { directory = "./public", binding = "ASSETS" }
+
+# Above the tables on purpose: in TOML a `routes` line after a table header
+# becomes <table>.routes and the domain silently never binds. Same gotcha noted
+# in apex/wrangler.toml and sites/buildthis/wrangler.toml.
+routes = [{ pattern = "listbot.bisks.net/*", zone_name = "bisks.net" }]
+
+[triggers]
+crons = ["*/2 * * * *"]
+
+[observability]
+enabled = true
+
+# Holds, per user, an ENCRYPTED OAuth session (refresh token, access token, DPoP
+# keypair), plus handled-mention markers and the sweep counter.
+#
+# KV is not an auth boundary — notes/11 says so, and it's just as true here. The
+# boundary is SESSION_ENC_KEY, the Worker secret these blobs are encrypted with,
+# which never appears in KV or in this repo. KV alone yields ciphertext. See the
+# header comment in src/store.ts.
+#
+# Create with: wrangler kv namespace create listbot-state
+[[kv_namespaces]]
+binding = "STATE"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[vars]
+# The bot account's DID. Served at /.well-known/atproto-did so bisks.net can be
+# verified as its handle. Replace once Rob provisions the account (notes/88).
+BOT_DID = "REPLACE_WITH_BOT_DID"
+
+# Login identifier for createSession. The DID rather than the handle, so login
+# survives a handle switch (same reasoning as buildthis).
+BOT_IDENTIFIER = "REPLACE_WITH_BOT_DID"
+
+BOT_HANDLE = "listbot.bisks.net"
+
+# Canonical origin. An atproto OAuth client is identified BY its client_id URL
+# and the PDS refetches metadata from it, so this can't be dual-homed — see
+# notes/40's "OAuth sites need a single canonical host".
+SITE_URL = "https://listbot.bisks.net"
+
+# Key id for the client-assertion key, matching the `kid` in /jwks.json.
+CLIENT_KEY_KID = "listbot-client-1"
+
+# Public half of that key, as a JWK. Public values only (crv/x/y) — not a
+# secret. It's a var rather than derived because the private key is imported
+# non-extractable, so WebCrypto can't recover the public half from it.
+# `node audit/listbot-keygen.mjs` prints this.
+CLIENT_PUBLIC_JWK = '{"kty":"EC","crv":"P-256","x":"REPLACE","y":"REPLACE"}'
+
+# Secrets (wrangler secret put, never in this file):
+#   BOT_APP_PASSWORD   -> the bot account's app password. Reads the bot's own
+#                         notifications and posts its replies. Touches no lists.
+#   CLIENT_PRIVATE_KEY -> base64url PKCS#8 P-256 private key; signs the client
+#                         assertions that authenticate this confidential client
+#                         to each PDS's token endpoint.
+#   SESSION_ENC_KEY    -> AES-GCM key material for the stored OAuth sessions.
+#                         THE security boundary for every user's refresh token.
+#                         Rotating it invalidates every session (users just sign
+#                         in again); losing it locks every session out.

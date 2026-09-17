@@ -219,13 +219,26 @@ Still needs Rob for the key, which is the one part the builder can't do:
 inert, and says so on its own front page.
 
 **15b. Build requests as records, not just posts.** (Rob, 2026-07-31)
-Today a build request is a Bluesky post and the decision history is a thread.
-If a request were also a `net.bisks.buildthis.request` record — with its outcome,
-what it changed, and who asked — then scoping and history come almost free:
-"what has this person asked for," "what changed the house style and who asked,"
-"which requests are still partial." Makes #16/#17 tractable rather than
-requiring a separate mechanism, and it's the atproto-native version of the
-scoping problem instead of a config file. Pairs with the lexicon work (1–3).
+**Built 2026-09-17.** Every build now writes a `net.bisks.buildthis.request`
+record into the bot's own repo — requester DID and handle, the tagging post uri,
+the brief, the disposition, the site built or edited, the commit sha, and the
+timestamps. `builder/request-record.mjs` writes it from `reply.mjs`, which
+already holds the bot's session and the finished disposition; the rkey is the
+tagging post's TID, so a re-run overwrites rather than duplicating.
+
+The read path is `buildthis.bisks.net/requests` (+ `/requests.json`), one
+`listRecords` walk over the bot's repo — not KV. That's the point of the idea:
+the KV event log has a 30-day TTL and is keyed by what the bot did, so "what has
+this person asked for" (`?who=`) and "which requests are still partial"
+(`?partial=1`) weren't answerable from it at all. Backfilled 629 records from
+the `.buildthis.json` build stamps (`audit/backfill-request-records.mjs`,
+`source: "backfill"`); a stamp can't distinguish a partial from a finished
+build, so those record `success` and leave `partial` unset rather than guess,
+and requests that built nothing left no stamp and aren't recoverable.
+
+#16 and #17 are now queries against this collection rather than a separate
+mechanism. Neither is built — this is only the substrate they needed.
+See `notes/80-buildthis-bot.md` §5.
 
 **16. Per-person / per-project build memory.** (`beyond-buildthis.md`)
 Self-modification by tagging is already happening and is uncontrolled — one
@@ -317,11 +330,14 @@ tracking.
 What's left collapses into two groups. (The original four included builder input
 fixes and the partial rate; both are done — see section C2.)
 
-**Thread 3 — lexicons + atproto-native requests** (#1–3, #15b)
-Write and publish the ten missing schemas, then `listReposByCollection` for
-aggregate views, then build requests as records — which makes the scoping and
-history questions (#16, #17) answerable by query instead of by config. The most
-atproto-native direction, and largely doable by an atproto-pilled builder.
+**Thread 3 — lexicons + atproto-native requests** (#1–3, #15b) **Done.**
+The schemas are written and published, the aggregate views are live for thirteen
+sites (and the remaining gaps are shape mismatches, not todos — see "If picking
+one thing"), and build requests are records as of 2026-09-17. The scoping and
+history questions (#16, #17) are now answerable by query against
+`net.bisks.buildthis.request` instead of needing a config file; deciding what to
+do with those answers is what's actually left, and that's a decision, not a
+build.
 
 **Thread 4 — new bots** (#5–14; `other-bots.md`, `bot-ideas-riff.md`, `protocol-object-bot.md`)
 The genuinely new capability: a bot that makes protocol objects rather than

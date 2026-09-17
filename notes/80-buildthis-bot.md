@@ -125,6 +125,44 @@ disposition — success links the live URL, a partial invites a re-tag, a failur
 says so honestly. Automatic; no human in the loop. See `notes/90` for how
 disposition is decided and when a job requeues instead of replying.
 
+### 5. The request record
+
+Every build also writes one `net.bisks.buildthis.request` record into the bot's
+own repo: who asked (DID plus the handle at the time), the tagging post's uri,
+the brief the builder ran on, how the run ended, the site it built or edited,
+the commit sha, and the timestamps. Schema at
+`sites/buildthis/public/lexicons/net.bisks.buildthis.request.json`, served at
+`bisks.net/lexicons/`.
+
+`builder/request-record.mjs` does the write, called from `reply.mjs` right after
+it posts — that's the one place holding both the bot's session and the finished
+disposition. The rkey is the tagging post's TID, so re-running a build for the
+same tag overwrites its record instead of adding a second account of one
+request. Best-effort, like the `/outcome` POST: a failed record never turns a
+shipped build into a red run. A silent requeue writes nothing, since that isn't
+an outcome yet.
+
+**Why records and not the KV event log.** The event log is the bot's operational
+memory — 30-day TTL, keyed by mention, shaped around dispatching and replying.
+A request history has to outlive that and be keyed by *person*. A repo
+collection is that for free: permanent, public, readable by anyone without going
+through the Worker.
+
+**Reading it back:** `buildthis.bisks.net/requests` (and `/requests.json`), one
+`listRecords` walk over the bot's own repo. `?who=<handle|did>` answers "what has
+this person asked for"; `?partial=1` answers "which requests are still partial".
+
+Backfilled from the 629 `.buildthis.json` build stamps already in the tree
+(`audit/backfill-request-records.mjs`), tagged `source: "backfill"` to
+distinguish a reconstruction from a record the build itself wrote. A stamp can't
+say whether a run ran out of runway, so backfilled records record `success` and
+leave `partial` unset rather than guess — and a request that built nothing left
+no stamp at all, so that part of the history isn't recoverable.
+
+This is the groundwork for per-person build memory and the ownership question
+(`notes/ideas/00-index.md` items 16 and 17): both become queries against this
+collection rather than a separate mechanism. Neither is built.
+
 ### Mobius mode
 
 A running gag on the landing page denies any resemblance to

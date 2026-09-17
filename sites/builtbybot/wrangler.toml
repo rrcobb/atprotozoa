@@ -18,16 +18,27 @@ directory = "./public"
 binding = "ASSETS"
 run_worker_first = true
 
-# Signed labels, cached and rebuilt from buildthis's event log. KV, not a
-# Durable Object (notes/11): a rebuild that runs twice or lands a few minutes
-# late is harmless — the worst case is a just-shipped site getting its label on
-# the next rebuild rather than instantly. Nothing here is an authoritative
-# first-writer claim.
+# Two things live here. The signed label set is a cache, rebuilt on demand.
+# The SUBJECT set is not — it accumulates what the sweep has found, because
+# there's no endpoint that re-derives "every post that ever carried a gift
+# link" (src/index.ts says more). Still KV, not a Durable Object (notes/11):
+# a sweep that runs twice or lands late is harmless, since the merge is
+# idempotent by post URI. Nothing here is an authoritative first-writer claim.
+#
+# The one thing to know: losing this namespace loses labels that cannot be
+# re-derived, only re-accumulated from whatever search still returns.
 #
 # Create with: wrangler kv namespace create builtbybot-labels
 [[kv_namespaces]]
 binding = "LABELS"
 id = "9ec866c6f2394737903118cef7d5798e"
+
+# The discovery sweep: searchPosts over each publisher's domain, every 15
+# minutes. This is what a Jetstream subscription would be if a labeler could
+# hold a websocket open (notes/11 says it can't). A missed tick costs coverage,
+# not correctness — the read path also sweeps lazily if the cron goes quiet.
+[triggers]
+crons = ["*/15 * * * *"]
 
 [vars]
 # The labeler account's DID — the `src` on every label, and the repo that holds
@@ -36,14 +47,13 @@ id = "9ec866c6f2394737903118cef7d5798e"
 # and signs nothing. See notes/87-labeler.md for the provisioning steps.
 LABELER_DID = ""
 
-# The bot whose output gets labeled: @buildthis.bisks.net. Matches
-# sites/buildthis/wrangler.toml's BOT_DID.
-BUILDER_DID = "did:plc:wlj4p2kazhifag6w4nanjnee"
+# The labeler account's handle, used to open a session for the discovery
+# sweep. EMPTY UNTIL ROB PROVISIONS IT, alongside LABELER_DID.
+LABELER_IDENTIFIER = ""
 
-# Where the shipped-site list comes from. buildthis's public event log; the
-# Worker asks for ?limit=500 (its cap) and reports truncation rather than
-# silently labeling only a prefix.
-BUILDER_EVENTS_URL = "https://buildthis.bisks.net/logs.json"
-
-# Secret (set with `wrangler secret put`, never in this file):
-#   LABELER_PRIVATE_KEY -> the labeler signing key, base64url PKCS#8, P-256.
+# Secrets (set with `wrangler secret put`, never in this file):
+#   LABELER_PRIVATE_KEY  -> the signing key, base64url PKCS#8, P-256.
+#   LABELER_APP_PASSWORD -> an app password for the labeler account. Needed
+#                           because app.bsky.feed.searchPosts requires a
+#                           session; the public AppView 403s it anonymously.
+#                           Read-only use — the Worker never writes to the repo.

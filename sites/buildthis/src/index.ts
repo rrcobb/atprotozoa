@@ -201,6 +201,17 @@ export default {
       return handleRequestsJson(env, url);
     }
 
+    // The weekly digest: /digest is the latest, /digest/<week> a permalink, and
+    // /digest.json[/<week>] the same data as JSON. The Bluesky post links here,
+    // so this is the shareable half of the digest (see "Weekly digest").
+    if (url.pathname === "/digest/preview") {
+      return handleDigestPreview(env);
+    }
+    if (url.pathname === "/digest" || url.pathname.startsWith("/digest/") ||
+        url.pathname === "/digest.json" || url.pathname.startsWith("/digest.json/")) {
+      return handleDigest(env, url);
+    }
+
     // The "yes, fine, I titrate too" page — mobius mode's own status surface.
     // See the Mobius mode section near handleNextJob for what it's reporting.
     if (url.pathname === "/mobius") {
@@ -4479,6 +4490,24 @@ function graphemeLen(s: string): number {
 // Counts on outcome.disposition where present, per the LogEvent comment: status
 // collapses six states into two and reads a deliberate non-build as a failure.
 // A `partial` still shipped something live, so it counts.
+// Infrastructure, not builds. `apex` is the gallery itself and `stats`/`logs`/
+// `fleetwatch` are the instrumentation; editing one is real work but it isn't
+// "a site that shipped this week", which is what the digest is announcing.
+// `watchtower-selftest` is watchtower's own synthetic probe — it breaks and
+// recovers on purpose, so counting it as an outage would make every week look
+// like it had one.
+const DIGEST_NOT_A_BUILD = new Set([
+  "apex",
+  "stats",
+  "logs",
+  "fleetwatch",
+  "watchtower",
+  "watchtower-selftest",
+]);
+// `buildthis` itself is deliberately NOT excluded: "make your replies funnier"
+// is a request someone made and a change that shipped, so it belongs in the
+// week's list like any other.
+
 function computeShipped(events: LogEvent[], fromMs: number, toMs: number): {
   shipped: DigestShipped[];
   askedBy: string[];
@@ -4497,6 +4526,7 @@ function computeShipped(events: LogEvent[], fromMs: number, toMs: number): {
     // builtName is "<site>" or "<site>/<path>" — the site is the first segment,
     // so two builds against different paths of one site count as one site.
     const name = o.builtName.split("/")[0];
+    if (DIGEST_NOT_A_BUILD.has(name)) continue;
     let entry = byName.get(name);
     if (!entry) {
       entry = { name, url: o.url, handles: [], runs: 0, handleCounts: new Map() };
@@ -4568,6 +4598,7 @@ async function computeBreaks(fromMs: number, toMs: number): Promise<DigestBreak[
     const byName = new Map<string, DigestBreak>();
     for (const a of alerts) {
       if (a.kind !== "broken" && a.kind !== "recovered") continue;
+      if (DIGEST_NOT_A_BUILD.has(a.name)) continue;
       let entry = byName.get(a.name);
       if (!entry) {
         entry = { name: a.name, recovered: false, downForMs: 0 };
@@ -4649,6 +4680,11 @@ const RELAY_URL = "https://bsky.network";
 const PLC_DIRECTORY = "https://plc.directory";
 const MAX_RATER_REPOS = 25;
 
+// Fewest ratings a site needs before the digest will call it "best rated". With
+// one rating the average is just that one person's score, which beat a 9.2-from-5
+// in the first real preview — a ranking the post shouldn't assert.
+const MIN_RATINGS = 3;
+
 // Some PDSes sit behind a CDN that rejects requests with no User-Agent or a
 // default library one (confirmed 2026-09-17: pds.angussoftware.dev 403s
 // python-urllib but serves curl fine). Every fetch in the ratings walk sends a
@@ -4711,20 +4747,21 @@ async function computeRated(names: string[]): Promise<DigestRated[]> {
     }
   }
 
+  // A single 10 outranking a 9.2 from five raters isn't a "best rated" claim
+  // worth posting — with one vote the average IS that vote. So a site needs
+  // MIN_RATINGS before it can be ranked. Everything rated still shows on the
+  // web page (which lists counts alongside, so the reader can judge); this
+  // threshold governs what the ranking — and the post — will assert.
   return [...sums.entries()]
     .map(([name, s]) => ({ name, avg: s.total / s.count, count: s.count }))
+    .filter((r) => r.count >= MIN_RATINGS)
     .sort((a, b) => b.avg - a.avg || b.count - a.count || a.name.localeCompare(b.name));
 }
 
 // --- Assembling the digest ---------------------------------------------------
 
-function fmtDuration(ms: number): string {
-  const mins = Math.round(ms / 60000);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.round(mins / 60);
-  if (hours < 48) return `${hours}h`;
-  return `${Math.round(hours / 24)}d`;
-}
+// Durations use the existing fmtDuration() near the uptime page — it keeps the
+// remainder ("2h 15m"), which reads better for downtime than a rounded "2h".
 
 // One post if it fits, a short thread if it doesn't. Every part is built to the
 // grapheme budget rather than truncated after the fact, so a part can never be
@@ -4979,6 +5016,50 @@ async function loadDigest(env: Env, week?: string): Promise<Digest | null> {
     return JSON.parse(raw) as Digest;
   } catch {
     return null;
+  }
+}
+
+// GET /digest/preview — compute this week's digest live and return it, INCLUDING
+// the exact post text that would go out, without posting or storing anything.
+// Same spirit as watchtower's /run and stats' /refresh: a cron whose only
+// output is a public Bluesky post is otherwise untestable until it fires, and
+// "wait until Sunday and see" is a bad way to find a formatting bug.
+//
+// Unauthenticated because it only READS (the four sources are all public) and
+// writes nothing. It is the one digest path that never posts.
+async function handleDigestPreview(env: Env): Promise<Response> {
+  try {
+    const now = Date.now();
+    const digest = await buildDigest(env, now);
+    const parts = renderDigestPost(digest, `https://buildthis.bisks.net/digest/${digest.week}`);
+    return new Response(
+      JSON.stringify(
+        {
+          wouldPost: !digestIsEmpty(digest),
+          reason: digestIsEmpty(digest) ? "nothing shipped and nothing broke" : undefined,
+          parts: parts.map((text) => ({
+            text,
+            graphemes: graphemeLen(text),
+            overLimit: graphemeLen(text) > POST_GRAPHEME_LIMIT,
+            facets: digestFacets(text, {}),
+          })),
+          digest,
+        },
+        null,
+        2,
+      ),
+      {
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": "no-store",
+        },
+      },
+    );
+  } catch (err) {
+    return new Response(JSON.stringify({ error: String(err) }), {
+      status: 500,
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
   }
 }
 

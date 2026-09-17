@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>built-by-bot — a labeler for this project's own output</title>
-<meta name="description" content="A Bluesky labeler that marks the posts and account behind @buildthis.bisks.net's shipped sites. It labels only this project's own output — never a third party's account." />
-<meta property="og:title" content="built-by-bot — a labeler for this project's own output" />
-<meta property="og:description" content="A Bluesky labeler that marks the posts and account behind @buildthis.bisks.net's shipped sites. It labels only this project's own output — never a third party's account." />
+<title>gift-link — a labeler for posts carrying unlock tokens</title>
+<meta name="description" content="A Bluesky labeler that marks posts whose links carry a publisher's unlock token — a gift link and a paywalled link look identical until you read the query string." />
+<meta property="og:title" content="gift-link — a labeler for posts carrying unlock tokens" />
+<meta property="og:description" content="A Bluesky labeler that marks posts whose links carry a publisher's unlock token — a gift link and a paywalled link look identical until you read the query string." />
 <meta property="og:url" content="https://builtbybot.bisks.net/" />
 <meta property="og:type" content="website" />
 <meta name="twitter:card" content="summary" />
@@ -69,27 +69,29 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>🏷️ built-by-bot</h1>
-  <p class="tag">A Bluesky labeler that marks <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>'s own output — the account itself, and the posts that asked for sites it actually shipped.</p>
+  <h1>🎁 gift-link</h1>
+  <p class="tag">A Bluesky labeler that marks posts whose links carry a publisher's unlock token. A gift link and a paywalled link look identical until you read the query string — this reads it for you.</p>
 
   <div class="card">
     <div class="status" id="status">checking…</div>
     <div id="detail" class="dim" style="font-size:0.84rem;"></div>
     <div id="count-wrap" style="margin-top:0.9rem; display:none;">
-      <div class="count"><span id="count">—</span><small>subjects currently carrying <span class="chip">built-by-bot</span></small></div>
+      <div class="count"><span id="count">—</span><small>posts currently carrying <span class="chip">gift-link</span></small></div>
     </div>
   </div>
 
   <h2>What it claims</h2>
-  <p>One label value, <code>built-by-bot</code>, meaning: <em>a bot made this thing.</em> It goes on two kinds of subject, both of which belong to this project:</p>
-  <ul>
-    <li>the <strong>@buildthis.bisks.net account</strong> — it is a bot, it says so itself, and this makes that claim subscribable rather than just stated in a bio;</li>
-    <li>each <strong>post that asked for a site the bot then shipped</strong> — the same post URIs already published in buildthis's own <a href="https://bsky.app/profile/buildthis.bisks.net/feed/shipped" target="_blank" rel="noopener">/shipped feed</a>. One per <em>ask</em>, not per site: an edit to an existing site is another ask, so the count runs well ahead of the number of distinct sites.</li>
-  </ul>
+  <p>One label value, <code>gift-link</code>, meaning exactly this:</p>
+  <p><em>This link carried an unlock token when this service saw it.</em></p>
+  <p>That's a fact about a URL, checkable by anyone who reads the link. A post earns the label when one of its links — the embed card or a link in the text — points at a covered publisher <strong>and</strong> carries that publisher's unlock token.</p>
+  <p class="dim">The caveat that matters: gift tokens expire and get revoked, and nothing here re-checks one. The label is a dated observation, not a promise the article is still readable. <a href="/policy">/policy</a> says so in those words.</p>
 
   <h2>What it does not claim</h2>
-  <p>It does not decide whether anyone <em>else</em> is a bot. There's an obvious wider version of this idea — mark automated accounts across the network — and it is deliberately not built, because it needs a judgment about strangers that would often be wrong, and a wrong label lands on someone else's post. Labeling our own output is a fact we hold first-hand.</p>
-  <p class="dim">The honest caveat: a tagging post is written by the person who asked, not by the bot. Labeling it says a bot built the thing that post requested — a statement about the site, not about the author. It's the narrowest version that's still useful; <a href="/policy">/policy</a> spells out the reasoning and the fallback.</p>
+  <p>Nothing about the person who posted. It isn't a judgment that sharing the link was generous, or wrong, or against a publisher's terms, and it doesn't mark the post as good or bad. This labels other people's posts, so the value stays descriptive: it names something true about the URL and stops.</p>
+  <p class="dim">Don't want to be labeled? Ask <a href="https://bsky.app/profile/bisks.net" target="_blank" rel="noopener">@bisks.net</a> — a single post or your account entirely, no reason needed. <a href="/policy">/policy</a> has the details.</p>
+
+  <h2>How posts are found</h2>
+  <p>By searching for recent links to each covered publisher every few minutes, then reading the URLs. Not by watching the firehose: this runs on a stateless Worker that can't hold a connection open. So coverage is best-effort — an unlabeled post means <em>not seen</em>, never <em>checked and found no token</em>.</p>
 
   <h2>Subscribing</h2>
   <p>Labels are served over <code>com.atproto.label.queryLabels</code>. This labeler does <strong>not</strong> run the websocket label stream — it's a stateless Cloudflare Worker with no standing connections, so tools that only ingest the stream will see nothing, while anything that queries sees every label. That tradeoff is explained on <a href="/policy">/policy</a>.</p>
@@ -110,8 +112,9 @@ fetch('/api/labels').then(r => r.json()).then(d => {
     detail.textContent = 'src: ' + d.src;
     document.getElementById('count').textContent = d.count;
     document.getElementById('count-wrap').style.display = 'block';
-    if (d.truncated) {
-      detail.textContent += ' · note: buildthis’s event log is longer than one page, so the earliest ships aren’t labeled yet.';
+    if (d.lastSweepAt) {
+      const mins = Math.round((Date.now() - d.lastSweepAt) / 60000);
+      detail.textContent += ' · last swept ' + (mins < 1 ? 'just now' : mins + 'm ago');
     }
   } else {
     status.innerHTML = '<span class="pending">not live yet</span> — no signing identity configured';

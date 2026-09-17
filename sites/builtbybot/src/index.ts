@@ -63,8 +63,8 @@
 // ever encode one flat, known-shape map, so a full CBOR library would be a
 // dependency for about forty lines of work.
 
-import { sweep, searchDomains, type FoundPost } from "./discover";
-import { GIFT_SOURCES } from "./giftdetect";
+import { sweep, searchDomains, login, type FoundPost } from "./discover.ts";
+import { GIFT_SOURCES } from "./giftdetect.ts";
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
@@ -76,6 +76,13 @@ export interface Env {
   // Secret, set with `wrangler secret put LABELER_PRIVATE_KEY`: the labeler
   // signing key as base64url-encoded PKCS#8, P-256. Never in wrangler.toml.
   LABELER_PRIVATE_KEY?: string;
+  // The labeler account's handle, and a secret app password for it. Needed
+  // because app.bsky.feed.searchPosts requires a session — the public AppView
+  // 403s it unauthenticated (verified 2026-09-17; getPosts answers fine). This
+  // is discovery credentials only: the labeler never writes to its repo from
+  // the Worker.
+  LABELER_IDENTIFIER: string;
+  LABELER_APP_PASSWORD?: string;
 }
 
 // Descriptive and non-evaluative, deliberately. This labels strangers' posts,
@@ -361,6 +368,13 @@ const SUBJECTS_KEY = "subjects:gift-link";
 const LAST_SWEEP_KEY = "sweep:last-at";
 const LAST_SWEEP_FOUND_KEY = "sweep:last-found";
 const LAST_SWEEP_ERRORS_KEY = "sweep:last-errors";
+// Accounts that asked never to be labeled, and individual posts that asked to
+// be dropped. /policy promises both, so they're enforced here rather than left
+// as a promise to honor by hand. Written out of band (wrangler kv key put);
+// there's no endpoint that edits them, because a public write path on an
+// opt-out list is a way for someone to opt SOMEONE ELSE out.
+const OPTOUT_DIDS_KEY = "optout:dids";
+const OPTOUT_URIS_KEY = "optout:uris";
 
 // How many posts to pull per publisher per sweep. The sweep runs every 15
 // minutes over ~12 domains; 100 each is well inside what a cron invocation can
@@ -371,7 +385,10 @@ const SEARCH_LIMIT_PER_DOMAIN = 100;
 // keeping a rebuild inside a request, not about storage.
 const MAX_SUBJECTS = 5000;
 
-interface Subject {
+// How far back before the last sweep to re-ask, to cover search-index lag.
+const SWEEP_OVERLAP_MS = 30 * 60 * 1000;
+
+export interface Subject {
   uri: string;
   // The post's CID at the time it was seen. Labels carry it so the claim binds
   // to the exact version of the record we read — an edited post gets a new CID,
@@ -381,6 +398,34 @@ interface Subject {
   sourceKey: string;
   // When this labeler first saw it. Becomes the label's `cts` and never moves.
   seenAt: string;
+}
+
+async function loadOptOut(env: Env): Promise<{ dids: Set<string>; uris: Set<string> }> {
+  const parse = async (key: string) => {
+    const raw = await env.LABELS.get(key);
+    if (!raw) return new Set<string>();
+    try {
+      const arr = JSON.parse(raw) as string[];
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch {
+      return new Set<string>();
+    }
+  };
+  return { dids: await parse(OPTOUT_DIDS_KEY), uris: await parse(OPTOUT_URIS_KEY) };
+}
+
+// at://did:plc:xyz/app.bsky.feed.post/rkey -> did:plc:xyz
+function authorDid(uri: string): string {
+  return uri.slice(5).split("/")[0] || "";
+}
+
+// Applied on the read path, not only at merge time, so adding someone to the
+// list retracts labels they already have instead of only preventing new ones.
+export function applyOptOut(
+  subjects: Subject[],
+  optOut: { dids: Set<string>; uris: Set<string> },
+): Subject[] {
+  return subjects.filter((s) => !optOut.uris.has(s.uri) && !optOut.dids.has(authorDid(s.uri)));
 }
 
 async function loadSubjects(env: Env): Promise<Subject[]> {
@@ -414,7 +459,22 @@ export function mergeSubjects(existing: Subject[], found: FoundPost[], max: numb
 // the cron is disabled or misfires (notes/11: no alarms, state advances on
 // request).
 async function runSweep(env: Env): Promise<{ found: number; errors: number }> {
-  const { found, errors } = await sweep(SEARCH_LIMIT_PER_DOMAIN);
+  if (!env.LABELER_IDENTIFIER || !env.LABELER_APP_PASSWORD) {
+    // Not provisioned. Stamp the clock so the lazy path doesn't retry on every
+    // request for credentials that aren't there.
+    await env.LABELS.put(LAST_SWEEP_KEY, String(Date.now()));
+    return { found: 0, errors: 0 };
+  }
+  const session = await login(env.LABELER_IDENTIFIER, env.LABELER_APP_PASSWORD);
+  // Overlap the window a little: search indexing lags behind posting, so a
+  // sweep that asked only for "since the last sweep" would miss posts indexed
+  // after the cursor moved past them.
+  const lastSweep = parseInt((await env.LABELS.get(LAST_SWEEP_KEY)) || "0", 10);
+  const since = lastSweep
+    ? new Date(lastSweep - SWEEP_OVERLAP_MS).toISOString()
+    : undefined;
+
+  const { found, errors } = await sweep(session, SEARCH_LIMIT_PER_DOMAIN, since);
   const merged = mergeSubjects(await loadSubjects(env), found, MAX_SUBJECTS);
   await env.LABELS.put(SUBJECTS_KEY, JSON.stringify(merged));
   await env.LABELS.put(LAST_SWEEP_KEY, String(Date.now()));
@@ -433,7 +493,7 @@ async function rebuildLabels(env: Env, fingerprint?: string): Promise<StoredLabe
     return [];
   }
 
-  const subjects = await loadSubjects(env);
+  const subjects = applyOptOut(await loadSubjects(env), await loadOptOut(env));
   // No "hold the old set on a fetch failure" branch any more, and none needed:
   // the subject set is stored, not re-derived, so a failed search can only
   // leave it un-grown. built-by-bot needed that guard because a transient 500
@@ -591,14 +651,30 @@ function subscribeLabels(request: Request): Response {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  // The sweep the labeler runs on a schedule. This is the piece that replaces
+  // a standing Jetstream subscription (discover.ts explains why there isn't
+  // one): every 15 minutes, ask searchPosts what's been linked lately, keep
+  // what carries a token, and fold it into the subject store.
+  //
+  // Deliberately NOT signing here. The sweep only grows the subject set; the
+  // labels themselves are rebuilt on the read path, which is where the key
+  // and the rotation check already live.
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      runSweep(env)
+        .then(({ found, errors }) => console.log(`sweep: ${found} gift links, ${errors} domain errors`))
+        .catch((err) => console.error(`sweep failed: ${err}`)),
+    );
+  },
+
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/.well-known/did.json") {
       return await didDocument(env, url.host);
     }
     if (url.pathname === "/xrpc/com.atproto.label.queryLabels") {
-      return queryLabels(env, url).catch((err) =>
+      return queryLabels(env, url, ctx).catch((err) =>
         jsonResponse({ error: "InternalError", message: String(err) }, 500),
       );
     }
@@ -615,13 +691,13 @@ export default {
       const configured = Boolean(env.LABELER_DID && env.LABELER_PRIVATE_KEY);
       // Empty whenever the service can't sign — currentLabels enforces that, so
       // the count here can never disagree with what queryLabels will serve.
-      const labels = await currentLabels(env);
+      const labels = await currentLabels(env, ctx);
       return jsonResponse({
         name: "builtbybot",
         kind: "labeler",
         url: "https://builtbybot.bisks.net/",
         description:
-          "Publishes one descriptive label, built-by-bot, on @buildthis.bisks.net's account and the posts that asked for sites it shipped. Labels only this project's own output; never assesses whether anyone else is automated.",
+          "Publishes one descriptive label, gift-link, on posts whose links carry a publisher's unlock token. The claim is about the URL, not the author: it records that a token was present when the link was seen. Tokens expire, so the label is not a promise that the article is still readable.",
         // Live if and only if it can actually sign. A consumer should branch on
         // this rather than on the presence of the endpoints, which answer
         // either way.
@@ -629,7 +705,7 @@ export default {
         labeler: {
           did: env.LABELER_DID || null,
           labelValues: [LABEL_VALUE],
-          subjectPolicy: "own-output-only",
+          subjectPolicy: "third-party-posts",
           labelCount: labels.length,
           // Stated up front rather than discovered by a subscriber who gets
           // silence: this service has no websocket label stream.
@@ -644,25 +720,31 @@ export default {
           status: "/status.json",
         },
         // What this labeler is derived from, so the provenance chain is
-        // followable without reading the source.
+        // followable without reading the source. `coverage` is stated as
+        // best-effort because it is: discovery is a search sweep, so an
+        // unlabeled post means "not seen", never "checked and found clean".
         source: {
-          builder: env.BUILDER_DID || null,
-          eventLog: env.BUILDER_EVENTS_URL || null,
-          truncated: Boolean(await env.LABELS.get(LABELS_TRUNCATED_KEY)),
+          discovery: "app.bsky.feed.searchPosts",
+          domains: searchDomains(),
+          publishers: GIFT_SOURCES.map((s) => ({ key: s.key, name: s.name })),
+          coverage: "best-effort",
+          lastSweepAt: parseInt((await env.LABELS.get(LAST_SWEEP_KEY)) || "0", 10) || null,
+          lastSweepFound: parseInt((await env.LABELS.get(LAST_SWEEP_FOUND_KEY)) || "0", 10),
+          lastSweepErrors: parseInt((await env.LABELS.get(LAST_SWEEP_ERRORS_KEY)) || "0", 10),
         },
       });
     }
     // What the labeler currently asserts, for the page and for eyeballs.
     if (url.pathname === "/api/labels") {
-      const labels = await currentLabels(env);
+      const labels = await currentLabels(env, ctx);
       return jsonResponse({
         src: env.LABELER_DID || null,
         configured: Boolean(env.LABELER_DID && env.LABELER_PRIVATE_KEY),
         value: LABEL_VALUE,
+        claim: "this link carried an unlock token when this service saw it",
         count: labels.length,
-        // True when buildthis's log has more events than one request returns,
-        // so the earliest ships aren't labeled. Surfaced rather than hidden.
-        truncated: Boolean(await env.LABELS.get(LABELS_TRUNCATED_KEY)),
+        subjectCount: (await loadSubjects(env)).length,
+        lastSweepAt: parseInt((await env.LABELS.get(LAST_SWEEP_KEY)) || "0", 10) || null,
         labels: labels.slice(0, 200),
       });
     }
