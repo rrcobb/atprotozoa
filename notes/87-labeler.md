@@ -1,5 +1,13 @@
 # The gift-link labeler
 
+> **Built, never launched — dropped 2026-09-17.** The idea already exists on the
+> network: `paywall-radar.bsky.social` is a live labeler doing the same job, and
+> the feed form is saturated (davidsacerdote's gift-links feed has ~10.8k likes).
+> See `notes/ideas/labeler-candidates.md`. The service is committed and inert;
+> nothing is provisioned and nothing should be. This note stays because the
+> machinery it describes is reusable and genuinely value-agnostic — a future
+> labeler should start here rather than from scratch.
+
 `sites/builtbybot` is a real Bluesky labeler. It publishes one label value,
 `gift-link`, on posts whose links carry a publisher's unlock token.
 

@@ -40,7 +40,7 @@ It intentionally runs looser than a shared production codebase.
 - `80-buildthis-bot.md`
 - `85-watchtower.md`
 - `86-stats.md`
-- `87-labeler.md`
+- `87-labeler.md` (built, not live — see `ideas/labeler-candidates.md`)
 - `88-listbot.md`
 - `90-infra-and-budget.md`
 
@@ -67,6 +67,8 @@ Read from the notes if you have a question about how things work.
 - `beyond-buildthis.md`
 - `bot-ideas-riff.md`
 - `feeds-and-labels.md`
+- `labeler-candidates.md`
+- `labeler-landscape.md`
 - `other-bots.md`
 - `pds-and-lexicons.md`
 - `protocol-object-bot.md`

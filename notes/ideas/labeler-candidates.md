@@ -71,11 +71,63 @@ lot of context) are the prior art to read before starting. This is the one where
 being wrong actually costs someone something, so it should not be the second
 labeler, let alone the first.
 
-## Status
+## Status: dropped, 2026-09-17
 
-Done, 2026-09-17. `sites/builtbybot` now publishes `gift-link`; `notes/87`
-documents the service as it stands. The rest of this note is the argument that
-led there, kept because candidates 2 and 3 are still open.
+Built, then abandoned the same day. `sites/builtbybot` publishes `gift-link` and
+is committed but inert — never provisioned, never live, and not worth
+provisioning. It can stay parked or be deleted.
+
+**Why: the whole idea already exists on the network, several times over.** Nobody
+checked before building.
+
+- `paywall-radar.bsky.social` is a live labeler that "adds a small label to
+  posts linking to known paywalled publications." That is this design, shipped,
+  by someone else — and pointed the better way round, since knowing a link is
+  paywalled is worth more *before* you click than knowing it's free.
+  `paywall.bsky.social` also runs a paywall label list.
+- The feed form is saturated: at least 12 gift-link feeds, led by
+  davidsacerdote.bsky.social's "Gift Links/Gift Articles" at **10,814 likes**.
+- `giftlink.bsky.social` is a bot that replies with a gift link when tagged —
+  NYT, Atlantic, WSJ, the same three publishers this detector leads with.
+
+**The lesson, which is the durable part:** this note reasoned entirely from
+inside the repo. It asked "what claim would be true, checkable, and useful" and
+never asked "does this exist already, and does anyone want it from *us*." Both
+remaining candidates below have the same blind spot.
+
+So: **before building the next labeler, search the network first.**
+`app.bsky.actor.searchActors` plus a check on `associated.labeler` finds the
+live ones in about a minute; `getPopularFeedGenerators` covers the feed form.
+A 2026-09-17 sweep found 23 distinct labelers, listed in
+`notes/ideas/labeler-landscape.md`.
+
+There's a second lesson underneath the first. A label marks posts you are
+**already looking at** — it can't bring you anything. So "show me the X" is
+always a feed, never a labeler. Gift links were picked as a labeler mostly
+because the detection already existed in the repo, which is a reason to reuse
+code, not a reason to choose a form. Ask what the subscriber does with the
+label at the moment they see it.
+
+## What was built, for whoever finds it
+
+`sites/builtbybot` still holds it, and two pieces are reusable:
+
+- `src/giftdetect.ts` — 11 publishers, reads link facets and embed cards,
+  exact-or-subdomain host matching, 15 tests. Portable to a feed generator.
+- the labeler machinery itself — signed labels, `queryLabels`, low-S
+  normalization, key rotation, canonical dag-cbor. Genuinely value-agnostic;
+  `notes/87` documents it. A future labeler should reuse this rather than
+  start over.
+
+Also learned, and cheap to forget: **`app.bsky.feed.searchPosts` needs a
+session.** The public AppView answers `getPosts` unauthenticated but 403s
+`searchPosts`. Any server-side "find posts matching X" needs credentials.
+
+## The original argument
+
+Kept because candidates 2 and 3 below are still open — but read the Status
+section first, because the reasoning here is what led somewhere already
+occupied.
 
 Two things the repoint turned up that this note didn't anticipate:
 
