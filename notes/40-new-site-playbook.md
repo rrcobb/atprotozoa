@@ -219,6 +219,74 @@ Constellation specifics that have bitten before:
   with no SLA; every site above does `try constellation, catch → getFollowers`.
 
 Things people asked for that need Rob, not a site: a labeler or feed
-generator as bot output (signing key), storage on the user's own PDS via
-OAuth write scopes (see `notes/50-oauth-scopes.md`), and pre-2025 history
-of any kind.
+generator as bot output (signing key), and pre-2025 history of any kind.
+Storage on the user's own PDS is *not* on that list — it needs nothing from
+Rob, and the recipe is below.
+
+## Storage on the user's own PDS
+
+The single most-repeated ask in the buildthis threads, in several phrasings:
+@mensmachina (08-13) "authenticate with atmosphere and the user's PDS for
+storage", @7778777 (07-30) "save this under `net.bisks.steamtags` in their
+PDS", @geesawra (09-13) "use the spaces pds to store data", @dame.is (09-09)
+"the full potential ... is significantly knee-capped without write
+permissions".
+
+All of it already works, and nothing about it is blocked. Roughly 20 sites
+write 32 `net.bisks.*` record types today, and `_lexicon.bisks.net` resolves
+(TXT `did=did:plc:f6n22z62adionrvb5s6n6vfk`), so the NSIDs are real, not just
+fetchable files. What was missing was a single place saying "copy these four
+files, in this order" — so here it is.
+
+Copy from `sites/steamtags`. It is the reference for all three halves.
+
+**1. The lexicon.** `public/lexicons/<nsid>.json`, copied from
+`sites/steamtags/public/lexicons/net.bisks.steamtags.rating.json`. Write it
+*before* the write path, not after — it is where you notice that atproto
+records take integers and not floats, which `padmoot` and `paintmoot` both
+shipped as a bug and both needed a user to report. Decide `key` here too: it
+decides your read path. `"any"` with a meaningful rkey (steamtags uses the
+Steam appid) means re-writing overwrites in place; a fixed `"self"` rkey
+means one record per person; `"tid"` means one record per event. Then run
+`audit/build-lexicons.mjs --apply` to mirror it into `apex/public/lexicons/`
+so it serves at `bisks.net/lexicons/`.
+
+**2. The write path.** `public/lib/oauth.js` plus `oauth-jwt.js`, copied
+whole. The only edit is the `SCOPE` constant — one line, and for a
+create-only site it reads `atproto repo:<nsid>?action=create`. Copy
+`public/client-metadata.json` too and change `client_id`, `client_uri`,
+`redirect_uris`, and the same `scope` string. Those two scope strings must
+match exactly or the PDS rejects the authorize request; `notes/50-oauth-scopes.md`
+has the full syntax and the rollback if a PDS rejects the granular form.
+
+**3. The read path.** Without this the site is write-only — it puts records
+somewhere you can never see in aggregate, which is what `tallybot` shipped
+until 2026-08-20. Copy `public/lib/global-index.js`, which does a
+`com.atproto.sync.listReposByCollection` backfill plus a live Jetstream
+subscription. Which variant you copy follows from the `key` you chose in step
+1: `sites/steamtags` for many records per repo, `sites/kolpelor` for a
+singleton `"self"`, `sites/quadrants` for one record per (person, thing),
+`sites/socialcredit` for the case where you need every record from each repo
+and a whole-repo CAR download beats paginating.
+
+24 sites have a `global-index.js` / `network-index.js` today. Copy the one
+whose record shape matches yours.
+
+### Private storage is the part that doesn't exist
+
+@geesawra asked for private leaderboards (09-13) and got `tacocounter`, which
+is honest about what it actually delivers: "a board is private the same way
+an unlisted link is: nobody finds it without the link, but it's not
+encrypted." That's the real constraint — a PDS record is world-readable, and
+`listReposByCollection` is exactly the thing that makes unlisted records
+findable. Don't write "private" in a UI when you mean unlisted.
+
+The one real precedent is `sites/keytags`: `public/lib/keytag.js` HMACs a
+passphrase that never leaves the tab, and stores only the hash as the rkey.
+An aggregate view of it shows nothing to anyone without the key — which is
+why it's the deliberate exception in the `listReposByCollection` list in
+`notes/ideas/pds-and-lexicons.md`. Copy that when someone asks for private,
+and say plainly which half is hidden: keytags hides *which* entries are
+yours, not their contents. Encrypting record values so a leaderboard can
+still be computed over them isn't built here and isn't a copy job — it needs
+a survey note in `notes/ideas/` first.
