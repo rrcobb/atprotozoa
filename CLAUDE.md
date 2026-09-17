@@ -37,6 +37,7 @@ It intentionally runs looser than a shared production codebase.
 - `45-sharing-and-virality.md`
 - `50-oauth-scopes.md`
 - `80-buildthis-bot.md`
+- `85-watchtower.md`
 - `90-infra-and-budget.md`
 
 Read from the notes if you have a question about how things work.

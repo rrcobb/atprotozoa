@@ -16,13 +16,36 @@ compatibility_date = "2025-01-01"
 workers_dev = true
 
 # Cron walks the site list a slice at a time — Workers Free caps subrequests at
-# 50 per invocation and each site costs up to 3 (root, root again for its HTML,
-# one asset), so ~190 sites can't be done in one tick. Every 5 minutes covers
-# the whole zoo in roughly an hour.
+# 50 per invocation. Each site costs 2 (root, then one asset); a tick does a
+# slice of 16 plus up to 4 re-probes of suspect/broken sites plus up to 2
+# Bluesky posts. See the budget table in src/index.ts. Every 2 minutes covers
+# ~660 sites in about 85 minutes; a site that fails is re-probed on the very
+# next tick, and a site that just appeared on the gallery is probed first.
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/2 * * * *"]
 
-# Holds the standing report plus the walk cursor.
+# Durable logs, so an overnight cron failure is visible without live-tailing.
+[observability]
+enabled = true
+
+# Holds the standing report, per-site state (site:<name>), the walk cursor, the
+# pending re-probe list, the alert log, and the outbox of posts to send.
 [[kv_namespaces]]
 binding = "RESULTS"
 id = "39d84e13322a41fe87d0a1c2fc57056f"
+
+[vars]
+# Which account the alerts post from. Posting stays OFF until the matching
+# BOT_APP_PASSWORD secret is set (`wrangler secret put BOT_APP_PASSWORD` from
+# this directory); until then alerts only land in /alerts.json. Login by DID so
+# a handle change can't break it.
+BOT_IDENTIFIER = "did:plc:wlj4p2kazhifag6w4nanjnee"
+
+# Hard ceiling on posts per UTC day, whatever breaks. Alerts past the cap are
+# still logged, with the reason. A zone-wide outage is one summary post
+# regardless (MASS_OUTAGE_THRESHOLD in src/index.ts).
+MAX_POSTS_PER_DAY = "12"
+
+# Where sites/<name>/.buildthis.json is read from, to find the thread a site
+# was built in so the alert can land there.
+GITHUB_REPO = "rrcobb/atprotozoa"

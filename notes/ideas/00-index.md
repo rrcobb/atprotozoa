@@ -136,11 +136,19 @@ scene, gift links.
 
 ## B. New bots
 
-**6. Verifier / health-check bot.** (`other-bots.md`)
-Fetches each announced URL, confirms it 200s and its scripts load. Silent unless
-broken. The trailing-slash bug independently broke pvnp, sepcheck, areyoumad,
-padmoot, cloutgraph, edzitronquest, desertbus, platoscave before anyone noticed
-it was fleet-wide (110 sites).
+**6. Verifier / health-check bot.** (`other-bots.md`) **Built, 2026-09-17,
+minus the account.** The checking half had existed since 2026-07-31 as
+`watchtower/` (an off-zone cron Worker, never listed here) — root plus one
+real asset per site, which is what catches the trailing-slash bug that broke
+pvnp, sepcheck, areyoumad, padmoot, cloutgraph, edzitronquest, desertbus,
+platoscave before anyone noticed it was fleet-wide (110 sites). What it
+lacked was memory and a voice: it overwrote its report every tick and told
+nobody. It now keeps per-site state, confirms a break on two consecutive
+probes before believing it, checks newly shipped sites first, keeps an alert
+log at `/alerts.json`, and posts a confirmed break as a reply in the thread
+the site was built from, with a daily cap and a mass-outage collapse. Posting
+stays off until an app password is set on the Worker; which account it should
+be is still Rob's call. See `notes/85-watchtower.md`.
 
 **7. Protocol-object bot.** (`protocol-object-bot.md`)
 Tag it, get a feed / lexicon / list instead of a page. The four outputs share one
