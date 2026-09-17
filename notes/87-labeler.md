@@ -47,6 +47,34 @@ ingest the label stream see nothing. Clients that query see every label. This is
 a genuine limitation of running a labeler from a stateless Worker, not something
 the code papers over.
 
+## Endpoints
+
+- `/xrpc/com.atproto.label.queryLabels` — the labels. Exact URIs, `*` prefixes,
+  `sources` filtering, cursor paging.
+- `/xrpc/com.atproto.label.subscribeLabels` — answers and closes; see above.
+- `/.well-known/did.json` — the did:web document, including the
+  `#atproto_label` public key when one is configured.
+- `/status.json` — the CORS-open catalog/status document
+  `notes/ideas/other-bots.md` asks every new bot here to publish on day one:
+  what the service is, whether it's `live`, its label values, and where its
+  endpoints are. `/api/labels` is the data; this is the description, which is
+  what another bot needs first.
+- `/api/labels` — what it currently asserts, for the page and for eyeballs.
+
+## Key rotation
+
+Cached labels are bound to the key that signed them and the DID they name, so
+a rotation invalidates every one of them. KV records a fingerprint of the
+current DID plus public key (public values only — never the secret), and a
+mismatch forces an immediate re-sign instead of waiting out the 15-minute
+window.
+
+Without that, a rotated key left every cached label failing verification until
+the window expired — 100/100 in testing. Relatedly, nothing is served at all
+unless the service can currently sign: labels outlive a config change in KV,
+and serving ones attributed to a DID the service no longer claims would be
+publishing unverifiable claims as valid.
+
 ## Signing
 
 Labels are signed with P-256 (ES256) — one of the two curves atproto accepts,

@@ -77,6 +77,9 @@ const LABEL_VALUE = "built-by-bot";
 const LABELS_KEY = "labels:built-by-bot";
 const LABELS_BUILT_AT_KEY = "labels:built-at";
 const LABELS_TRUNCATED_KEY = "labels:truncated";
+// Which DID + public key the cached labels were signed under. A fingerprint of
+// public values only — never the secret.
+const LABELS_KEYID_KEY = "labels:key-fingerprint";
 const REBUILD_INTERVAL_MS = 15 * 60 * 1000;
 
 interface StoredLabel {
@@ -384,7 +387,7 @@ async function subjectsToLabel(
   }
 }
 
-async function rebuildLabels(env: Env): Promise<StoredLabel[]> {
+async function rebuildLabels(env: Env, fingerprint?: string): Promise<StoredLabel[]> {
   const key = await importSigningKey(env);
   if (!key || !env.LABELER_DID) {
     // Not provisioned yet — the state this ships in. Stamp the clock anyway,
@@ -402,7 +405,12 @@ async function rebuildLabels(env: Env): Promise<StoredLabel[]> {
   // failure than serving a slightly stale set, so hold what we have and retry
   // on the next request. (Deliberately no `neg` labels here — this service has
   // no retraction path, because nothing it labels ever stops being bot-built.)
-  if (!reachable && existing.length > 0) {
+  // ...but only when those labels are still valid under the current key. After
+  // a rotation the cached set is unverifiable, so holding it would serve
+  // signatures nothing can check; better to serve none and retry.
+  const staleAfterRotation =
+    fingerprint !== undefined && (await env.LABELS.get(LABELS_KEYID_KEY)) !== fingerprint;
+  if (!reachable && existing.length > 0 && !staleAfterRotation) {
     await env.LABELS.put(LABELS_BUILT_AT_KEY, String(Date.now()));
     return existing;
   }
@@ -430,6 +438,11 @@ async function rebuildLabels(env: Env): Promise<StoredLabel[]> {
 
   await env.LABELS.put(LABELS_KEY, JSON.stringify(labels));
   await env.LABELS.put(LABELS_BUILT_AT_KEY, String(Date.now()));
+  // Last: records which key/DID these labels were signed under, so the next
+  // request can tell a rotation happened. Written after the labels themselves,
+  // so a failure between the two leaves a stale fingerprint (triggering another
+  // rebuild) rather than a fresh one vouching for labels that weren't stored.
+  if (fingerprint !== undefined) await env.LABELS.put(LABELS_KEYID_KEY, fingerprint);
   return labels;
 }
 
@@ -446,9 +459,31 @@ async function loadLabels(env: Env): Promise<StoredLabel[]> {
 // There's no alarm and no cron here, so the set advances on request — the
 // pattern notes/11 describes for everything that used to need a DO alarm.
 async function currentLabels(env: Env): Promise<StoredLabel[]> {
+  // Serve nothing unless the service can currently sign. Labels persist in KV
+  // across config changes, so without this a Worker that lost its key (or whose
+  // LABELER_DID was cleared) keeps serving labels attributed to a DID it no
+  // longer claims, signed by a key nothing can check — unverifiable claims
+  // presented as valid, which is the one failure mode a labeler must not have.
+  // Gating here rather than at each caller covers queryLabels, /api/labels and
+  // /status.json in one place.
+  if (!env.LABELER_DID || !env.LABELER_PRIVATE_KEY) return [];
+
+  // Rebuild immediately when the signing key or the DID has changed, instead of
+  // waiting out the interval. Cached labels are bound to the key that signed
+  // them and the DID they name, so after a rotation every cached label is
+  // unverifiable against the public key this service now publishes — observed
+  // in testing, where a rotated key left 100/100 labels failing verification
+  // until the window expired. Fingerprint, not the key itself: this is written
+  // to KV, and the secret must not be.
+  const fingerprint = `${env.LABELER_DID}:${(await publicMultikey(env)) || "none"}`;
+  const cachedFingerprint = await env.LABELS.get(LABELS_KEYID_KEY);
+  if (cachedFingerprint !== fingerprint) {
+    return await rebuildLabels(env, fingerprint);
+  }
+
   const builtAt = parseInt((await env.LABELS.get(LABELS_BUILT_AT_KEY)) || "0", 10);
   if (Date.now() - builtAt > REBUILD_INTERVAL_MS) {
-    return await rebuildLabels(env);
+    return await rebuildLabels(env, fingerprint);
   }
   return await loadLabels(env);
 }
@@ -539,6 +574,53 @@ export default {
     }
     if (url.pathname === "/xrpc/com.atproto.label.subscribeLabels") {
       return subscribeLabels(request);
+    }
+    // The catalog/status document `notes/ideas/other-bots.md` asks every new
+    // bot here to publish on day one: CORS-open JSON that says what this
+    // service is and where its endpoints are, so another bot can find and use
+    // it without a thread negotiation (the lesson from the buildthis/mino
+    // registry exchange). /api/labels is the DATA; this is the description of
+    // the service, which is the part a stranger needs first.
+    if (url.pathname === "/status.json") {
+      const configured = Boolean(env.LABELER_DID && env.LABELER_PRIVATE_KEY);
+      // Empty whenever the service can't sign — currentLabels enforces that, so
+      // the count here can never disagree with what queryLabels will serve.
+      const labels = await currentLabels(env);
+      return jsonResponse({
+        name: "builtbybot",
+        kind: "labeler",
+        url: "https://builtbybot.bisks.net/",
+        description:
+          "Publishes one descriptive label, built-by-bot, on @buildthis.bisks.net's account and the posts that asked for sites it shipped. Labels only this project's own output; never assesses whether anyone else is automated.",
+        // Live if and only if it can actually sign. A consumer should branch on
+        // this rather than on the presence of the endpoints, which answer
+        // either way.
+        live: configured,
+        labeler: {
+          did: env.LABELER_DID || null,
+          labelValues: [LABEL_VALUE],
+          subjectPolicy: "own-output-only",
+          labelCount: labels.length,
+          // Stated up front rather than discovered by a subscriber who gets
+          // silence: this service has no websocket label stream.
+          streaming: false,
+          policy: "https://builtbybot.bisks.net/policy",
+        },
+        endpoints: {
+          queryLabels: "/xrpc/com.atproto.label.queryLabels",
+          subscribeLabels: null,
+          didDocument: "/.well-known/did.json",
+          labels: "/api/labels",
+          status: "/status.json",
+        },
+        // What this labeler is derived from, so the provenance chain is
+        // followable without reading the source.
+        source: {
+          builder: env.BUILDER_DID || null,
+          eventLog: env.BUILDER_EVENTS_URL || null,
+          truncated: Boolean(await env.LABELS.get(LABELS_TRUNCATED_KEY)),
+        },
+      });
     }
     // What the labeler currently asserts, for the page and for eyeballs.
     if (url.pathname === "/api/labels") {
