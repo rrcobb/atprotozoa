@@ -229,6 +229,18 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
+    // This site was called "styletwin" until 2026-08-11 (renamed in de94eadb).
+    // The bot had already posted https://styletwin.bisks.net in-thread, and the
+    // pre-rename Worker was never deleted — so that link kept resolving to a
+    // frozen copy of the first-pass build, with no sign the site had moved.
+    // Claim the old hostname and forward it here, keeping the path so a shared
+    // /s/<handle> still lands on that person's comparison. Same fix as
+    // activitygrid's /skeetgrid forward (331ba730).
+    if (url.hostname === "styletwin.bisks.net") {
+      url.hostname = "ceemilarity.bisks.net";
+      return Response.redirect(url.toString(), 301);
+    }
+
     const m = url.pathname.match(/^\/s\/([^/]+)\/?$/);
     if (m) return renderShare(env, request, m[1]);
 
