@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>followtide — a sankey of when you followed everyone</title>
+    <meta
+      name="description"
+      content="Paste a Bluesky handle: followtide sankeys everyone you currently follow, bucketed by the month you followed them, flowing into where you stand today."
+    />
+    <meta property="og:title" content="followtide — a sankey of when you followed everyone" />
+    <meta
+      property="og:description"
+      content="Every account you currently follow, grouped by the month you followed them, flowing into one 'following now' node — a Minard-style tide of your own follow history."
+    />
+    <meta property="og:url" content="https://followtide.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://followtide.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="followtide: a sankey diagram of follows bucketed by the month they happened, flowing into 'following now'." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="followtide — a sankey of when you followed everyone" />
+    <meta name="twitter:description" content="Your current follows, bucketed by the month you followed them, sankeyed into where you stand today." />
+    <meta name="twitter:image" content="https://followtide.bisks.net/og.png" />
+    <style>
+      .viz-root {
+        color-scheme: light;
+        --surface-1: #fcfcfb;
+        --page: #f9f9f7;
+        --text-primary: #0b0b0b;
+        --text-secondary: #52514e;
+        --text-muted: #898781;
+        --gridline: #e1e0d9;
+        --baseline: #c3c2b7;
+        --border: rgba(11, 11, 11, 0.1);
+        --accent: #0f9e8e;
+
+        --tide-old: #8aa0c9;
+        --tide-new: #0f9e8e;
+        --root-fill: #52514e;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:where(:not([data-theme="light"])) .viz-root {
+          color-scheme: dark;
+          --surface-1: #1a1a19;
+          --page: #0d0d0d;
+          --text-primary: #ffffff;
+          --text-secondary: #c3c2b7;
+          --text-muted: #898781;
+          --gridline: #2c2c2a;
+          --baseline: #383835;
+          --border: rgba(255, 255, 255, 0.1);
+          --accent: #1fd6c0;
+
+          --tide-old: #5b6f99;
+          --tide-new: #1fd6c0;
+          --root-fill: #c3c2b7;
+        }
+      }
+      :root[data-theme="dark"] .viz-root {
+        color-scheme: dark;
+        --surface-1: #1a1a19;
+        --page: #0d0d0d;
+        --text-primary: #ffffff;
+        --text-secondary: #c3c2b7;
+        --text-muted: #898781;
+        --gridline: #2c2c2a;
+        --baseline: #383835;
+        --border: rgba(255, 255, 255, 0.1);
+        --accent: #1fd6c0;
+
+        --tide-old: #5b6f99;
+        --tide-new: #1fd6c0;
+        --root-fill: #c3c2b7;
+      }
+
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--page);
+        color: var(--text-primary);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      .wrap { max-width: 900px; margin: 0 auto; padding: 2.75rem 1.25rem 4rem; }
+
+      header h1 { font-size: 1.6rem; font-weight: 650; margin: 0 0 0.4rem; }
+      header p.sub {
+        color: var(--text-secondary);
+        margin: 0 0 1.75rem;
+        font-size: 0.95rem;
+        line-height: 1.55;
+        max-width: 62ch;
+      }
+
+      form.lookup {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.6rem;
+      }
+      form.lookup input[type="text"] {
+        flex: 1 1 260px;
+        font: inherit;
+        font-size: 0.95rem;
+        padding: 0.6rem 0.8rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface-1);
+        color: var(--text-primary);
+      }
+      form.lookup input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      form.lookup button {
+        font: inherit;
+        font-size: 0.9rem;
+        font-weight: 600;
+        padding: 0.6rem 1.1rem;
+        border-radius: 8px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: #04231f;
+        cursor: pointer;
+      }
+      form.lookup button:disabled { opacity: 0.55; cursor: default; }
+
+      .status {
+        min-height: 1.3em;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+        margin: 0 0 1.5rem;
+      }
+      .status.err { color: #d9534f; }
+
+      .toolbar {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        margin-bottom: 1rem;
+        flex-wrap: wrap;
+      }
+      button.pill {
+        font: inherit;
+        font-size: 0.8rem;
+        color: var(--text-secondary);
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.4rem 0.85rem;
+        cursor: pointer;
+      }
+      button.pill:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+      button.pill[aria-pressed="true"] { color: var(--text-primary); border-color: var(--accent); }
+
+      #results { display: none; }
+      #results.show { display: block; }
+
+      .stats {
+        display: flex;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+        font-size: 0.85rem;
+        color: var(--text-secondary);
+      }
+      .stats b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+      .chart-card {
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1.25rem 1rem 0.75rem;
+      }
+
+      svg#sankey { width: 100%; height: auto; display: block; }
+      .node-label { font-size: 12px; fill: var(--text-primary); }
+      .node-value { font-size: 11px; fill: var(--text-secondary); }
+      rect.node { stroke: var(--surface-1); stroke-width: 2px; cursor: pointer; }
+      path.link { cursor: pointer; transition: opacity 120ms ease; }
+      path.link.dim { opacity: 0.14; }
+
+      .tooltip {
+        position: fixed;
+        pointer-events: none;
+        background: var(--surface-1);
+        color: var(--text-primary);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.45rem 0.65rem;
+        font-size: 0.8rem;
+        line-height: 1.4;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+        max-width: 240px;
+        z-index: 10;
+        opacity: 0;
+        transform: translateY(2px);
+        transition: opacity 100ms ease;
+      }
+      .tooltip.show { opacity: 1; }
+      .tooltip .t-title { font-weight: 600; margin-bottom: 0.15rem; }
+      .tooltip .t-sub { color: var(--text-secondary); }
+
+      .caption {
+        margin-top: 1rem;
+        font-size: 0.82rem;
+        color: var(--text-muted);
+        line-height: 1.5;
+        max-width: 62ch;
+      }
+
+      table.flows { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 0.5rem; }
+      table.flows caption { text-align: left; color: var(--text-secondary); font-size: 0.8rem; padding-bottom: 0.5rem; }
+      table.flows th, table.flows td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--gridline); }
+      table.flows th { color: var(--text-muted); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+      table.flows td.num, table.flows th.num { text-align: right; font-variant-numeric: tabular-nums; }
+      table.flows tfoot td { font-weight: 600; border-bottom: none; border-top: 1px solid var(--baseline); }
+      .table-wrap { display: none; }
+      .table-wrap.show { display: block; }
+      #chart-wrap.hide { display: none; }
+
+      .bucket-detail { margin-top: 1.25rem; display: none; }
+      .bucket-detail.show { display: block; }
+      .bucket-detail h2 { font-size: 0.95rem; margin: 0 0 0.6rem; }
+      .bucket-detail .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+      .bucket-detail .chip {
+        font-size: 0.78rem;
+        background: var(--surface-1);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0.25rem 0.7rem;
+        color: var(--text-secondary);
+      }
+      .bucket-detail .more { font-size: 0.78rem; color: var(--text-muted); align-self: center; }
+
+      .share-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1.25rem; }
+      .share-row a, .share-row button {
+        font: inherit;
+        font-size: 0.85rem;
+        padding: 0.5rem 0.9rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface-1);
+        color: var(--text-primary);
+        text-decoration: none;
+        cursor: pointer;
+      }
+      .share-row a:hover, .share-row button:hover { border-color: var(--accent); }
+      #share-canvas { display: none; }
+
+      footer {
+        margin-top: 2.5rem;
+        padding-top: 0.9rem;
+        border-top: 1px solid var(--gridline);
+        color: var(--text-muted);
+        font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="viz-root">
+      <div class="wrap">
+        <header>
+          <h1>f<span onclick='var e=document.getElementById("handle-input");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">o</span>llowtide</h1>
+          <p class="sub">
+            drop a handle and followtide sankeys everyone you currently
+            follow, bucketed by the month you followed them, flowing from the
+            past into where you stand right now. a Minard-style tide of your
+            own follow history — the newer the cohort, the brighter the band.
+          </p>
+        </header>
+
+        <form class="lookup" id="lookup-form">
+          <input type="text" id="handle-input" placeholder="you.bsky.social" autocomplete="off" spellcheck="false" />
+          <button type="submit" id="go-btn">tide it</button>
+        </form>
+        <p class="status" id="status"></p>
+
+        <div id="results">
+          <div class="toolbar">
+            <button class="pill" id="theme-toggle" type="button" aria-pressed="false">🌗 theme: auto</button>
+            <button class="pill" id="view-toggle" type="button" aria-pressed="false">view as table</button>
+          </div>
+
+          <div class="stats" id="stats"></div>
+
+          <div class="chart-card">
+            <div id="chart-wrap">
+              <svg id="sankey" viewBox="0 0 860 600" role="img" aria-label="Sankey diagram of current follows bucketed by the month they were followed"></svg>
+            </div>
+            <div class="table-wrap" id="table-wrap"></div>
+          </div>
+
+          <p class="caption" id="caption"></p>
+
+          <div class="bucket-detail" id="bucket-detail">
+            <h2 id="bucket-detail-title">who you followed then</h2>
+            <div class="chips" id="bucket-detail-chips"></div>
+          </div>
+
+          <div class="share-row">
+            <a id="share-bluesky" href="#" target="_blank" rel="noopener">share on Bluesky</a>
+            <button id="share-download" type="button">download card</button>
+            <button id="share-native" type="button" style="display: none;">share…</button>
+          </div>
+        </div>
+
+        <footer>
+          built by <a href="https://bisks.net">@buildthis.bisks.net</a>, asked
+          for by @scoiattolo.mountainherder.xyz, flagged up by
+          @vibecode.rodeo · reads your public follow graph and repo — nothing
+          is stored anywhere · rate this on
+          <a href="https://rateyourbuild.bisks.net/site/followtide">rateyourbuild →</a>
+          · part of the <a href="https://bisks.net">atprotozoa</a> zoo
+        </footer>
+      </div>
+    </div>
+
+    <div class="tooltip" id="tooltip" role="status"></div>
+    <canvas id="share-canvas" width="1200" height="630"></canvas>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
+    <script src="/lib/handle-typeahead.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
