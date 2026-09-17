@@ -147,7 +147,30 @@ gets a reply pointing at the site; nothing else happens.
   **how many** accounts are signed in — a count only, never who. Whose list
   contains whom is the user's business; listbot publishing it would undo the
   point of keeping lists in their own repo.
-- `/.well-known/atproto-did` — handle verification.
+- `/.well-known/atproto-did` — handle verification, the HTTP method. Serving it
+  costs nothing, but it is **not** what verifies this handle; see below.
+
+## The handle is verified by DNS, not by the Worker
+
+`listbot.bisks.net` is claimed with a TXT record, not the well-known endpoint:
+
+```
+_atproto.listbot.bisks.net  TXT  "did=did:plc:ydbdmpz23ou2ycc4oejlf24z"
+```
+
+Both methods are valid atproto (`notes/30` describes the pair). DNS was chosen
+because the HTTP method needs a deployed Worker at `listbot.bisks.net`, and
+Workers were exactly what was unavailable when the account hit Cloudflare's
+500-Worker cap. The TXT record needs no Worker, so the handle landed while the
+deploy was still blocked.
+
+Worth knowing generally: **a subdomain handle verifies by DNS the same way an
+apex does** — confirmed here, `resolveHandle` returns the bot's DID. The zone
+already had the pattern in `_lexicon.bisks.net`.
+
+The record is written with the `DNS edit bisks.net token` in 1Password's
+Cloudflare item, which is a different credential from the Workers token the
+`audit/cf-*.mjs` tools use — that one reads zones but 403s on DNS records.
 
 ## Tests
 
