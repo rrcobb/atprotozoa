@@ -117,6 +117,11 @@ block, to run such a site locally.
   don't exist on disk or escape the site. Catches the "absolute path forgot the
   mount prefix" class of bug. Skips protocol/data URLs, runtime-built template
   paths, and specifiers covered by a page's own importmap.
+- `pnpm check:types` (`tsc -p tsconfig.json`) — typechecks the Workers listed
+  in `tsconfig.json`'s `include` (currently `sites/buildthis`). wrangler
+  strips types and never runs tsc, so without this a type error ships
+  silently. Add a site to `include` to cover it; expect to fix its existing
+  errors first.
 - `audit/cf-custom-domains.mjs` — inventory / prune Cloudflare custom domains.
 - `audit/cf-durable-objects.mjs` — inventory / prune leftover Durable Object
   namespaces. A delete refused by Cloudflare means a deployed Worker still
@@ -128,9 +133,10 @@ block, to run such a site locally.
   builds can't reintroduce the drift (hand edits still can — run it yourself
   after touching a `site.json`).
 
-These are plain repo scripts, not CI gates. Wiring `check:imports` into
-`deploy.yml` needs someone with `.github/` write access — the builder is barred
-from that directory.
+`check:imports`, `check:types`, and the gallery check run in `deploy.yml`'s
+`check` job, which every deploy waits on; the rest are plain repo scripts.
+Changing that wiring needs someone with `.github/` write access — the builder
+is barred from that directory.
 
 **New workspace member needs a lockfile update, or `check` fails silently for
 everyone after it.** `deploy.yml`'s `check` job runs
