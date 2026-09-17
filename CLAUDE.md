@@ -44,6 +44,7 @@ Read from the notes if you have a question about how things work.
 ### history/
 
 - `00-index.md`
+- `2026-07-buildthis-audit.md`
 - `2026-07-deploy-incidents.md`
 - `2026-08-pnpm-lockfile-outage.md`
 - `builder-inputs-and-runway.md`

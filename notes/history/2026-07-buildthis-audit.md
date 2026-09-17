@@ -1,5 +1,13 @@
 # buildthis audit — what's working, what isn't
 
+**Superseded.** Everything on this snapshot's action list has landed. The five
+sites stuck behind the custom-domain cap all serve their own subdomains again,
+`edzitronquest` uses the standard route array, and `catsofatproto` is a static
+stub. A sweep on 2026-09-17 checked all 516 sites and found zero problems, so
+the counts below (114 sites, 5 down) describe July, not now. Kept for the
+mention-funnel numbers and the reasoning about what a "failure" outcome means.
+Re-run the sweep with `node audit/check-subdomains.mjs`.
+
 Snapshot taken 2026-07-26 ~21:30 UTC. All raw data is in `audit/raw/`, joined into
 `audit/audit.db` (SQLite). Re-runnable: `node audit/check-sites.mjs` then
 `node audit/build-db.mjs`.

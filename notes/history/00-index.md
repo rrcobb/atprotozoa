@@ -26,6 +26,12 @@ measurements are often still useful, and several of the failure modes recur.
   25 blocked pushes, 8 sites still stuck when found) — still nothing watches
   `check` for failure, so expect a third occurrence.
 
+- **`2026-07-buildthis-audit.md`** — a full audit of the bot at 114 sites: the
+  mention funnel (259 events, what each gate did), why most "failure" outcomes
+  were correct no-builds, and the five sites stranded by the Cloudflare
+  custom-domain cap. Every action item has since landed. The funnel numbers and
+  the read on failure outcomes are the part still worth having.
+
 - **`going-live-checklist.md`** — the one-time bootstrap: Cloudflare login, the
   DID for handle verification, first deploys, wiring CI. All done.
 
