@@ -461,12 +461,13 @@ async function runWatcher(env: Env): Promise<void> {
 
     // Rob himself is always allowed (he owns the bot — he's not a "mutual" to be
     // checked; a self-relationship has neither following nor followedBy). Everyone
-    // else must be a mutual of Rob's, OR be replying inside a thread the bot has
-    // already built in (see threadAlreadyBuilt — the thread carries the
-    // authorization, so a follow-up, bug report or answer doesn't re-gate).
+    // else must be a mutual of Rob's, OR be someone the bot has already built
+    // FOR in this thread (see builtForInThread — an approved requester stays
+    // approved for follow-ups on the same site, so a bug report or answer
+    // doesn't re-gate; a bystander in the thread still does).
     const isRob = m.authorDid === env.ROB_DID;
     const lookup: MutualResult = isRob ? "mutual" : await robMutual(env, m.authorDid);
-    const viaThread = lookup !== "mutual" && (await threadAlreadyBuilt(env, session, m));
+    const viaThread = lookup !== "mutual" && (await builtForInThread(env, session, m));
     const isAllowed = lookup === "mutual" || viaThread;
 
     if (!isAllowed) {
@@ -488,9 +489,7 @@ async function runWatcher(env: Env): Promise<void> {
       // bot spam-tag Rob by repeating themselves in one thread.
       const nmKey = `nonmutual-replied:${m.authorDid}:${m.rootUri || m.uri}`;
       if (!(await env.STATE.get(nmKey))) {
-        const gateReply = unknown
-          ? `hi! i couldn't check whether you're one of @bisks.net's mutuals just now — tagging them so they can take a look.`
-          : `hi! i'll build for anyone, just not automatically yet — tagging @bisks.net so they can give the go-ahead.`;
+        const gateReply = unknown ? GATE_REPLY_UNKNOWN : GATE_REPLY_NOT_MUTUAL;
         await replyToPost(session, m, gateReply, { "bisks.net": env.ROB_DID });
         await env.STATE.put(nmKey, "1", { expirationTtl: 60 * 60 * 24 * 30 });
         // Record what was actually said. Every non-mutual event in the log used
@@ -570,9 +569,15 @@ async function runWatcher(env: Env): Promise<void> {
     await recordEvent(env, m.uri, { dispatched });
 
     if (dispatched) {
-      // This thread is now one the bot has built in, so follow-ups in it skip
-      // the mutual gate (see threadAlreadyBuilt).
-      await markThreadBuilt(env, m.rootUri || m.uri);
+      // The bot has now built for this person in this thread, so their
+      // follow-ups here skip the mutual gate (see builtForInThread). When the
+      // tag is Rob's go-ahead on someone else's ask, the requester is the one
+      // being approved, so they are marked too.
+      await markBuiltFor(env, m.authorDid, m.rootUri || m.uri);
+      if (isRob) {
+        const requester = ctx.ancestorAuthors.find((d) => d !== env.BOT_DID && d !== env.ROB_DID);
+        if (requester) await markBuiltFor(env, requester, m.rootUri || m.uri);
+      }
 
       // Say out loud that the build is queued. The like is the other half of
       // this and fires earlier, but it's easy to miss in a notification feed,
@@ -2099,7 +2104,7 @@ async function threadContext(session: Session, m: Mention): Promise<ThreadContex
   const res = await fetch(u.toString(), {
     headers: { authorization: `Bearer ${session.accessJwt}` },
   });
-  if (!res.ok) return { posts: [], images: [], unread: [] };
+  if (!res.ok) return { posts: [], images: [], unread: [], ancestorAuthors: [] };
   const j = (await res.json()) as { thread?: ThreadNode };
 
   // Collect ancestors newest->oldest by following .parent, then reverse. The
@@ -2155,7 +2160,12 @@ async function threadContext(session: Session, m: Mention): Promise<ThreadContex
   const refsBlock = renderRefs(fetched);
   if (refsBlock) posts.push(refsBlock);
 
-  return { posts, images: dedupeImages(images), unread };
+  // nodes is oldest-first by now; the gate wants nearest-first.
+  const ancestorAuthors = nodes
+    .map((n) => n.post?.author?.did || "")
+    .filter(Boolean)
+    .reverse();
+  return { posts, images: dedupeImages(images), unread, ancestorAuthors };
 }
 
 // Fetch a single post by uri, for the root when it's above the ancestor window.
@@ -2264,6 +2274,9 @@ interface ThreadContext {
   images: ImageRef[];
   // Link cards and records that were pointed at but could not be read.
   unread: UnreadRef[];
+  // DIDs of the ancestor posts' authors, nearest first. The gate uses this to
+  // find who Rob is approving when he replies "go ahead" in someone's thread.
+  ancestorAuthors: string[];
 }
 
 // A fullsize CDN url plus whatever alt text the poster wrote. The url is what the
@@ -2535,7 +2548,7 @@ async function readCapped(res: Response, max: number): Promise<string> {
     buf.set(c, at);
     at += c.length;
   }
-  return new TextDecoder("utf-8", { fatal: false }).decode(buf.slice(0, max));
+  return new TextDecoder("utf-8").decode(buf.slice(0, max));
 }
 
 // Strip an HTML document to its readable text. Deliberately crude — no parser
@@ -2744,6 +2757,7 @@ interface EmbedView {
 }
 
 interface QuotedRecord {
+  uri?: string;
   author?: { handle?: string; did?: string };
   value?: { text?: string; embed?: EmbedView };
 }
@@ -2814,52 +2828,66 @@ async function robMutual(env: Env, did: string): Promise<MutualResult> {
 // The mutual gate is per-mention, which means a thread the bot is already
 // building in re-gates every follow-up. A non-mutual whose site the bot built
 // (because a mutual asked, or because Rob gave the go-ahead) could not report a
-// bug on it, and a non-mutual bystander could not answer a question the bot
-// asked. Theme 4 of notes/history/2026-09-buildthis-issue-themes.md has the
+// bug on it. Theme 4 of notes/history/2026-09-buildthis-issue-themes.md has the
 // cases: @caesar.dev's bug report on their own site, @vikanezrimaya's perf
 // report, @eugenevinitsky's "keep going please".
 //
-// So: a reply inside a thread the bot has already built in counts as a
-// continuation of the ask that was authorized in the first place. The
-// authorization is the THREAD's, not the author's — it does not let that person
-// start a new build anywhere else.
+// So: once the bot has built FOR someone in a thread, that person's later
+// replies in the same thread count as continuations of the approved ask. The
+// authorization is per (person, thread): it does not let them start a build in
+// another thread, and it does not extend to bystanders in this one — a stranger
+// replying under the bot's post still goes through the gate (Rob's call, after
+// a first cut authorized anyone in the thread).
 
-// Set when a build is dispatched, so a later follow-up in the same thread can
-// see that this thread was authorized. Same 30-day window as the event log.
-const BUILT_ROOT_PREFIX = "built-root:";
-const BUILT_ROOT_TTL = 60 * 60 * 24 * 30;
+// Written at dispatch for the tagging author, and, when the tag is Rob's
+// go-ahead, for the requester he's approving. Same 30-day window as the log.
+const BUILT_FOR_PREFIX = "built-for:";
+const BUILT_FOR_TTL = 60 * 60 * 24 * 30;
 
-async function markThreadBuilt(env: Env, rootUri: string): Promise<void> {
-  if (!rootUri) return;
+async function markBuiltFor(env: Env, did: string, rootUri: string): Promise<void> {
+  if (!did || !rootUri) return;
   try {
-    await env.STATE.put(`${BUILT_ROOT_PREFIX}${rootUri}`, "1", {
-      expirationTtl: BUILT_ROOT_TTL,
+    await env.STATE.put(`${BUILT_FOR_PREFIX}${did}:${rootUri}`, "1", {
+      expirationTtl: BUILT_FOR_TTL,
     });
   } catch (err) {
-    console.error(`markThreadBuilt failed for ${rootUri}: ${err}`);
+    console.error(`markBuiltFor failed for ${did} in ${rootUri}: ${err}`);
   }
 }
 
-// Has the bot already built in this thread? Two signals, either one is enough:
+// What the gate says to someone it won't build for. Named so the ancestor walk
+// below can tell these apart from the bot's real replies: a gate reply sits
+// directly under the person's post too, and must not count as "built for".
+const GATE_REPLY_UNKNOWN = `hi! i couldn't check whether you're one of @bisks.net's mutuals just now — tagging them so they can take a look.`;
+const GATE_REPLY_NOT_MUTUAL = `hi! i'll build for anyone, just not automatically yet — tagging @bisks.net so they can give the go-ahead.`;
+
+function isGateReply(text: string | undefined): boolean {
+  return text === GATE_REPLY_UNKNOWN || text === GATE_REPLY_NOT_MUTUAL;
+}
+
+// Has the bot already built for this person in this thread? Two signals,
+// either one is enough:
 //
 //   1. The KV marker above — exact, but only covers builds dispatched since
 //      this shipped.
-//   2. A post by the bot in the mention's ancestor chain. This is what covers
-//      threads that predate the marker, and it's the signal a user sees too:
-//      they are replying underneath the bot's own reply.
+//   2. A post by the bot in the mention's ancestor chain that is a direct reply
+//      to a post by this same person, and isn't a gate reply. That's the bot
+//      answering their ask (queued ack, "built it", a question back), which
+//      covers threads predating the marker. It misses the case where Rob
+//      approved and the bot answered under Rob's post instead — that person
+//      re-gates once and Rob approves again, which is today's behaviour.
 //
 // Best-effort: on any failure this returns false and the normal gate applies.
-async function threadAlreadyBuilt(
+async function builtForInThread(
   env: Env,
   session: Session,
   m: Mention,
 ): Promise<boolean> {
+  const root = m.rootUri || m.uri;
   try {
-    if (m.rootUri && (await env.STATE.get(`${BUILT_ROOT_PREFIX}${m.rootUri}`))) {
-      return true;
-    }
+    if (await env.STATE.get(`${BUILT_FOR_PREFIX}${m.authorDid}:${root}`)) return true;
   } catch (err) {
-    console.error(`built-root lookup failed for ${m.rootUri}: ${err}`);
+    console.error(`built-for lookup failed for ${m.authorDid} in ${root}: ${err}`);
   }
 
   // Only a reply can have a bot post above it; a top-level tag cannot.
@@ -2880,11 +2908,18 @@ async function threadAlreadyBuilt(
     const j = (await res.json()) as { thread?: ThreadNode };
     let node = j.thread?.parent;
     while (node?.post) {
-      if (node.post.author?.did === env.BOT_DID) return true;
+      const above = node.parent?.post;
+      if (
+        node.post.author?.did === env.BOT_DID &&
+        !isGateReply(node.post.record?.text) &&
+        above?.author?.did === m.authorDid
+      ) {
+        return true;
+      }
       node = node.parent;
     }
   } catch (err) {
-    console.error(`ancestor bot-post check failed for ${m.uri}: ${err}`);
+    console.error(`ancestor built-for check failed for ${m.uri}: ${err}`);
   }
   return false;
 }

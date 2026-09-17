@@ -63,15 +63,17 @@ Each tick:
    distinct in the log: `mutual: false` is a clean "not a mutual",
    `gateLookupFailed` means no answer ever came.
 
-   **A thread the bot has already built in is authorized.** A non-mutual replying
-   there gets through, because the ask was authorized when the build started and
-   a follow-up, bug report, or answer to the bot's own question shouldn't
-   re-gate. Two signals, either suffices: a `built-root:<uri>` KV marker written
-   at dispatch, and a bot post in the mention's ancestor chain (which covers
-   threads predating the marker, and is the signal the user sees — they are
-   replying under the bot's reply). The authorization belongs to the **thread**,
-   not the person: it does not let them start a build anywhere else. Logged as
-   `authorizedByThread`.
+   **Someone the bot has built for in a thread stays approved there.** A
+   non-mutual's follow-up in a thread where the bot already built for them gets
+   through, because the ask was approved when the build started and a bug
+   report or an answer to the bot's own question shouldn't re-gate. Two
+   signals, either suffices: a `built-for:<did>:<root uri>` KV marker written at
+   dispatch (for the tagging author, and for the requester when the tag is
+   Rob's go-ahead in their thread), and a non-gate bot post in the ancestor
+   chain that directly answers a post by this person (covers threads predating
+   the marker). The authorization is per **person and thread**: it does not let
+   them start a build elsewhere, and a bystander replying under the bot's post
+   in that thread still goes through the gate. Logged as `authorizedByThread`.
 
    The gate reply is sent once per author **per thread** (was once per author per
    30 days, which meant a second tag from a new thread got silence). Its text is
