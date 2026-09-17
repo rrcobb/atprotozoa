@@ -92,7 +92,11 @@ a good first "own a piece of protocol infrastructure" move.
    account, per `notes/80`).
 2. A `app.bsky.labeler.service` record declaring the label values.
 3. A persistent websocket endpoint streaming labels — a standing service, not a
-   request/response worker.
+   request/response worker. **Turned out to be optional**, which is what made
+   the labeler buildable here at all: `com.atproto.label.queryLabels` is a
+   plain request/response endpoint serving the same labels, so a stateless
+   Worker can be a labeler as long as it accepts that stream-only consumers
+   won't see it. `sites/builtbybot` does exactly that.
 4. Label definitions that mean something, and a policy for being wrong.
 
 The judgment part is the real cost. thebadcode's semantic-mute ask is the obvious
@@ -160,7 +164,23 @@ about. Good first labeler for the same reason a link checker is a good first bot
 2. **See if anyone subscribes.** That's the cheap signal on whether either
    classifier is any good. Still open — too soon to tell for either.
 3. **Then** consider a labeler, starting with something descriptive like
-   `built-by-bot` rather than semantic moderation.
+   `built-by-bot` rather than semantic moderation. **Built 2026-09-17** —
+   `sites/builtbybot`, written up in `notes/87-labeler.md`. It took the
+   `built-by-bot` suggestion and narrowed the subject set further than this note
+   proposed: rather than "mark bot-built sites and bot posts across the
+   network," it labels only this project's own output, because the network-wide
+   version needs a judgment about strangers that would be wrong often. Still
+   waiting on Rob's signing key; the code is deployed and inert until then.
+
+   Two findings from building it, both worth knowing before anyone writes a
+   second labeler here. **The label stream can't be served from this repo** —
+   `subscribeLabels` is a long-lived websocket, which is a Durable Object, so
+   `builtbybot` serves `queryLabels` and closes a subscribe attempt cleanly.
+   Stream-only consumers see nothing; queryLabels clients see everything. And
+   **atproto requires low-S signatures, which WebCrypto does not produce** —
+   measured at ~45% high-S, meaning roughly half of all labels would have
+   failed verification intermittently. Both are handled; both would have been
+   miserable to debug after the fact.
 
 The pleasing part is how little there is to it: a `did:web:` document, one
 record, one JSON endpoint. The repo already queries the AppView from a hundred

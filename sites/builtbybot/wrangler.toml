@@ -1,0 +1,49 @@
+name = "atprotozoa-builtbybot"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Brand-new site, served at the root of its own hostname — no bisks.net/<name>
+# path route, no prefix-stripping.
+#
+# This Worker is a real Bluesky labeler: it answers
+# com.atproto.label.queryLabels and serves its own /.well-known/did.json, so
+# run_worker_first must stay on — those routes have to run ahead of the
+# static-asset fallthrough.
+routes = [
+  { pattern = "builtbybot.bisks.net/*", zone_name = "bisks.net" },
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+# Signed labels, cached and rebuilt from buildthis's event log. KV, not a
+# Durable Object (notes/11): a rebuild that runs twice or lands a few minutes
+# late is harmless — the worst case is a just-shipped site getting its label on
+# the next rebuild rather than instantly. Nothing here is an authoritative
+# first-writer claim.
+#
+# Create with: wrangler kv namespace create builtbybot-labels
+[[kv_namespaces]]
+binding = "LABELS"
+id = "9ec866c6f2394737903118cef7d5798e"
+
+[vars]
+# The labeler account's DID — the `src` on every label, and the repo that holds
+# the app.bsky.labeler.service record. EMPTY UNTIL ROB PROVISIONS IT; while it's
+# empty the Worker serves the site and an honest "not live yet" on /api/labels,
+# and signs nothing. See notes/87-labeler.md for the provisioning steps.
+LABELER_DID = ""
+
+# The bot whose output gets labeled: @buildthis.bisks.net. Matches
+# sites/buildthis/wrangler.toml's BOT_DID.
+BUILDER_DID = "did:plc:wlj4p2kazhifag6w4nanjnee"
+
+# Where the shipped-site list comes from. buildthis's public event log; the
+# Worker asks for ?limit=500 (its cap) and reports truncation rather than
+# silently labeling only a prefix.
+BUILDER_EVENTS_URL = "https://buildthis.bisks.net/logs.json"
+
+# Secret (set with `wrangler secret put`, never in this file):
+#   LABELER_PRIVATE_KEY -> the labeler signing key, base64url PKCS#8, P-256.

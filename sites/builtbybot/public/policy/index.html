@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>built-by-bot — policy &amp; limits</title>
+<meta name="description" content="What the built-by-bot labeler labels, what it refuses to label, how to appeal, and the ways it is not a complete labeler." />
+<meta property="og:title" content="built-by-bot — policy &amp; limits" />
+<meta property="og:description" content="What the built-by-bot labeler labels, what it refuses to label, how to appeal, and the ways it is not a complete labeler." />
+<meta property="og:url" content="https://builtbybot.bisks.net/policy" />
+<style>
+  :root {
+    --bg: #0b0e13; --fg: #e8ecf4; --dim: #8d97ab;
+    --accent: #6ee7a8; --accent2: #7dd3fc;
+    --card: #121722; --border: #232b3a; --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--bg); color: var(--fg);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 660px; }
+  a { color: var(--accent2); }
+  h1 { font-size: 1.4rem; margin: 0 0 1.5rem; color: var(--accent); }
+  h2 { font-size: 1rem; margin: 2.1rem 0 0.5rem; }
+  p { line-height: 1.62; font-size: 0.89rem; }
+  p.dim { color: var(--dim); font-size: 0.84rem; }
+  li { line-height: 1.6; font-size: 0.88rem; margin-bottom: 0.45rem; }
+  code { background: #0d1119; border: 1px solid var(--border); border-radius: 4px; padding: 0.1rem 0.35rem; font-size: 0.85em; }
+  .note { background: var(--card); border: 1px solid var(--border); border-left: 3px solid var(--warn); border-radius: 0 10px 10px 0; padding: 0.9rem 1.15rem; margin: 1rem 0; }
+  footer { color: var(--dim); font-size: 0.72rem; margin-top: 3rem; text-align: center; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>built-by-bot — policy &amp; limits</h1>
+
+  <h2>The one label</h2>
+  <p><code>built-by-bot</code> — severity <em>inform</em>, blurs <em>nothing</em>, default setting <em>ignore</em>. It is a descriptive badge, not a content warning. Subscribing to it should never hide anything from you; at most it adds a small marker.</p>
+
+  <h2>What gets labeled</h2>
+  <ul>
+    <li>The <code>@buildthis.bisks.net</code> account.</li>
+    <li>Every post that requested a site the bot went on to ship, taken from the bot's own public event log. These are the same URIs in its public <code>/shipped</code> feed.</li>
+  </ul>
+
+  <h2>What does not get labeled</h2>
+  <p>Anything this project didn't make. No account is assessed for "botness." The wider idea — labeling automated accounts across the network — was considered and rejected: it requires judging strangers, it would be wrong often, and a wrong label sits on someone else's post where they didn't ask for it.</p>
+
+  <div class="note">
+    <p style="margin:0 0 0.5rem;"><strong>The one place this touches a third party</strong></p>
+    <p class="dim" style="margin:0;">A tagging post is authored by the person who asked for the site, not by the bot. Labeling it asserts "a bot built what this post asked for" — true, and about the site rather than the author. It's public information already. If that still reads as one step too far, the fallback is labeling only the bot account, which is a one-branch change in <code>subjectsToLabel</code>. Ask and it's done.</p>
+  </div>
+
+  <h2>Getting a label removed</h2>
+  <p>Ask — reply to <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a> or <a href="https://bsky.app/profile/bisks.net" target="_blank" rel="noopener">@bisks.net</a> — and the post comes out of the set. There's no review board and no appeal process to navigate; the whole subject list is derived from a public log, and removal is a code change, applied on request, no reason needed.</p>
+
+  <h2>Ways this is not a complete labeler</h2>
+  <ul>
+    <li><strong>No label stream.</strong> A canonical labeler serves <code>com.atproto.label.subscribeLabels</code> over a long-lived websocket. This runs on a stateless Cloudflare Worker with no standing connections (a deliberate repo-wide constraint), so it serves <code>queryLabels</code> only. Clients that query see every label; consumers that only ingest the stream see nothing. The subscribe endpoint answers and closes cleanly rather than hanging, so a subscriber finds out immediately instead of timing out.</li>
+    <li><strong>No moderation reports.</strong> It declares no report reason types and accepts no reports. It emits one descriptive label and does nothing else.</li>
+    <li><strong>No negations.</strong> Nothing it labels ever stops being bot-built, so there is no retraction path; removal happens by dropping the subject, not by publishing a <code>neg</code> label.</li>
+    <li><strong>Backfill is bounded.</strong> The upstream event log pages at 500 entries with no cursor, so if the log is longer, the earliest ships aren't labeled. The front page says so when it's happening, rather than quietly labeling a prefix.</li>
+  </ul>
+
+  <h2>Signatures</h2>
+  <p>Labels are signed for real, P-256 / ES256, over the dag-cbor encoding of the label without its signature field, normalized to the low-S form atproto requires. The public half lives in the labeler account's DID document as <code>#atproto_label</code>, so anyone can verify a label came from this service.</p>
+
+  <footer>
+    <a href="/">← built-by-bot</a> · part of <a href="https://bisks.net">bisks.net</a>
+  </footer>
+</div>
+</body>
+</html>

@@ -199,12 +199,25 @@ report-only mode first.
 
 ## C. Needs a decision first
 
-**15. Labeler.** (`beyond-buildthis.md`, `feeds-and-labels.md`)
-The only item needing a **signing key** — the thing `INSTRUCTIONS.md` forbids the
-builder from touching. Rob would provision it by hand, same as the buildthis
-account. Suggested first label: `built-by-bot` (descriptive, hard to be
-harmfully wrong about) rather than semantic moderation. Do a feed first; a bad
-feed gets unsubscribed, a bad label lands on someone else's post.
+**15. Labeler — built 2026-09-17, awaiting a key.** (`beyond-buildthis.md`,
+`feeds-and-labels.md`, and now `notes/87-labeler.md`)
+`sites/builtbybot` is a real labeler serving signed `built-by-bot` labels over
+`com.atproto.label.queryLabels`. It went the narrow way the notes argued for:
+it labels only this project's own output — the buildthis account and the posts
+that asked for sites it shipped — and never assesses whether anyone else is
+automated, since that's the judgment a labeler gets harmfully wrong.
+
+Two things worth knowing. There's **no label stream**: `subscribeLabels` is a
+standing websocket, i.e. a Durable Object, so the Worker serves the polled half
+and closes a subscribe cleanly instead of pretending. And atproto requires
+**low-S** signatures while WebCrypto emits high-S about 45% of the time, so
+labels are normalized — without that, half of them fail verification
+intermittently.
+
+Still needs Rob for the key, which is the one part the builder can't do:
+`notes/87-labeler.md` has the three steps, and `audit/labeler-keygen.mjs` /
+`audit/labeler-publish.mjs` are the tools. Until then the site is deployed and
+inert, and says so on its own front page.
 
 **15b. Build requests as records, not just posts.** (Rob, 2026-07-31)
 Today a build request is a Bluesky post and the decision history is a thread.
