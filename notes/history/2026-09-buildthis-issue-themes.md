@@ -161,14 +161,37 @@ and its failure is silent to the user. Long reply-chain specs (a 32-part and a
 73-part one from @fromthewestmeadow.com) exceed the 10-ancestor walk and 20k
 cap; the 73-part one never got a build.
 
+**Correction (2026-09-17).** The 73-part claim is wrong. That chain is only 11
+posts on Bluesky — parts 12 to 73 were never posted — so the walk limit is not
+why it went unbuilt, and deepening the walk does not fix that case. The 32-part
+one also stops at 11 in the export, but that number can't be trusted either
+way: `pull-bot-threads.mjs` fetched with `parentHeight=10`, so no thread in
+`threads.json` can show more than 10 ancestors. Nothing in the export supports
+a claim about threads deeper than that. The walk went to 80 anyway, because 10
+is low for specs written as a reply chain, but it was sized on how people write
+here rather than on either of these numbers.
+
 Also: a bare "👆" or "build this" tag carries the ancestor's words but not its
 intent, which produced two refusals on misread briefs (hmans' block tool read
 as mass-targeting; the omarchy "anti-woke" ask refused on a wrong factual
 read).
 
-Options: fetch link-card targets and quoted records into the brief; tell the
-user in the reply when an image or link could not be read; when the reading is
-ambiguous, state which one was taken.
+Options: when the reading is ambiguous, state which one was taken.
+
+**Landed 2026-09-17** (80e49009): link cards and non-post records are fetched
+into the brief, text-extracted, bounded at 4 refs / 8s / 512KB / 6k chars.
+Anything that couldn't be read is named in the brief so the reply can say so —
+including pages that need JavaScript, which return a word or two of chrome and
+would otherwise read as a successful fetch. Reddit is one of those: `www`
+serves a shell and `old.` sends a datacenter IP to a login wall, so it reports
+as unread rather than building off the card's title. Images over
+`MAX_BRIEF_IMAGES` report the same way, and `box-build.sh` appends its download
+failures.
+
+On the @shibbi.me case: the images were reaching the builder. Downloading that
+same screenshot still works today. Nothing in the brief ever said images were
+attached, so the model answered from a guess — the brief now states the count.
+That one was framing, not plumbing.
 
 ### 6. Caps and pagination
 
@@ -247,5 +270,5 @@ instructions from a tag.
 4. Thread-scope the mutual gate and retry the relationship lookup (theme 4).
 5. Add a smoke-test step and a hard no-caps rule to `INSTRUCTIONS.md`
    (themes 3 and 6).
-6. Fetch link cards and quoted records into the brief; report unread inputs
-   (theme 5).
+6. ~~Fetch link cards and quoted records into the brief; report unread inputs
+   (theme 5).~~ Landed 2026-09-17, 80e49009.
