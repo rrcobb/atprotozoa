@@ -1,0 +1,40 @@
+name = "atprotozoa-stats"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# stats.bisks.net — per-site request counts for the whole fleet, read from
+# Cloudflare's GraphQL Analytics API and served CORS-open so any site can show
+# its own traffic with one fetch. Infrastructure, not an experiment: hidden
+# from the gallery. See notes/86-stats.md.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
+routes = [{ pattern = "stats.bisks.net/*", zone_name = "bisks.net" }]
+
+# Hourly: fetch today's counts (one GraphQL query), backfill any day of the
+# last 30 that's missing (one query per day, so a cold start is ~31), and
+# rebuild the rolled-up document the endpoints serve.
+[triggers]
+crons = ["7 * * * *"]
+
+[observability]
+enabled = true
+
+# day:<YYYY-MM-DD> -> { script: { requests, errors } } for that UTC day, and
+# stats:all -> the rolled-up 30-day document. All rebuildable from the API.
+[[kv_namespaces]]
+binding = "STATS"
+id = "d80e62c51b0e4af88e7ae15ae60760f8"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[vars]
+ACCOUNT_ID = "83803d427e6fd1a7d6408ed63e0a9191"
+DAYS = "30"
+
+# Secret (set with `wrangler secret put`, never in this file):
+#   CF_ANALYTICS_TOKEN -> a Cloudflare API token with Account Analytics: Read
+#                         and nothing else.

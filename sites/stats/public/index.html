@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>stats — bisks.net</title>
+<meta name="robots" content="noindex" />
+<meta name="description" content="Per-site request counts for the whole bisks.net fleet, from Cloudflare analytics, served CORS-open." />
+<style>
+  :root {
+    --bg:#fff; --ink:#111; --muted:#6b6b6b; --faint:#e4e4e4;
+    --accent:#1a5fd0; --bar:#1a5fd0;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0e0e10; --ink:#ececec; --muted:#9a9a9a; --faint:#262629;
+            --accent:#7aa7ff; --bar:#7aa7ff; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--mono); font-size:15px; line-height:1.6; }
+  .wrap { max-width:760px; margin:0 auto; padding:3.5rem 1.25rem 6rem; }
+  h1 { font-size:1.6rem; margin:0 0 0.35rem; font-weight:600; }
+  h2 { font-size:1rem; margin:2.5rem 0 0.5rem; font-weight:600; }
+  .sub { color:var(--muted); font-size:0.86rem; margin:0 0 2rem; }
+  .row { display:grid; grid-template-columns: 1.4fr 5rem 5rem 1fr; gap:0.75rem; align-items:center;
+    padding:0.45rem 0; border-top:1px solid var(--faint); font-size:0.88rem; }
+  .row:first-of-type { border-top:1px solid var(--ink); color:var(--muted); font-size:0.78rem; }
+  .row a { color:var(--accent); text-decoration:none; font-weight:600; }
+  .row .n { text-align:right; font-variant-numeric: tabular-nums; }
+  .spark { display:flex; align-items:flex-end; gap:1px; height:1.2rem; }
+  .spark i { flex:1; background:var(--bar); opacity:0.7; min-height:1px; }
+  .empty { color:var(--muted); }
+  pre { background:var(--faint); padding:0.75rem 1rem; border-radius:6px; overflow-x:auto; font-size:0.82rem; }
+  input { font:inherit; padding:0.4rem 0.6rem; border:1px solid var(--faint); border-radius:6px;
+    background:var(--bg); color:var(--ink); width:100%; max-width:24rem; }
+  footer { margin-top:3rem; padding-top:0.75rem; border-top:1px solid var(--faint);
+    color:var(--muted); font-size:0.78rem; }
+  footer a, p a { color:var(--accent); text-decoration:none; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>stats</h1>
+    <p class="sub" id="sub">requests per site across the bisks.net fleet, from cloudflare analytics. loading…</p>
+
+    <input id="filter" placeholder="filter by name" autocomplete="off" />
+    <div id="table"></div>
+
+    <h2>use it from a site</h2>
+    <p>every site can read its own numbers with one fetch, no token needed:</p>
+<pre>const r = await fetch("https://stats.bisks.net/stats/&lt;name&gt;.json").then(r =&gt; r.json());
+// r.days      ["2026-08-19", …, "2026-09-17"]   oldest first
+// r.requests  [12, 40, …]                        one number per day
+// r.errors    [0, 1, …]
+// r.total7    requests in the last 7 days
+// r.total     requests in the whole window</pre>
+    <p>the whole fleet at once is <a href="/stats.json">/stats.json</a>. counts are cloudflare's request totals for the site's worker: every request the worker answered, assets and api calls alike, bots included. refreshed hourly.</p>
+
+    <footer>
+      <span id="updated"></span> · <a href="https://bisks.net/">bisks.net</a>
+    </footer>
+  </div>
+<script>
+const fmt = (n) => n.toLocaleString("en-US");
+function spark(arr) {
+  const max = Math.max(1, ...arr);
+  return `<span class="spark">${arr.map((v) => `<i style="height:${Math.max(4, (v / max) * 100)}%"></i>`).join("")}</span>`;
+}
+let rows = [];
+function render(q) {
+  const t = document.getElementById("table");
+  const list = rows.filter((r) => !q || r.name.includes(q));
+  t.innerHTML = `<div class="row"><span>site</span><span class="n">7d</span><span class="n">30d</span><span>last 30 days</span></div>` +
+    list.map((r) => `<div class="row">
+      <a href="https://${r.name}.bisks.net/">${r.name}</a>
+      <span class="n">${fmt(r.total7)}</span>
+      <span class="n">${fmt(r.total)}</span>
+      ${spark(r.requests)}
+    </div>`).join("");
+}
+(async () => {
+  const res = await fetch("/stats.json");
+  if (!res.ok) {
+    document.getElementById("sub").textContent = "no data yet — the hourly refresh hasn't run, or the analytics token isn't set.";
+    return;
+  }
+  const d = await res.json();
+  rows = Object.entries(d.sites).map(([name, s]) => ({ name, ...s })).sort((a, b) => b.total7 - a.total7);
+  const total7 = rows.reduce((a, r) => a + r.total7, 0);
+  document.getElementById("sub").textContent =
+    `${rows.length} sites · ${fmt(total7)} requests in the last 7 days · ${d.days[0]} → ${d.days[d.days.length - 1]}` +
+    (d.missing.length ? ` · ${d.missing.length} day(s) missing` : "");
+  document.getElementById("updated").textContent = `updated ${d.updatedAt.slice(0, 16).replace("T", " ")} UTC`;
+  render("");
+  document.getElementById("filter").addEventListener("input", (e) => render(e.target.value.trim().toLowerCase()));
+})();
+</script>
+</body>
+</html>
