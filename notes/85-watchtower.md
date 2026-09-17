@@ -76,12 +76,16 @@ posted; an unposted alert records why.
 
 ## Posting
 
-Off until `BOT_APP_PASSWORD` is set as a Worker secret (`wrangler secret put
-BOT_APP_PASSWORD` from `watchtower/`). `BOT_IDENTIFIER` in `wrangler.toml`
-names the account: buildthis (decided 2026-09-17). Every break post @-mentions
-@bisks.net so Rob sees it; recoveries do not.
+**Live as of 2026-09-17.** `BOT_APP_PASSWORD` is set as a Worker secret, so
+`/alerts.json` reports `posting: true` and alerts reach Bluesky. Verified by a
+`watchtower-selftest` entry that posted a real recovery from
+`buildthis.bisks.net`. To turn it off, delete the secret (`wrangler secret
+delete BOT_APP_PASSWORD` from `watchtower/`); alerts then keep landing in the
+log unposted. `BOT_IDENTIFIER` in `wrangler.toml` names the account:
+buildthis (decided 2026-09-17). Every break post @-mentions @bisks.net so Rob
+sees it; recoveries do not.
 
-When on:
+How it behaves:
 
 - A confirmed break posts once. If `sites/<name>/.buildthis.json` names the
   tagging post, the alert is a reply in that thread, so the person who asked

@@ -7,12 +7,21 @@
 // works. Fetching a real asset and checking the content-type catches that;
 // fetching only "/" does not.
 //
-// This runs from wherever you are, so it inherits your DNS. On Rob's home
-// network, Xfinity's xDNS "Advanced Security" intercepts individual hostnames
-// it dislikes by reputation, which surfaces here as a TLS error ("no peer
-// certificate available", plaintext on 443) that looks just like a missing
-// Cloudflare certificate. Before believing a single-host failure, check the
-// off-zone watchtower: atprotozoa-watchtower.rwcobbjr.workers.dev/report.json
+// PREFER WATCHTOWER. `watchtower/` (notes/85) runs these same two checks over
+// the whole gallery every 2 minutes from off-zone, remembers state, and posts
+// confirmed breaks. It is the source of truth:
+//   curl -s https://atprotozoa-watchtower.rwcobbjr.workers.dev/report.json
+//   curl -s 'https://atprotozoa-watchtower.rwcobbjr.workers.dev/check?name=<site>'
+// This script is the local one-off for when you want an answer right now over
+// a tree you have not pushed, or to cross-check watchtower itself.
+//
+// It runs from wherever you are, so it inherits your DNS — the blind spot
+// watchtower does not have. On Rob's home network, Xfinity's xDNS "Advanced
+// Security" intercepts individual hostnames it dislikes by reputation, which
+// surfaces here as a TLS error ("no peer certificate available", plaintext on
+// 443) that looks just like a missing Cloudflare certificate. blockcurve hit
+// exactly this on 2026-09-17. Confirm any single-host failure against
+// watchtower before believing it.
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 
 const root = new URL("../", import.meta.url);
