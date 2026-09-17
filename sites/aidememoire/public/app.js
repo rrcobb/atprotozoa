@@ -14,7 +14,11 @@
 //      their own likes/reposts.
 // interactionsBetween() cross-references each side's likes/reposts/reply
 // targets against the other account's DID for a real "did these two accounts
-// ever interact" history, not an imputed one.
+// ever interact" history, not an imputed one. recentInteractionItems() and
+// latestContactMeaning() go a step further: they resolve the actual liked/
+// reposted post text (looked up against the counterpart's own downloaded
+// posts, since both repos are already in memory) and run it back through the
+// same classifier, so the most recent contact gets a "meaning" tag too.
 //
 // Everything past that (category scoring, the "imputed rationale"
 // paragraph, the confidence number) is deterministic string/regex work on
@@ -117,6 +121,14 @@ function classify(posts) {
     .sort((a, b) => b.count - a.count || b.ratio - a.ratio);
 }
 
+// categoriesFor() runs the same classifier against a single piece of text —
+// used to tag the "meaning" of one recent like/reply rather than a whole
+// archive.
+function categoriesFor(raw, rec) {
+  const t = normalize(raw || "");
+  return CATEGORIES.filter((c) => c.test(t, rec || {})).map((c) => c.label);
+}
+
 // --- windowing: "what were they posting at the time of the block" -----------
 
 const WINDOWS = [
@@ -164,6 +176,44 @@ function interactionsBetween(records, towardDid, uptoMs) {
   return { likes, reposts, replies, total: likes.length + reposts.length + replies.length, latest: all[0] || null };
 }
 
+// recentInteractionItems() pulls the most recent likes/reposts/replies out
+// of an interactionsBetween() result and resolves what they were actually
+// on: for a reply that's the replier's own text (already on the record);
+// for a like/repost the record only stores the *subject* URI, so it's
+// looked up against the other account's own downloaded posts (both repos
+// were already pulled in full — see the module header). Each item is then
+// run through the classifier so a recent like/reply carries the same
+// "meaning" tags a whole archive gets, not just a bare count.
+function recentInteractionItems(stats, subjectPostsByUri, limit = 3) {
+  const items = [
+    ...stats.likes.map((r) => ({ kind: "like", record: r })),
+    ...stats.reposts.map((r) => ({ kind: "repost", record: r })),
+    ...stats.replies.map((r) => ({ kind: "reply", record: r })),
+  ].sort((a, b) => Date.parse(b.record.value.createdAt) - Date.parse(a.record.value.createdAt));
+
+  return items.slice(0, limit).map(({ kind, record }) => {
+    let text, postUri, classifyRec;
+    if (kind === "reply") {
+      text = record.value.text || "";
+      postUri = bskyPostLink(record.uri);
+      classifyRec = record.value;
+    } else {
+      const subjectUri = record.value.subject?.uri;
+      const subjectPost = subjectUri ? subjectPostsByUri.get(subjectUri) : null;
+      text = subjectPost ? subjectPost.value.text || "" : null;
+      postUri = subjectUri ? bskyPostLink(subjectUri) : null;
+      classifyRec = subjectPost ? subjectPost.value : null;
+    }
+    return {
+      kind,
+      createdAt: record.value.createdAt,
+      text,
+      postUri,
+      categories: text ? categoriesFor(text, classifyRec) : [],
+    };
+  });
+}
+
 function interactionLine(dirLabel, stats) {
   if (!stats.total) return `${dirLabel} — nothing on record.`;
   const bits = [];
@@ -185,6 +235,47 @@ function interactionAddendum(yourToTarget, targetToYou, yourHandle, targetHandle
     return `@${targetHandle} engaged with @${yourHandle} ${targetToYou.total} time${targetToYou.total === 1 ? "" : "s"} beforehand and got silence in return, then a block.`;
   }
   return `The two accounts weren't strangers: @${yourHandle} engaged ${yourToTarget.total} time${yourToTarget.total === 1 ? "" : "s"}, @${targetHandle} engaged ${targetToYou.total} time${targetToYou.total === 1 ? "" : "s"}, before it ended in a block.`;
+}
+
+// latestContactMeaning() finds whichever side made last contact (comparing
+// interactionsBetween()'s .latest on each side) and classifies what that
+// specific like/repost/reply was actually about, so the case file can say
+// something about the *meaning* of the last touch, not just its timestamp.
+function latestContactMeaning(yourToTarget, targetToYou, yourPostsByUri, targetPostsByUri, yourHandle, targetHandle) {
+  const yLatest = yourToTarget.latest;
+  const tLatest = targetToYou.latest;
+  if (!yLatest && !tLatest) return null;
+  const yMs = yLatest ? Date.parse(yLatest.value.createdAt) : -Infinity;
+  const tMs = tLatest ? Date.parse(tLatest.value.createdAt) : -Infinity;
+  const fromYou = yMs >= tMs;
+  const record = fromYou ? yLatest : tLatest;
+  const actor = fromYou ? yourHandle : targetHandle;
+  const towardLookup = fromYou ? targetPostsByUri : yourPostsByUri;
+
+  const kindType = record.value.$type;
+  let kind, text, verb, classifyRec;
+  if (kindType === "app.bsky.feed.like") { kind = "like"; verb = "liked"; }
+  else if (kindType === "app.bsky.feed.repost") { kind = "repost"; verb = "reposted"; }
+  else { kind = "reply"; verb = "replied to"; }
+
+  if (kind === "reply") {
+    text = record.value.text || "";
+    classifyRec = record.value;
+  } else {
+    const subjectUri = record.value.subject?.uri;
+    const subjectPost = subjectUri ? towardLookup.get(subjectUri) : null;
+    text = subjectPost ? subjectPost.value.text || "" : null;
+    classifyRec = subjectPost ? subjectPost.value : null;
+  }
+  if (!text) return `The last direct contact was @${actor} ${verb} something now missing from the record — the post itself didn't survive to be read.`;
+
+  const categories = categoriesFor(text, classifyRec);
+  const tag = categories.length ? esc(categories[0]) : null;
+  const snippetRaw = text.length > 90 ? text.slice(0, 87) + "…" : text;
+  const snippet = esc(snippetRaw);
+  return tag
+    ? `The last direct contact: @${actor} ${verb} "${snippet}" — reads as <b>${tag}</b>, for what that's worth.`
+    : `The last direct contact: @${actor} ${verb} "${snippet}" — no particular category jumped out.`;
 }
 
 // --- stable per-pair pseudo-randomness ---------------------------------------
@@ -296,6 +387,11 @@ async function run(yourHandleRaw, targetHandleRaw) {
     const yourToTarget = interactionsBetween(yourRecords, targetDid, blockMs);
     const targetToYou = interactionsBetween(targetRecords, yourDid, blockMs);
 
+    const yourPostsByUri = new Map(yourPosts.map((p) => [p.uri, p]));
+    const targetPostsByUri = new Map(targetPosts.map((p) => [p.uri, p]));
+    const yourToTargetRecent = recentInteractionItems(yourToTarget, targetPostsByUri);
+    const targetToYouRecent = recentInteractionItems(targetToYou, yourPostsByUri);
+
     const targetTop = targetScored[0];
     const targetSecond = targetScored[1];
     const yourTop = yourScored[0];
@@ -319,11 +415,13 @@ async function run(yourHandleRaw, targetHandleRaw) {
     const confidence = targetTop ? confidenceFor(targetTop.ratio, ctx.targetTotal) : confidenceFor(0, 1);
     const quote = targetTop?.examples?.[0];
     const interactionWriteup = interactionAddendum(yourToTarget, targetToYou, ctx.yourHandle, ctx.targetHandle);
+    const latestContactWriteup = latestContactMeaning(yourToTarget, targetToYou, yourPostsByUri, targetPostsByUri, ctx.yourHandle, ctx.targetHandle);
 
     lastResult = {
       yourHandle, targetHandle, yourProfile, targetProfile,
       blockRecord, blockMs, windowPick, targetScored, yourScored, writeup, confidence, quote,
-      yourToTarget, targetToYou, interactionWriteup,
+      yourToTarget, targetToYou, interactionWriteup, latestContactWriteup,
+      yourToTargetRecent, targetToYouRecent,
       yourPostsTotal: yourPosts.length,
     };
     render(lastResult);
@@ -358,6 +456,57 @@ function renderChecklist(scored, total, targetElId) {
     li.textContent = "nothing scored — genuinely unremarkable posting.";
     el.appendChild(li);
   }
+}
+
+const KIND_VERB = { like: "liked", repost: "reposted", reply: "replied to" };
+
+function renderRecentItems(items, dirLabel, targetElId) {
+  const el = document.getElementById(targetElId);
+  el.innerHTML = "";
+  const heading = document.createElement("div");
+  heading.className = "recent-dir";
+  heading.textContent = dirLabel;
+  el.appendChild(heading);
+
+  if (!items.length) {
+    const div = document.createElement("div");
+    div.className = "recent-empty";
+    div.textContent = "nothing on record.";
+    el.appendChild(div);
+    return;
+  }
+
+  items.forEach((it) => {
+    const div = document.createElement("div");
+    div.className = "recent-item";
+
+    const meta = document.createElement("div");
+    meta.className = "recent-meta";
+    meta.textContent = `${KIND_VERB[it.kind]} · ${fmtDate(Date.parse(it.createdAt))}`;
+    if (it.categories.length) {
+      const tag = document.createElement("span");
+      tag.className = "recent-tag";
+      tag.textContent = it.categories[0];
+      meta.appendChild(tag);
+    }
+    div.appendChild(meta);
+
+    const body = document.createElement("div");
+    body.className = "recent-text";
+    body.textContent = it.text ? "“" + it.text + "”" : "(original post no longer on record)";
+    div.appendChild(body);
+
+    if (it.text && it.postUri) {
+      const a = document.createElement("a");
+      a.href = it.postUri;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.className = "recent-link";
+      a.textContent = "view →";
+      div.appendChild(a);
+    }
+    el.appendChild(div);
+  });
 }
 
 function render(r) {
@@ -400,6 +549,17 @@ function render(r) {
     div.textContent = text;
     interactionLog.appendChild(div);
   });
+
+  const latestContactEl = document.getElementById("latestContact");
+  if (r.latestContactWriteup) {
+    latestContactEl.innerHTML = r.latestContactWriteup;
+    latestContactEl.style.display = "";
+  } else {
+    latestContactEl.style.display = "none";
+  }
+
+  renderRecentItems(r.yourToTargetRecent, `@${r.yourHandle} → @${r.targetHandle}`, "recentYourToTarget");
+  renderRecentItems(r.targetToYouRecent, `@${r.targetHandle} → @${r.yourHandle}`, "recentTargetToYou");
 
   els.card.classList.add("show");
 
