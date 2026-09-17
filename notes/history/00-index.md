@@ -32,6 +32,12 @@ measurements are often still useful, and several of the failure modes recur.
   custom-domain cap. Every action item has since landed. The funnel numbers and
   the read on failure outcomes are the part still worth having.
 
+- **`2026-09-buildthis-issue-themes.md`** — every thread the bot was tagged
+  in (1,010 tags, 603 threads) plus the 30-day build log, read for recurring
+  user-facing problems and ranked. Confirms the wrong-link bug's cause (the
+  rateyourbuild catalog resync dirtying every run's tree) and lists the fix
+  order. Re-run the pull with `audit/pull-bot-threads.mjs`.
+
 - **`going-live-checklist.md`** — the one-time bootstrap: Cloudflare login, the
   DID for handle verification, first deploys, wiring CI. All done.
 

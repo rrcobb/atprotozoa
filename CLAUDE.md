@@ -48,6 +48,7 @@ Read from the notes if you have a question about how things work.
 - `2026-07-buildthis-audit.md`
 - `2026-07-deploy-incidents.md`
 - `2026-08-pnpm-lockfile-outage.md`
+- `2026-09-buildthis-issue-themes.md`
 - `builder-inputs-and-runway.md`
 - `going-live-checklist.md`
 - `prior-art-mino.md`
