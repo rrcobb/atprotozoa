@@ -223,6 +223,62 @@ generator as bot output (signing key), and pre-2025 history of any kind.
 Storage on the user's own PDS is *not* on that list — it needs nothing from
 Rob, and the recipe is below.
 
+## The visitor's own API key (LLMs and image generation)
+
+Anything that costs per-call — an LLM feature, image generation — can run on the
+*visitor's* key instead of Rob's. They paste their key, it goes in their
+browser's localStorage, and the page calls the provider directly. Nothing is
+billed to the repo and no key touches a Worker, which is what unblocks image
+generation (`notes/ideas/00-index.md` item 9, previously set aside on cost).
+
+Copy `sites/byok/public/lib/byok.js` and call `mountKeyPanel()` plus one of
+`askClaude()` / `askGpt()` / `askGemini()` / `makeImage()` (fal) /
+`makeImageOpenAI()`. `sites/byok` is the reference: a horoscope read from
+someone's recent posts, about 80 lines of page code.
+
+### Which providers a browser can actually call
+
+Probed 2026-09-17 by running `fetch` from a real page and checking that the
+response body came back readable.
+
+| provider | callable from a page | note |
+| --- | --- | --- |
+| Anthropic | yes | needs `anthropic-dangerous-direct-browser-access: true` |
+| OpenAI | yes | chat and images both |
+| fal | yes | images |
+| Google Gemini | yes | |
+| Replicate | **no** | browser blocks it — `Failed to fetch` |
+| Black Forest Labs | **no** | same |
+
+**Test this with a browser, not curl.** curl is not a stand-in for browser CORS,
+and it gets OpenAI backwards: send `Origin` from curl and the POST response has
+no `access-control-allow-origin`, so a curl probe concludes the browser will
+block it. A real page gets the header and the call works fine. The reverse error
+is just as easy — a permissive `OPTIONS` response says nothing about whether the
+actual POST will be allowed. The only probe that settles it is `fetch` from a
+page on a real origin, reading the body; a blocked call throws
+`TypeError: Failed to fetch` with no status, while an allowed one gives you a
+status and a readable body even when that status is 401.
+
+On Anthropic, the dangerous-direct-browser-access header is genuinely required,
+not advisory: without it the browser blocks the call outright (verified both
+ways from a page). The "dangerous" refers to exposing a key to
+page JavaScript, which is the intended arrangement here — it's the visitor's own
+key, pasted by them, on their machine.
+
+A "no" provider needs a proxy, which means the site owner holds the key and pays
+for every visitor. That defeats the purpose, so reach for a "yes" provider
+instead. If a site genuinely needs a proxied one, that's a Rob decision and wants
+a note in `notes/ideas/` first, alongside the labeler/feed-generator asks.
+
+### What to say in the UI
+
+Say where the key goes, in plain words, next to the input: stored in this
+browser, sent only to the provider, never to this site. Always ship the forget
+button — `byok.js` renders one as soon as a key is set. Don't write "secure" or
+"encrypted": localStorage is neither, it's just local, and any script on the page
+can read it. Local is the honest claim and it's the one that matters.
+
 ## Storage on the user's own PDS
 
 The single most-repeated ask in the buildthis threads, in several phrasings:

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>byok — your key, your tab</title>
+<meta name="description" content="Paste your own Claude key and get a horoscope read from your last few posts. The key stays in your browser." />
+<meta property="og:title" content="byok — your key, your tab" />
+<meta property="og:description" content="A horoscope read from your last few skeets, using your own API key. The key never leaves your browser." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://byok.bisks.net/" />
+<meta property="og:image" content="https://byok.bisks.net/card.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<style>
+  :root { --ink: #1f1c18; --line: #d4cfc4; --paper: #f4f1ea; --byok-bg: #faf8f4; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 20px 64px; background: var(--paper); color: var(--ink);
+    font: 16px/1.5 Georgia, "Times New Roman", serif; }
+  main { max-width: 620px; margin: 0 auto; }
+  h1 { font-size: 30px; margin: 0 0 4px; letter-spacing: -.01em; }
+  .sub { margin: 0 0 24px; opacity: .72; }
+  #panel { margin-bottom: 22px; }
+  .ask { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ask input { flex: 1 1 240px; min-width: 0; padding: 9px 11px; font: inherit;
+    border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  .ask button { padding: 9px 16px; font: inherit; border-radius: 6px; cursor: pointer;
+    background: var(--ink); color: #fff; border: 1px solid var(--ink); }
+  .ask button[disabled] { opacity: .4; cursor: not-allowed; }
+  #out { margin-top: 26px; white-space: pre-wrap; line-height: 1.6; }
+  #out.err { color: #8a2f2f; }
+  .reading { border-left: 3px solid var(--line); padding: 4px 0 4px 16px; font-size: 18px; }
+  .who { font-size: 14px; opacity: .65; margin-bottom: 10px; }
+  footer { margin-top: 48px; font-size: 13px; opacity: .6; line-height: 1.6; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: .9em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>byok</h1>
+  <p class="sub">A horoscope, read from your last few posts. Runs on your own API key,
+    which stays in this tab.</p>
+
+  <div id="panel"></div>
+
+  <div class="ask">
+    <input id="handle" placeholder="your.handle.bsky.social" autocomplete="off" spellcheck="false" />
+    <button id="go" disabled>Read my posts</button>
+  </div>
+
+  <div id="out"></div>
+
+  <footer>
+    Your key is kept in this browser's localStorage and sent only to Anthropic.
+    This site is a static page on a Cloudflare Worker that never sees it — there's
+    no server-side key and nothing to bill. The posts come from the public
+    Bluesky AppView. Source: <code>public/lib/byok.js</code>.
+  </footer>
+</main>
+
+<script type="module">
+import { mountKeyPanel, askClaude } from "./lib/byok.js";
+
+const handleEl = document.getElementById("handle");
+const goEl = document.getElementById("go");
+const outEl = document.getElementById("out");
+
+mountKeyPanel("#panel", {
+  provider: "anthropic",
+  blurb: "This page asks Claude to read your posts and write you a horoscope.",
+  onChange: (ready) => { goEl.disabled = !ready; },
+});
+
+function say(text, isError = false) {
+  outEl.className = isError ? "err" : "";
+  outEl.textContent = text;
+}
+
+// Public AppView — no auth, no key, works from a page.
+async function recentPosts(handle) {
+  const url = new URL("https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed");
+  url.searchParams.set("actor", handle);
+  url.searchParams.set("limit", "30");
+  url.searchParams.set("filter", "posts_no_replies");
+
+  const res = await fetch(url);
+  if (res.status === 400) throw new Error(`No account found for "${handle}".`);
+  if (!res.ok) throw new Error("Couldn't reach Bluesky.");
+
+  const { feed = [] } = await res.json();
+  const posts = feed
+    .filter((item) => !item.reason) // drop reposts: not their words
+    .map((item) => item.post?.record?.text?.trim())
+    .filter(Boolean)
+    .slice(0, 20);
+
+  if (!posts.length) throw new Error("That account has no visible posts to read.");
+  return posts;
+}
+
+async function run() {
+  const handle = handleEl.value.trim().replace(/^@/, "");
+  if (!handle) return handleEl.focus();
+
+  goEl.disabled = true;
+  say("Reading the stars (and the timeline)…");
+
+  try {
+    const posts = await recentPosts(handle);
+    const reading = await askClaude(
+      `Here are recent posts from @${handle}:\n\n` +
+        posts.map((p) => `- ${p}`).join("\n"),
+      {
+        system:
+          "You write short, warm, funny horoscopes. Read the posts for recurring " +
+          "preoccupations and voice, then write 3 or 4 sentences addressed to the " +
+          "person as a horoscope for their week. Be specific to what they actually " +
+          "post about. Affectionate, never mean, never a summary or a list. " +
+          "Output only the horoscope.",
+        maxTokens: 400,
+      },
+    );
+
+    outEl.className = "";
+    outEl.innerHTML = "";
+    const who = document.createElement("div");
+    who.className = "who";
+    who.textContent = `for @${handle}, from ${posts.length} posts`;
+    const body = document.createElement("div");
+    body.className = "reading";
+    body.textContent = reading;
+    outEl.append(who, body);
+  } catch (err) {
+    say(err.message || "Something went wrong.", true);
+  } finally {
+    goEl.disabled = false;
+  }
+}
+
+goEl.addEventListener("click", run);
+handleEl.addEventListener("keydown", (ev) => { if (ev.key === "Enter") run(); });
+</script>
+</body>
+</html>
