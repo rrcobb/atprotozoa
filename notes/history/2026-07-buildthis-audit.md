@@ -102,10 +102,11 @@ is already going anyway.
   `solitaire`, `mootdrone`, and the norvid EP (shipped as `norvidwave` an hour after the
   failed attempt) — exists and serves 200 today. The failures were superseded.
 
-**One genuinely-open edit request** (not a down site, just an unfulfilled improvement):
-`antiali.as` asked to "make drivethru better with combos / regional specialties"
-(07-26 19:24) and the build failed. `drivethru` itself is live; the *edit* was never
-landed. Re-taggable.
+**One open edit request at the time** (not a down site, just an unfulfilled
+improvement): `antiali.as` asked to "make drivethru better with combos /
+regional specialties" (07-26 19:24) and the build failed. **Landed since** —
+checked 2026-09-17, `sites/drivethru/public/index.html` ships both combos and
+a "REGIONAL SPECIALTY" section.
 
 **Data-quality note (already fixed in code):** several 07-25 failures have a `replyText`
 describing a *different* site's feature (e.g. a cowlick-hair request got a reply about
@@ -151,6 +152,9 @@ might be about to push. Flagging so the mixed commit isn't a surprise.
   That path is now dormant (the box handles builds), so those failures are historical.
 
 ## What to do, in order
+
+*(All of 1–4 have since landed; verified 2026-09-17. Item 5 was never done as a
+deliberate pass and is the one thing here still worth picking up.)*
 
 1. **Migrate the 5 dead subdomains to path routes** — `wheelhouse` and `solvers` first
    (wheelhouse is the gallery; solvers was publicly reported broken). Then `mcskeets`.
