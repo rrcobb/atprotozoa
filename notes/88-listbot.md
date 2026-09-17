@@ -166,54 +166,28 @@ gets a reply pointing at the site; nothing else happens.
 These mirror the source rather than importing it (`src/*.ts` uses Workers
 globals), so an edit to either has to be made in both places deliberately.
 
-## What Rob has to do
+## Configuration
 
-The site deploys and is inert until all of this is done. `/status.json` reports
-`not-configured` until then rather than advertising a loop that can't run.
+The Worker is inert until it's configured; `/status.json` reports
+`not-configured` rather than advertising a loop that can't run.
 
-### 1. The bot account
+**Vars** (`wrangler.toml`): `BOT_DID` and `BOT_IDENTIFIER` — both the bot
+account's DID. The DID rather than the handle so login survives a handle switch,
+same reasoning as buildthis. `CLIENT_PUBLIC_JWK` is the public half of the
+client signing key; it's a var rather than derived because the private key is
+imported non-extractable and WebCrypto can't recover a public half from it.
 
-A normal Bluesky account, same as buildthis (`notes/80`). Suggested handle
-`listbot.bisks.net` — the Worker already serves `/.well-known/atproto-did`, so
-claiming it is a var change, not a new mechanism. Create an **app password** for
-it.
+**Secrets**, and what each one actually protects:
 
-The app password is only for the bot's own notifications and replies. It gives
-listbot no access to anyone's lists — those go exclusively through each user's
-own OAuth grant.
+| secret | what it is | what it protects |
+| --- | --- | --- |
+| `BOT_APP_PASSWORD` | the bot account's app password | the bot's own notifications and replies. Grants **no** access to anyone's lists — those go only through each user's OAuth grant. |
+| `CLIENT_PRIVATE_KEY` | P-256 PKCS#8, base64url, from `audit/listbot-keygen.mjs` | signs the client assertions that prove to a PDS that a sign-in request is really from listbot. Its public half is served at `/jwks.json`. |
+| `SESSION_ENC_KEY` | any high-entropy string | **every user's stored refresh token.** The real boundary — see "What protects the tokens". Rotating it logs everyone out; leaking it means whoever holds it can edit signed-in users' lists. |
 
-### 2. The client signing key
+Plus a KV namespace bound as `STATE`.
 
-```
-node audit/listbot-keygen.mjs
-```
-
-Prints a P-256 keypair and self-tests it. The private half is a secret; the
-public half is a JWK that goes in `wrangler.toml` as `CLIENT_PUBLIC_JWK` (public
-values only). It's a var rather than derived because the private key is imported
-non-extractable and WebCrypto can't recover a public half from it.
-
-### 3. The session encryption key
-
-Any high-entropy string, e.g. `openssl rand -base64 32`. This is the one that
-matters most — see "What protects the tokens".
-
-### 4. Wire it up
-
-```
-wrangler kv namespace create listbot-state     # id -> wrangler.toml
-
-cd sites/listbot
-pnpm dlx wrangler secret put BOT_APP_PASSWORD
-pnpm dlx wrangler secret put CLIENT_PRIVATE_KEY
-pnpm dlx wrangler secret put SESSION_ENC_KEY
-```
-
-Then replace in `wrangler.toml`: the KV namespace id, `BOT_DID` and
-`BOT_IDENTIFIER` (both the bot's DID), and `CLIENT_PUBLIC_JWK`. Push.
-
-Check with `https://listbot.bisks.net/status.json` — `"status": "live"` means
-it's configured.
+`/status.json` reporting `"status": "live"` means all of it is in place.
 
 ## Out of scope: a labeler over these lists
 
