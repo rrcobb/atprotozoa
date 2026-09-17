@@ -1,9 +1,19 @@
 // Bluesky handle typeahead. Copy this file into a site's public/lib/ dir and
 // call attachHandleTypeahead(inputEl) on any text input where someone types a
-// handle. Suggestions come from the public AppView's actor search (no auth,
-// no API key) — same one bsky.app's own search box uses.
+// handle. No auth, no API key.
+//
+// Suggestions come from typeahead.waow.tech first (a community-run actor
+// search by @zzstoatzz.io; bsky-compatible response shape), falling back to
+// the public AppView's searchActorsTypeahead if waow errors or times out.
+// Cut over 2026-09-17 on measurement (audit/typeahead-bench.mjs): waow is
+// ~4x faster at the median and its index finds handles bsky's misses
+// (buildthis.bisks.net, people's alt handles). llms.txt asks callers to send
+// X-Client naming the site; every copy of this file says bisks.net.
 (function (global) {
-  const API = "https://public.api.bsky.app/xrpc/app.bsky.actor.searchActorsTypeahead";
+  const APIS = [
+    { url: "https://typeahead.waow.tech/xrpc/app.bsky.actor.searchActorsTypeahead", headers: { "X-Client": "bisks.net" } },
+    { url: "https://public.api.bsky.app/xrpc/app.bsky.actor.searchActorsTypeahead", headers: {} },
+  ];
   const MIN_LEN = 2;
   const DEBOUNCE_MS = 200;
 
@@ -117,9 +127,22 @@
       if (abortCtrl) abortCtrl.abort();
       abortCtrl = new AbortController();
       try {
-        const res = await fetch(API + "?q=" + encodeURIComponent(q) + "&limit=8", { signal: abortCtrl.signal });
-        if (!res.ok) throw new Error("search failed");
-        const data = await res.json();
+        let data = null;
+        for (const api of APIS) {
+          try {
+            const res = await fetch(api.url + "?q=" + encodeURIComponent(q) + "&limit=8", {
+              signal: abortCtrl.signal,
+              headers: api.headers,
+            });
+            if (!res.ok) throw new Error("search failed " + res.status);
+            data = await res.json();
+            break;
+          } catch (err) {
+            if (err.name === "AbortError") throw err;
+            // fall through to the next backend
+          }
+        }
+        if (!data) throw new Error("search failed");
         items = data.actors || [];
         activeIndex = items.length ? 0 : -1;
         renderDropdown();

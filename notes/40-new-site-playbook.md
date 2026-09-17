@@ -202,7 +202,7 @@ survey note in `notes/ideas/` first.
 | --- | --- | --- |
 | who follows / likes / quotes / lists / blocks a DID or URI, in bulk | Constellation (`constellation.microcosm.blue`), the backlink index | `sites/innercircle/public/lib/topmutuals.js` (`getBacklinkDids` + `getBacklinks`) |
 | live records as they land | Jetstream (`wss://jetstream*.us-*.bsky.network/subscribe?wantedCollections=`) | `sites/voidshout/public/lib/ingest.js`, `sites/trigrams/public/firehose/` |
-| handle typeahead at login or in a search box | Bluesky's `searchActorsTypeahead` via the shared lib | `handle-typeahead.js`, already in ~236 sites |
+| handle typeahead at login or in a search box | typeahead.waow.tech first, AppView `searchActorsTypeahead` as fallback (cut over 2026-09-17, `notes/ideas/waow-tech-utilities.md`) | `handle-typeahead.js`, identical in 244 sites; edit one, copy to all |
 | every label on an account from every labeler | `atproto-accept-labelers` fan-out over mackuba's labeler directory | `sites/labelmuster` |
 | a link to a raw record | pdsls (`https://pdsls.dev/at://<uri>`), not bsky.app | `sites/selflikes`, `sites/receipts` |
 | how much traffic a site gets | `https://stats.bisks.net/stats/<name>.json` (`notes/86-stats.md`) | any site: one fetch, no token |

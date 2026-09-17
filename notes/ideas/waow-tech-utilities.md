@@ -101,6 +101,19 @@ The per-IP shape matters more than the number. Typeahead fires per keystroke,
 so a shared egress IP (office, campus, CGNAT, a VPN exit) pools toward one
 bucket, and the failure lands on whoever is typing at the time.
 
+### Decision: cut over, 2026-09-17
+
+Rob read the result-set divergence the other way: for the people who use
+these sites, waow's index returns *better* names (it finds
+`buildthis.bisks.net`, psingletary's and zzstoatzz's alt handles; bsky's
+index has none of them), and it is 4x faster. So `handle-typeahead.js` now
+queries typeahead.waow.tech first with `X-Client: bisks.net`, and falls back
+to `public.api.bsky.app` if waow errors, so a third-party outage never
+darkens a login box. All 244 copies are byte-identical; reverting is one
+edit copied to all of them. The middle-ground reasoning below is kept as
+the case against, in case the index difference turns out to matter for
+login boxes in practice.
+
 ### Where this leaves the swap
 
 The original objection in this note was "a third party on the login path
