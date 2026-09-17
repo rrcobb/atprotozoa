@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>firstcontact — every account you ever reached first, in order — bisks.net</title>
+    <meta
+      name="description"
+      content="Enter a Bluesky handle and firstcontact downloads your whole repo, walks every collection in it (likes, replies, quote posts, reposts, follows, even third-party app records), and builds a chronological table of every account you ever made contact with — the moment it first happened, and how."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="firstcontact — every account you ever reached first, in order" />
+    <meta
+      property="og:description"
+      content="Downloads your whole atproto repo and builds a chronological table: account, date of contact, application, type — the first time you ever crossed paths with each one."
+    />
+    <meta property="og:url" content="https://firstcontact.bisks.net/" />
+    <meta property="og:image" content="https://firstcontact.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="firstcontact — a timeline of small dots, each one the first moment of contact with a different account." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="firstcontact — every account you ever reached first, in order" />
+    <meta name="twitter:description" content="A chronological table of every account you ever made contact with — first time only." />
+    <meta name="twitter:image" content="https://firstcontact.bisks.net/og.png" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <span class="brand">firstcontact</span>
+        <span class="brand-sub">every acc<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">o</span>unt you ever reached, in order</span>
+      </header>
+
+      <section id="gate" class="screen">
+        <div class="intro-card">
+          <p>
+            Your repo remembers, even when you don't. This downloads your
+            <b>entire</b> repo as one CAR and walks every collection in it —
+            likes, replies, quote posts, reposts, follows, mentions, and
+            whatever else turns up, including records from apps this site has
+            never heard of — then keeps only the <b>earliest</b> interaction
+            with each account: the moment first contact was actually made.
+          </p>
+          <p class="fine">
+            Public reads only — no login, nothing written anywhere. One
+            request pulls your whole repo, no per-collection page limit.
+            Give it a minute on a big account.
+          </p>
+          <form id="goForm" autocomplete="off">
+            <label class="lbl" for="handle">your handle</label>
+            <div class="row">
+              <input type="text" id="handle" placeholder="e.g. psingletary.com" spellcheck="false" />
+              <button id="goBtn" type="submit">trace it</button>
+            </div>
+          </form>
+          <p class="msg" id="goMsg"></p>
+        </div>
+      </section>
+
+      <section id="working" class="screen hidden">
+        <div class="progress-card">
+          <div class="status" id="statusLine">resolving handle…</div>
+          <div class="meter"><i id="meterBar" style="width:6%"></i></div>
+          <div class="substat" id="subStat"></div>
+        </div>
+      </section>
+
+      <section id="result" class="screen hidden">
+        <div class="summary-card" id="summaryCard"></div>
+
+        <div class="filter-card" id="filterCard">
+          <div class="row">
+            <input type="text" id="searchInput" placeholder="filter by handle or name…" spellcheck="false" />
+            <select id="typeFilter"><option value="">all types</option></select>
+          </div>
+          <p class="fine" id="filterCount"></p>
+        </div>
+
+        <div class="table-wrap">
+          <table id="contactTable">
+            <thead>
+              <tr>
+                <th class="col-account">account</th>
+                <th class="col-date">date of contact</th>
+                <th class="col-app">application</th>
+                <th class="col-type">type</th>
+              </tr>
+            </thead>
+            <tbody id="contactBody"></tbody>
+          </table>
+        </div>
+        <div class="feedmore">
+          <button id="loadMore" class="ghost" type="button">show more</button>
+          <span id="feedDone" class="msg hidden">that's every account.</span>
+        </div>
+        <div class="startover">
+          <button id="restart" class="ghost small" type="button">trace someone else</button>
+        </div>
+      </section>
+
+      <footer>
+        "first contact" = the earliest dated interaction found with each
+        account across your whole repo, oldest overall first. Records with no
+        usable date (a rare non-TID rkey and no createdAt-shaped field) are
+        listed last, marked unknown. Read straight off your own PDS — nothing
+        here is stored anywhere else.
+        <a href="https://rateyourbuild.bisks.net/site/firstcontact">rate this on rateyourbuild →</a>
+        · sibling of <a href="https://backscroll.bisks.net">backscroll</a> on
+        <a href="https://bisks.net">bisks.net</a>.
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script>
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+    </script>
+    <script type="module">
+      import { traceContacts } from "./lib/contacts.js";
+
+      const $ = (id) => document.getElementById(id);
+      const gate = $("gate"), goForm = $("goForm"), handleInput = $("handle"),
+        goBtn = $("goBtn"), goMsg = $("goMsg"),
+        working = $("working"), statusLine = $("statusLine"), meterBar = $("meterBar"), subStat = $("subStat"),
+        result = $("result"), summaryCard = $("summaryCard"),
+        searchInput = $("searchInput"), typeFilter = $("typeFilter"), filterCount = $("filterCount"),
+        contactBody = $("contactBody"), loadMoreBtn = $("loadMore"), feedDone = $("feedDone"),
+        restartBtn = $("restart");
+
+      const BATCH = 40;
+      let allContacts = [];
+      let filtered = [];
+      let shown = 0;
+      let meHandle = "";
+
+      function showScreen(id) {
+        for (const s of [gate, working, result]) s.classList.toggle("hidden", s.id !== id);
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      const initials = (s) => (s || "?").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2).toUpperCase() || "?";
+      const TINTS = ["#2f7d6b", "#2f5e7d", "#6b2f7d", "#7d5e2f", "#3b7d2f", "#7d2f4a"];
+      function tintFor(s) {
+        let h = 0;
+        for (const c of s || "x") h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+        return TINTS[h % TINTS.length];
+      }
+
+      function fmtDate(iso) {
+        if (!iso) return "unknown";
+        try {
+          const d = new Date(iso);
+          return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) +
+            " · " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+        } catch { return iso; }
+      }
+
+      function accountUrl(c) {
+        const handle = c.profile && c.profile.handle;
+        return `https://bsky.app/profile/${encodeURIComponent(handle || c.targetDid)}`;
+      }
+
+      function rowEl(c) {
+        const tr = document.createElement("tr");
+        const handle = c.profile && c.profile.handle;
+        const displayName = (c.profile && c.profile.displayName) || handle || c.targetDid;
+        const avatar = c.profile && c.profile.avatar;
+
+        const tdAccount = document.createElement("td");
+        tdAccount.className = "col-account";
+        const av = document.createElement("span");
+        av.className = "av";
+        if (avatar) av.style.backgroundImage = `url("${avatar}")`;
+        else { av.style.background = tintFor(handle || c.targetDid); av.textContent = initials(displayName); }
+        const who = document.createElement("a");
+        who.className = "who";
+        who.href = accountUrl(c);
+        who.target = "_blank";
+        who.rel = "noopener";
+        who.innerHTML = `<b>${escapeHtml(displayName)}</b>` + (handle ? ` <span class="handle">@${escapeHtml(handle)}</span>` : ` <span class="handle">${escapeHtml(c.targetDid)}</span>`);
+        tdAccount.appendChild(av);
+        tdAccount.appendChild(who);
+
+        const tdDate = document.createElement("td");
+        tdDate.className = "col-date";
+        tdDate.textContent = fmtDate(c.date);
+        if (c.estimated) {
+          const est = document.createElement("span");
+          est.className = "tag est";
+          est.textContent = "est.";
+          est.title = "no createdAt field on this record — date decoded from the record key's own timestamp";
+          tdDate.appendChild(document.createTextNode(" "));
+          tdDate.appendChild(est);
+        }
+
+        const tdApp = document.createElement("td");
+        tdApp.className = "col-app";
+        tdApp.textContent = c.application;
+
+        const tdType = document.createElement("td");
+        tdType.className = "col-type";
+        const typeTag = document.createElement("span");
+        typeTag.className = "tag";
+        typeTag.textContent = c.type;
+        tdType.appendChild(typeTag);
+
+        tr.appendChild(tdAccount);
+        tr.appendChild(tdDate);
+        tr.appendChild(tdApp);
+        tr.appendChild(tdType);
+        return tr;
+      }
+
+      function renderMore() {
+        const next = filtered.slice(shown, shown + BATCH);
+        for (const c of next) contactBody.appendChild(rowEl(c));
+        shown += next.length;
+        filterCount.textContent = `${shown} / ${filtered.length} accounts shown` + (filtered.length !== allContacts.length ? ` (of ${allContacts.length} total)` : "");
+        const remaining = filtered.length - shown;
+        loadMoreBtn.classList.toggle("hidden", remaining <= 0);
+        feedDone.classList.toggle("hidden", remaining > 0);
+        if (remaining > 0) loadMoreBtn.textContent = `show ${Math.min(BATCH, remaining)} more (${remaining} left)`;
+      }
+      loadMoreBtn.addEventListener("click", renderMore);
+
+      function applyFilters() {
+        const q = searchInput.value.trim().toLowerCase();
+        const type = typeFilter.value;
+        filtered = allContacts.filter((c) => {
+          if (type && c.type !== type) return false;
+          if (!q) return true;
+          const handle = (c.profile && c.profile.handle) || "";
+          const name = (c.profile && c.profile.displayName) || "";
+          return handle.toLowerCase().includes(q) || name.toLowerCase().includes(q) || c.targetDid.toLowerCase().includes(q);
+        });
+        shown = 0;
+        contactBody.innerHTML = "";
+        renderMore();
+      }
+      searchInput.addEventListener("input", applyFilters);
+      typeFilter.addEventListener("change", applyFilters);
+
+      function populateTypeFilter(contacts) {
+        const types = [...new Set(contacts.map((c) => c.type))].sort();
+        typeFilter.innerHTML = '<option value="">all types</option>' +
+          types.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
+      }
+
+      function buildShareText(res) {
+        const url = "https://firstcontact.bisks.net/";
+        const earliest = res.contacts[0];
+        const who = earliest && earliest.profile ? `@${earliest.profile.handle}` : (earliest ? earliest.targetDid : "");
+        const when = earliest && earliest.date ? new Date(earliest.date).getFullYear() : "";
+        return `traced first contact with every one of @${res.handle}'s ${res.contacts.length.toLocaleString()} accounts — earliest was ${who}${when ? " back in " + when : ""}. → ${url}`;
+      }
+
+      function renderSummary(res) {
+        summaryCard.innerHTML = "";
+        const h = document.createElement("div");
+        h.className = "sumhead";
+        h.textContent = `@${meHandle}'s first contacts`;
+        const body = document.createElement("div");
+        body.className = "sumbody";
+        const earliest = res.contacts[0];
+        const earliestHandle = earliest && earliest.profile ? `@${earliest.profile.handle}` : (earliest ? earliest.targetDid : "?");
+        body.innerHTML =
+          `<b>${res.contacts.length.toLocaleString()}</b> accounts, from <b>${res.totalEvents.toLocaleString()}</b> interactions across <b>${res.totalRecords.toLocaleString()}</b> records` +
+          (res.fetchMethod === "paginated" ? ` (repo CAR download failed — walked every collection page by page instead)` : "") +
+          `.<br>earliest contact: <b>${escapeHtml(earliestHandle)}</b>` +
+          (earliest && earliest.date ? `, ${fmtDate(earliest.date)}` : "") +
+          (earliest ? ` via ${escapeHtml(earliest.application)} (${escapeHtml(earliest.type)}).` : ".");
+        const actions = document.createElement("div");
+        actions.className = "actions";
+        const share = document.createElement("a");
+        share.className = "sharebtn";
+        share.textContent = "share on bluesky";
+        share.target = "_blank";
+        share.rel = "noopener";
+        share.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(res));
+        actions.appendChild(share);
+        summaryCard.appendChild(h);
+        summaryCard.appendChild(body);
+        summaryCard.appendChild(actions);
+      }
+
+      async function run(handleRaw) {
+        showScreen("working");
+        statusLine.textContent = "resolving @" + handleRaw.replace(/^@/, "") + "…";
+        meterBar.style.width = "6%";
+        subStat.textContent = "";
+
+        let pct = 6;
+        const res = await traceContacts(handleRaw, {
+          onProgress: (msg) => {
+            statusLine.textContent = msg;
+            pct = Math.min(92, pct + 4);
+            meterBar.style.width = pct + "%";
+          },
+        });
+
+        meterBar.style.width = "100%";
+        meHandle = res.handle;
+        allContacts = res.contacts;
+        populateTypeFilter(allContacts);
+        searchInput.value = "";
+        typeFilter.value = "";
+        renderSummary(res);
+        applyFilters();
+        showScreen("result");
+      }
+
+      goForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const raw = handleInput.value.trim();
+        if (!raw) { handleInput.focus(); return; }
+        goBtn.disabled = true;
+        goMsg.className = "msg";
+        goMsg.textContent = "";
+        try {
+          await run(raw);
+        } catch (err) {
+          showScreen("gate");
+          goMsg.className = "msg err";
+          goMsg.textContent = err?.message || "something broke — try again?";
+        } finally {
+          goBtn.disabled = false;
+        }
+      });
+
+      restartBtn.addEventListener("click", () => {
+        allContacts = [];
+        filtered = [];
+        shown = 0;
+        contactBody.innerHTML = "";
+        handleInput.value = "";
+        showScreen("gate");
+        handleInput.focus();
+      });
+    </script>
+  </body>
+</html>
