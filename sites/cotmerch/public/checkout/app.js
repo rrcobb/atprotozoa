@@ -9,6 +9,7 @@ const totalAmt = document.getElementById("totalAmt");
 const submitBtn = document.getElementById("submitBtn");
 const logEl = document.getElementById("log");
 const handleInput = document.getElementById("handleInput");
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(handleInput);
 const secretHandle = document.getElementById("secretHandle");
 
 const orderPanel = document.getElementById("orderPanel");

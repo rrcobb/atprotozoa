@@ -187,6 +187,8 @@ async function scan(raw) {
   }
 }
 
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(els.handleInput);
+
 els.form.addEventListener("submit", (e) => {
   e.preventDefault();
   if (els.handleInput.value.trim()) scan(els.handleInput.value);

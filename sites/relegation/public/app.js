@@ -84,6 +84,9 @@ function renderSignin() {
     <button id="signIn" type="button">sign in</button>
     <span class="signin-err" id="signinErr"></span>
   `;
+  if (window.attachHandleTypeahead) {
+    window.attachHandleTypeahead(document.getElementById("loginHandle"));
+  }
   document.getElementById("signIn").addEventListener("click", async () => {
     const h = cleanHandle(document.getElementById("loginHandle").value);
     const err = document.getElementById("signinErr");

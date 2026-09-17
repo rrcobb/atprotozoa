@@ -521,6 +521,8 @@ function init() {
     el("foundCard").classList.remove("hidden");
   });
 
+  if (window.attachHandleTypeahead) window.attachHandleTypeahead(el("c-yourhandle"));
+
   el("c-yourhandle").addEventListener("input", () => {
     renderCharter();
     renderCouncilList();
