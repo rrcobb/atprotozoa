@@ -66,6 +66,9 @@ async function worker() {
     let assetRes = null;
     if (asset) assetRes = await head(`${base}/${asset}`);
     results.push({ name, root, asset, assetRes });
+    if (results.length % 25 === 0) {
+      console.error(`... ${results.length}/${names.length} checked`);
+    }
   }
 }
 await Promise.all(Array.from({ length: CONCURRENCY }, worker));
