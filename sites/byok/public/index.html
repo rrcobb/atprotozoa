@@ -19,7 +19,10 @@
   main { max-width: 620px; margin: 0 auto; }
   h1 { font-size: 30px; margin: 0 0 4px; letter-spacing: -.01em; }
   .sub { margin: 0 0 24px; opacity: .72; }
-  #panel { margin-bottom: 22px; }
+  #panel { margin-bottom: 12px; }
+  #voice-panel { margin-bottom: 22px; }
+  .speak { margin-top: 16px; padding: 7px 14px; font: inherit; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 6px; background: #fff; }
   .ask { display: flex; gap: 8px; flex-wrap: wrap; }
   .ask input { flex: 1 1 240px; min-width: 0; padding: 9px 11px; font: inherit;
     border: 1px solid var(--line); border-radius: 6px; background: #fff; }
@@ -41,6 +44,7 @@
     which stays in this tab.</p>
 
   <div id="panel"></div>
+  <div id="voice-panel"></div>
 
   <div class="ask">
     <input id="handle" placeholder="your.handle.bsky.social" autocomplete="off" spellcheck="false" />
@@ -58,16 +62,31 @@
 </main>
 
 <script type="module">
-import { mountKeyPanel, askClaude } from "./lib/byok.js";
+import { mountKeyPanel, chat, speak, hasKey } from "./lib/byok.js";
 
 const handleEl = document.getElementById("handle");
 const goEl = document.getElementById("go");
 const outEl = document.getElementById("out");
 
+// capability instead of provider: the visitor picks whichever of the dozen
+// chat providers they happen to hold a key for.
+let who = "openai";
 mountKeyPanel("#panel", {
-  provider: "anthropic",
-  blurb: "This page asks Claude to read your posts and write you a horoscope.",
-  onChange: (ready) => { goEl.disabled = !ready; },
+  capability: "chat",
+  title: "Who writes it",
+  blurb: "This page reads your posts and writes you a horoscope.",
+  onChange: (ready, provider) => {
+    who = provider;
+    goEl.disabled = !ready;
+  },
+});
+
+// Optional second panel: a voice for the horoscope, if they want one.
+const voicePanel = mountKeyPanel("#voice-panel", {
+  capability: "speak",
+  prefer: "elevenlabs",
+  title: "Who reads it aloud (optional)",
+  blurb: "Skip this unless you want the horoscope spoken.",
 });
 
 function say(text, isError = false) {
@@ -106,7 +125,7 @@ async function run() {
 
   try {
     const posts = await recentPosts(handle);
-    const reading = await askClaude(
+    const reading = await chat(
       `Here are recent posts from @${handle}:\n\n` +
         posts.map((p) => `- ${p}`).join("\n"),
       {
@@ -117,18 +136,40 @@ async function run() {
           "post about. Affectionate, never mean, never a summary or a list. " +
           "Output only the horoscope.",
         maxTokens: 400,
+        provider: who,
       },
     );
 
     outEl.className = "";
     outEl.innerHTML = "";
-    const who = document.createElement("div");
-    who.className = "who";
-    who.textContent = `for @${handle}, from ${posts.length} posts`;
+    const credit = document.createElement("div");
+    credit.className = "who";
+    credit.textContent = `for @${handle}, from ${posts.length} posts`;
     const body = document.createElement("div");
     body.className = "reading";
     body.textContent = reading;
-    outEl.append(who, body);
+    outEl.append(credit, body);
+
+    // Offer the voice only if they've set a key for the chosen speech provider.
+    if (hasKey(voicePanel.provider())) {
+      const play = document.createElement("button");
+      play.className = "speak";
+      play.textContent = "Read it aloud";
+      play.addEventListener("click", async () => {
+        play.disabled = true;
+        play.textContent = "Generating…";
+        try {
+          const url = await speak(reading, { provider: voicePanel.provider() });
+          new Audio(url).play();
+          play.textContent = "Play again";
+        } catch (err) {
+          play.textContent = err.message || "Couldn't generate audio";
+        } finally {
+          play.disabled = false;
+        }
+      });
+      outEl.append(play);
+    }
   } catch (err) {
     say(err.message || "Something went wrong.", true);
   } finally {
