@@ -526,11 +526,26 @@ async function runWatcher(env: Env): Promise<void> {
     // prepend the ancestor posts so "build this ☝️" resolves to what it points at.
     // All treated as a feature description, not harness instructions.
     const ctx = await threadContext(session, m);
-    const brief = buildBrief(m.text, ctx.posts, num(env.MAX_BRIEF_CHARS), m.isReply);
+    // Images past MAX_BRIEF_IMAGES are dropped. That used to be silent, so a
+    // thread with six screenshots reached the builder as four with no sign the
+    // others existed; the builder then answered about "the screenshot" as if
+    // that were all of them. Report the drop like any other unread input.
+    const imageCap = num(env.MAX_BRIEF_IMAGES) || 4;
+    const images = ctx.images.slice(0, imageCap);
+    const unread = [...ctx.unread];
+    for (const dropped of ctx.images.slice(imageCap)) {
+      unread.push({
+        uri: dropped.url,
+        source: "an image in the thread",
+        reason: `past the ${imageCap}-image limit, not downloaded`,
+      });
+    }
+    const brief = buildBrief(m.text, ctx.posts, num(env.MAX_BRIEF_CHARS), m.isReply, unread, images.length);
     const payload: BuildPayload = {
       brief,
       authorHandle: m.authorHandle,
-      images: ctx.images.slice(0, num(env.MAX_BRIEF_IMAGES) || 4),
+      images,
+      unread,
       // The mention uri keys the event record; the builder echoes it back on the
       // outcome POST so the build result lands on the SAME record.
       mentionUri: m.uri,
@@ -2079,12 +2094,12 @@ async function searchMentionSweep(session: Session, env: Env): Promise<Mention[]
 async function threadContext(session: Session, m: Mention): Promise<ThreadContext> {
   const u = new URL(`${APPVIEW}/xrpc/app.bsky.feed.getPostThread`);
   u.searchParams.set("uri", m.uri);
-  u.searchParams.set("parentHeight", "10"); // walk up to 10 ancestors
+  u.searchParams.set("parentHeight", String(PARENT_HEIGHT));
   u.searchParams.set("depth", "0");
   const res = await fetch(u.toString(), {
     headers: { authorization: `Bearer ${session.accessJwt}` },
   });
-  if (!res.ok) return { posts: [], images: [] };
+  if (!res.ok) return { posts: [], images: [], unread: [] };
   const j = (await res.json()) as { thread?: ThreadNode };
 
   // Collect ancestors newest->oldest by following .parent, then reverse. The
@@ -2101,15 +2116,18 @@ async function threadContext(session: Session, m: Mention): Promise<ThreadContex
 
   const posts: string[] = [];
   const images: ImageRef[] = [];
+  const refs: Ref[] = [];
   for (const n of nodes) {
     const rendered = renderPost(n.post);
     if (rendered) posts.push(rendered);
     collectImages(n.post, images);
+    collectRefs(n.post, refs);
   }
   // The tagging post's own embeds. Its TEXT is already the instruction, so only
   // the embeds are added — a quote or link card on the tag itself is context the
   // instruction is pointing at, and its images are the thing being shown.
   collectImages(j.thread?.post, images);
+  collectRefs(j.thread?.post, refs);
   const tagEmbeds = describeEmbed(j.thread?.post?.embed);
   if (tagEmbeds.length) {
     posts.push(`(attached to the post that tagged the bot)\n${tagEmbeds.map((p) => `  ${p}`).join("\n")}`);
@@ -2125,10 +2143,19 @@ async function threadContext(session: Session, m: Mention): Promise<ThreadContex
       const rendered = renderPost(root);
       if (rendered) posts.unshift(`${rendered}\n(the thread's root post)`);
       collectImages(root, images);
+      collectRefs(root, refs);
     }
   }
 
-  return { posts, images: dedupeImages(images) };
+  // Fetch what the thread points at (link cards, non-post records) so the brief
+  // carries the material itself rather than a card's one-line summary. Bounded
+  // and best-effort; whatever couldn't be read comes back in `unread` so the
+  // builder can say so instead of guessing.
+  const { fetched, unread } = await fetchRefs(dedupeRefs(refs));
+  const refsBlock = renderRefs(fetched);
+  if (refsBlock) posts.push(refsBlock);
+
+  return { posts, images: dedupeImages(images), unread };
 }
 
 // Fetch a single post by uri, for the root when it's above the ancestor window.
@@ -2216,9 +2243,27 @@ function describeQuoted(rec: QuotedRecord | undefined, depth: number): string {
   return `[quoting @${handle}: ${text}${suffix}]`;
 }
 
+// How far up the reply chain to walk. Was 10, which truncated the long specs
+// people write as a self-reply chain (2026-09-buildthis-issue-themes.md, theme
+// 5). A spec written as N replies is one document; starting it halfway through
+// loses the premise.
+//
+// One correction to the note while checking this: the "73-part" spec from
+// @fromthewestmeadow.com is only 11 posts on Bluesky — parts 12-73 were never
+// posted. So the walk limit is not why that one went unbuilt, and raising it
+// will not retroactively fix that case. The limit was still a real ceiling, and
+// 10 is low for the way people write specs here.
+//
+// The cost of a bigger window is ordinary conversation getting pulled in on a
+// deep thread — noise rather than damage, and MAX_BRIEF_CHARS still bounds the
+// assembled brief. The AppView accepts this value (its documented max is 1000).
+const PARENT_HEIGHT = 80;
+
 interface ThreadContext {
   posts: string[];
   images: ImageRef[];
+  // Link cards and records that were pointed at but could not be read.
+  unread: UnreadRef[];
 }
 
 // A fullsize CDN url plus whatever alt text the poster wrote. The url is what the
@@ -2296,6 +2341,9 @@ function dedupeImages(images: ImageRef[]): ImageRef[] {
 const REF_FETCH_TIMEOUT_MS = 8000;
 const REF_MAX_BYTES = 512 * 1024; // read this much of a page, then stop
 const REF_MAX_CHARS = 6000; // extracted text per ref, into the brief
+// Below this much extracted text, a page is a JS shell or an error page rather
+// than content. Reported as unread instead of passed off as a successful read.
+const REF_MIN_CHARS = 120;
 const MAX_REFS = 4; // most threads point at 0 or 1 thing
 
 // A thing the thread pointed at, to be fetched.
@@ -2323,6 +2371,14 @@ interface FetchedRef {
 // Hosts that never yield useful text to an unauthenticated GET, so fetching one
 // spends the timeout to learn nothing. Reported as unread (with the reason)
 // rather than attempted — the builder still learns the link was there.
+//
+// Reddit is deliberately NOT on this list, and also not fixable: www.reddit.com
+// serves a JS shell that extracts to the single word "Reddit", and
+// old.reddit.com redirects a datacenter IP to a login wall. It's left to the
+// normal path so REF_MIN_CHARS catches the empty read and reports it as unread.
+// That's the theme-5 case (@personhood.removal.surgery, "can you not access the
+// reddit post? you built off the wrong base") turned from a silent wrong build
+// into a gap the reply can own.
 const REF_SKIP_HOSTS = [
   "x.com",
   "twitter.com",
@@ -2420,7 +2476,6 @@ async function fetchLink(uri: string): Promise<string> {
   if (REF_SKIP_HOSTS.includes(host)) {
     throw new Error(`${host} doesn't serve readable content to a fetch`);
   }
-
   const res = await fetch(u.toString(), {
     headers: {
       // Some sites serve a very different (or no) page to an unknown agent.
@@ -2445,6 +2500,15 @@ async function fetchLink(uri: string): Promise<string> {
   const body = await readCapped(res, REF_MAX_BYTES);
   const text = ctype.includes("text/html") ? htmlToText(body) : body.trim();
   if (!text) throw new Error("no readable text");
+  // A JS-shell page extracts to a word or two of chrome. That is not content,
+  // but it LOOKS like a successful read, so the builder would take a title for
+  // the page and build off it — the wrong-base bug with false confidence. Treat
+  // too-thin as unread so the reply can say the link couldn't be read.
+  if (text.length < REF_MIN_CHARS) {
+    throw new Error(
+      `only ${text.length} characters of text came back (the page needs JavaScript to render)`,
+    );
+  }
   return clipRef(text);
 }
 
@@ -2486,7 +2550,10 @@ function htmlToText(html: string): string {
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
     .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
     .replace(/<nav[\s\S]*?<\/nav>/gi, " ")
+    .replace(/<header[\s\S]*?<\/header>/gi, " ")
     .replace(/<footer[\s\S]*?<\/footer>/gi, " ")
+    .replace(/<template[\s\S]*?<\/template>/gi, " ")
+    .replace(/<form[\s\S]*?<\/form>/gi, " ")
     .replace(/<!--[\s\S]*?-->/g, " ");
   // Keep block boundaries as newlines so paragraphs don't run together.
   s = s
@@ -2498,12 +2565,20 @@ function htmlToText(html: string): string {
     .replace(/\n\s*\n\s*\n+/g, "\n\n")
     .split("\n")
     .map((l) => l.trim())
+    .filter((l) => !BOILERPLATE_LINE.test(l))
     .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
   // The <title> is often the clearest statement of what the page is, and the
   // body text alone can bury it.
   return title && !s.startsWith(title) ? `${decodeEntities(title)}\n\n${s}` : s;
 }
+
+// Stock chrome that survives the tag-stripping above and crowds out the real
+// text — sign-in prompts, cookie banners, "skip to content". Whole lines only,
+// so a sentence that happens to contain one of these words is kept.
+const BOILERPLATE_LINE =
+  /^(skip to (main )?content|sign ?in|sign ?up|log ?in|menu|search|navigation menu|appearance settings|you signed (in|out) .*|you switched accounts .*|reload to refresh your session\.?|we use cookies.*|accept( all)?( cookies)?|cookie (policy|settings)|toggle navigation|loading\.\.\.?)$/i;
 
 // The handful of entities that actually show up in prose. Numeric refs are
 // handled generally; the rest fall through as-is rather than being guessed at.
@@ -2793,7 +2868,10 @@ async function threadAlreadyBuilt(
   try {
     const u = new URL(`${APPVIEW}/xrpc/app.bsky.feed.getPostThread`);
     u.searchParams.set("uri", m.uri);
-    u.searchParams.set("parentHeight", "10");
+    // Same window the brief walk uses, so "is there a bot post above me" and
+    // "what context did the brief see" can't disagree about where the thread
+    // starts.
+    u.searchParams.set("parentHeight", String(PARENT_HEIGHT));
     u.searchParams.set("depth", "0");
     const res = await fetch(u.toString(), {
       headers: { authorization: `Bearer ${session.accessJwt}` },
@@ -3021,6 +3099,10 @@ interface BuildPayload {
   // MAX_BRIEF_IMAGES. The box downloads these and passes the file paths to the
   // builder, which is vision-capable. Absent/empty on a text-only thread.
   images?: ImageRef[];
+  // Link cards, records, and over-cap images that were pointed at but couldn't
+  // be read. Already written into `brief` for the builder; carried separately
+  // so the log and the reply step can see what was missed without parsing prose.
+  unread?: UnreadRef[];
   mentionUri: string;
   replyRootUri: string;
   replyRootCid: string;
@@ -3855,15 +3937,46 @@ function buildBrief(
   context: string[],
   max: number,
   isReply: boolean,
+  unread: UnreadRef[] = [],
+  imageCount = 0,
 ): string {
   const ask = tagText.trim();
-  if (context.length === 0) return truncateWithMarker(ask, max);
+  // Sections appended after the thread context. Both are addressed to the
+  // builder about the brief itself, so they go last, after the material.
+  const tail: string[] = [];
+
+  // Say how many images are attached, even before the box downloads them. The
+  // builder is vision-capable and the box hands it the files, but nothing in
+  // the brief ever SAID so — on 2026-08-21 it told @shibbi.me "no, I can't see
+  // screenshots" while building from one (theme 5). A count it can check
+  // against what it was given is the difference between knowing and guessing.
+  if (imageCount > 0) {
+    tail.push(
+      `[from the harness, not the requester] ${imageCount} image${imageCount === 1 ? "" : "s"} from this thread ${imageCount === 1 ? "is" : "are"} attached to this build as ${imageCount === 1 ? "a file" : "files"} — you can see ${imageCount === 1 ? "it" : "them"}. If someone asks whether you can see their screenshot, the answer is yes.`,
+    );
+  }
+
+  const unreadBlock = renderUnread(unread);
+  if (unreadBlock) tail.push(unreadBlock);
+
+  if (context.length === 0) {
+    const body = tail.length ? `${ask}\n\n${tail.join("\n\n")}` : ask;
+    return truncateWithMarker(body, max);
+  }
   // The framing differs: in a reply the context is the thread being pointed at;
   // on a top-level tag it's whatever the tagging post itself carries.
   const preamble = isReply
     ? `The person tagged the bot in a reply. The post they tagged it in says:\n${ask}\n\nThe thread it's replying to, oldest first (this is the context "this" refers to):`
     : `The post that tagged the bot says:\n${ask}\n\nWhat that post carries with it (this is what it's pointing at):`;
-  return truncateWithMarker(`${preamble}\n${context.join("\n").trim()}`, max);
+  const assembled = `${preamble}\n${context.join("\n").trim()}`;
+  if (!tail.length) return truncateWithMarker(assembled, max);
+  // The tail is the harness talking about what it could and couldn't read, and
+  // it's short. Truncation cuts from the END, so appending it and then cutting
+  // would drop exactly the notices that exist to stop the builder guessing.
+  // Reserve its length and truncate the thread context instead.
+  const tailText = tail.join("\n\n");
+  const room = max > 0 ? max - tailText.length - 2 : max;
+  return `${truncateWithMarker(assembled, room)}\n\n${tailText}`;
 }
 
 // Cut to `max` chars at a word boundary, appending a visible marker. Falls back to
