@@ -1,19 +1,18 @@
 // Inventory Workers on the account against the 500-Worker cap.
 //
-// Background: the account is over Cloudflare's 500-Worker limit, so any deploy
-// that has to CREATE a script now fails with:
+// Background: the account sits above Cloudflare's 500-Worker limit (679 as of
+// 2026-09-17) and has for weeks with nothing breaking. Existing Workers serve
+// and redeploy normally; only CREATING a new one can fail, with:
 //
 //   You have exceeded the limit of 500 Workers on your account. [code: 10037]
 //
-// Existing Workers are grandfathered — redeploying one keeps working, and only
-// a new site is blocked. That is why the deploy workflow stayed green while
-// sites/listbot could not be created.
+// And even that depends on the wrangler version: 4.134.0 creates a new Worker
+// on this account fine, 4.114.0 gets 10037 for the same deploy. Keep wrangler
+// current. See 'The 500-Worker cap' in notes/20-deploy.md for the full story.
 //
 // The failure does not always name the cap. `wrangler kv namespace create` has
 // reported a bare "Authentication error [code: 10000]" and then succeeded on a
-// plain retry, which sends you looking at auth instead. `wrangler secret put` is
-// the reliable one: it must create the Worker before attaching a secret, so it
-// surfaces 10037.
+// plain retry, which sends you looking at auth instead.
 //
 // Unlike cf-durable-objects.mjs and cf-custom-domains.mjs, this tool has no
 // --prune. Those caps were occupied by leftovers that outlived their bindings,
@@ -261,9 +260,11 @@ console.log(
 
 if (over > 0) {
   console.log(
-    "\nCreating a NEW Worker fails with code 10037 until the count is under the\n" +
-      `cap. Redeploying an existing one still works. Freeing ${over + 1} slots needs\n` +
-      "retiring that many sites — see 'Retiring a site' in notes/20-deploy.md.",
+    `\nThe account is ${over} over the ${CAP} cap and has been for weeks without\n` +
+      "anything breaking: existing Workers serve and redeploy fine. Creating a\n" +
+      "NEW Worker is the only blocked operation, and only on old wrangler —\n" +
+      "4.134.0 creates one here, 4.114.0 gets 10037. Keep wrangler current and\n" +
+      "see 'The 500-Worker cap' in notes/20-deploy.md.",
   );
 }
 

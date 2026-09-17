@@ -39,6 +39,74 @@ If `wrangler whoami` errors with an expired token, re-run `wrangler login` in an
 interactive terminal (in a Claude Code session, type
 `! npx --yes wrangler@latest login` so the browser opens).
 
+**Keep the local wrangler in step with CI.** CI runs `pnpm dlx wrangler deploy`,
+which always fetches the latest; the repo pins a version in `package.json`. When
+those drift, a deploy can fail locally and succeed in CI. See the next section.
+
+## The 500-Worker cap
+
+Cloudflare's Workers Paid plan allows 500 Workers per account. This repo is one
+Worker per site, so the count tracks the number of experiments: **679 as of
+2026-09-17, 179 over the cap.**
+
+Nothing is broken by that, and nothing has been for weeks. The account passed
+500 on 2026-08-20 and kept creating Workers at the usual 5-10/day for another
+month. Every site serves, and every site redeploys. The cap applies only to
+**creating** a Worker that does not exist yet.
+
+### It depends on the wrangler version
+
+Creating a new Worker over the cap fails on old wrangler and succeeds on new:
+
+| wrangler | creating a new Worker over the cap |
+| --- | --- |
+| 4.114.0 | fails, `code: 10037` |
+| 4.134.0 | succeeds |
+
+Both were tried against this account on 2026-09-17 with the same credentials,
+minutes apart. Newer wrangler provisions a new script through the Workers
+Assets upload path rather than the legacy `PUT /workers/scripts/:name`, and that
+path does not hit the same check. Calling the legacy API directly returns 10037
+regardless of which token you use — the account's OAuth session and the CI API
+token behave identically, so this is **not** a credentials difference.
+
+This is what made it confusing: `sites/listbot` would not deploy locally
+(wrangler 4.114.0) but deployed cleanly through CI (`pnpm dlx`, 4.134.0) a
+minute later. The natural reading is "CI has more permission than I do," and
+that reading is wrong.
+
+The repo now pins `^4.134.0`, so the local path works too. If a local deploy of
+a *new* site ever fails with 10037 again, check the wrangler version first.
+
+### The error often does not name the cap
+
+`wrangler kv namespace create` has reported a bare
+`Authentication error [code: 10000]` and then succeeded on a plain retry — which
+sends you looking at auth, tokens, and logins for an hour. The Cloudflare
+account API returns the same misleading 10000 for scope problems. Treat a bare
+10000 during a *new site* setup as a possible cap symptom.
+
+### Where this actually sits
+
+`node audit/cf-workers.mjs` inventories the account against the cap, classifies
+every Worker against the repo, and flags routes left behind by a deleted Worker
+(routes are a zone resource, so they can strand the way DO namespaces did).
+
+There is deliberately no `--prune`. The DO and custom-domain caps were held by
+leftovers that outlived their bindings, so a safe delete set could be derived.
+This one is not: all 674 site Workers map to live site directories. Deleting one
+deletes a site.
+
+A limit increase was requested from Cloudflare on 2026-09-17 via the
+[Limit Increase Request Form](https://forms.gle/eX6pXvit1wBv77Yw5); the limits
+doc says the cap is adjustable. That is the right fix — the alternatives
+(migrating static sites to Pages, or collapsing many sites into one
+multi-tenant Worker) either fight the deploy pipeline or give up the
+per-site isolation that makes a build-on-demand bot safe to run.
+
+Note that assets-only sites (`wrangler.toml` with no `main`) still count: all 70
+of them appear in the account's script list, so dropping `main` frees nothing.
+
 ## Routes
 
 A site claims its hostname with a plain route, not a Custom Domain:
@@ -199,6 +267,16 @@ unfiltered live public image firehose. See `sites/catsofatproto/RETIRED.md` and
 
 The deploy workflow has no delete path; it only runs `wrangler deploy` on
 changed directories. Removing a live Worker or a stale hostname is a manual step.
+
+Four retired sites are still deployed and still hold a Worker slot:
+`blockledger`, `catsofatproto`, `seinfeldify`, `thread-heirloom`. Each is
+reduced to a static stub with a `RETIRED.md`; `audit/cf-workers.mjs` reports
+them as RETIRED. Deleting their Workers is safe — the `fallback` Worker answers
+unclaimed `*.bisks.net` hostnames with a "renamed, retired, or never existed"
+page, and the `RETIRED.md` files stay in the repo either way. But
+`catsofatproto` and `thread-heirloom` also hold `bisks.net/<name>` path routes,
+which the wildcard fallback does **not** cover; those routes need deleting on
+the zone too, or they 522.
 
 ## History
 
