@@ -215,32 +215,12 @@ Then replace in `wrangler.toml`: the KV namespace id, `BOT_DID` and
 Check with `https://listbot.bisks.net/status.json` — `"status": "live"` means
 it's configured.
 
-## Step two, not yet built: aggregate labels
+## Out of scope: a labeler over these lists
 
-The second half of the idea: one shared labeler publishing **aggregate** labels
-over these lists — "on the 'bots' list of N accounts", with N visible. Nobody's
-individual list is exposed; the claim is a count.
+An aggregate labeler was considered alongside this — one shared labeler
+publishing counts over these lists ("on the 'bots' list of N accounts"). Rob
+parked it on 2026-09-17: the lists in each user's own PDS are the whole product.
 
-The trust judgment stays downstream, in whether anyone subscribes. That's the
-honest place for it: the labeler asserts a countable fact about how many people
-independently put someone on a list of a given name, and a subscriber decides
-whether that's worth anything.
-
-**Not started, and the ground shifted while listbot was being built.**
-`sites/builtbybot` was repointed at gift links on 2026-09-17, so
-`notes/87-labeler.md` now describes a `gift-link` labeler, not `built-by-bot`.
-What that session reported, which decides the next step:
-
-- It's still one labeler with one label value. Nothing in the infrastructure
-  assumes that — `LABEL_VALUE` is a single constant and the signing/serving path
-  is value-agnostic, and subject sets are already per-value KV keys.
-- **The real question is a product one, not a technical one.** A labeler's DID
-  is what people subscribe to, and subscribing is all-or-nothing per labeler. So
-  sharing the account means anyone who wants list labels also gets gift-link
-  labels, and vice versa. If the two have different audiences — and they look
-  like they do — a separate account and key is cleaner, at the cost of
-  provisioning a second key.
-- `searchPosts` 403s on the public AppView, so any discovery path needs a
-  session, not just a signing key.
-
-Decide the account question before writing any of it.
+Nothing here is designed for it. There are no hooks, no shared subject store, no
+label-shaped fields on anything, and `sites/builtbybot` is untouched. If it ever
+comes back it starts from the product question, not from this code.
