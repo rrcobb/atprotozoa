@@ -12,12 +12,13 @@
 // a list called "remove" is a casualty we accept, and it's why `remove` is only
 // treated as a verb in first position.
 
-export type Command =
-  | { kind: "add"; listName: string }
-  | { kind: "remove"; listName: string }
-  | { kind: "lists" }
-  | { kind: "help" }
-  | { kind: "none" };
+// Plain .mjs rather than .ts so the test suite can import it directly, the way
+// sites/voidshout's pure logic modules do — this is the one piece of listbot
+// with enough branching to be worth unit tests, and it needs no Worker globals.
+//
+// @typedef {{kind:"add",listName:string}
+//          |{kind:"remove",listName:string}
+//          |{kind:"lists"}|{kind:"help"}|{kind:"none"}} Command
 
 const REMOVE_VERBS = new Set(["remove", "rm", "delete", "del", "unadd", "-"]);
 const ADD_VERBS = new Set(["add", "+"]);
@@ -29,7 +30,12 @@ const HELP_VERBS = new Set(["help", "?", "halp"]);
 // creating a list from it would be worse than saying we didn't understand.
 const MAX_LIST_NAME = 64;
 
-export function parseCommand(text: string, botHandles: string[]): Command {
+/**
+ * @param {string} text
+ * @param {string[]} botHandles
+ * @returns {Command}
+ */
+export function parseCommand(text, botHandles) {
   let rest = text;
 
   // Strip every mention of the bot, wherever it sits — people write

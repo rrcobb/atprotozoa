@@ -34,7 +34,8 @@ import {
   type KVNamespace,
 } from "./store.js";
 import { addToList, removeFromList, listWebUrl, type ActingSession } from "./lists.js";
-import { parseCommand } from "./command.js";
+// .mjs on purpose: it's pure logic with unit tests that import it directly.
+import { parseCommand } from "./command.mjs";
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };

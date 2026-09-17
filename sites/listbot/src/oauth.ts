@@ -21,10 +21,10 @@
 // natively, same reason sites/builtbybot signs labels with it.
 
 export interface ClientKeys {
-  // The client assertion key. Its public half is served at /jwks.json; the PDS
-  // fetches that to verify our assertions.
+  // The client assertion key. Only the private half lives here — the matching
+  // public JWK is served at /jwks.json from a var, since the private key is
+  // imported non-extractable and WebCrypto can't recover a public half from it.
   privateKey: CryptoKey;
-  publicJwk: JsonWebKey;
   kid: string;
 }
 
@@ -56,10 +56,7 @@ export async function importClientKeys(pkcs8B64url: string, kid: string): Promis
     false,
     ["sign"],
   );
-  // We can't derive the public half from a non-extractable private key, so the
-  // keygen script prints the public JWK and it rides along in a var (public
-  // values only — x and y are not secret).
-  return { privateKey, publicJwk: {}, kid };
+  return { privateKey, kid };
 }
 
 // --- JWT signing ------------------------------------------------------------
@@ -118,18 +115,18 @@ export interface DpopKey {
 }
 
 export async function generateDpopKey(): Promise<DpopKey & { privateJwk: JsonWebKey }> {
-  const pair = await crypto.subtle.generateKey(
+  const pair = (await crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
     true,
     ["sign", "verify"],
-  );
+  )) as CryptoKeyPair;
   const publicJwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as {
     kty: string;
     crv: string;
     x: string;
     y: string;
   };
-  const privateJwk = await crypto.subtle.exportKey("jwk", pair.privateKey);
+  const privateJwk = (await crypto.subtle.exportKey("jwk", pair.privateKey)) as JsonWebKey;
   return {
     privateKey: pair.privateKey,
     // Only the four members a JWK thumbprint is computed over, in the order
