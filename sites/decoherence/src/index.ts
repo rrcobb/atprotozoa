@@ -16,7 +16,7 @@ export default {
     // requests arrive without it, and an unconditional slice would chop
     // the front off short paths ("/app.js" -> "") so every asset would
     // silently serve index.html.
-    if (url.pathname.startsWith(PREFIX + "/")) {
+    if (url.pathname === PREFIX || url.pathname.startsWith(PREFIX + "/")) {
       url.pathname = url.pathname.slice(PREFIX.length) || "/";
     }
     return env.ASSETS.fetch(new Request(url, request));
