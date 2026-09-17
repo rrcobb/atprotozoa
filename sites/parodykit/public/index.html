@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>parodykit — Bluesky parody profile kit maker</title>
+<meta name="description" content="Point it at any Bluesky account: get a real avatar + banner composited from actual image files, plus a blended bio — 80% their look and voice, 20% yours." />
+<meta property="og:title" content="parodykit — Bluesky parody profile kit maker" />
+<meta property="og:description" content="Point it at any Bluesky account: get a real avatar + banner composited from actual image files, plus a blended bio — 80% their look and voice, 20% yours." />
+<meta property="og:url" content="https://parodykit.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://parodykit.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="parodykit: a rubber-stamped profile card reading 80% source, 20% you." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="parodykit — Bluesky parody profile kit maker" />
+<meta name="twitter:description" content="Point it at any Bluesky account: get a real avatar + banner composited from actual image files, plus a blended bio — 80% their look and voice, 20% yours." />
+<meta name="twitter:image" content="https://parodykit.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #f4ecd8;
+    --bg2: #ece0c4;
+    --fg: #241c14;
+    --dim: #7a6c54;
+    --accent: #c0392b;
+    --accent2: #1c6b4f;
+    --card: #fffaf0;
+    --border: #d8c9a3;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 15% -10%, #e8d9ae 0%, transparent 55%),
+      radial-gradient(ellipse at 100% 0%, #ead6c8 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4rem 1.25rem 5rem;
+  }
+  .wrap { width: 100%; max-width: 640px; }
+  h1 {
+    font-size: 2rem;
+    line-height: 1.2;
+    margin: 0 0 0.35rem;
+    letter-spacing: -0.01em;
+  }
+  h1 .stamp {
+    display: inline-block;
+    transform: rotate(-4deg);
+    color: var(--accent);
+    border: 3px solid var(--accent);
+    border-radius: 8px;
+    padding: 0 0.3rem;
+    font-weight: 800;
+  }
+  .tag {
+    color: var(--dim);
+    font-size: 0.92rem;
+    margin: 0 0 2rem;
+    line-height: 1.55;
+  }
+  .tag code { color: var(--accent2); background: rgba(28,107,79,0.08); padding: 0.05em 0.3em; border-radius: 4px; }
+
+  .field { margin-bottom: 0.9rem; }
+  label { display: block; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); margin-bottom: 0.3rem; }
+  input[type="text"] {
+    width: 100%;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.75rem 0.9rem;
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .hint { color: var(--dim); font-size: 0.76rem; margin: 0.3rem 0 0; }
+
+  button, .btn {
+    background: linear-gradient(90deg, var(--accent), #e0654f);
+    color: #fff8ec;
+    border: none;
+    border-radius: 8px;
+    padding: 0.8rem 1.1rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.92rem;
+    cursor: pointer;
+    white-space: nowrap;
+    display: inline-block;
+    text-align: center;
+    text-decoration: none;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  button.go { width: 100%; margin-top: 0.4rem; }
+  button.ghost, .btn.ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--fg);
+  }
+
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin: 1rem 0 0.3rem; }
+  .status.err { color: var(--accent); }
+
+  .card {
+    display: none;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    margin-top: 1.25rem;
+    box-shadow: 0 18px 50px -30px rgba(36,28,20,0.5);
+  }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .who { font-size: 0.85rem; color: var(--dim); margin-bottom: 1.1rem; line-height: 1.5; }
+  .who b { color: var(--fg); }
+
+  .asset { margin-bottom: 1.4rem; }
+  .asset h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim); margin: 0 0 0.5rem; }
+  .asset canvas { display: block; max-width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); background: repeating-conic-gradient(#eee 0% 25%, #fff 0% 50%) 50% / 16px 16px; }
+  .asset.avatar canvas { width: 180px; border-radius: 50%; }
+  .asset .row { display: flex; gap: 0.6rem; margin-top: 0.6rem; flex-wrap: wrap; align-items: center; }
+
+  textarea#bioOut {
+    width: 100%;
+    resize: vertical;
+    min-height: 4.5rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.7rem 0.8rem;
+    font: inherit;
+    font-size: 0.9rem;
+    line-height: 1.45;
+  }
+  .counter { font-size: 0.75rem; color: var(--dim); margin-top: 0.35rem; }
+  .counter.over { color: var(--accent); font-weight: 700; }
+
+  .share {
+    border-top: 1px dashed var(--border);
+    margin-top: 1.3rem;
+    padding-top: 1.1rem;
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .share a, .share button { flex: 1; min-width: 160px; }
+
+  .tip {
+    border-top: 1px dashed var(--border);
+    margin-top: 1.3rem;
+    padding-top: 1rem;
+    font-size: 0.78rem;
+    color: var(--dim);
+    line-height: 1.5;
+  }
+
+  footer {
+    margin-top: 3rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.7;
+  }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1><span class="stamp">parody</span>kit</h1>
+    <p class="tag">
+      Point it at any Bluesky account to mimic. Pulls their real avatar and
+      banner and composites a new avatar + banner straight out of those
+      actual image files — no AI, just <code>&lt;canvas&gt;</code> — matching
+      their palette and framing, plus a bio blended in their voice with a
+      little of yours worked in. Kit comes out roughly
+      <b>80% them, 20% you</b>.
+    </p>
+
+    <form id="f">
+      <div class="field">
+        <label for="srcHandle">who to mimic</label>
+        <input id="srcHandle" type="text" placeholder="e.g. someone.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" required />
+      </div>
+      <div class="field">
+        <label for="ownHandle">y<span onclick='var e=document.getElementById("ownHandle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">o</span>ur handle</label>
+        <input id="ownHandle" type="text" placeholder="you.bsky.social (optional — adds your 20%)" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      </div>
+      <button class="go" id="go" type="submit">build the kit</button>
+    </form>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="who" id="whoOut"></div>
+
+      <div class="asset avatar">
+        <h3>avatar</h3>
+        <canvas id="avatarCanvas" width="512" height="512"></canvas>
+        <div class="row">
+          <button class="ghost" id="dlAvatar" type="button">⬇ download avatar.png</button>
+        </div>
+      </div>
+
+      <div class="asset">
+        <h3>banner</h3>
+        <canvas id="bannerCanvas" width="1500" height="500"></canvas>
+        <div class="row">
+          <button class="ghost" id="dlBanner" type="button">⬇ download banner.png</button>
+        </div>
+      </div>
+
+      <div class="asset">
+        <h3>bio</h3>
+        <textarea id="bioOut" readonly></textarea>
+        <div class="counter" id="bioCounter"></div>
+        <div class="row">
+          <button class="ghost" id="copyBio" type="button">📋 copy bio</button>
+        </div>
+      </div>
+
+      <div class="share">
+        <a id="shareBluesky" class="btn" target="_blank" rel="noopener">🦋 share this kit</a>
+        <a id="shareLink" class="btn ghost" href="#" type="button">🔗 copy kit link</a>
+      </div>
+
+      <p class="tip">
+        Tip: Bluesky's rules on parody/commentary accounts expect it to be
+        obvious the account isn't the real person — put "parody" somewhere
+        in the display name or bio before you upload any of this.
+      </p>
+
+      <p class="tip">
+        <a href="https://rateyourbuild.bisks.net/site/parodykit">rate this on rateyourbuild →</a>
+      </p>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script>
+if (window.attachHandleTypeahead) {
+  window.attachHandleTypeahead(document.getElementById('srcHandle'));
+  window.attachHandleTypeahead(document.getElementById('ownHandle'));
+}
+
+const API = "https://public.api.bsky.app/xrpc/";
+const BIO_LIMIT = 256;
+
+function cleanHandle(raw) {
+  let h = (raw || "").trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+// ---- grapheme-safe string helpers (Bluesky's 256-grapheme bio limit isn't
+// the same as 256 JS characters once emoji/combined marks are involved) ----
+function graphemesArray(str) {
+  str = str || "";
+  try {
+    const seg = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    return Array.from(seg.segment(str), (s) => s.segment);
+  } catch (_) {
+    return Array.from(str); // fallback: splits by code point, not full clusters
+  }
+}
+function countGraphemes(str) { return graphemesArray(str).length; }
+function truncateGraphemes(str, max) {
+  const g = graphemesArray(str);
+  if (g.length <= max) return str;
+  return g.slice(0, Math.max(0, max)).join("");
+}
+function truncateWords(str, maxGraphemes) {
+  str = (str || "").trim();
+  if (maxGraphemes <= 0) return "";
+  if (countGraphemes(str) <= maxGraphemes) return str;
+  const words = str.split(/\s+/);
+  let out = "";
+  for (const w of words) {
+    const test = out ? out + " " + w : w;
+    if (countGraphemes(test) > maxGraphemes) break;
+    out = test;
+  }
+  if (!out) out = truncateGraphemes(str, maxGraphemes);
+  return out;
+}
+
+// ---- bio voice detection: separator style + letter case, read off the
+// source's own bio so the blended result sounds like their formatting habit
+// rather than a generic template ----
+function detectSeparator(bio) {
+  const candidates = [" • ", " · ", " | ", " ~ ", " // ", " — ", "\n"];
+  for (const c of candidates) if (bio.includes(c)) return c;
+  return " · ";
+}
+function detectCase(text) {
+  const letters = (text.match(/\p{L}/gu) || []);
+  if (!letters.length) return "mixed";
+  const upper = letters.filter((c) => c === c.toUpperCase() && c !== c.toLowerCase()).length;
+  const lower = letters.filter((c) => c === c.toLowerCase() && c !== c.toUpperCase()).length;
+  if (upper / letters.length > 0.9) return "upper";
+  if (lower / letters.length > 0.9) return "lower";
+  return "mixed";
+}
+function applyCase(text, caseStyle) {
+  if (caseStyle === "upper") return text.toUpperCase();
+  if (caseStyle === "lower") return text.toLowerCase();
+  return text;
+}
+
+// Bluesky display names/bios are often run through a "fancy text" unicode
+// converter (Mathematical Alphanumeric Symbols block, U+1D400-U+1D7FF) —
+// detect it so the blended-in fragment can be stylized to match rather than
+// sitting in plain ASCII next to stylized source text.
+function hasFancyUnicode(text) {
+  for (const ch of text || "") {
+    const cp = ch.codePointAt(0);
+    if (cp >= 0x1d400 && cp <= 0x1d7ff) return true;
+  }
+  return false;
+}
+function toMathBold(str) {
+  let out = "";
+  for (const ch of str) {
+    const c = ch.codePointAt(0);
+    if (c >= 0x41 && c <= 0x5a) out += String.fromCodePoint(0x1d400 + (c - 0x41));
+    else if (c >= 0x61 && c <= 0x7a) out += String.fromCodePoint(0x1d41a + (c - 0x61));
+    else if (c >= 0x30 && c <= 0x39) out += String.fromCodePoint(0x1d7ce + (c - 0x30));
+    else out += ch;
+  }
+  return out;
+}
+
+function firstFragment(bio) {
+  const parts = bio.split(/\n|•|·|\||~|\/\/|(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+  return parts[0] || bio.trim();
+}
+
+// The actual 80/20 blend: most of the character budget goes to the source's
+// own bio text verbatim (their voice, untouched), the remainder is a short
+// fragment pulled from the visitor's own bio, re-cased and re-styled to
+// match whatever formatting habit the source's bio showed.
+function buildBlendedBio({ sourceBio, ownBio, sourceHandle, ownHandle, fancy }) {
+  sourceBio = (sourceBio || "").trim();
+  ownBio = (ownBio || "").trim();
+
+  const sep = sourceBio ? detectSeparator(sourceBio) : " · ";
+  const srcCase = sourceBio ? detectCase(sourceBio) : "mixed";
+  const sepLen = countGraphemes(sep);
+
+  let sourceBudget = Math.round(BIO_LIMIT * 0.8);
+  let ownBudget = BIO_LIMIT - sourceBudget - sepLen;
+
+  let sourcePart = truncateWords(sourceBio, sourceBudget);
+  if (!sourcePart) sourcePart = `channeling @${sourceHandle}`;
+
+  let ownFrag = ownBio ? firstFragment(ownBio) : "";
+  if (!ownFrag) ownFrag = ownHandle ? `not actually @${ownHandle}` : "(parody)";
+  ownFrag = applyCase(ownFrag, srcCase);
+  if (fancy) ownFrag = toMathBold(ownFrag);
+  ownFrag = truncateWords(ownFrag, ownBudget);
+
+  let combined = ownFrag ? sourcePart + sep + ownFrag : sourcePart;
+  return truncateGraphemes(combined, BIO_LIMIT);
+}
+
+// ---- canvas image work: crop like Bluesky's own square/3:1 avatar+banner
+// framing, sample a real accent color off the source's own image, and
+// composite the two accounts' actual image files together ----
+function loadImg(url) {
+  if (!url) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+function drawCover(ctx, img, x, y, w, h) {
+  const ir = img.width / img.height;
+  const dr = w / h;
+  let sx, sy, sw, sh;
+  if (ir > dr) { sh = img.height; sw = sh * dr; sx = (img.width - sw) / 2; sy = 0; }
+  else { sw = img.width; sh = sw / dr; sx = 0; sy = (img.height - sh) / 2; }
+  ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+}
+function drawCoverOrFill(ctx, img, x, y, w, h, fillColor) {
+  if (img) drawCover(ctx, img, x, y, w, h);
+  else { ctx.fillStyle = fillColor; ctx.fillRect(x, y, w, h); }
+}
+
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0; const l = (max + min) / 2;
+  const d = max - min;
+  if (d !== 0) {
+    s = d / (1 - Math.abs(2 * l - 1));
+    switch (max) {
+      case r: h = ((g - b) / d) % 6; break;
+      case g: h = (b - r) / d + 2; break;
+      default: h = (r - g) / d + 4;
+    }
+    h *= 60; if (h < 0) h += 360;
+  }
+  return { h, s, l };
+}
+function hslToRgb(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; } else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; } else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; } else { r = c; b = x; }
+  return { r: Math.round((r + m) * 255), g: Math.round((g + m) * 255), b: Math.round((b + m) * 255) };
+}
+function rgbHex(r, g, b) {
+  return "#" + [r, g, b].map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, "0")).join("");
+}
+
+const FALLBACK_ACCENT = { r: 192, g: 57, b: 43, hex: "#c0392b" };
+
+function dominantColor(img) {
+  if (!img) return FALLBACK_ACCENT;
+  try {
+    const c = document.createElement("canvas");
+    c.width = 24; c.height = 24;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    drawCover(ctx, img, 0, 0, 24, 24);
+    const data = ctx.getImageData(0, 0, 24, 24).data;
+    let r = 0, g = 0, b = 0, n = 0;
+    for (let i = 0; i < data.length; i += 4) { r += data[i]; g += data[i + 1]; b += data[i + 2]; n++; }
+    r = Math.round(r / n); g = Math.round(g / n); b = Math.round(b / n);
+    const hsl = rgbToHsl(r, g, b);
+    hsl.s = Math.min(1, hsl.s * 1.4 + 0.15);
+    hsl.l = Math.min(0.55, Math.max(0.32, hsl.l));
+    const boosted = hslToRgb(hsl.h, hsl.s, hsl.l);
+    return { ...boosted, hex: rgbHex(boosted.r, boosted.g, boosted.b) };
+  } catch (_) {
+    return FALLBACK_ACCENT; // canvas tainted (CORS) — safe default, still deterministic
+  }
+}
+
+function buildAvatarCanvas({ sourceImg, ownImg, accent }) {
+  const canvas = document.getElementById("avatarCanvas");
+  const size = canvas.width;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, size, size);
+  drawCoverOrFill(ctx, sourceImg, 0, 0, size, size, accent.hex);
+
+  ctx.lineWidth = size * 0.035;
+  ctx.strokeStyle = accent.hex;
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - ctx.lineWidth / 2, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const badgeD = size * 0.34;
+  const cx = size - badgeD / 2 - size * 0.035;
+  const cy = size - badgeD / 2 - size * 0.035;
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, badgeD / 2 + size * 0.02, 0, Math.PI * 2);
+  ctx.fillStyle = "#fff8ec";
+  ctx.fill();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, badgeD / 2, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+  drawCoverOrFill(ctx, ownImg, cx - badgeD / 2, cy - badgeD / 2, badgeD, badgeD, accent.hex);
+  ctx.restore();
+
+  ctx.lineWidth = size * 0.012;
+  ctx.strokeStyle = accent.hex;
+  ctx.beginPath();
+  ctx.arc(cx, cy, badgeD / 2, 0, Math.PI * 2);
+  ctx.stroke();
+  return canvas;
+}
+
+function buildBannerCanvas({ sourceImg, ownImg, accent }) {
+  const canvas = document.getElementById("bannerCanvas");
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
+  const splitX = Math.round(W * 0.8);
+
+  drawCoverOrFill(ctx, sourceImg, 0, 0, splitX, H, accent.hex);
+  drawCoverOrFill(ctx, ownImg, splitX, 0, W - splitX, H, accent.hex);
+
+  const grad = ctx.createLinearGradient(splitX - 40, 0, splitX + 40, 0);
+  grad.addColorStop(0, "rgba(0,0,0,0)");
+  grad.addColorStop(0.5, accent.hex);
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(splitX - 40, 0, 80, H);
+  return canvas;
+}
+
+async function canvasToBlobUnderLimit(canvas, maxBytes) {
+  let blob = await new Promise((res) => canvas.toBlob(res, "image/png"));
+  if (blob && blob.size <= maxBytes) return { blob, ext: "png" };
+  let q = 0.92;
+  while (q > 0.4) {
+    blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", q));
+    if (blob && blob.size <= maxBytes) return { blob, ext: "jpg" };
+    q -= 0.1;
+  }
+  return { blob, ext: "jpg" };
+}
+
+function downloadBlob(blob, filename) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+const els = {
+  form: document.getElementById("f"),
+  srcInput: document.getElementById("srcHandle"),
+  ownInput: document.getElementById("ownHandle"),
+  go: document.getElementById("go"),
+  status: document.getElementById("status"),
+  card: document.getElementById("card"),
+  whoOut: document.getElementById("whoOut"),
+  bioOut: document.getElementById("bioOut"),
+  bioCounter: document.getElementById("bioCounter"),
+  copyBio: document.getElementById("copyBio"),
+  dlAvatar: document.getElementById("dlAvatar"),
+  dlBanner: document.getElementById("dlBanner"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareLink: document.getElementById("shareLink"),
+};
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+let sourceSlug = "kit";
+
+function kitUrlFor(src, own) {
+  const u = new URL("https://parodykit.bisks.net/");
+  u.searchParams.set("src", src);
+  if (own) u.searchParams.set("as", own);
+  return u.toString();
+}
+
+async function buildKit(srcRaw, ownRaw) {
+  const srcHandle = cleanHandle(srcRaw);
+  const ownHandleRaw = cleanHandle(ownRaw);
+  if (!srcHandle) { setStatus("enter a handle to mimic first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("looking up @" + srcHandle + " ...");
+
+  try {
+    const sourceProfile = await xrpc("app.bsky.actor.getProfile", { actor: srcHandle });
+
+    let ownProfile = null;
+    if (ownHandleRaw) {
+      setStatus("looking up @" + ownHandleRaw + " ...");
+      try {
+        ownProfile = await xrpc("app.bsky.actor.getProfile", { actor: ownHandleRaw });
+      } catch (_) {
+        setStatus("couldn't find @" + ownHandleRaw + " — building with just the source.", true);
+      }
+    }
+
+    setStatus("fetching image files and compositing...");
+
+    const [sourceAvatarImg, sourceBannerImgRaw, ownAvatarImg, ownBannerImgRaw] = await Promise.all([
+      loadImg(sourceProfile.avatar),
+      loadImg(sourceProfile.banner),
+      ownProfile ? loadImg(ownProfile.avatar) : Promise.resolve(null),
+      ownProfile ? loadImg(ownProfile.banner) : Promise.resolve(null),
+    ]);
+    const sourceBannerImg = sourceBannerImgRaw || sourceAvatarImg;
+    const ownBannerImg = ownBannerImgRaw || ownAvatarImg;
+
+    const accent = dominantColor(sourceAvatarImg || sourceBannerImg);
+    document.documentElement.style.setProperty("--accent", accent.hex);
+
+    const fancy = hasFancyUnicode(sourceProfile.displayName || "") || hasFancyUnicode(sourceProfile.description || "");
+
+    buildAvatarCanvas({ sourceImg: sourceAvatarImg, ownImg: ownAvatarImg, accent });
+    buildBannerCanvas({ sourceImg: sourceBannerImg, ownImg: ownBannerImg, accent });
+
+    const bio = buildBlendedBio({
+      sourceBio: sourceProfile.description,
+      ownBio: ownProfile ? ownProfile.description : "",
+      sourceHandle: sourceProfile.handle,
+      ownHandle: ownProfile ? ownProfile.handle : ownHandleRaw,
+      fancy,
+    });
+    els.bioOut.value = bio;
+    const n = countGraphemes(bio);
+    els.bioCounter.textContent = n + " / " + BIO_LIMIT + " graphemes";
+    els.bioCounter.className = "counter" + (n > BIO_LIMIT ? " over" : "");
+
+    els.whoOut.innerHTML =
+      "mimicking <b>@" + sourceProfile.handle + "</b>" +
+      (sourceProfile.displayName ? " (" + sourceProfile.displayName + ")" : "") +
+      (ownProfile ? ", remixed with <b>@" + ownProfile.handle + "</b>" : ", no account of yours supplied — defaults filled in");
+
+    sourceSlug = sourceProfile.handle.replace(/[^a-z0-9.-]/gi, "_");
+
+    const shareUrl = kitUrlFor(sourceProfile.handle, ownProfile ? ownProfile.handle : "");
+    const shareText =
+      `built a parody kit mimicking @${sourceProfile.handle} — 80% their look and voice, 20% mine. ` +
+      `make your own → ${shareUrl}`;
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+    els.shareLink.href = shareUrl;
+    els.shareLink.onclick = (e) => {
+      e.preventDefault();
+      navigator.clipboard?.writeText(shareUrl).then(() => setStatus("kit link copied."));
+    };
+
+    setStatus("");
+    els.card.classList.add("show");
+  } catch (err) {
+    setStatus("couldn't build that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  buildKit(els.srcInput.value, els.ownInput.value);
+});
+
+els.dlAvatar.addEventListener("click", async () => {
+  const canvas = document.getElementById("avatarCanvas");
+  const { blob, ext } = await canvasToBlobUnderLimit(canvas, 1_000_000);
+  if (blob) downloadBlob(blob, `parodykit-avatar-${sourceSlug}.${ext}`);
+});
+els.dlBanner.addEventListener("click", async () => {
+  const canvas = document.getElementById("bannerCanvas");
+  const { blob, ext } = await canvasToBlobUnderLimit(canvas, 1_000_000);
+  if (blob) downloadBlob(blob, `parodykit-banner-${sourceSlug}.${ext}`);
+});
+els.copyBio.addEventListener("click", () => {
+  navigator.clipboard?.writeText(els.bioOut.value).then(() => setStatus("bio copied."));
+});
+
+const qp = new URLSearchParams(location.search);
+const qSrc = qp.get("src");
+if (qSrc) {
+  els.srcInput.value = qSrc;
+  if (qp.get("as")) els.ownInput.value = qp.get("as");
+  buildKit(qSrc, qp.get("as") || "");
+}
+</script>
+</body>
+</html>
