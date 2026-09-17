@@ -15,6 +15,11 @@ interface Env {
   // sites/thread-heirloom). Powers the theme box's periodic idea generation.
   AI: { run: (model: string, inputs: unknown) => Promise<unknown> };
 
+  // sites/stats, bound Worker-to-Worker. A plain fetch to stats.bisks.net 522s
+  // from here: both are on the bisks.net zone. See the [[services]] comment in
+  // wrangler.toml.
+  STATS: { fetch: (req: Request) => Promise<Response> };
+
   BOT_DID: string;
   ROB_DID: string;
   BOT_IDENTIFIER: string;
@@ -4645,10 +4650,13 @@ async function computeBreaks(fromMs: number, toMs: number): Promise<DigestBreak[
 const STATS_URL = "https://stats.bisks.net/stats.json";
 const DIGEST_USER_AGENT = "atprotozoa-buildthis-digest (+https://buildthis.bisks.net/digest)";
 
-async function computeVisited(names: string[]): Promise<DigestVisited[]> {
+async function computeVisited(env: Env, names: string[]): Promise<DigestVisited[]> {
   if (!names.length) return [];
   try {
-    const res = await fetch(STATS_URL, { headers: { "user-agent": DIGEST_USER_AGENT } });
+    // Through the service binding — a plain fetch to stats.bisks.net comes back
+    // 522 from an on-zone Worker. The URL still has to be well-formed; the
+    // hostname is ignored once the binding routes it.
+    const res = await env.STATS.fetch(new Request(STATS_URL));
     if (!res.ok) {
       console.error(`digest: stats.json -> ${res.status}`);
       return [];
@@ -4867,7 +4875,7 @@ async function buildDigest(env: Env, now: number): Promise<Digest> {
   // Independent of each other and each best-effort, so one dead source degrades
   // the digest instead of killing it.
   const [visited, rated, breaks] = await Promise.all([
-    computeVisited(names),
+    computeVisited(env, names),
     computeRated(names),
     computeBreaks(fromMs, now),
   ]);

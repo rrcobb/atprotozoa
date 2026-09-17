@@ -184,7 +184,7 @@ reports numbers it didn't produce.
 | --- | --- |
 | what shipped, who asked | this Worker's own event log in KV |
 | what broke, for how long | watchtower `/alerts.json` (`notes/85`) |
-| requests per site | `stats.bisks.net/stats.json`, `total7` (`notes/86`) |
+| requests per site | `sites/stats`, `total7` (`notes/86`), via service binding |
 | scores | `net.bisks.rateyourbuild.rating` records, walked off the network |
 
 Ratings have no server-side aggregate — they're one record per (rater, site)
@@ -226,6 +226,15 @@ can't 404. Stored under `digest:<week>` for 400 days, well past the 30-day
 `EVENT_TTL`: the event log is a rolling window, but the digest is the durable
 record of a week whose events will expire. A per-week key also makes the cron
 idempotent — a re-fired cron logs "already posted" and does nothing.
+
+**Stats comes through a service binding, not a fetch.** buildthis and stats are
+both on the `bisks.net` zone, and an on-zone Worker's subrequest to its own zone
+returns 522 without ever reaching the other Worker — the constraint that puts
+watchtower off-zone entirely (`notes/85`). The first production run had an empty
+"most visited" for this reason, with `/digest/preview` logging
+`stats.json -> 522`; `[[services]] STATS` fixes it Worker-to-Worker, the same
+shape `sites/presspool` uses. Watchtower's alert log is unaffected — it's read
+over its `workers.dev` hostname, which is off-zone. (2026-09-17.)
 
 **Sunday is `SUN`, not `0`.** Cloudflare's cron parser rejects `0` in the
 day-of-week field ("invalid cron string", API code 10100). It fails at the
