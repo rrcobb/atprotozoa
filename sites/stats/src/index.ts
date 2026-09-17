@@ -35,7 +35,9 @@ interface Rollup {
 }
 
 const ROLLUP_KEY = "stats:all";
-const DAY_PREFIX = "day:";
+// v2: v1 used plain objects, and a site named "constructor" fell through to
+// Object.prototype. Null-prototype objects below; the prefix bump refetches.
+const DAY_PREFIX = "day2:";
 const SCRIPT_PREFIX = "atprotozoa-";
 const GQL = "https://api.cloudflare.com/client/v4/graphql";
 // Each page is one script per row per day, so 2000 covers one day of the fleet
@@ -89,7 +91,7 @@ async function fetchDay(env: Env, day: string): Promise<DayCounts> {
   };
   if (j.errors?.length) throw new Error(`graphql ${day}: ${j.errors.map((e) => e.message).join("; ")}`);
   const rows = j.data?.viewer.accounts[0]?.workersInvocationsAdaptive ?? [];
-  const out: DayCounts = {};
+  const out: DayCounts = Object.create(null);
   for (const r of rows) {
     const name = r.dimensions.scriptName.startsWith(SCRIPT_PREFIX)
       ? r.dimensions.scriptName.slice(SCRIPT_PREFIX.length)
@@ -115,7 +117,7 @@ async function refresh(env: Env): Promise<Rollup> {
     if (day !== today) {
       const cached = await env.STATS.get(DAY_PREFIX + day);
       if (cached) {
-        perDay.set(day, JSON.parse(cached));
+        perDay.set(day, Object.assign(Object.create(null), JSON.parse(cached)));
         continue;
       }
     }
@@ -136,7 +138,7 @@ async function refresh(env: Env): Promise<Rollup> {
   const names = new Set<string>();
   for (const c of perDay.values()) for (const n of Object.keys(c)) names.add(n);
 
-  const sites: Rollup["sites"] = {};
+  const sites: Rollup["sites"] = Object.create(null);
   for (const n of [...names].sort()) {
     const requests = days.map((d) => perDay.get(d)?.[n]?.requests ?? 0);
     const errors = days.map((d) => perDay.get(d)?.[n]?.errors ?? 0);
@@ -184,7 +186,7 @@ export default {
     if (m) {
       const r = await rollup(env);
       if (!r) return json({ error: "no data yet" }, 503);
-      const s = r.sites[m[1]];
+      const s = Object.hasOwn(r.sites, m[1]) ? r.sites[m[1]] : undefined;
       if (!s) return json({ error: "no data for that site", name: m[1], updatedAt: r.updatedAt }, 404);
       return json({ name: m[1], updatedAt: r.updatedAt, days: r.days, ...s });
     }
