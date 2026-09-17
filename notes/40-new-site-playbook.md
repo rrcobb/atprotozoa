@@ -223,32 +223,62 @@ generator as bot output (signing key), and pre-2025 history of any kind.
 Storage on the user's own PDS is *not* on that list — it needs nothing from
 Rob, and the recipe is below.
 
-## The visitor's own API key (LLMs and image generation)
+## The visitor's own API key (LLMs, images, voice)
 
-Anything that costs per-call — an LLM feature, image generation — can run on the
-*visitor's* key instead of Rob's. They paste their key, it goes in their
-browser's localStorage, and the page calls the provider directly. Nothing is
-billed to the repo and no key touches a Worker, which is what unblocks image
-generation (`notes/ideas/00-index.md` item 9, previously set aside on cost).
+Anything that costs per-call — an LLM feature, image generation, text-to-speech
+— can run on the *visitor's* key instead of Rob's. They paste their key, it goes
+in their browser's localStorage, and the page calls the provider directly.
+Nothing is billed to the repo and no key touches a Worker, which is what unblocks
+image generation (`notes/ideas/00-index.md` item 9, previously set aside on cost).
 
-Copy `sites/byok/public/lib/byok.js` and call `mountKeyPanel()` plus one of
-`askClaude()` / `askGpt()` / `askGemini()` / `makeImage()` (fal) /
-`makeImageOpenAI()`. `sites/byok` is the reference: a horoscope read from
-someone's recent posts, about 80 lines of page code.
+Copy `sites/byok/public/lib/byok.js`, call `mountKeyPanel()`, then one of the
+capability functions — they take a `provider` and otherwise look the same:
+
+| function | does |
+| --- | --- |
+| `chat(prompt, {provider, system})` | text in, text out |
+| `image(prompt, {provider})` | a URL or `data:` URL for an `<img>` |
+| `speak(text, {provider, voice})` | a `blob:` URL for an `<audio>` |
+| `sfx(prompt)` / `music(prompt)` | ElevenLabs sound effects and music clips |
+| `transcribe(blob, {provider})` | audio in (e.g. MediaRecorder), text out |
+| `embed(text, {provider})` | a vector |
+| `search(query, {provider})` | web results |
+
+Pass `capability: "chat"` to `mountKeyPanel()` instead of a `provider` and the
+panel renders a picker over every provider that can do the job, so a visitor
+uses whichever key they already have. `providersFor("speak")` lists them.
+
+`sites/byok` is the reference: a horoscope read from someone's recent posts,
+with an optional voice reading it aloud.
 
 ### Which providers a browser can actually call
 
 Probed 2026-09-17 by running `fetch` from a real page and checking that the
-response body came back readable.
+response body came back readable. Most speak the OpenAI `/chat/completions`
+dialect, so they cost one registry entry each rather than one function each —
+adding another is a base URL and a model id, no new code.
 
-| provider | callable from a page | note |
+| provider | can | note |
 | --- | --- | --- |
-| Anthropic | yes | needs `anthropic-dangerous-direct-browser-access: true` |
-| OpenAI | yes | chat and images both |
-| fal | yes | images |
-| Google Gemini | yes | |
-| Replicate | **no** | browser blocks it — `Failed to fetch` |
-| Black Forest Labs | **no** | same |
+| OpenAI | chat, image, speak, transcribe, embed | the most complete one |
+| Anthropic | chat | needs `anthropic-dangerous-direct-browser-access: true` |
+| Google Gemini | chat, embed | via its OpenAI-compatible endpoint |
+| ElevenLabs | speak, sfx, music | best voices; stock voice id ships in the file |
+| Deepgram | speak, transcribe | |
+| fal | image | |
+| Voyage | embed | |
+| Exa | search | |
+| OpenRouter, Groq, Mistral, DeepSeek, Together, xAI, Perplexity, Fireworks, Nebius, Hugging Face | chat | all OpenAI-dialect |
+
+Blocked — the browser refuses these outright, so they'd need a proxy:
+**Replicate**, **Black Forest Labs**, **Cerebras**, **Tavily**, **Brave Search**,
+**Ideogram**, **Luma**, **Runway**, and **Jev** (TypeSafe's System One model at
+`api.typesafe.ai`, which sends no CORS headers on any auth variant).
+
+A proxy means the site owner holds the key and pays for every visitor, which
+defeats the point. Reach for a listed provider instead; if a site genuinely needs
+a proxied one, that's a Rob decision and wants a note in `notes/ideas/` first,
+alongside the labeler/feed-generator asks.
 
 **Test this with a browser, not curl.** curl is not a stand-in for browser CORS,
 and it gets OpenAI backwards: send `Origin` from curl and the POST response has
@@ -258,18 +288,15 @@ is just as easy — a permissive `OPTIONS` response says nothing about whether t
 actual POST will be allowed. The only probe that settles it is `fetch` from a
 page on a real origin, reading the body; a blocked call throws
 `TypeError: Failed to fetch` with no status, while an allowed one gives you a
-status and a readable body even when that status is 401.
+status and a readable body even when that status is 401. Watch for dead URLs
+too — a retired endpoint fails the same way a CORS block does, so check the host
+answers curl at all before recording it as blocked.
 
 On Anthropic, the dangerous-direct-browser-access header is genuinely required,
 not advisory: without it the browser blocks the call outright (verified both
-ways from a page). The "dangerous" refers to exposing a key to
-page JavaScript, which is the intended arrangement here — it's the visitor's own
-key, pasted by them, on their machine.
-
-A "no" provider needs a proxy, which means the site owner holds the key and pays
-for every visitor. That defeats the purpose, so reach for a "yes" provider
-instead. If a site genuinely needs a proxied one, that's a Rob decision and wants
-a note in `notes/ideas/` first, alongside the labeler/feed-generator asks.
+ways from a page). The "dangerous" refers to exposing a key to page JavaScript,
+which is the intended arrangement here — it's the visitor's own key, pasted by
+them, on their machine.
 
 ### What to say in the UI
 
@@ -305,7 +332,12 @@ decides your read path. `"any"` with a meaningful rkey (steamtags uses the
 Steam appid) means re-writing overwrites in place; a fixed `"self"` rkey
 means one record per person; `"tid"` means one record per event. Then run
 `audit/build-lexicons.mjs --apply` to mirror it into `apex/public/lexicons/`
-so it serves at `bisks.net/lexicons/`.
+so it serves at `bisks.net/lexicons/`. **Not optional:** `deploy.yml` runs the
+same script without `--apply` and fails the push when the mirror disagrees,
+the way it already does for the gallery. Before that check the drift was
+silent — the schema never appeared at `bisks.net/lexicons/` and its NSID
+resolved to nothing readable. The build box runs the regen itself on every
+push (`builder/box-build.sh`), so this step is for humans and other agents.
 
 **2. The write path.** `public/lib/oauth.js` plus `oauth-jwt.js`, copied
 whole. The only edit is the `SCOPE` constant — one line, and for a

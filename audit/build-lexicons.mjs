@@ -10,6 +10,7 @@
 //
 // Usage:
 //   node audit/build-lexicons.mjs           # check: does apex match the sites?
+//                                           # exits 1 on drift (deploy.yml gates on this)
 //   node audit/build-lexicons.mjs --apply   # copy schemas + rewrite the index
 import { readFileSync, writeFileSync, readdirSync, existsSync, mkdirSync } from "node:fs";
 
@@ -47,16 +48,11 @@ for (const name of readdirSync("sites").sort()) {
 }
 schemas.sort((a, b) => a.id.localeCompare(b.id));
 
-if (!APPLY) {
-  console.log(`${schemas.length} schema(s) found across the repo:`);
-  for (const s of schemas) console.log(`  ${s.id}  (${s.site})`);
-  process.exit(0);
-}
-
-mkdirSync(OUT_DIR, { recursive: true });
-for (const s of schemas) {
-  writeFileSync(`${OUT_DIR}/${s.id}.json`, s.raw.endsWith("\n") ? s.raw : `${s.raw}\n`);
-}
+// What each mirrored schema file should contain, built in memory so that check
+// mode can compare without writing anything.
+const wanted = new Map(
+  schemas.map((s) => [`${OUT_DIR}/${s.id}.json`, s.raw.endsWith("\n") ? s.raw : `${s.raw}\n`]),
+);
 
 const rows = schemas
   .map(
@@ -135,5 +131,49 @@ ${rows}
 </html>
 `;
 
+// Check mode: does the published registry already match the sites? Exits
+// non-zero on drift, the same contract build-gallery.mjs has, so deploy.yml can
+// gate a push on it. Drift here used to be silent — the schema simply never
+// appeared at bisks.net/lexicons/ and its NSID resolved to nothing readable.
+//
+// Three ways to drift, all of them worth failing on: a schema whose mirrored
+// copy is missing or stale, the index page being out of date, and a leftover
+// mirror for a schema the owning site has since deleted or renamed.
+if (!APPLY) {
+  const problems = [];
+  for (const [path, body] of wanted) {
+    if (!existsSync(path)) problems.push(`missing ${path}`);
+    else if (readFileSync(path, "utf8") !== body) problems.push(`stale ${path}`);
+  }
+  const mirrored = existsSync(OUT_DIR)
+    ? readdirSync(OUT_DIR).filter((f) => f.endsWith(".json"))
+    : [];
+  for (const file of mirrored) {
+    if (!wanted.has(`${OUT_DIR}/${file}`)) problems.push(`orphaned ${OUT_DIR}/${file}`);
+  }
+  if (!existsSync(INDEX)) problems.push(`missing ${INDEX}`);
+  else if (readFileSync(INDEX, "utf8") !== html) problems.push(`stale ${INDEX}`);
+
+  console.log(`${schemas.length} schema(s) across ${new Set(schemas.map((s) => s.site)).size} site(s)`);
+  if (problems.length === 0) {
+    console.log("lexicon registry is up to date");
+    process.exit(0);
+  }
+  for (const p of problems) console.error(`  ${p}`);
+  // --apply writes and overwrites, but never deletes: an orphan is a mirror for
+  // a schema whose owning site removed or renamed it, and only a human knows
+  // which of those two happened. Say so rather than sending someone round a
+  // loop where --apply reports success and the check keeps failing.
+  const orphans = problems.filter((p) => p.startsWith("orphaned"));
+  console.error(
+    orphans.length
+      ? `lexicon registry DIFFERS from the sites (run with --apply; delete the ${orphans.length} orphaned file(s) by hand)`
+      : "lexicon registry DIFFERS from the sites (run with --apply)",
+  );
+  process.exit(1);
+}
+
+mkdirSync(OUT_DIR, { recursive: true });
+for (const [path, body] of wanted) writeFileSync(path, body);
 writeFileSync(INDEX, html);
 console.log(`wrote ${schemas.length} schema(s) + index to ${OUT_DIR}/`);

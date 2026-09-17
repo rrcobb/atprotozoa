@@ -447,6 +447,14 @@ if [ -n "$CHANGED" ]; then
   # pushes died this way, stranding footfall + the 413-site beacon retrofit).
   # Idempotent; a failure here must never block a build's push.
   node audit/build-gallery.mjs --apply >/dev/null 2>&1 || true
+  # Same deal for the lexicon registry: apex/public/lexicons/ is mirrored from
+  # every site's own public/lexicons/*.json, so a build that adds or edits a
+  # schema leaves the published registry stale until someone re-runs this. Unlike
+  # the gallery there's no CI check behind it (deploy.yml checks build-gallery
+  # only), so the failure is silent — the schema just never shows up at
+  # bisks.net/lexicons/ and the NSID stops resolving to anything readable.
+  # Idempotent; a failure here must never block a build's push.
+  node audit/build-lexicons.mjs --apply >/dev/null 2>&1 || true
   if [ -n "$(git status --porcelain)" ]; then
     git add -A
     git commit -q -m "buildthis: ${BUILT_NAME:-build} (@${AUTHOR:-someone})"
