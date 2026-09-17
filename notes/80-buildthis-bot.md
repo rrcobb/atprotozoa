@@ -192,10 +192,28 @@ in each rater's own PDS, which rateyourbuild aggregates in the browser. The
 digest does the same walk server-side (`listReposByCollection`, resolve each
 DID's PDS, `listRecords`), affordable because the collection is small: 5 rater
 repos and 119 ratings as of 2026-09-17, about 11 subrequests against a 50-cap.
-`MAX_RATER_REPOS` bounds it; past that the digest under-counts rather than
-failing, and the fix would be an aggregate endpoint on rateyourbuild itself.
 Every fetch sends a real `User-Agent` — some self-hosted PDSes sit behind a CDN
 that 403s a default library one (`pds.angussoftware.dev` does).
+
+**No caps on the walk.** Both cursors run to exhaustion: every rater repo, and
+every page of each rater's ratings. This started out capped at 25 repos and one
+100-record page per rater, which was wrong three times over — it's the same bug
+rateyourbuild's own client shipped and fixed on 2026-08-29, and at 78 ratings
+the top rater's PDS already returns a cursor on a partial page, so the
+single-page read was one page short of dropping data rather than comfortably
+ahead of it. A cap doesn't bound anything useful here; it just decides in
+advance to compute a wrong average and print it with the same confidence as a
+right one. If the walk ever outgrows the subrequest budget, the fix is an
+aggregate endpoint on rateyourbuild — one read instead of one per rater — not a
+shorter prefix of the truth.
+
+**A dead source is `null`, not `[]`.** Each of the three outside sources returns
+null when it can't be read, as distinct from an empty list meaning "read it,
+nothing there". The post then omits that line rather than asserting a zero, and
+the page says which gap it is. This matters most for breakage: "nothing broke"
+is an all-clear, and an all-clear derived from an unreachable alert log is a
+lie. Collapsing the two is exactly what let the stats 522 read as a quiet week
+for an hour on 2026-09-17.
 
 **Counting.** Shipped events are *runs*, not sites: one site tagged three times
 produces three outcome records, and the digest says one site across three

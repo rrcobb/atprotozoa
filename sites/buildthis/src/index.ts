@@ -4470,9 +4470,15 @@ interface Digest {
   to: string;
   shipped: DigestShipped[];
   askedBy: string[]; // distinct handles, most-requested first
-  visited: DigestVisited[];
-  rated: DigestRated[];
-  breaks: DigestBreak[];
+  // null on any of these three means the source couldn't be read, as distinct
+  // from [] meaning it was read and had nothing. See each compute* function.
+  visited: DigestVisited[] | null;
+  // null means the ratings walk couldn't complete — distinct from [], which
+  // means it completed and nothing cleared MIN_RATINGS. The post omits the
+  // "best rated" line either way, but the page and the JSON say which it was,
+  // so a missing ranking is diagnosable rather than ambiguous.
+  rated: DigestRated[] | null;
+  breaks: DigestBreak[] | null;
   postText: string;
   postUri?: string;
   computedAt: string;
@@ -4591,14 +4597,17 @@ interface WatchtowerAlert {
   downForMs?: number;
 }
 
-async function computeBreaks(fromMs: number, toMs: number): Promise<DigestBreak[]> {
+// null = couldn't reach watchtower, [] = reached it and nothing broke. This one
+// matters most of the three: the post says "nothing broke" out loud, and saying
+// that because the alert log was unreachable would be a false all-clear.
+async function computeBreaks(fromMs: number, toMs: number): Promise<DigestBreak[] | null> {
   try {
     const res = await fetch(WATCHTOWER_ALERTS_URL, {
       headers: { "user-agent": DIGEST_USER_AGENT },
     });
     if (!res.ok) {
       console.error(`digest: alerts.json -> ${res.status}`);
-      return [];
+      return null;
     }
     const body = (await res.json()) as { alerts?: WatchtowerAlert[] };
     const alerts = (body.alerts ?? []).filter((a) => {
@@ -4632,7 +4641,7 @@ async function computeBreaks(fromMs: number, toMs: number): Promise<DigestBreak[
     );
   } catch (err) {
     console.error(`digest: breaks failed: ${err}`);
-    return [];
+    return null;
   }
 }
 
@@ -4650,7 +4659,10 @@ async function computeBreaks(fromMs: number, toMs: number): Promise<DigestBreak[
 const STATS_URL = "https://stats.bisks.net/stats.json";
 const DIGEST_USER_AGENT = "atprotozoa-buildthis-digest (+https://buildthis.bisks.net/digest)";
 
-async function computeVisited(env: Env, names: string[]): Promise<DigestVisited[]> {
+// null = couldn't read stats, [] = read them and no shipped site had traffic.
+// Collapsing those two into [] is what let the stats 522 look like a quiet week
+// for an hour on 2026-09-17 instead of an error.
+async function computeVisited(env: Env, names: string[]): Promise<DigestVisited[] | null> {
   if (!names.length) return [];
   try {
     // Through the service binding — a plain fetch to stats.bisks.net comes back
@@ -4659,7 +4671,7 @@ async function computeVisited(env: Env, names: string[]): Promise<DigestVisited[
     const res = await env.STATS.fetch(new Request(STATS_URL));
     if (!res.ok) {
       console.error(`digest: stats.json -> ${res.status}`);
-      return [];
+      return null;
     }
     const body = (await res.json()) as {
       sites?: Record<string, { total7?: number }>;
@@ -4671,7 +4683,7 @@ async function computeVisited(env: Env, names: string[]): Promise<DigestVisited[
       .sort((a, b) => b.requests - a.requests || a.name.localeCompare(b.name));
   } catch (err) {
     console.error(`digest: stats failed: ${err}`);
-    return [];
+    return null;
   }
 }
 
@@ -4694,11 +4706,27 @@ async function computeVisited(env: Env, names: string[]): Promise<DigestVisited[
 const RATINGS_COLLECTION = "net.bisks.rateyourbuild.rating";
 const RELAY_URL = "https://bsky.network";
 const PLC_DIRECTORY = "https://plc.directory";
-const MAX_RATER_REPOS = 25;
+// There is deliberately NO cap on how many rater repos or ratings this walks.
+// A cap here doesn't bound anything useful — it just decides in advance to
+// compute a wrong average and report it as a right one. "best rated: X" from a
+// truncated read looks exactly like "best rated: X" from a complete one, which
+// is the worst property a number in a public post can have. The walk runs to
+// exhaustion; if it can't finish, it says so (computeRated returns null and the
+// digest omits the ranking) rather than quietly averaging a prefix.
+//
+// The real constraint is the Workers subrequest budget, and the honest response
+// to a budget is to fail loudly when it's exceeded, not to truncate silently.
+// Current cost is ~11 subrequests against a 50 limit (5 rater repos, 119
+// ratings, 2026-09-17). If this genuinely outgrows the budget, the fix is an
+// aggregate endpoint on rateyourbuild — one read instead of one per rater —
+// not a smaller prefix of the truth.
 
 // Fewest ratings a site needs before the digest will call it "best rated". With
 // one rating the average is just that one person's score, which beat a 9.2-from-5
 // in the first real preview — a ranking the post shouldn't assert.
+//
+// Not a cap: it doesn't truncate a read, it declines to make a claim the data
+// can't support. Everything rated still shows on the web page with its count.
 const MIN_RATINGS = 3;
 
 // Some PDSes sit behind a CDN that rejects requests with no User-Agent or a
@@ -4735,31 +4763,55 @@ async function resolveRaterPds(did: string): Promise<string | null> {
 // judgement of the site, and a site built on Tuesday and rated on Wednesday
 // should carry that score. One record per (rater, site) means re-rating
 // overwrites in place, so this can't double-count a rater.
-async function computeRated(names: string[]): Promise<DigestRated[]> {
+async function computeRated(names: string[]): Promise<DigestRated[] | null> {
   if (!names.length) return [];
   const wanted = new Set(names);
   const sums = new Map<string, { total: number; count: number }>();
 
-  const repos = await digestJson<{ repos?: { did: string }[] }>(
-    `${RELAY_URL}/xrpc/com.atproto.sync.listReposByCollection?collection=${RATINGS_COLLECTION}&limit=100`,
-  );
-  const dids = (repos?.repos ?? []).slice(0, MAX_RATER_REPOS).map((r) => r.did);
+  // Walk every rater repo, following the cursor to exhaustion.
+  const dids: string[] = [];
+  let repoCursor: string | undefined;
+  for (;;) {
+    const q = repoCursor ? `&cursor=${encodeURIComponent(repoCursor)}` : "";
+    const page = await digestJson<{ repos?: { did: string }[]; cursor?: string }>(
+      `${RELAY_URL}/xrpc/com.atproto.sync.listReposByCollection?collection=${RATINGS_COLLECTION}&limit=100${q}`,
+    );
+    if (!page) return null; // a failed read is unknown, not zero — see below
+    for (const r of page.repos ?? []) dids.push(r.did);
+    if (!page.cursor || !(page.repos ?? []).length) break;
+    repoCursor = page.cursor;
+  }
 
   for (const did of dids) {
     const pds = await resolveRaterPds(did);
     if (!pds) continue;
-    const page = await digestJson<{ records?: { value: { subject?: string; score?: number } }[] }>(
-      `${pds}/xrpc/com.atproto.repo.listRecords?repo=${did}&collection=${RATINGS_COLLECTION}&limit=100`,
-    );
-    for (const rec of page?.records ?? []) {
-      const subject = rec.value?.subject;
-      const score = rec.value?.score;
-      if (!subject || typeof score !== "number") continue;
-      if (!wanted.has(subject)) continue;
-      const cur = sums.get(subject) ?? { total: 0, count: 0 };
-      cur.total += score;
-      cur.count++;
-      sums.set(subject, cur);
+    // Every page of this rater's ratings, not just the first. rateyourbuild's
+    // own client had exactly this bug (capped at 3 pages) and fixed it on
+    // 2026-08-29: one record per (rater, site) against a 190-site catalog means
+    // a prolific rater really does run past a page, and the failure is silent —
+    // their oldest ratings just vanish from the average.
+    let recCursor: string | undefined;
+    for (;;) {
+      const q = recCursor ? `&cursor=${encodeURIComponent(recCursor)}` : "";
+      const page = await digestJson<{
+        records?: { value: { subject?: string; score?: number } }[];
+        cursor?: string;
+      }>(
+        `${pds}/xrpc/com.atproto.repo.listRecords?repo=${did}&collection=${RATINGS_COLLECTION}&limit=100${q}`,
+      );
+      if (!page) break; // this rater is unreadable; the others still count
+      for (const rec of page.records ?? []) {
+        const subject = rec.value?.subject;
+        const score = rec.value?.score;
+        if (!subject || typeof score !== "number") continue;
+        if (!wanted.has(subject)) continue;
+        const cur = sums.get(subject) ?? { total: 0, count: 0 };
+        cur.total += score;
+        cur.count++;
+        sums.set(subject, cur);
+      }
+      if (!page.cursor || !(page.records ?? []).length) break;
+      recCursor = page.cursor;
     }
   }
 
@@ -4831,20 +4883,24 @@ function renderDigestPost(d: Digest, digestUrl: string): string[] {
 
   // Part 2: the rankings and the breakage — only when there's something to say.
   const lines: string[] = [];
-  const top = d.visited[0];
+  const top = d.visited?.[0];
   if (top) lines.push(`most visited: ${top.name} (${top.requests.toLocaleString("en-US")} reqs)`);
-  const best = d.rated[0];
+  // null (walk failed) and [] (nothing qualified) both mean no claim to make.
+  const best = d.rated?.[0];
   if (best) {
     lines.push(
       `best rated: ${best.name} (${best.avg.toFixed(1)}/10 from ${best.count} ${best.count === 1 ? "rating" : "ratings"})`,
     );
   }
-  if (d.breaks.length) {
+  // d.breaks === null means watchtower was unreadable. Say nothing at all then:
+  // "nothing broke" is an all-clear, and an all-clear we can't substantiate is
+  // worse than an absent line.
+  if (d.breaks && d.breaks.length) {
     const b = d.breaks[0];
     const dur = b.downForMs ? ` for ${fmtDuration(b.downForMs)}` : "";
     const rest = d.breaks.length > 1 ? ` (+${d.breaks.length - 1} more)` : "";
     lines.push(`broke: ${b.name}${dur}${b.recovered ? ", back up" : ", still down"}${rest}`);
-  } else if (siteCount) {
+  } else if (d.breaks && siteCount) {
     lines.push(`nothing broke`);
   }
 
@@ -4896,8 +4952,12 @@ async function buildDigest(env: Env, now: number): Promise<Digest> {
 }
 
 // Nothing shipped, nothing broke. A digest that says "no news" is noise.
+//
+// A null breaks list is NOT "nothing broke" — it's "we don't know". If nothing
+// shipped and we couldn't read the alert log, we have no evidence either way,
+// so stay quiet rather than announce a week we can't describe.
 function digestIsEmpty(d: Digest): boolean {
-  return d.shipped.length === 0 && d.breaks.length === 0;
+  return d.shipped.length === 0 && (d.breaks?.length ?? 0) === 0;
 }
 
 // Resolve the handles the digest mentions to DIDs so the @-tags are real facets
@@ -5180,21 +5240,23 @@ function renderDigestPage(d: Digest): string {
       ? `<section><h2>${title}</h2><ol class="rank">${rows.join("")}</ol></section>`
       : "";
 
-  const visitedRows = d.visited
+  const visitedRows = (d.visited ?? [])
     .slice(0, 5)
     .map(
       (v) =>
         `<li><span class="n">${escHtml(v.name)}</span><span class="v">${v.requests.toLocaleString("en-US")} requests</span></li>`,
     );
 
-  const ratedRows = d.rated
+  const ratedRows = (d.rated ?? [])
     .slice(0, 5)
     .map(
       (r) =>
         `<li><span class="n">${escHtml(r.name)}</span><span class="v">${r.avg.toFixed(1)}/10 · ${r.count} ${r.count === 1 ? "rating" : "ratings"}</span></li>`,
     );
 
-  const breakRows = d.breaks.length
+  const breakRows = d.breaks === null
+    ? `<p class="empty">couldn't reach watchtower this week — this isn't an all-clear, it's a gap.</p>`
+    : d.breaks.length
     ? `<ul class="breaks">${d.breaks
         .map((b) => {
           const dur = b.downForMs ? ` — down ${escHtml(fmtDuration(b.downForMs))}` : "";
@@ -5288,8 +5350,16 @@ function renderDigestPage(d: Digest): string {
           <h2>shipped</h2>
           ${shippedRows}
         </section>
-        ${rankRow("most visited", visitedRows)}
-        ${rankRow("best rated", ratedRows)}
+        ${
+          d.visited === null
+            ? `<section><h2>most visited</h2><p class="empty">couldn't read the traffic numbers this week.</p></section>`
+            : rankRow("most visited", visitedRows)
+        }
+        ${
+          d.rated === null
+            ? `<section><h2>best rated</h2><p class="empty">couldn't read the ratings this week — the number would have been wrong, so there isn't one.</p></section>`
+            : rankRow("best rated", ratedRows)
+        }
         <section>
           <h2>what broke</h2>
           ${breakRows}
