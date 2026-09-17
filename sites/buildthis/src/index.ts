@@ -188,6 +188,19 @@ export default {
       return handleLiveSitesPage(env);
     }
 
+    // The request log, read from net.bisks.buildthis.request records in the
+    // bot's own repo rather than from KV. /directory and /live both read the KV
+    // event log, which has a 30-day TTL and is keyed by what the bot did; these
+    // read the records, which are permanent and keyed by who asked. That's the
+    // difference that makes "what has this person asked for" and "which requests
+    // are still partial" answerable at all. See handleRequestsPage.
+    if (url.pathname === "/requests") {
+      return handleRequestsPage(env, url);
+    }
+    if (url.pathname === "/requests.json") {
+      return handleRequestsJson(env, url);
+    }
+
     // The "yes, fine, I titrate too" page — mobius mode's own status surface.
     // See the Mobius mode section near handleNextJob for what it's reporting.
     if (url.pathname === "/mobius") {
@@ -220,6 +233,12 @@ export default {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     if (event.cron === DAILY_TICK_CRON) {
       ctx.waitUntil(runDailyTick(env));
+      return;
+    }
+    // The weekly digest (see the "Weekly digest" section). Third cron, told
+    // apart by event.cron the same way the daily slot is.
+    if (event.cron === DIGEST_CRON) {
+      ctx.waitUntil(runDigestTick(env));
       return;
     }
     ctx.waitUntil(runWatcher(env));
@@ -4033,4 +4052,1152 @@ function truncateWithMarker(s: string, max: number): string {
   // Only honour the word boundary if it isn't throwing away most of the text.
   const body = lastSpace > room * 0.8 ? cut.slice(0, lastSpace) : cut;
   return body.trimEnd() + TRUNCATION_MARKER;
+}
+
+// --- The request log: /requests + /requests.json ------------------------------
+//
+// Item 15b from notes/ideas/00-index.md. Every build the bot runs also writes a
+// `net.bisks.buildthis.request` record into the bot's own repo — who asked (DID
+// + handle), the tagging post, the brief, how it ended, what it built, and the
+// commit it landed as (see builder/request-record.mjs and the lexicon at
+// public/lexicons/net.bisks.buildthis.request.json).
+//
+// This is the read half, and the reason it reads RECORDS and not KV is the whole
+// point of the idea. The KV event log is the bot's operational memory: 30-day
+// TTL, keyed by mention, shaped around dispatching and replying. A request
+// history has to outlive that and be keyed by PERSON, which is exactly what a
+// repo collection gives for free — permanent, public, fetchable by anyone with
+// no access to this Worker's KV, and queryable by the two questions the idea
+// named: "what has this person asked for" and "which requests are still
+// partial".
+//
+// Reading is one paginated com.atproto.repo.listRecords walk over the bot's own
+// repo. No CAR download here, deliberately: the "prefer bulk reads" standing
+// order (2026-08-25) is about fanning out across MANY repos, and this is a
+// single repo whose whole collection is a few hundred small records.
+const REQUEST_COLLECTION = "net.bisks.buildthis.request";
+// One page of listRecords is 100; a few pages covers the whole history today and
+// the cap keeps a runaway walk off the AppView if it ever doesn't.
+const REQUEST_MAX_PAGES = 12;
+// Records change only when a build finishes (every couple of minutes at most),
+// so a short edge cache keeps a reload from re-walking the repo.
+const REQUEST_CACHE_SECONDS = 120;
+
+interface RequestRecord {
+  uri: string;
+  requester: { did: string; handle?: string };
+  postUri: string;
+  threadRootUri?: string;
+  brief: string;
+  note?: string;
+  disposition: string;
+  outcome?: string;
+  partial?: boolean;
+  site?: string;
+  siteUrl?: string;
+  edit?: boolean;
+  commit?: string;
+  liveStatus?: string;
+  requestedAt?: string;
+  builtAt?: string;
+  createdAt: string;
+  source?: string;
+}
+
+async function loadRequestRecords(env: Env): Promise<RequestRecord[]> {
+  const out: RequestRecord[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < REQUEST_MAX_PAGES; page++) {
+    const qs = new URLSearchParams({
+      repo: env.BOT_DID,
+      collection: REQUEST_COLLECTION,
+      limit: "100",
+    });
+    if (cursor) qs.set("cursor", cursor);
+    const res = await fetch(`${PDS}/xrpc/com.atproto.repo.listRecords?${qs}`);
+    if (!res.ok) {
+      // An empty collection 200s with no records; a real error is worth
+      // surfacing rather than rendering as "nobody has ever asked for anything".
+      throw new Error(`listRecords ${res.status}: ${await res.text()}`);
+    }
+    const j = (await res.json()) as {
+      records?: { uri: string; value: Record<string, unknown> }[];
+      cursor?: string;
+    };
+    for (const r of j.records || []) {
+      out.push({ uri: r.uri, ...(r.value as object) } as RequestRecord);
+    }
+    cursor = j.cursor;
+    if (!cursor || !(j.records || []).length) break;
+  }
+  // Newest ask first. requestedAt is the ask's own time and is the right sort
+  // key; it's optional on backfilled records, so fall back to the build time and
+  // then to the record's own write time.
+  const when = (r: RequestRecord) => r.requestedAt || r.builtAt || r.createdAt || "";
+  out.sort((a, b) => when(b).localeCompare(when(a)));
+  return out;
+}
+
+// `?who=` filters to one person, by DID or by handle (handle match is
+// case-insensitive and tolerates a leading @). `?partial=1` filters to requests
+// that shipped a first pass and were never finished.
+function filterRequests(
+  all: RequestRecord[],
+  url: URL,
+): { rows: RequestRecord[]; who: string; partialOnly: boolean } {
+  const whoRaw = (url.searchParams.get("who") || "").trim();
+  const who = whoRaw.replace(/^@/, "").toLowerCase();
+  const partialOnly = url.searchParams.get("partial") === "1";
+  let rows = all;
+  if (who) {
+    rows = rows.filter(
+      (r) =>
+        r.requester?.did?.toLowerCase() === who ||
+        (r.requester?.handle || "").toLowerCase() === who,
+    );
+  }
+  if (partialOnly) rows = rows.filter((r) => r.partial === true);
+  return { rows, who: whoRaw, partialOnly };
+}
+
+async function handleRequestsJson(env: Env, url: URL): Promise<Response> {
+  try {
+    const { rows, who, partialOnly } = filterRequests(await loadRequestRecords(env), url);
+    return new Response(
+      JSON.stringify({
+        collection: REQUEST_COLLECTION,
+        repo: env.BOT_DID,
+        filter: { who: who || undefined, partial: partialOnly || undefined },
+        count: rows.length,
+        requests: rows,
+      }),
+      {
+        headers: {
+          "content-type": "application/json",
+          "access-control-allow-origin": "*",
+          "cache-control": `public, max-age=${REQUEST_CACHE_SECONDS}`,
+        },
+      },
+    );
+  } catch (err) {
+    console.error(`requests.json failed: ${err}`);
+    return jsonResponse({ error: "UpstreamFailed", message: String((err as Error)?.message || err) }, 502);
+  }
+}
+
+async function handleRequestsPage(env: Env, url: URL): Promise<Response> {
+  let all: RequestRecord[];
+  try {
+    all = await loadRequestRecords(env);
+  } catch (err) {
+    console.error(`requests page failed: ${err}`);
+    return new Response(renderRequestsError(), {
+      status: 502,
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+    });
+  }
+  const { rows, who, partialOnly } = filterRequests(all, url);
+  return new Response(renderRequestsPage(all, rows, who, partialOnly), {
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": `public, max-age=${REQUEST_CACHE_SECONDS}`,
+    },
+  });
+}
+
+// bsky.app permalink for an at:// post uri, so a request links back to the post
+// that made it.
+function postPermalink(atUri: string): string | null {
+  const m = /^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/.exec(atUri || "");
+  return m ? `https://bsky.app/profile/${m[1]}/post/${m[2]}` : null;
+}
+
+function requestStatusLabel(r: RequestRecord): { text: string; cls: string } {
+  if (r.partial) return { text: "partial — still continuable", cls: "partial" };
+  switch (r.disposition) {
+    case "success":
+      return { text: "shipped", cls: "shipped" };
+    case "no_build":
+      return { text: "answered, nothing built", cls: "none" };
+    case "too_big":
+      return { text: "too big for one pass", cls: "none" };
+    case "usage_limit":
+      return { text: "out of budget", cls: "none" };
+    default:
+      return { text: r.disposition || "unknown", cls: "none" };
+  }
+}
+
+function renderRequestCard(r: RequestRecord): string {
+  const status = requestStatusLabel(r);
+  const link = postPermalink(r.postUri);
+  const handle = r.requester?.handle;
+  const whoKey = handle || r.requester?.did || "";
+  const built = r.site
+    ? `${r.edit === true ? "edited" : r.edit === false ? "built" : "changed"} <a href="${escHtml(r.siteUrl || `https://${r.site.split("/")[0]}.bisks.net`)}">${escHtml(r.site)}</a>`
+    : "";
+  const commit = r.commit
+    ? ` · <a href="https://github.com/rrcobb/atprotozoa/commit/${escHtml(r.commit)}"><code>${escHtml(r.commit.slice(0, 7))}</code></a>`
+    : "";
+  const when = r.requestedAt || r.builtAt || r.createdAt;
+  return `<article class="card ${status.cls}">
+          <h2><a href="/requests?who=${encodeURIComponent(whoKey)}">${handle ? `@${escHtml(handle)}` : escHtml(r.requester?.did || "someone")}</a></h2>
+          <p class="brief">${escHtml(truncate(r.brief || "", 320))}</p>
+          ${r.note ? `<p class="note">${escHtml(truncate(r.note, 240))}</p>` : ""}
+          <p class="meta"><span class="status">${escHtml(status.text)}</span>${built ? ` · ${built}` : ""}${commit}</p>
+          <p class="when">${escHtml(fmtDay(when))}${link ? ` · <a href="${escHtml(link)}">the post</a>` : ""}</p>
+        </article>`;
+}
+
+function renderRequestsPage(
+  all: RequestRecord[],
+  rows: RequestRecord[],
+  who: string,
+  partialOnly: boolean,
+): string {
+  const partialCount = all.filter((r) => r.partial).length;
+  const people = new Set(all.map((r) => r.requester?.did).filter(Boolean)).size;
+  const heading = who
+    ? `what @${escHtml(who.replace(/^@/, ""))} has asked for`
+    : partialOnly
+      ? "requests that are still partial"
+      : "every request";
+  const cards = rows.length
+    ? rows.map(renderRequestCard).join("\n")
+    : `<p class="empty">no requests match that. <a href="/requests">show all of them</a>.</p>`;
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>requests — buildthis.bisks.net</title>
+    <meta name="description" content="Every build request the bot has handled, read back from its own atproto records: who asked, what they asked for, and how it ended." />
+    <style>
+      :root {
+        --bg: #0d0a06; --card: #17130c; --ink: #e8dcc8; --muted: #9c8f78;
+        --accent: #c8922e; --link: #e0b23c; --wip: #d98b3a; --dim: #6f6552;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 600px at 50% -10%, #241b0e 0%, var(--bg) 60%);
+        background-color: var(--bg); color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 660px; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+      header h1 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1.7rem; margin: 0 0 0.25rem; letter-spacing: -0.02em; color: #e6e8ea;
+      }
+      header p { color: var(--muted); margin: 0 0 1.5rem; font-style: italic; }
+      nav { margin: 0 0 2rem; font-size: 0.85rem; color: var(--muted); }
+      nav a { margin-right: 0.9rem; }
+      nav a.on { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--accent); }
+      .card {
+        display: block; background: var(--card); border: 1px solid #1f2226;
+        border-left: 4px solid var(--dim); border-radius: 10px;
+        padding: 0.9rem 1.1rem; margin-bottom: 0.7rem;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      }
+      .card.shipped { border-left-color: var(--accent); }
+      .card.partial { border-left-color: var(--wip); }
+      .card h2 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1rem; margin: 0 0 0.4rem; font-weight: 700;
+      }
+      .card h2 a { color: #aeb4ba; text-decoration: none; }
+      .card h2 a:hover { color: var(--link); }
+      .card p { margin: 0 0 0.35rem; font-size: 0.9rem; color: var(--muted); }
+      .card p:last-child { margin-bottom: 0; }
+      .card .brief { color: var(--ink); }
+      .card .note { font-style: italic; }
+      .card .meta .status { color: var(--accent); }
+      .card.partial .meta .status { color: var(--wip); }
+      .card .when { font-size: 0.78rem; }
+      code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.85em; }
+      .empty { color: var(--muted); font-style: italic; }
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.82rem; }
+      a { color: var(--link); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>requests</h1>
+        <p>every ask I've handled — ${all.length} of them, from ${people} ${people === 1 ? "person" : "people"}</p>
+      </header>
+      <nav>
+        <a class="${!who && !partialOnly ? "on" : ""}" href="/requests">all</a>
+        <a class="${partialOnly ? "on" : ""}" href="/requests?partial=1">still partial (${partialCount})</a>
+        <a href="/requests.json">json</a>
+      </nav>
+      <main>
+        <h2 style="font-family: ui-monospace, Menlo, monospace; font-size: 1rem; color: var(--accent); margin: 0 0 0.9rem;">${heading} (${rows.length})</h2>
+        ${cards}
+      </main>
+      <footer>
+        read straight from <code>${escHtml(REQUEST_COLLECTION)}</code> records in the
+        bot's own repo — not from this worker's KV, so this history outlives the
+        30-day event log and anyone can read it without going through here.
+        <a href="/lexicons/">the schema</a> ·
+        <a href="/directory">what shipped</a> ·
+        <a href="/">buildthis</a>
+      </footer>
+    </div>
+  </body>
+</html>`;
+}
+
+function renderRequestsError(): string {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>requests — buildthis.bisks.net</title>
+    <style>
+      body { margin: 0; background: #0d0a06; color: #e8dcc8;
+             font-family: Georgia, "Times New Roman", serif; line-height: 1.6; }
+      .wrap { max-width: 560px; margin: 0 auto; padding: 3rem 1.25rem; }
+      a { color: #e0b23c; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>couldn't read the requests</h1>
+      <p>
+        The request log lives as records in the bot's own repo, and its PDS
+        didn't answer just now. Nothing is lost — try again in a minute.
+      </p>
+      <p><a href="/">buildthis</a> · <a href="/directory">what shipped</a></p>
+    </div>
+  </body>
+</html>`;
+}
+
+// --- Weekly digest -----------------------------------------------------------
+//
+// Ideas 10 ("digest / what happened") and 11 ("curator / gallery") from
+// notes/ideas/00-index.md, folded into one job at Rob's call: the digest also
+// ranks the week, so there's no separate curator account. Idea 11 wanted a
+// separate account precisely so the builder wouldn't grade its own homework —
+// that objection is answered by never scoring anything itself. Both rankings
+// come from outside: traffic from stats.bisks.net (Cloudflare's request counts)
+// and scores from rateyourbuild's raters. The bot reports those numbers; it
+// doesn't produce them.
+//
+// Runs Sunday 17:00 UTC off a third cron, distinguished by event.cron in the
+// same scheduled() handler as the 2-min watcher and the daily slot — the same
+// pattern the theme box used.
+//
+// Four sources, all of which already exist:
+//   - the event log in THIS Worker's KV (what shipped and who asked)
+//   - watchtower's /alerts.json (what broke and for how long)
+//   - stats.bisks.net/stats.json (per-site requests, notes/86)
+//   - rateyourbuild ratings, walked off the network (notes above computeRatings)
+//
+// Silent if the week was empty: no post, no stored digest. A digest that says
+// "nothing happened" is worse than no digest, and the whole point of the
+// watchtower posture ("silent when things work") applies here too.
+
+const DIGEST_CRON = "0 17 * * 0";
+const DIGEST_PREFIX = "digest:";
+const DIGEST_LATEST_KEY = "digest:latest";
+// Digests outlive the 30-day EVENT_TTL on purpose: the event log is a rolling
+// window, but a digest is the durable summary of a week that will otherwise be
+// unrecoverable once its events expire. A year of them is a few KB.
+const DIGEST_TTL = 60 * 60 * 24 * 400;
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Bluesky's real limit is 300 GRAPHEMES (not chars, not bytes). Leave a little
+// headroom so an off-by-a-few can't reject a post that took a week to earn.
+const POST_GRAPHEME_LIMIT = 300;
+const POST_GRAPHEME_BUDGET = 292;
+
+interface DigestShipped {
+  name: string;
+  url?: string;
+  handles: string[]; // everyone who asked for work on this site this week
+  runs: number; // successful build RUNS against this site (a site edited twice = 2)
+}
+
+interface DigestBreak {
+  name: string;
+  downForMs?: number;
+  recovered: boolean;
+}
+
+interface DigestRated {
+  name: string;
+  avg: number;
+  count: number;
+}
+
+interface DigestVisited {
+  name: string;
+  requests: number;
+}
+
+interface Digest {
+  week: string; // the ISO date of the Sunday it covers, e.g. "2026-09-13"
+  from: string;
+  to: string;
+  shipped: DigestShipped[];
+  askedBy: string[]; // distinct handles, most-requested first
+  visited: DigestVisited[];
+  rated: DigestRated[];
+  breaks: DigestBreak[];
+  postText: string;
+  postUri?: string;
+  computedAt: string;
+}
+
+// Count GRAPHEMES the way Bluesky does. Intl.Segmenter is available in Workers;
+// fall back to the spread operator (code points) if it somehow isn't — that
+// over-counts an emoji ZWJ sequence, which errs toward a shorter post rather
+// than a rejected one.
+function graphemeLen(s: string): number {
+  try {
+    const seg = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+    let n = 0;
+    for (const _ of seg.segment(s)) n++;
+    return n;
+  } catch {
+    return [...s].length;
+  }
+}
+
+// --- Source 1: what shipped, from this Worker's own event log ----------------
+//
+// "Shipped events are RUNS, not sites — count distinct names." A single site
+// tagged three times in a week produces three successful outcome records; the
+// digest should say one site shipped, built across three runs, and credit
+// everyone who asked.
+//
+// Counts on outcome.disposition where present, per the LogEvent comment: status
+// collapses six states into two and reads a deliberate non-build as a failure.
+// A `partial` still shipped something live, so it counts.
+function computeShipped(events: LogEvent[], fromMs: number, toMs: number): {
+  shipped: DigestShipped[];
+  askedBy: string[];
+} {
+  const byName = new Map<string, DigestShipped & { handleCounts: Map<string, number> }>();
+  const askCounts = new Map<string, number>();
+
+  for (const e of events) {
+    const o = e.outcome;
+    if (!o || !o.builtName) continue;
+    const at = new Date(o.at).getTime();
+    if (isNaN(at) || at < fromMs || at >= toMs) continue;
+    const disposition = o.disposition ?? (o.status === "success" ? "success" : "failure");
+    if (disposition !== "success" && disposition !== "partial") continue;
+
+    // builtName is "<site>" or "<site>/<path>" — the site is the first segment,
+    // so two builds against different paths of one site count as one site.
+    const name = o.builtName.split("/")[0];
+    let entry = byName.get(name);
+    if (!entry) {
+      entry = { name, url: o.url, handles: [], runs: 0, handleCounts: new Map() };
+      byName.set(name, entry);
+    }
+    entry.runs++;
+    if (!entry.url && o.url) entry.url = o.url;
+
+    // The daily slot isn't a person and shouldn't appear in "who asked".
+    const handle = e.authorHandle;
+    if (handle && handle !== "daily-slot") {
+      entry.handleCounts.set(handle, (entry.handleCounts.get(handle) ?? 0) + 1);
+      askCounts.set(handle, (askCounts.get(handle) ?? 0) + 1);
+    }
+  }
+
+  const shipped = [...byName.values()]
+    .map((e) => ({
+      name: e.name,
+      url: e.url,
+      runs: e.runs,
+      handles: [...e.handleCounts.entries()].sort((a, b) => b[1] - a[1]).map(([h]) => h),
+    }))
+    .sort((a, b) => b.runs - a.runs || a.name.localeCompare(b.name));
+
+  const askedBy = [...askCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([h]) => h);
+
+  return { shipped, askedBy };
+}
+
+// --- Source 2: what broke, from watchtower ----------------------------------
+//
+// watchtower keeps the last 200 alerts at /alerts.json, each `{at, kind, name,
+// downForMs?}` with kind "broken" | "recovered" (notes/85). A break and its
+// recovery are two entries, so they're paired here by site name: a break with a
+// later recovery reports how long it was down, one without is still down.
+//
+// watchtower is off-zone by construction (a Worker routed on bisks.net can't
+// probe bisks.net), so this is a real cross-origin fetch, not a binding.
+const WATCHTOWER_ALERTS_URL =
+  "https://atprotozoa-watchtower.rwcobbjr.workers.dev/alerts.json";
+
+interface WatchtowerAlert {
+  at: string;
+  kind: string;
+  name: string;
+  downForMs?: number;
+}
+
+async function computeBreaks(fromMs: number, toMs: number): Promise<DigestBreak[]> {
+  try {
+    const res = await fetch(WATCHTOWER_ALERTS_URL, {
+      headers: { "user-agent": DIGEST_USER_AGENT },
+    });
+    if (!res.ok) {
+      console.error(`digest: alerts.json -> ${res.status}`);
+      return [];
+    }
+    const body = (await res.json()) as { alerts?: WatchtowerAlert[] };
+    const alerts = (body.alerts ?? []).filter((a) => {
+      const at = new Date(a.at).getTime();
+      return !isNaN(at) && at >= fromMs && at < toMs;
+    });
+
+    // A site can break and recover more than once in a week; report it once,
+    // with the total time it spent down and whether it ended the week up.
+    const byName = new Map<string, DigestBreak>();
+    for (const a of alerts) {
+      if (a.kind !== "broken" && a.kind !== "recovered") continue;
+      let entry = byName.get(a.name);
+      if (!entry) {
+        entry = { name: a.name, recovered: false, downForMs: 0 };
+        byName.set(a.name, entry);
+      }
+      if (a.kind === "recovered") {
+        entry.recovered = true;
+        entry.downForMs = (entry.downForMs ?? 0) + (a.downForMs ?? 0);
+      } else {
+        // A break with no matching recovery in the window is still down.
+        entry.recovered = entry.recovered && true;
+      }
+    }
+    // A site that only ever recovered in this window broke before it — still
+    // worth reporting, since the downtime landed here.
+    return [...byName.values()].sort(
+      (a, b) => (b.downForMs ?? 0) - (a.downForMs ?? 0) || a.name.localeCompare(b.name),
+    );
+  } catch (err) {
+    console.error(`digest: breaks failed: ${err}`);
+    return [];
+  }
+}
+
+// --- Source 3: traffic, from stats.bisks.net --------------------------------
+//
+// notes/86: `/stats.json` gives every site `days` (oldest first), `requests`,
+// and `total7`. total7 is exactly this digest's window, so there's no need to
+// slice the daily arrays.
+//
+// The note's own warning is load-bearing here: these are Worker request counts,
+// bots and crawlers included, and "a site that serves a firehose proxy or polls
+// itself will dwarf the rest." So the ranking is scoped to the sites that
+// shipped this week rather than the fleet — "the most-visited of what we built"
+// is a claim the number supports, "the most-visited site" isn't.
+const STATS_URL = "https://stats.bisks.net/stats.json";
+const DIGEST_USER_AGENT = "atprotozoa-buildthis-digest (+https://buildthis.bisks.net/digest)";
+
+async function computeVisited(names: string[]): Promise<DigestVisited[]> {
+  if (!names.length) return [];
+  try {
+    const res = await fetch(STATS_URL, { headers: { "user-agent": DIGEST_USER_AGENT } });
+    if (!res.ok) {
+      console.error(`digest: stats.json -> ${res.status}`);
+      return [];
+    }
+    const body = (await res.json()) as {
+      sites?: Record<string, { total7?: number }>;
+    };
+    const sites = body.sites ?? {};
+    return names
+      .map((name) => ({ name, requests: sites[name]?.total7 ?? 0 }))
+      .filter((v) => v.requests > 0)
+      .sort((a, b) => b.requests - a.requests || a.name.localeCompare(b.name));
+  } catch (err) {
+    console.error(`digest: stats failed: ${err}`);
+    return [];
+  }
+}
+
+// --- Source 4: scores, from rateyourbuild ------------------------------------
+//
+// rateyourbuild has no server-side aggregate: ratings are one record per
+// (rater, site) in each RATER's own PDS, and the site aggregates them in the
+// browser via listReposByCollection + listRecords (see
+// sites/rateyourbuild/public/lib/global-index.js). So this does the same walk
+// server-side, which is affordable precisely because the collection is small:
+// 5 rater repos and 119 ratings as of 2026-09-17, about 11 subrequests, well
+// under the Workers 50-subrequest cap.
+//
+// Deliberately NOT a paginated walk to exhaustion like the browser index does.
+// A cron tick has a hard subrequest budget the browser doesn't, so this caps the
+// work and reports what it got. The cap is sized well above the current data; if
+// rateyourbuild grows past it the digest under-counts rather than failing, and
+// the right fix then is an aggregate endpoint on rateyourbuild itself, not a
+// bigger cap here.
+const RATINGS_COLLECTION = "net.bisks.rateyourbuild.rating";
+const RELAY_URL = "https://bsky.network";
+const PLC_DIRECTORY = "https://plc.directory";
+const MAX_RATER_REPOS = 25;
+
+// Some PDSes sit behind a CDN that rejects requests with no User-Agent or a
+// default library one (confirmed 2026-09-17: pds.angussoftware.dev 403s
+// python-urllib but serves curl fine). Every fetch in the ratings walk sends a
+// real UA for that reason.
+async function digestJson<T>(url: string): Promise<T | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { accept: "application/json", "user-agent": DIGEST_USER_AGENT },
+    });
+    if (!res.ok) {
+      console.error(`digest: ${url} -> ${res.status}`);
+      return null;
+    }
+    return (await res.json()) as T;
+  } catch (err) {
+    console.error(`digest: ${url} failed: ${err}`);
+    return null;
+  }
+}
+
+async function resolveRaterPds(did: string): Promise<string | null> {
+  if (!did.startsWith("did:plc:")) return null; // did:web raters are vanishingly rare here
+  const doc = await digestJson<{ service?: { id: string; serviceEndpoint: string }[] }>(
+    `${PLC_DIRECTORY}/${did}`,
+  );
+  const svc = (doc?.service ?? []).find((s) => s.id === "#atproto_pds");
+  return svc?.serviceEndpoint ?? null;
+}
+
+// Average score per site across every rater, restricted to `names` (the sites
+// that shipped this week). Ratings are NOT filtered to the week: a rating is a
+// judgement of the site, and a site built on Tuesday and rated on Wednesday
+// should carry that score. One record per (rater, site) means re-rating
+// overwrites in place, so this can't double-count a rater.
+async function computeRated(names: string[]): Promise<DigestRated[]> {
+  if (!names.length) return [];
+  const wanted = new Set(names);
+  const sums = new Map<string, { total: number; count: number }>();
+
+  const repos = await digestJson<{ repos?: { did: string }[] }>(
+    `${RELAY_URL}/xrpc/com.atproto.sync.listReposByCollection?collection=${RATINGS_COLLECTION}&limit=100`,
+  );
+  const dids = (repos?.repos ?? []).slice(0, MAX_RATER_REPOS).map((r) => r.did);
+
+  for (const did of dids) {
+    const pds = await resolveRaterPds(did);
+    if (!pds) continue;
+    const page = await digestJson<{ records?: { value: { subject?: string; score?: number } }[] }>(
+      `${pds}/xrpc/com.atproto.repo.listRecords?repo=${did}&collection=${RATINGS_COLLECTION}&limit=100`,
+    );
+    for (const rec of page?.records ?? []) {
+      const subject = rec.value?.subject;
+      const score = rec.value?.score;
+      if (!subject || typeof score !== "number") continue;
+      if (!wanted.has(subject)) continue;
+      const cur = sums.get(subject) ?? { total: 0, count: 0 };
+      cur.total += score;
+      cur.count++;
+      sums.set(subject, cur);
+    }
+  }
+
+  return [...sums.entries()]
+    .map(([name, s]) => ({ name, avg: s.total / s.count, count: s.count }))
+    .sort((a, b) => b.avg - a.avg || b.count - a.count || a.name.localeCompare(b.name));
+}
+
+// --- Assembling the digest ---------------------------------------------------
+
+function fmtDuration(ms: number): string {
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+// One post if it fits, a short thread if it doesn't. Every part is built to the
+// grapheme budget rather than truncated after the fact, so a part can never be
+// cut mid-URL — which would both read badly and break the link facet.
+function renderDigestPost(d: Digest, digestUrl: string): string[] {
+  const siteCount = d.shipped.length;
+  const runCount = d.shipped.reduce((n, s) => n + s.runs, 0);
+  const parts: string[] = [];
+
+  // Part 1: what shipped, who asked, and the link to the web version.
+  const head =
+    siteCount === 0
+      ? `this week: no new builds`
+      : siteCount === 1
+        ? `this week: 1 site${runCount > 1 ? ` across ${runCount} builds` : ""}`
+        : `this week: ${siteCount} sites across ${runCount} builds`;
+
+  const askers = d.askedBy.slice(0, 6).map((h) => `@${h}`);
+  const askLine = askers.length
+    ? `asked for by ${askers.join(" ")}${d.askedBy.length > askers.length ? " +more" : ""}`
+    : "";
+
+  // Names go in newest-busiest-first and get dropped, not cut, when the budget
+  // runs out — a half-written site name is worse than a shorter list.
+  const tail = `\n\n${digestUrl}`;
+  let body = head;
+  if (siteCount) {
+    const names: string[] = [];
+    for (const s of d.shipped) {
+      const next = [...names, s.name].join(", ");
+      const candidate = `${head}\n${next}${askLine ? `\n\n${askLine}` : ""}${tail}`;
+      if (graphemeLen(candidate) > POST_GRAPHEME_BUDGET) break;
+      names.push(s.name);
+    }
+    const shown = names.length ? names.join(", ") : "";
+    const more = d.shipped.length - names.length;
+    body = `${head}${shown ? `\n${shown}${more > 0 ? ` +${more} more` : ""}` : ""}`;
+  }
+  const withAsk = `${body}${askLine ? `\n\n${askLine}` : ""}${tail}`;
+  parts.push(
+    graphemeLen(withAsk) <= POST_GRAPHEME_LIMIT ? withAsk : `${body}${tail}`,
+  );
+
+  // Part 2: the rankings and the breakage — only when there's something to say.
+  const lines: string[] = [];
+  const top = d.visited[0];
+  if (top) lines.push(`most visited: ${top.name} (${top.requests.toLocaleString("en-US")} reqs)`);
+  const best = d.rated[0];
+  if (best) {
+    lines.push(
+      `best rated: ${best.name} (${best.avg.toFixed(1)}/10 from ${best.count} ${best.count === 1 ? "rating" : "ratings"})`,
+    );
+  }
+  if (d.breaks.length) {
+    const b = d.breaks[0];
+    const dur = b.downForMs ? ` for ${fmtDuration(b.downForMs)}` : "";
+    const rest = d.breaks.length > 1 ? ` (+${d.breaks.length - 1} more)` : "";
+    lines.push(`broke: ${b.name}${dur}${b.recovered ? ", back up" : ", still down"}${rest}`);
+  } else if (siteCount) {
+    lines.push(`nothing broke`);
+  }
+
+  if (lines.length) {
+    let second = lines.join("\n");
+    while (graphemeLen(second) > POST_GRAPHEME_LIMIT && lines.length > 1) {
+      lines.pop();
+      second = lines.join("\n");
+    }
+    if (graphemeLen(second) <= POST_GRAPHEME_LIMIT) parts.push(second);
+  }
+
+  return parts;
+}
+
+// The Sunday that starts the week this digest covers, as an ISO date. Used as
+// both the KV key suffix and the /digest/<week> permalink.
+function weekKey(toMs: number): string {
+  return fmtDay(new Date(toMs - WEEK_MS).toISOString());
+}
+
+async function buildDigest(env: Env, now: number): Promise<Digest> {
+  const fromMs = now - WEEK_MS;
+  const events = await loadAllEvents(env);
+  const { shipped, askedBy } = computeShipped(events, fromMs, now);
+  const names = shipped.map((s) => s.name);
+
+  // Independent of each other and each best-effort, so one dead source degrades
+  // the digest instead of killing it.
+  const [visited, rated, breaks] = await Promise.all([
+    computeVisited(names),
+    computeRated(names),
+    computeBreaks(fromMs, now),
+  ]);
+
+  const digest: Digest = {
+    week: weekKey(now),
+    from: new Date(fromMs).toISOString(),
+    to: new Date(now).toISOString(),
+    shipped,
+    askedBy,
+    visited,
+    rated,
+    breaks,
+    postText: "",
+    computedAt: new Date(now).toISOString(),
+  };
+  return digest;
+}
+
+// Nothing shipped, nothing broke. A digest that says "no news" is noise.
+function digestIsEmpty(d: Digest): boolean {
+  return d.shipped.length === 0 && d.breaks.length === 0;
+}
+
+// Resolve the handles the digest mentions to DIDs so the @-tags are real facets
+// and the people who asked actually get notified. A handle that doesn't resolve
+// is left as plain text rather than dropped (same posture as mentionFacets).
+async function resolveHandles(handles: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const h of handles) {
+    const r = await digestJson<{ did?: string }>(
+      `${APPVIEW}/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(h)}`,
+    );
+    if (r?.did) out[h] = r.did;
+  }
+  return out;
+}
+
+// Post the digest as one post, or a short thread when the rankings don't fit
+// alongside what shipped. Both link and mention facets, on byte offsets.
+async function postDigest(
+  env: Env,
+  session: Session,
+  parts: string[],
+  mentions: Record<string, string>,
+): Promise<string | undefined> {
+  let root: { uri: string; cid: string } | undefined;
+  let parent: { uri: string; cid: string } | undefined;
+
+  for (const text of parts) {
+    const record: Record<string, unknown> = {
+      $type: "app.bsky.feed.post",
+      text,
+      createdAt: new Date().toISOString(),
+      facets: digestFacets(text, mentions),
+    };
+    if (root && parent) record.reply = { root, parent };
+
+    const res = await fetch(`${PDS}/xrpc/com.atproto.repo.createRecord`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${session.accessJwt}`,
+      },
+      body: JSON.stringify({
+        repo: session.did,
+        collection: "app.bsky.feed.post",
+        record,
+      }),
+    });
+    if (!res.ok) {
+      // Stop the thread here rather than posting an orphaned continuation.
+      console.error(`digest post failed: ${res.status} ${await res.text()}`);
+      return root?.uri;
+    }
+    const ref = (await res.json()) as { uri: string; cid: string };
+    if (!root) root = ref;
+    parent = ref;
+  }
+  return root?.uri;
+}
+
+// Link AND mention facets. mentionFacets() above only does mentions, and the
+// digest's whole point is a shareable link, so it needs both. Byte offsets, not
+// char indices (notes/70 — the lesson baked into mino's reply builder).
+function digestFacets(text: string, mentions: Record<string, string>): unknown[] {
+  const enc = new TextEncoder();
+  const out: unknown[] = [];
+  const linkRe = /https?:\/\/[^\s)]+/g;
+  let m: RegExpExecArray | null;
+  while ((m = linkRe.exec(text)) !== null) {
+    const byteStart = enc.encode(text.slice(0, m.index)).length;
+    out.push({
+      index: { byteStart, byteEnd: byteStart + enc.encode(m[0]).length },
+      features: [{ $type: "app.bsky.richtext.facet#link", uri: m[0] }],
+    });
+  }
+  const mentionRe = /@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+  while ((m = mentionRe.exec(text)) !== null) {
+    const did = mentions[m[1]];
+    if (!did) continue;
+    const byteStart = enc.encode(text.slice(0, m.index)).length;
+    out.push({
+      index: { byteStart, byteEnd: byteStart + enc.encode(m[0]).length },
+      features: [{ $type: "app.bsky.richtext.facet#mention", did }],
+    });
+  }
+  return out;
+}
+
+// The weekly cron body. Guarded by a per-week KV marker so a retried or
+// double-fired cron can't post the same digest twice.
+async function runDigestTick(env: Env): Promise<void> {
+  try {
+    const now = Date.now();
+    const week = weekKey(now);
+    const key = `${DIGEST_PREFIX}${week}`;
+    if (await env.STATE.get(key)) {
+      console.log(`digest: ${week} already posted`);
+      return;
+    }
+
+    const digest = await buildDigest(env, now);
+    if (digestIsEmpty(digest)) {
+      console.log(`digest: ${week} empty, staying quiet`);
+      return;
+    }
+
+    const digestUrl = `https://buildthis.bisks.net/digest/${week}`;
+    const parts = renderDigestPost(digest, digestUrl);
+    digest.postText = parts.join("\n---\n");
+
+    // Store BEFORE posting: the post links to the page, so the page has to
+    // exist by the time anyone follows the link.
+    await env.STATE.put(key, JSON.stringify(digest), { expirationTtl: DIGEST_TTL });
+    await env.STATE.put(DIGEST_LATEST_KEY, week, { expirationTtl: DIGEST_TTL });
+
+    const session = await login(env);
+    const mentions = await resolveHandles(digest.askedBy.slice(0, 6));
+    const postUri = await postDigest(env, session, parts, mentions);
+    if (postUri) {
+      digest.postUri = postUri;
+      await env.STATE.put(key, JSON.stringify(digest), { expirationTtl: DIGEST_TTL });
+    }
+    console.log(`digest: ${week} posted (${digest.shipped.length} sites)`);
+  } catch (err) {
+    console.error(`digest tick failed: ${err}`);
+  }
+}
+
+// --- The web version ---------------------------------------------------------
+//
+// The shareable half. /digest is the latest, /digest/<week> is a permalink, and
+// /digest.json is the same data for anything that wants to read it.
+
+async function loadDigest(env: Env, week?: string): Promise<Digest | null> {
+  const w = week ?? (await env.STATE.get(DIGEST_LATEST_KEY));
+  if (!w) return null;
+  const raw = await env.STATE.get(`${DIGEST_PREFIX}${w}`);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as Digest;
+  } catch {
+    return null;
+  }
+}
+
+async function handleDigest(env: Env, url: URL): Promise<Response> {
+  // /digest/<week> or /digest
+  const rest = url.pathname.replace(/^\/digest(\.json)?\/?/, "");
+  const week = /^\d{4}-\d{2}-\d{2}$/.test(rest) ? rest : undefined;
+  const wantJson = url.pathname.startsWith("/digest.json");
+
+  const digest = await loadDigest(env, week);
+
+  if (wantJson) {
+    return new Response(JSON.stringify(digest ?? { error: "no digest yet" }), {
+      status: digest ? 200 : 404,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=300",
+      },
+    });
+  }
+
+  if (!digest) {
+    return new Response(renderNoDigestPage(), {
+      status: 404,
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" },
+    });
+  }
+  return new Response(renderDigestPage(digest), {
+    headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300" },
+  });
+}
+
+function renderNoDigestPage(): string {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>digest — buildthis.bisks.net</title>
+    <style>
+      body { margin: 0; background: #0d0a06; color: #e8dcc8;
+        font-family: Georgia, "Times New Roman", serif; line-height: 1.6; }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem; }
+      h1 { font-family: ui-monospace, Menlo, monospace; font-size: 1.6rem; color: #e6e8ea; }
+      p { color: #9c8f78; font-style: italic; }
+      a { color: #e0b23c; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>digest</h1>
+      <p>no digest yet — the first one goes out Sunday.</p>
+      <p><a href="/">buildthis</a> · <a href="/directory">directory</a></p>
+    </div>
+  </body>
+</html>`;
+}
+
+function renderDigestPage(d: Digest): string {
+  const runCount = d.shipped.reduce((n, s) => n + s.runs, 0);
+  const subtitle = d.shipped.length
+    ? `${d.shipped.length} ${d.shipped.length === 1 ? "site" : "sites"} across ${runCount} ${runCount === 1 ? "build" : "builds"}`
+    : `no new builds`;
+
+  const shippedRows = d.shipped.length
+    ? d.shipped
+        .map((s) => {
+          const who = s.handles.length
+            ? s.handles
+                .map(
+                  (h) =>
+                    `<a href="https://bsky.app/profile/${escHtml(h)}">@${escHtml(h)}</a>`,
+                )
+                .join(", ")
+            : "the daily slot";
+          const runs = s.runs > 1 ? ` · ${s.runs} builds` : "";
+          const head = s.url
+            ? `<a href="${escHtml(s.url)}">${escHtml(s.name)}</a>`
+            : escHtml(s.name);
+          return `<div class="card">
+          <h3>${head}</h3>
+          <p>asked for by ${who}${runs}</p>
+        </div>`;
+        })
+        .join("\n")
+    : `<p class="empty">nothing new shipped this week.</p>`;
+
+  const rankRow = (
+    title: string,
+    rows: string[],
+  ): string =>
+    rows.length
+      ? `<section><h2>${title}</h2><ol class="rank">${rows.join("")}</ol></section>`
+      : "";
+
+  const visitedRows = d.visited
+    .slice(0, 5)
+    .map(
+      (v) =>
+        `<li><span class="n">${escHtml(v.name)}</span><span class="v">${v.requests.toLocaleString("en-US")} requests</span></li>`,
+    );
+
+  const ratedRows = d.rated
+    .slice(0, 5)
+    .map(
+      (r) =>
+        `<li><span class="n">${escHtml(r.name)}</span><span class="v">${r.avg.toFixed(1)}/10 · ${r.count} ${r.count === 1 ? "rating" : "ratings"}</span></li>`,
+    );
+
+  const breakRows = d.breaks.length
+    ? `<ul class="breaks">${d.breaks
+        .map((b) => {
+          const dur = b.downForMs ? ` — down ${escHtml(fmtDuration(b.downForMs))}` : "";
+          const state = b.recovered
+            ? `<span class="up">back up</span>`
+            : `<span class="down">still down</span>`;
+          return `<li>${escHtml(b.name)}${dur} · ${state}</li>`;
+        })
+        .join("")}</ul>`
+    : `<p class="empty">nothing broke.</p>`;
+
+  const postLink = d.postUri
+    ? `<a href="https://bsky.app/profile/buildthis.bisks.net/post/${escHtml(d.postUri.split("/").pop() ?? "")}">on bluesky</a> · `
+    : "";
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>week of ${escHtml(d.week)} — buildthis digest</title>
+    <meta name="description" content="What the buildthis bot shipped in the week of ${escHtml(d.week)}: ${escHtml(subtitle)}." />
+    <meta property="og:title" content="buildthis — week of ${escHtml(d.week)}" />
+    <meta property="og:description" content="${escHtml(subtitle)}. What shipped, who asked, what broke." />
+    <meta name="twitter:card" content="summary" />
+    <style>
+      :root {
+        --bg: #0d0a06; --card: #17130c; --ink: #e8dcc8; --muted: #9c8f78;
+        --accent: #c8922e; --link: #e0b23c; --good: #8fbf7f; --bad: #d08a7a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 600px at 50% -10%, #241b0e 0%, var(--bg) 60%);
+        background-color: var(--bg); color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+      header h1 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1.7rem; margin: 0 0 0.25rem; letter-spacing: -0.02em; color: #e6e8ea;
+      }
+      header p { color: var(--muted); margin: 0 0 2rem; font-style: italic; }
+      section { margin-bottom: 2.5rem; }
+      section > h2 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1rem; color: var(--accent); margin: 0 0 0.9rem; letter-spacing: 0.02em;
+      }
+      .card {
+        background: var(--card); border: 1px solid #1f2226;
+        border-left: 4px solid var(--accent); border-radius: 10px;
+        padding: 0.9rem 1.1rem; margin-bottom: 0.7rem;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+      }
+      .card h3 {
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 1.05rem; margin: 0 0 0.3rem; font-weight: 700; color: #aeb4ba;
+      }
+      .card h3 a { color: inherit; text-decoration: none; }
+      .card h3 a:hover { color: var(--link); }
+      .card p { margin: 0; color: var(--muted); font-size: 0.9rem; }
+      ol.rank { list-style: none; counter-reset: r; margin: 0; padding: 0; }
+      ol.rank li {
+        counter-increment: r; display: flex; justify-content: space-between;
+        gap: 1rem; padding: 0.5rem 0; border-bottom: 1px solid #1f2226;
+      }
+      ol.rank li::before {
+        content: counter(r) "."; color: var(--muted); min-width: 1.5em;
+        font-variant-numeric: tabular-nums;
+      }
+      ol.rank .n { flex: 1; font-family: ui-monospace, Menlo, monospace; font-size: 0.92rem; }
+      ol.rank .v { color: var(--muted); font-size: 0.85rem; white-space: nowrap; }
+      ul.breaks { list-style: none; margin: 0; padding: 0; }
+      ul.breaks li { padding: 0.5rem 0; border-bottom: 1px solid #1f2226; font-size: 0.92rem; }
+      .up { color: var(--good); }
+      .down { color: var(--bad); }
+      .empty { color: var(--muted); font-style: italic; }
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.82rem; }
+      a { color: var(--link); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>week of ${escHtml(d.week)}</h1>
+        <p>${escHtml(subtitle)}</p>
+      </header>
+      <main>
+        <section>
+          <h2>shipped</h2>
+          ${shippedRows}
+        </section>
+        ${rankRow("most visited", visitedRows)}
+        ${rankRow("best rated", ratedRows)}
+        <section>
+          <h2>what broke</h2>
+          ${breakRows}
+        </section>
+      </main>
+      <footer>
+        ${postLink}<a href="/">buildthis</a> · <a href="/directory">directory</a> ·
+        <a href="/digest.json/${escHtml(d.week)}">json</a><br />
+        traffic from <a href="https://stats.bisks.net">stats.bisks.net</a> ·
+        scores from <a href="https://rateyourbuild.bisks.net">rateyourbuild</a> ·
+        uptime from watchtower
+      </footer>
+    </div>
+  </body>
+</html>`;
 }

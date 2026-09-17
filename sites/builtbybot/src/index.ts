@@ -1,40 +1,47 @@
 // builtbybot — builtbybot.bisks.net
 //
-// A real Bluesky labeler. It publishes one label value, `built-by-bot`, on the
-// posts that announce a site @buildthis.bisks.net shipped, plus on the bot
-// account itself.
+// A real Bluesky labeler. It publishes one label value, `gift-link`, on posts
+// whose links carry a publisher's unlock token.
 //
-// The label value is likely to change — see notes/ideas/labeler-candidates.md.
-// Only subjectsToLabel and LABEL_VALUE are specific to built-by-bot; the rest
-// is general labeler machinery.
+// The service was built for a different label. `built-by-bot` marked
+// @buildthis.bisks.net's own output, and Rob's read — recorded in
+// notes/ideas/labeler-candidates.md — was that it said nothing: the labeled
+// posts already contained the bot's handle and its reply, so the label restated
+// what the post showed. The test a label has to pass is that it tells a
+// subscriber something they could not have worked out by looking. Gift links
+// pass it, because a gift link and a paywalled link are indistinguishable
+// unless you read the query string.
 //
-// Why this exists, and why it's this narrow: notes/ideas/feeds-and-labels.md
-// argued the labeler is the higher-commitment half of the feed/labeler
-// primitive — "a bad feed gets unsubscribed, a bad label lands on someone
-// else's post" — and picked `built-by-bot` as the first label precisely
-// because it's descriptive rather than judgmental and hard to be harmfully
-// wrong about. The feed half shipped first (sites/homemixer, and buildthis's
-// own /shipped feed); this is the deferred half, unblocked once Rob
-// provisioned a signing key.
+// The machinery below is unchanged from that first label and was always the
+// point of it: signed labels, a real queryLabels, low-S normalization, the
+// key-rotation fingerprint, the "never serve what you can't sign" guard,
+// canonical dag-cbor. What was replaced is the subject set (discover.ts,
+// giftdetect.ts) and LABEL_VALUE.
 //
-// THE SUBJECT RULE, which is the whole safety story:
+// WHAT THE LABEL CLAIMS, exactly:
 //
-//   This labeler only ever labels things the bisks.net project itself
-//   produced — buildthis's own announcement posts and buildthis's own
-//   account. It never labels a third party.
+//   This link carried an unlock token when this service saw it.
 //
-// That's a deliberately smaller claim than "mark bot-built sites across the
-// network," which is what ver.ooo's original ask ("exclude accounts marked as
-// automated/bots") gestured at. The wider version requires deciding whether
-// somebody ELSE's account is a bot, which is exactly the judgment call that
-// makes labelers risky, and it's a claim we'd frequently get wrong. Labeling
-// our own output is a fact we hold first-hand: the KV event log records every
-// ship, so every label traces to a build this project actually ran. Widening
-// the subject set is a policy change, not a config change — see /policy.
+// Not "this article is free", not "this link still works". Gift tokens expire
+// and get revoked, and nothing here re-checks one. The label is a dated
+// observation about a URL, and /policy says so in those words.
 //
-// NO DURABLE OBJECTS (notes/11). A canonical labeler serves
-// com.atproto.label.subscribeLabels, a long-lived websocket, which is exactly
-// the standing-connection shape this repo doesn't do. What's served instead:
+// THE SUBJECT RULE IS GONE, and that's the cost of making the label useful.
+// built-by-bot only ever labeled this project's own output, which is what made
+// it safe and also what made it pointless. Gift links are other people's posts,
+// so the safety has to come from somewhere else: from the claim being a fact
+// about a URL rather than a judgment about a person. Being wrong here means a
+// token expired, not that we mislabeled someone. The label value is descriptive
+// and carries no evaluation — it does not say the post is good, generous,
+// paywall-evading or against a publisher's terms, and it must not grow to.
+//
+// NO DURABLE OBJECTS (notes/11), which shapes two things:
+//
+//   - Discovery is a cron sweep over searchPosts, not a Jetstream subscription.
+//     See discover.ts for why, and for what that costs in coverage.
+//   - A canonical labeler serves com.atproto.label.subscribeLabels, a
+//     long-lived websocket, which is exactly the standing-connection shape this
+//     repo doesn't do. What's served instead:
 //
 //   - com.atproto.label.queryLabels — the polled, request/response half of the
 //     label API. Public, unauthenticated, and enough for a client to resolve
@@ -56,6 +63,9 @@
 // ever encode one flat, known-shape map, so a full CBOR library would be a
 // dependency for about forty lines of work.
 
+import { sweep, searchDomains, type FoundPost } from "./discover";
+import { GIFT_SOURCES } from "./giftdetect";
+
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
   LABELS: KVNamespace;
@@ -63,28 +73,30 @@ export interface Env {
   // repo holding the app.bsky.labeler.service record. Rob provisions this;
   // see /policy and notes/87-labeler.md for the exact setup steps.
   LABELER_DID: string;
-  // The DID of the bot whose output gets labeled (buildthis).
-  BUILDER_DID: string;
-  // buildthis's event-log endpoint, the source of which posts announced a ship.
-  BUILDER_EVENTS_URL: string;
   // Secret, set with `wrangler secret put LABELER_PRIVATE_KEY`: the labeler
   // signing key as base64url-encoded PKCS#8, P-256. Never in wrangler.toml.
   LABELER_PRIVATE_KEY?: string;
 }
 
-const LABEL_VALUE = "built-by-bot";
+// Descriptive and non-evaluative, deliberately. This labels strangers' posts,
+// so the value names what was observed about the URL and nothing about the
+// person who posted it.
+const LABEL_VALUE = "gift-link";
 
-// Cache of the signed label set, rebuilt from buildthis's event log. KV, not a
-// DO: a stale or duplicated rebuild is harmless here (notes/11) — the worst
-// case is a label for a just-shipped site appearing on the next rebuild rather
+// The signed label set, derived from the accumulated subject store below. KV,
+// not a DO: a stale or duplicated rebuild is harmless here (notes/11) — the
+// worst case is a just-found post getting its label on the next rebuild rather
 // than instantly.
-const LABELS_KEY = "labels:built-by-bot";
+const LABELS_KEY = "labels:gift-link";
 const LABELS_BUILT_AT_KEY = "labels:built-at";
-const LABELS_TRUNCATED_KEY = "labels:truncated";
 // Which DID + public key the cached labels were signed under. A fingerprint of
 // public values only — never the secret.
 const LABELS_KEYID_KEY = "labels:key-fingerprint";
 const REBUILD_INTERVAL_MS = 15 * 60 * 1000;
+// How stale the last sweep may get before a request kicks one off itself.
+// Longer than the cron interval, so the lazy path only fires when the cron
+// actually isn't running.
+const SWEEP_INTERVAL_MS = 30 * 60 * 1000;
 
 interface StoredLabel {
   src: string;
@@ -325,118 +337,122 @@ async function signLabel(key: CryptoKey, fields: Record<string, string>): Promis
 // Which subjects get labeled
 // ---------------------------------------------------------------------------
 
-interface BuilderEvent {
-  mentionUri?: string;
-  outcome?: { status?: string; builtName?: string; at?: string };
+// This is the part that changed when the labeler was repointed, and the part
+// whose shape the rest of the file was already built for.
+//
+// built-by-bot re-derived its whole subject set on every rebuild, from
+// buildthis's event log — "store what's ours, re-derive the rest". Gift links
+// can't work that way. There is no queryable "all posts that ever carried a
+// gift link" endpoint; there's a search index that reaches back a few days and
+// a firehose we can't hold open. So the subject set is ACCUMULATED: each sweep
+// adds what it found, and what was found before stays found.
+//
+// That makes the store the authoritative record rather than a cache, which is
+// a real change in kind. Two consequences, both deliberate:
+//
+//   - Losing the KV key loses labels we can't re-derive. Accepted: a lost label
+//     is a post that stops being marked, which is the harmless direction.
+//   - The set is bounded (MAX_SUBJECTS). A labeler that grows without limit
+//     eventually can't sign its set inside a request. Oldest-first eviction, so
+//     what falls off is what nobody is looking at any more.
+
+// Accumulated, not a cache. See above.
+const SUBJECTS_KEY = "subjects:gift-link";
+const LAST_SWEEP_KEY = "sweep:last-at";
+const LAST_SWEEP_FOUND_KEY = "sweep:last-found";
+const LAST_SWEEP_ERRORS_KEY = "sweep:last-errors";
+
+// How many posts to pull per publisher per sweep. The sweep runs every 15
+// minutes over ~12 domains; 100 each is well inside what a cron invocation can
+// do and far more headroom than the actual volume of gift links needs.
+const SEARCH_LIMIT_PER_DOMAIN = 100;
+
+// The ceiling on the subject set. Signing is ~1ms per label, so this is about
+// keeping a rebuild inside a request, not about storage.
+const MAX_SUBJECTS = 5000;
+
+interface Subject {
+  uri: string;
+  // The post's CID at the time it was seen. Labels carry it so the claim binds
+  // to the exact version of the record we read — an edited post gets a new CID,
+  // and the label then plainly refers to the version that had the link rather
+  // than silently following the edit.
+  cid: string;
+  sourceKey: string;
+  // When this labeler first saw it. Becomes the label's `cts` and never moves.
+  seenAt: string;
 }
 
-// buildthis's /logs.json answers `{events, total}` and caps `limit` at 500
-// (handleLogsRead). The log passed 500 on 2026-09-17 — 596 events, 408 of them
-// shipped — so a single request now silently truncates the oldest entries, and
-// the truncated ones are exactly the earliest ships. There's no cursor, so the
-// honest read is: ask for the cap, compare against `total`, and say so when the
-// tail is out of reach rather than quietly labeling a prefix.
-const LOGS_LIMIT = 500;
-
-async function fetchBuilderEvents(
-  env: Env,
-): Promise<{ events: BuilderEvent[]; total: number; truncated: boolean }> {
-  const url = new URL(env.BUILDER_EVENTS_URL);
-  url.searchParams.set("limit", String(LOGS_LIMIT));
-  const res = await fetch(url.toString(), { headers: { accept: "application/json" } });
-  if (!res.ok) throw new Error(`event log fetch failed: ${res.status}`);
-
-  const body = (await res.json()) as { events?: BuilderEvent[]; total?: number };
-  const events = Array.isArray(body.events) ? body.events : [];
-  const total = typeof body.total === "number" ? body.total : events.length;
-  return { events, total, truncated: total > events.length };
-}
-
-// The subject set, derived fresh from buildthis's own event log — "store
-// what's ours, re-derive the rest" (notes/ideas/store-ours-rederive-theirs.md).
-// Every subject here is the project's own output:
-//
-//   - the buildthis account itself (it IS a bot; it self-labels today, this
-//     makes that claim subscribable), and
-//   - each tagging post that led to a shipped site.
-//
-// Note on that second one, because it's the one place this could drift into
-// labeling someone else: the tagging post is authored by the REQUESTER, not by
-// the bot. Labeling it says "a bot built the thing this post asked for," which
-// is true and is about the site, but it does put a label on a third party's
-// post. That's the narrowest defensible version — it's the same URI buildthis
-// already publishes in its own public /shipped feed, so it reveals nothing new
-// and asserts nothing about the author. If even that reads as too much, the
-// fallback is labeling only the bot account; /policy says so, and flipping it
-// is deleting one branch below.
-async function subjectsToLabel(
-  env: Env,
-): Promise<{ subjects: string[]; truncated: boolean; reachable: boolean }> {
-  const subjects: string[] = [];
-  if (env.BUILDER_DID) subjects.push(env.BUILDER_DID);
-
+async function loadSubjects(env: Env): Promise<Subject[]> {
+  const raw = await env.LABELS.get(SUBJECTS_KEY);
+  if (!raw) return [];
   try {
-    const { events, truncated } = await fetchBuilderEvents(env);
-    for (const e of events) {
-      if (e.outcome?.status === "success" && e.outcome.builtName && e.mentionUri) {
-        subjects.push(e.mentionUri);
-      }
-    }
-    return { subjects, truncated, reachable: true };
-  } catch (err) {
-    // Keep whatever labels already exist rather than dropping them all because
-    // one fetch failed — rebuildLabels treats an unreachable log as "no change".
-    console.error(`event log fetch failed: ${err}`);
-    return { subjects, truncated: false, reachable: false };
+    const parsed = JSON.parse(raw) as Subject[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
+}
+
+// Fold a sweep's findings into the stored set. Idempotent by URI: seeing the
+// same post again is the normal case (searchPosts windows overlap), and it must
+// not move the post's `seenAt`, because that's the label's `cts` and a changing
+// cts would re-sign to different bytes and invalidate any copy a consumer
+// already holds.
+export function mergeSubjects(existing: Subject[], found: FoundPost[], max: number): Subject[] {
+  const byUri = new Map(existing.map((s) => [s.uri, s]));
+  for (const f of found) {
+    if (byUri.has(f.uri)) continue;
+    byUri.set(f.uri, { uri: f.uri, cid: f.cid, sourceKey: f.sourceKey, seenAt: new Date().toISOString() });
+  }
+  const all = [...byUri.values()].sort((a, b) => (a.seenAt < b.seenAt ? -1 : a.seenAt > b.seenAt ? 1 : 0));
+  return all.length > max ? all.slice(all.length - max) : all;
+}
+
+// One sweep: search, detect, merge, store. Called from the cron and lazily from
+// currentLabels when the last sweep is stale, so the labeler still advances if
+// the cron is disabled or misfires (notes/11: no alarms, state advances on
+// request).
+async function runSweep(env: Env): Promise<{ found: number; errors: number }> {
+  const { found, errors } = await sweep(SEARCH_LIMIT_PER_DOMAIN);
+  const merged = mergeSubjects(await loadSubjects(env), found, MAX_SUBJECTS);
+  await env.LABELS.put(SUBJECTS_KEY, JSON.stringify(merged));
+  await env.LABELS.put(LAST_SWEEP_KEY, String(Date.now()));
+  await env.LABELS.put(LAST_SWEEP_FOUND_KEY, String(found.length));
+  await env.LABELS.put(LAST_SWEEP_ERRORS_KEY, String(errors));
+  return { found: found.length, errors };
 }
 
 async function rebuildLabels(env: Env, fingerprint?: string): Promise<StoredLabel[]> {
   const key = await importSigningKey(env);
   if (!key || !env.LABELER_DID) {
-    // Not provisioned yet — the state this ships in. Stamp the clock anyway,
-    // or currentLabels sees a stale cache on every single request and refetches
-    // buildthis's whole event log each time, for a set it can't sign.
+    // Not provisioned yet — the state this ships in. Stamp the clock anyway, or
+    // currentLabels sees a stale cache on every single request and re-signs a
+    // set it can't sign.
     await env.LABELS.put(LABELS_BUILT_AT_KEY, String(Date.now()));
     return [];
   }
 
-  const { subjects, truncated, reachable } = await subjectsToLabel(env);
-  const existing = await loadLabels(env);
-
-  // A failed log fetch must not retract labels. Labels are a public claim; a
-  // transient 500 upstream silently un-labeling 400 posts would be a much worse
-  // failure than serving a slightly stale set, so hold what we have and retry
-  // on the next request. (Deliberately no `neg` labels here — this service has
-  // no retraction path, because nothing it labels ever stops being bot-built.)
-  // ...but only when those labels are still valid under the current key. After
-  // a rotation the cached set is unverifiable, so holding it would serve
-  // signatures nothing can check; better to serve none and retry.
-  const staleAfterRotation =
-    fingerprint !== undefined && (await env.LABELS.get(LABELS_KEYID_KEY)) !== fingerprint;
-  if (!reachable && existing.length > 0 && !staleAfterRotation) {
-    await env.LABELS.put(LABELS_BUILT_AT_KEY, String(Date.now()));
-    return existing;
-  }
-  await env.LABELS.put(LABELS_TRUNCATED_KEY, truncated ? "1" : "");
-  // Keep each label's original `cts`: a label's creation timestamp shouldn't
-  // move every time the set is rebuilt, and a changing cts would change the
-  // signed bytes and invalidate any copy a consumer already holds.
-  const ctsByUri = new Map(existing.map((l) => [l.uri, l.cts]));
-
+  const subjects = await loadSubjects(env);
+  // No "hold the old set on a fetch failure" branch any more, and none needed:
+  // the subject set is stored, not re-derived, so a failed search can only
+  // leave it un-grown. built-by-bot needed that guard because a transient 500
+  // from buildthis would have retracted every label at once.
   const labels: StoredLabel[] = [];
-  for (const uri of subjects) {
-    const cts = ctsByUri.get(uri) || new Date().toISOString();
+  for (const s of subjects) {
     const fields: Record<string, string> = {
-      cts,
+      cts: s.seenAt,
       src: env.LABELER_DID,
-      uri,
+      uri: s.uri,
       val: LABEL_VALUE,
     };
+    // `cid` is part of the signed bytes when present, so it goes in before
+    // signing, not after.
+    if (s.cid) fields.cid = s.cid;
     try {
       labels.push({ ...fields, sig: await signLabel(key, fields) } as StoredLabel);
     } catch (err) {
-      console.error(`signing failed for ${uri}: ${err}`);
+      console.error(`signing failed for ${s.uri}: ${err}`);
     }
   }
 
@@ -460,9 +476,11 @@ async function loadLabels(env: Env): Promise<StoredLabel[]> {
   }
 }
 
-// There's no alarm and no cron here, so the set advances on request — the
-// pattern notes/11 describes for everything that used to need a DO alarm.
-async function currentLabels(env: Env): Promise<StoredLabel[]> {
+// The set advances on request as well as on the cron. Keeping the lazy path
+// means a misfiring or disabled cron degrades to "labels appear when someone
+// asks" rather than to "labels stop appearing" — the pattern notes/11
+// describes for everything that used to need a DO alarm.
+async function currentLabels(env: Env, ctx?: ExecutionContext): Promise<StoredLabel[]> {
   // Serve nothing unless the service can currently sign. Labels persist in KV
   // across config changes, so without this a Worker that lost its key (or whose
   // LABELER_DID was cleared) keeps serving labels attributed to a DID it no
@@ -483,6 +501,14 @@ async function currentLabels(env: Env): Promise<StoredLabel[]> {
   const cachedFingerprint = await env.LABELS.get(LABELS_KEYID_KEY);
   if (cachedFingerprint !== fingerprint) {
     return await rebuildLabels(env, fingerprint);
+  }
+
+  // If the cron hasn't swept in a while, sweep in the background rather than
+  // making this request wait on twelve searchPosts calls. The reader gets the
+  // current set now; what the sweep finds lands in the next rebuild.
+  const sweptAt = parseInt((await env.LABELS.get(LAST_SWEEP_KEY)) || "0", 10);
+  if (ctx && Date.now() - sweptAt > SWEEP_INTERVAL_MS) {
+    ctx.waitUntil(runSweep(env).catch((err) => console.error(`lazy sweep failed: ${err}`)));
   }
 
   const builtAt = parseInt((await env.LABELS.get(LABELS_BUILT_AT_KEY)) || "0", 10);
