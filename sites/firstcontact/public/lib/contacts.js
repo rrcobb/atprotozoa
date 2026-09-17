@@ -13,15 +13,18 @@
 // point is to also catch collections this repo has never hardcoded, like a
 // streamplace chat message or a semble card link. So car.js here is patched
 // to accept `types: null` and hand back every record in the repo, and
-// extractTargets() below has two tiers: explicit handling for the
+// extractTargets() below has three tiers: explicit handling for the
 // app.bsky.* shapes we know (subject.uri, reply.parent, embed.record,
-// mention facets, a bare-DID subject), and a generic recursive scan for
-// anything else — any string field that turns out to be an at:// URI or a
-// bare DID naming another account. The generic tier is honest about what it
-// found: it labels the interaction after the field name it found the
-// reference in, and shows the record's own collection NSID as the
-// "application" rather than guessing a product name for lexicons this repo
-// has never seen before.
+// mention facets, a bare-DID subject); explicit handling for a couple of
+// named third-party lexicons the original brief called out by name
+// (place.stream.chat.message's `streamer`, network.cosmik's card/connection/
+// follow — Streamplace and Semble, per their public lexicon schemas); and a
+// generic recursive scan for everything else — any string field that turns
+// out to be an at:// URI or a bare DID naming another account. The generic
+// tier is honest about what it found: it labels the interaction after the
+// field name it found the reference in, and shows the record's own
+// collection NSID as the "application" rather than guessing a product name
+// for lexicons this repo has never seen before.
 
 import { fetchRepoRecordsWithKeys } from "./car.js";
 import { resolvePds } from "./identity.js";
@@ -75,6 +78,8 @@ const KNOWN_APPS = {
   "social.grain": "Grain",
   "fm.teal": "Teal",
   "computer.mackerel": "Mackerel",
+  "place.stream": "Streamplace",
+  "network.cosmik": "Semble",
 };
 
 function applicationLabel(collection) {
@@ -169,6 +174,23 @@ function extractTargets(rec, ownDid) {
         }
       }
     }
+  } else if (type === "place.stream.chat.message") {
+    // place.stream.chat.message (Streamplace): the streamer whose chat this
+    // message was posted into — named explicitly by @psingletary.com's brief.
+    add(asDid(rec.streamer), "chat message");
+  } else if (type === "network.cosmik.card") {
+    // network.cosmik.card (Semble): parentCard/originalCard are strongRefs
+    // (at:// URI + cid) to another account's card when this one replies to
+    // or reposts it — "linking semble card" from the brief.
+    if (rec.parentCard && rec.parentCard.uri) add(didFromAtUri(rec.parentCard.uri), "card reply");
+    if (rec.originalCard && rec.originalCard.uri) add(didFromAtUri(rec.originalCard.uri), "card repost");
+  } else if (type === "network.cosmik.connection") {
+    // network.cosmik.connection (Semble): source/target are each either a
+    // plain URL or an at:// URI — only the latter names another account.
+    add(didFromAtUri(rec.source), "card link");
+    add(didFromAtUri(rec.target), "card link");
+  } else if (type === "network.cosmik.follow") {
+    add(asDid(rec.subject), "follow");
   } else {
     const found = [];
     genericScan(rec, found, ownDid);
