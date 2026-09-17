@@ -4800,10 +4800,18 @@ function renderDigestPost(d: Digest, digestUrl: string): string[] {
     const more = d.shipped.length - names.length;
     body = `${head}${shown ? `\n${shown}${more > 0 ? ` +${more} more` : ""}` : ""}`;
   }
-  const withAsk = `${body}${askLine ? `\n\n${askLine}` : ""}${tail}`;
-  parts.push(
-    graphemeLen(withAsk) <= POST_GRAPHEME_LIMIT ? withAsk : `${body}${tail}`,
-  );
+  // Drop askers one at a time until the whole post fits the budget, rather than
+  // all-or-nothing: crediting four of six people is better than crediting none.
+  let fitted = `${body}${askLine ? `\n\n${askLine}` : ""}${tail}`;
+  if (graphemeLen(fitted) > POST_GRAPHEME_BUDGET && askers.length) {
+    for (let keep = askers.length - 1; keep >= 1; keep--) {
+      const line = `asked for by ${askers.slice(0, keep).join(" ")} +more`;
+      fitted = `${body}\n\n${line}${tail}`;
+      if (graphemeLen(fitted) <= POST_GRAPHEME_BUDGET) break;
+    }
+  }
+  if (graphemeLen(fitted) > POST_GRAPHEME_BUDGET) fitted = `${body}${tail}`;
+  parts.push(fitted);
 
   // Part 2: the rankings and the breakage — only when there's something to say.
   const lines: string[] = [];
