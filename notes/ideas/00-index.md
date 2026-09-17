@@ -168,13 +168,20 @@ Output is a blob in the bot's own repo, embedded in the reply — no site at all
 the only idea with a real content-safety surface and per-call cost.
 
 **10. Digest / "what happened" bot.** (`other-bots.md`, `bot-ideas-riff.md`)
-Daily or weekly: what shipped, what broke, who tagged. Low risk, feeds the
-curator idea.
+**Done, 2026-09-17, together with 11.** Weekly (Sunday 17:00 UTC), posted from
+buildthis itself off a third cron — not a separate bot, Rob's call. What
+shipped and who asked, the most-visited and best-rated builds, what broke and
+for how long, with a web version at `buildthis.bisks.net/digest` linked from
+the post. Silent when nothing shipped and nothing broke. See `notes/80`.
 
 **11. Curator / gallery bot.** (`other-bots.md`)
 norvid's "Top Chicken Oscars for the weekly profusion of these microsites,"
-which nobody built. Wants to be a separate account precisely because it isn't the
-builder grading its own homework.
+which nobody built. **Folded into 10 rather than built as its own account
+(2026-09-17).** The reason this wanted a separate account was that the builder
+shouldn't grade its own homework — which is answered by the digest never
+scoring anything itself: it ranks on traffic (stats) and on rateyourbuild's
+raters, both produced outside the bot. A site needs 3 ratings before it can be
+called "best rated", so one enthusiast can't crown a winner.
 
 **12. Commissioner / idea-mill bot.** (`other-bots.md`, `bot-ideas-riff.md`)
 `idea-mill` exists as a site; the bot never got made. Also norvid's "@ any bot

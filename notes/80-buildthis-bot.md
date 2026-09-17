@@ -163,6 +163,76 @@ This is the groundwork for per-person build memory and the ownership question
 (`notes/ideas/00-index.md` items 16 and 17): both become queries against this
 collection rather than a separate mechanism. Neither is built.
 
+### 6. The weekly digest
+
+Sunday 17:00 UTC, a **third cron trigger** (`0 17 * * 0`, told apart from the
+2-min watcher and the daily slot by `event.cron` in the same `scheduled()`
+handler) posts one summary of the week from the bot's own account: what
+shipped and who asked, the most-visited and best-rated builds, what broke and
+for how long. Web version at `/digest`, linked from the post.
+
+This is ideas 10 (digest) and 11 (curator) from `notes/ideas/00-index.md`,
+merged at Rob's call rather than built as two bots. Idea 11 wanted a separate
+account so the builder wouldn't grade its own homework; that objection is
+answered by the digest never scoring anything itself. Both rankings come from
+outside — traffic from stats, scores from rateyourbuild's raters — so the bot
+reports numbers it didn't produce.
+
+**Sources**, all of which already existed:
+
+| what | where |
+| --- | --- |
+| what shipped, who asked | this Worker's own event log in KV |
+| what broke, for how long | watchtower `/alerts.json` (`notes/85`) |
+| requests per site | `stats.bisks.net/stats.json`, `total7` (`notes/86`) |
+| scores | `net.bisks.rateyourbuild.rating` records, walked off the network |
+
+Ratings have no server-side aggregate — they're one record per (rater, site)
+in each rater's own PDS, which rateyourbuild aggregates in the browser. The
+digest does the same walk server-side (`listReposByCollection`, resolve each
+DID's PDS, `listRecords`), affordable because the collection is small: 5 rater
+repos and 119 ratings as of 2026-09-17, about 11 subrequests against a 50-cap.
+`MAX_RATER_REPOS` bounds it; past that the digest under-counts rather than
+failing, and the fix would be an aggregate endpoint on rateyourbuild itself.
+Every fetch sends a real `User-Agent` — some self-hosted PDSes sit behind a CDN
+that 403s a default library one (`pds.angussoftware.dev` does).
+
+**Counting.** Shipped events are *runs*, not sites: one site tagged three times
+produces three outcome records, and the digest says one site across three
+builds, crediting everyone who asked. Counts run on `outcome.disposition`, not
+`status` — `status` collapses six states into two. Infrastructure
+(`DIGEST_NOT_A_BUILD`: apex, stats, logs, fleetwatch, watchtower and its
+self-test) is excluded from both the shipped list and the outage list; the
+self-test breaks and recovers on purpose, so counting it would give every week
+a fake outage. `buildthis` itself is deliberately *not* excluded — "make your
+replies funnier" is a request that shipped.
+
+A site needs `MIN_RATINGS` (3) before it can be called "best rated". With one
+rating the average *is* that one score: the first preview run had a single 10
+outranking a 9.2 from five raters.
+
+**Posting.** One post, or a short thread when the rankings don't fit alongside
+what shipped. Bluesky's limit is 300 *graphemes*, so length is measured with
+`Intl.Segmenter`, and each part is built up to the budget rather than truncated
+afterwards — a site name or a URL gets dropped whole, never cut mid-string
+(a cut URL would break its link facet). Link and mention facets both use UTF-8
+byte offsets (`notes/70`).
+
+**Silent if nothing happened.** No shipped sites and no breaks means no post
+and no stored digest — it returns before even logging in.
+
+The digest is written to KV *before* the post goes out, so the URL in the post
+can't 404. Stored under `digest:<week>` for 400 days, well past the 30-day
+`EVENT_TTL`: the event log is a rolling window, but the digest is the durable
+record of a week whose events will expire. A per-week key also makes the cron
+idempotent — a re-fired cron logs "already posted" and does nothing.
+
+`/digest/preview` computes the current week live and returns the exact post
+text, graphemes and facets **without posting or storing anything** (same spirit
+as watchtower's `/run`). A cron whose only output is a public post is otherwise
+untestable until it fires, and "wait until Sunday" is a bad way to find a
+formatting bug. Unauthenticated: it only reads public data and writes nothing.
+
 ### Mobius mode
 
 A running gag on the landing page denies any resemblance to
