@@ -109,3 +109,32 @@ test("a name exactly at the cap is still accepted", () => {
 test("whitespace and line breaks collapse", () => {
   assert.deepEqual(parse("@listbot.bisks.net\n  bots  "), { kind: "add", listName: "bots" });
 });
+
+// The account is created on listbot.bsky.social and switches to
+// listbot.bisks.net later. Both have to strip cleanly: whichever handle a tag
+// uses, the list name is what's left over. Missing one would turn
+// "@listbot.bsky.social bots" into a list literally named
+// "@listbot.bsky.social bots".
+test("either handle strips, across the handle switch", () => {
+  const both = ["listbot.bsky.social", "listbot.bisks.net", "listbot"];
+  for (const handle of both) {
+    assert.deepEqual(
+      parseCommand(`@${handle} bots`, both),
+      { kind: "add", listName: "bots" },
+      `@${handle} should strip`,
+    );
+    assert.deepEqual(
+      parseCommand(`@${handle} remove bots`, both),
+      { kind: "remove", listName: "bots" },
+      `@${handle} remove should strip`,
+    );
+  }
+});
+
+test("a tag naming both handles still yields just the list name", () => {
+  const both = ["listbot.bsky.social", "listbot.bisks.net", "listbot"];
+  assert.deepEqual(parseCommand("@listbot.bsky.social @listbot.bisks.net bots", both), {
+    kind: "add",
+    listName: "bots",
+  });
+});

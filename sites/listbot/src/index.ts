@@ -45,6 +45,14 @@ export interface Env {
   BOT_DID: string;
   BOT_IDENTIFIER: string;
   BOT_HANDLE: string;
+  // Every handle the bot answers to, comma-separated, including BOT_HANDLE.
+  // Exists because the account is created on a .bsky.social handle and switches
+  // to the bisks.net one later: during the switch both are live in people's
+  // muscle memory and in older posts, and a mention facet resolves by DID
+  // regardless. Stripping only the current handle would leave the other one
+  // sitting in the text and turn "@listbot.bsky.social bots" into a list named
+  // "@listbot.bsky.social bots".
+  BOT_HANDLE_ALIASES: string;
   SITE_URL: string;
   CLIENT_KEY_KID: string;
   CLIENT_PUBLIC_JWK: string;
@@ -545,8 +553,21 @@ async function bumpSweepTick(env: Env): Promise<number> {
   }
 }
 
+// Every handle the bot answers to. BOT_HANDLE first (it's the one we advertise),
+// then the aliases, deduped. Also carries the bare "listbot" so a tag that drops
+// the domain still parses.
+function botHandles(env: Env): string[] {
+  const aliases = (env.BOT_HANDLE_ALIASES ?? "")
+    .split(",")
+    .map((h) => h.trim().replace(/^@/, ""))
+    .filter(Boolean);
+  return [...new Set([env.BOT_HANDLE, ...aliases, "listbot"])];
+}
+
 async function searchMentionSweep(session: BotSession, env: Env): Promise<Mention[]> {
   const u = new URL(`${PDS}/xrpc/app.bsky.feed.searchPosts`);
+  // `mentions` is the precise filter (it resolves by DID); `q` is required
+  // alongside it, so it takes the CURRENT handle — the one live posts contain.
   u.searchParams.set("q", env.BOT_HANDLE);
   u.searchParams.set("mentions", env.BOT_DID);
   u.searchParams.set("sort", "latest");
@@ -632,7 +653,7 @@ async function runWatcher(env: Env): Promise<void> {
 async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<void> {
   if (m.authorDid === env.BOT_DID) return;
 
-  const command = parseCommand(m.text, [env.BOT_HANDLE, "listbot"]);
+  const command = parseCommand(m.text, botHandles(env));
   if (command.kind === "none") return;
   if (command.kind === "help") {
     await reply(bot, m, HELP_TEXT);
