@@ -308,11 +308,33 @@ class BodyTextSpoonerizer {
   }
 }
 
-async function handleProxy(raw: string): Promise<Response> {
+// Spoonerizing is deterministic — the same target URL always produces the same
+// page, and nothing in the output depends on who asked (the banner's share link
+// is derived from the target, not the request). So a successful proxy render is
+// cacheable, keyed on the normalized target alone.
+//
+// Worth it because the upstream fetch plus the HTMLRewriter pass is the whole
+// cost of this Worker: p50 was 46ms against ~0.5ms for a normal site here. A
+// hit skips both.
+//
+// Only 200s are cached. Error pages already carry no-store and are built
+// separately, so a 502 from a site being down doesn't get remembered.
+const CACHE_TTL = 3600;
+
+function cacheKeyFor(target: URL): Request {
+  return new Request(proxyUrlFor(target.toString()), { method: "GET" });
+}
+
+async function handleProxy(raw: string, ctx: ExecutionContext): Promise<Response> {
   const target = normalizeUrl(raw);
   if (!target) {
     return errorPage(400, "that doesn't look like a fetchable http(s) URL.");
   }
+
+  const cache = (caches as unknown as { default: Cache }).default;
+  const key = cacheKeyFor(target);
+  const hit = await cache.match(key);
+  if (hit) return hit;
 
   let res: Response;
   try {
@@ -361,11 +383,11 @@ async function handleProxy(raw: string): Promise<Response> {
     .on("body", new BodyTextSpoonerizer());
 
   const transformed = rewriter.transform(res);
-  return new Response(transformed.body, {
+  const out = new Response(transformed.body, {
     status: res.status,
     headers: {
       "content-type": "text/html; charset=utf-8",
-      "cache-control": "no-store",
+      "cache-control": `public, max-age=${CACHE_TTL}`,
       // Every link on a proxied page routes back through /go, so an indexer
       // that follows them crawls the whole web through this Worker. Tell them
       // not to, in the header and the <head> both.
@@ -376,6 +398,11 @@ async function handleProxy(raw: string): Promise<Response> {
       "content-security-policy": "script-src 'none'; object-src 'none';",
     },
   });
+
+  // Only remember successful renders. cache.put streams the body, so hand it a
+  // clone and let it finish after the response goes out.
+  if (res.status === 200) ctx.waitUntil(cache.put(key, out.clone()));
+  return out;
 }
 
 // Crawler gate for /go. Found 2026-09-17 via stats.bisks.net: spoonternet was
@@ -401,7 +428,7 @@ function looksLikeCrawler(request: Request): boolean {
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
     if (url.pathname === "/go") {
@@ -409,7 +436,7 @@ export default {
         return errorPage(403, "spoonternet is for people. crawlers: the links on these pages loop back through this proxy, so please don't follow them.");
       }
       const u = url.searchParams.get("u") || "";
-      return handleProxy(u);
+      return handleProxy(u, ctx);
     }
 
     return env.ASSETS.fetch(request);
