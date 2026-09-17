@@ -307,7 +307,23 @@ CHANGED=""; { [ -n "$DIRTY" ] || [ -n "$AHEAD" ]; } && CHANGED="1"
 # rateyourbuild work touches the site's own source and must still derive its name.
 SIDE_EFFECT_PATHS_RE='^sites/receipts/|^sites/sidenote/public/data/entries\.json$|^sites/alignment-autopsies/public/data/entries\.json$|^sites/rateyourbuild/public/data/catalog\.json$|^sites/rateyourbuild/public/data/bugfixes\.json$'
 CHANGED_PATHS="$( { git status --porcelain | sed -E 's/^...//; s/^"//'; git diff --name-only origin/main..HEAD 2>/dev/null; } )"
-DERIVED_NAME="$(printf '%s\n' "$CHANGED_PATHS" | grep -vE "$SIDE_EFFECT_PATHS_RE" | grep -oE '^sites/[^/]+' | head -n1 | cut -d/ -f2 || true)"
+# Pick the site with the MOST changed files, not simply the first path. A build
+# touches many files under its own sites/<name>/; an incidental edit to another
+# site (a cross-link, a gallery row) touches one or two, and "first path" is only
+# alphabetical luck. Measured over the last 30 build commits, most-files agrees
+# with the agent's own declared name everywhere first-path does and additionally
+# gets two the first-path rule missed (innercircle, derived as cartouche and as
+# buildthis). Ties keep first-appearance order, so the old behavior stands whenever
+# the counts don't separate. This only decides partials — BUILD_RESULT still wins
+# outright whenever the agent got far enough to write one.
+DERIVED_NAME="$(printf '%s\n' "$CHANGED_PATHS" \
+  | grep -vE "$SIDE_EFFECT_PATHS_RE" \
+  | grep -oE '^sites/[^/]+' \
+  | cut -d/ -f2 \
+  | awk '{ if (!($0 in seen)) seen[$0] = ++order; count[$0]++ } END { for (s in count) printf "%d %d %s\n", count[s], seen[s], s }' \
+  | sort -k1,1nr -k2,2n \
+  | head -n1 \
+  | awk '{print $3}' || true)"
 BUILT_NAME="${BUILD_RESULT:-$DERIVED_NAME}"
 
 # CHANGED is NOT "a real build happened" — INSTRUCTIONS.md's standing order runs
