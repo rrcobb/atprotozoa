@@ -165,7 +165,7 @@ collection rather than a separate mechanism. Neither is built.
 
 ### 6. The weekly digest
 
-Sunday 17:00 UTC, a **third cron trigger** (`0 17 * * 0`, told apart from the
+Sunday 17:00 UTC, a **third cron trigger** (`0 17 * * SUN`, told apart from the
 2-min watcher and the daily slot by `event.cron` in the same `scheduled()`
 handler) posts one summary of the week from the bot's own account: what
 shipped and who asked, the most-visited and best-rated builds, what broke and
@@ -226,6 +226,16 @@ can't 404. Stored under `digest:<week>` for 400 days, well past the 30-day
 `EVENT_TTL`: the event log is a rolling window, but the digest is the durable
 record of a week whose events will expire. A per-week key also makes the cron
 idempotent — a re-fired cron logs "already posted" and does nothing.
+
+**Sunday is `SUN`, not `0`.** Cloudflare's cron parser rejects `0` in the
+day-of-week field ("invalid cron string", API code 10100). It fails at the
+schedules API during a real deploy and *not* at `wrangler deploy --dry-run`,
+which never calls that endpoint — so it shipped a green local check and then
+failed every push. The Worker code uploads fine and only the trigger update
+fails, which means the deploy goes red while the site still serves: the digest
+would simply never have fired. `event.cron` must match the configured string
+exactly, so the constant in `src/index.ts` and the entry in `wrangler.toml`
+have to be changed together. (2026-09-17.)
 
 `/digest/preview` computes the current week live and returns the exact post
 text, graphemes and facets **without posting or storing anything** (same spirit

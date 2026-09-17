@@ -4413,7 +4413,15 @@ function renderRequestsError(): string {
 // "nothing happened" is worse than no digest, and the whole point of the
 // watchtower posture ("silent when things work") applies here too.
 
-const DIGEST_CRON = "0 17 * * 0";
+// Must match the string in wrangler.toml EXACTLY — event.cron reports the
+// schedule as configured, so a mismatch means the digest branch never runs and
+// the weekly tick silently falls through to the watcher.
+//
+// Sunday is "SUN", not "0": Cloudflare's cron parser rejects 0 as the
+// day-of-week field outright ("invalid cron string", API code 10100). It fails
+// at the schedules API on a real deploy, NOT at `wrangler deploy --dry-run`,
+// which never calls it — so this shape of typo gets caught only by pushing.
+const DIGEST_CRON = "0 17 * * SUN";
 const DIGEST_PREFIX = "digest:";
 const DIGEST_LATEST_KEY = "digest:latest";
 // Digests outlive the 30-day EVENT_TTL on purpose: the event log is a rolling
