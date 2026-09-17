@@ -332,9 +332,16 @@ CHANGED=""; { [ -n "$DIRTY" ] || [ -n "$AHEAD" ]; } && CHANGED="1"
 # request that actually got declined. Caught 2026-08-06 (isolyth.dev's ask; see
 # sites/alignment-autopsies' entry for the full postmortem) and left unfixed there
 # pending exactly this change.
-# Note the rateyourbuild entries name the two DATA files, not the site dir: real
-# rateyourbuild work touches the site's own source and must still derive its name.
-SIDE_EFFECT_PATHS_RE='^sites/receipts/|^sites/sidenote/public/data/entries\.json$|^sites/alignment-autopsies/public/data/entries\.json$|^sites/rateyourbuild/public/data/catalog\.json$|^sites/rateyourbuild/public/data/bugfixes\.json$'
+# belvedere's survey.json is the same shape, arrived at differently: it is
+# audit/atproto-survey.mjs's output, and that script walks EVERY sites/<name>
+# tree, so its result changes whenever a run adds a site — whatever the run was
+# actually about. Seen dirty in the shared checkout 2026-09-17 (siteCount 521 ->
+# 671). "belvedere" also sorts near the front of the alphabet, so it is well
+# placed to become a partial's DERIVED_NAME the way rateyourbuild did.
+# Note the rateyourbuild and belvedere entries name the DATA files, not the site
+# dirs: real work on those sites touches their own source and must still derive
+# its name.
+SIDE_EFFECT_PATHS_RE='^sites/receipts/|^sites/sidenote/public/data/entries\.json$|^sites/alignment-autopsies/public/data/entries\.json$|^sites/rateyourbuild/public/data/catalog\.json$|^sites/rateyourbuild/public/data/bugfixes\.json$|^sites/belvedere/public/data/survey\.json$'
 CHANGED_PATHS="$( { git status --porcelain | sed -E 's/^...//; s/^"//'; git diff --name-only origin/main..HEAD 2>/dev/null; } )"
 # Pick the site with the MOST changed files, not simply the first path. A build
 # touches many files under its own sites/<name>/; an incidental edit to another
