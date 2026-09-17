@@ -5,11 +5,16 @@
 // repo data. Two CAR downloads (lib/car.js, see wrangler.toml's comment for
 // why one request beats paginating):
 //   1. the blocker's own repo, filtered to app.bsky.graph.block +
-//      app.bsky.feed.post in one shot — finds the block record for the
-//      target (public data, no OAuth needed) AND supplies "years of
-//      tweets" for the blocker's own profile.
-//   2. the target's repo, filtered to app.bsky.feed.post — supplies "what
-//      they were posting at the time of the block."
+//      app.bsky.feed.post/like/repost in one shot — finds the block record
+//      for the target (public data, no OAuth needed), supplies "years of
+//      tweets" for the blocker's own profile, and supplies every like/repost
+//      the blocker ever sent.
+//   2. the target's repo, filtered to the same post/like/repost types —
+//      supplies "what they were posting at the time of the block" plus
+//      their own likes/reposts.
+// interactionsBetween() cross-references each side's likes/reposts/reply
+// targets against the other account's DID for a real "did these two accounts
+// ever interact" history, not an imputed one.
 //
 // Everything past that (category scoring, the "imputed rationale"
 // paragraph, the confidence number) is deterministic string/regex work on
@@ -138,6 +143,50 @@ function pickWindow(posts, blockMs) {
   return { posts, label: "their whole history (no posts landed with a timestamp before the block)", expanded: true };
 }
 
+// --- cross-account interaction history ---------------------------------------
+//
+// `records` is one account's full repo (posts + likes + reposts, mixed);
+// `towardDid` is the other account. Finds every like/repost whose subject
+// points at a record in the other repo, and every reply whose parent does,
+// up to (and including) the block — anything after is moot, since a block
+// stops both sides from being able to interact at all.
+
+function interactionsBetween(records, towardDid, uptoMs) {
+  const prefix = `at://${towardDid}/`;
+  const before = (r) => {
+    const t = Date.parse(r.value.createdAt);
+    return !Number.isFinite(t) || t <= uptoMs;
+  };
+  const likes = records.filter((r) => r.value.$type === "app.bsky.feed.like" && r.value.subject?.uri?.startsWith(prefix) && before(r));
+  const reposts = records.filter((r) => r.value.$type === "app.bsky.feed.repost" && r.value.subject?.uri?.startsWith(prefix) && before(r));
+  const replies = records.filter((r) => r.value.$type === "app.bsky.feed.post" && r.value.reply?.parent?.uri?.startsWith(prefix) && before(r));
+  const all = [...likes, ...reposts, ...replies].sort((a, b) => Date.parse(b.value.createdAt) - Date.parse(a.value.createdAt));
+  return { likes, reposts, replies, total: likes.length + reposts.length + replies.length, latest: all[0] || null };
+}
+
+function interactionLine(dirLabel, stats) {
+  if (!stats.total) return `${dirLabel} — nothing on record.`;
+  const bits = [];
+  if (stats.likes.length) bits.push(`${stats.likes.length} like${stats.likes.length === 1 ? "" : "s"}`);
+  if (stats.reposts.length) bits.push(`${stats.reposts.length} repost${stats.reposts.length === 1 ? "" : "s"}`);
+  if (stats.replies.length) bits.push(`${stats.replies.length} repl${stats.replies.length === 1 ? "y" : "ies"}`);
+  return `${dirLabel} — ${bits.join(", ")}.`;
+}
+
+function interactionAddendum(yourToTarget, targetToYou, yourHandle, targetHandle) {
+  const total = yourToTarget.total + targetToYou.total;
+  if (!total) {
+    return `No likes, replies, or reposts between the two accounts turn up in either archive — no engagement history to weigh against the block.`;
+  }
+  if (yourToTarget.total && !targetToYou.total) {
+    return `Notably, @${yourHandle} engaged with @${targetHandle} ${yourToTarget.total} time${yourToTarget.total === 1 ? "" : "s"} beforehand and never got anything back — the block wasn't for lack of exposure.`;
+  }
+  if (targetToYou.total && !yourToTarget.total) {
+    return `@${targetHandle} engaged with @${yourHandle} ${targetToYou.total} time${targetToYou.total === 1 ? "" : "s"} beforehand and got silence in return, then a block.`;
+  }
+  return `The two accounts weren't strangers: @${yourHandle} engaged ${yourToTarget.total} time${yourToTarget.total === 1 ? "" : "s"}, @${targetHandle} engaged ${targetToYou.total} time${targetToYou.total === 1 ? "" : "s"}, before it ended in a block.`;
+}
+
 // --- stable per-pair pseudo-randomness ---------------------------------------
 
 function hashStr(s) {
@@ -212,7 +261,9 @@ async function run(yourHandleRaw, targetHandleRaw) {
     const yourPds = await resolvePds(yourDid);
     if (!yourPds) throw new Error(`couldn't find @${yourHandle}'s PDS`);
     const { records: yourRecords } = await fetchRepoRecordsWithKeys(
-      yourPds, yourDid, ["app.bsky.graph.block", "app.bsky.feed.post"], (m) => setStatus(m),
+      yourPds, yourDid,
+      ["app.bsky.graph.block", "app.bsky.feed.post", "app.bsky.feed.like", "app.bsky.feed.repost"],
+      (m) => setStatus(m),
     );
 
     const blockRecord = yourRecords.find((r) => r.value.$type === "app.bsky.graph.block" && r.value.subject === targetDid);
@@ -230,14 +281,20 @@ async function run(yourHandleRaw, targetHandleRaw) {
     const targetPds = await resolvePds(targetDid);
     if (!targetPds) throw new Error(`couldn't find @${targetHandle}'s PDS`);
     const { records: targetRecords } = await fetchRepoRecordsWithKeys(
-      targetPds, targetDid, "app.bsky.feed.post", (m) => setStatus(m),
+      targetPds, targetDid,
+      ["app.bsky.feed.post", "app.bsky.feed.like", "app.bsky.feed.repost"],
+      (m) => setStatus(m),
     );
 
     setStatus("");
 
-    const windowPick = pickWindow(targetRecords, blockMs);
+    const targetPosts = targetRecords.filter((r) => r.value.$type === "app.bsky.feed.post");
+    const windowPick = pickWindow(targetPosts, blockMs);
     const targetScored = classify(windowPick.posts);
     const yourScored = classify(yourPosts);
+
+    const yourToTarget = interactionsBetween(yourRecords, targetDid, blockMs);
+    const targetToYou = interactionsBetween(targetRecords, yourDid, blockMs);
 
     const targetTop = targetScored[0];
     const targetSecond = targetScored[1];
@@ -261,10 +318,12 @@ async function run(yourHandleRaw, targetHandleRaw) {
     const writeup = targetTop ? TEMPLATES[seed % TEMPLATES.length](ctx) : noSignalWriteup(ctx);
     const confidence = targetTop ? confidenceFor(targetTop.ratio, ctx.targetTotal) : confidenceFor(0, 1);
     const quote = targetTop?.examples?.[0];
+    const interactionWriteup = interactionAddendum(yourToTarget, targetToYou, ctx.yourHandle, ctx.targetHandle);
 
     lastResult = {
       yourHandle, targetHandle, yourProfile, targetProfile,
       blockRecord, blockMs, windowPick, targetScored, yourScored, writeup, confidence, quote,
+      yourToTarget, targetToYou, interactionWriteup,
       yourPostsTotal: yourPosts.length,
     };
     render(lastResult);
@@ -329,6 +388,18 @@ function render(r) {
 
   renderChecklist(r.targetScored, r.windowPick.posts.length, "targetChecklist");
   renderChecklist(r.yourScored, r.yourPostsTotal, "yourChecklist");
+
+  document.getElementById("interactionWriteup").textContent = r.interactionWriteup;
+  const interactionLog = document.getElementById("interactionLog");
+  interactionLog.innerHTML = "";
+  [
+    interactionLine(`@${r.yourHandle} → @${r.targetHandle}`, r.yourToTarget),
+    interactionLine(`@${r.targetHandle} → @${r.yourHandle}`, r.targetToYou),
+  ].forEach((text) => {
+    const div = document.createElement("div");
+    div.textContent = text;
+    interactionLog.appendChild(div);
+  });
 
   els.card.classList.add("show");
 
@@ -425,10 +496,17 @@ async function buildShareCard(r) {
   ctx.font = `800 22px ${mono}`;
   ctx.fillText("CONFIDENCE: " + r.confidence + "%", 64, 258);
 
+  ctx.fillStyle = "#6b6250";
+  ctx.font = `400 14px ${mono}`;
+  ctx.fillText(
+    `ENGAGEMENT: you→them ${r.yourToTarget.total}x · them→you ${r.targetToYou.total}x`,
+    64, 282,
+  );
+
   ctx.fillStyle = "#1a1a1a";
   ctx.font = `400 20px ${mono}`;
   const plain = r.writeup.replace(/<\/?b>/g, "");
-  wrapCanvasText(ctx, plain, 64, 300, W - 128, 30, 8);
+  wrapCanvasText(ctx, plain, 64, 320, W - 128, 30, 7);
 
   ctx.strokeStyle = "#b5ac8f";
   ctx.lineWidth = 1;
