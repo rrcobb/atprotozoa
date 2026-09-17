@@ -55,8 +55,30 @@ Each tick:
    check runs regardless of which account the mention lands on. A non-mutual gets
    a friendly reply tagging `@bisks.net` so Rob can pick it up by hand; nothing
    is dispatched.
+
+   The lookup is **retried** (3 attempts, backing off) before the gate closes. A
+   single non-2xx used to read as "not a mutual", which dropped real mutuals on
+   days the AppView was flaky. A 4xx that isn't 429 is a real answer about the
+   request, so it stops early instead of burning retries. The three outcomes are
+   distinct in the log: `mutual: false` is a clean "not a mutual",
+   `gateLookupFailed` means no answer ever came.
+
+   **A thread the bot has already built in is authorized.** A non-mutual replying
+   there gets through, because the ask was authorized when the build started and
+   a follow-up, bug report, or answer to the bot's own question shouldn't
+   re-gate. Two signals, either suffices: a `built-root:<uri>` KV marker written
+   at dispatch, and a bot post in the mention's ancestor chain (which covers
+   threads predating the marker, and is the signal the user sees — they are
+   replying under the bot's reply). The authorization belongs to the **thread**,
+   not the person: it does not let them start a build anywhere else. Logged as
+   `authorizedByThread`.
+
+   The gate reply is sent once per author **per thread** (was once per author per
+   30 days, which meant a second tag from a new thread got silence). Its text is
+   written to the event as `gateReply`; before, every non-mutual event showed an
+   empty reply even though one had gone out.
 3. **Build the brief.** The tagging post's text is the instruction. If the tag
-   was a reply, `getPostThread` walks up to **10 ancestors** and prepends them,
+   was a reply, `getPostThread` walks up to **80 ancestors** (`PARENT_HEIGHT`) and prepends them,
    plus the thread root when it sits above that window, so "build this ☝️"
    resolves to what it points at. Posts render as text plus a bracketed line per
    embed — quoted post, link card, image/video alt text. Images are downloaded
@@ -65,7 +87,12 @@ Each tick:
    boundary with a visible marker. Thread fetch and image download are
    best-effort; on failure the build proceeds on what it has.
 4. **Like the tagging post** as a "working on it" ack, guarded by a per-post KV
-   marker so a retry can't stack duplicate likes.
+   marker so a retry can't stack duplicate likes. When the job will actually
+   *wait* — something queued ahead of it, or mobius mode pacing the queue — the
+   bot also posts a short visible "queued" reply, so a user can tell "not seen"
+   from "working on it". Not on every tag: a build that starts immediately
+   answers itself within minutes, and an ack on each round would put filler in
+   the fast iteration threads. Logged as `ackReply`.
 5. **Enqueue the job** for the box (`USE_BOX_QUEUE = "1"`). The
    `repository_dispatch` path to the GitHub Action is still wired as a fallback;
    see `notes/90`.
@@ -157,7 +184,8 @@ what. That open question is in `notes/ideas/`.
 ## Settled decisions
 
 - Reply automatically when tagged; no human-in-the-loop, autodeploy.
-- Allowlist is **Rob's mutuals**, not the bot's.
+- Allowlist is **Rob's mutuals**, not the bot's — plus anyone replying in a
+  thread the bot has already built in, which carries its own authorization.
 - Non-mutuals get a reply tagging Rob, no build.
 - Scope is the agent's choice — new site or edit, per the idea.
 - Builds are **serialized**; two agents never push to main at once.
