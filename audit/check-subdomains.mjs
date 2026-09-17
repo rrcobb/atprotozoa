@@ -6,6 +6,13 @@
 // index.html for every asset request as well, so the page renders and nothing
 // works. Fetching a real asset and checking the content-type catches that;
 // fetching only "/" does not.
+//
+// This runs from wherever you are, so it inherits your DNS. On Rob's home
+// network, Xfinity's xDNS "Advanced Security" intercepts individual hostnames
+// it dislikes by reputation, which surfaces here as a TLS error ("no peer
+// certificate available", plaintext on 443) that looks just like a missing
+// Cloudflare certificate. Before believing a single-host failure, check the
+// off-zone watchtower: atprotozoa-watchtower.rwcobbjr.workers.dev/report.json
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 
 const root = new URL("../", import.meta.url);

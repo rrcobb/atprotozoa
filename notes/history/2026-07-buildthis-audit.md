@@ -3,9 +3,20 @@
 **Superseded.** Everything on this snapshot's action list has landed. The five
 sites stuck behind the custom-domain cap all serve their own subdomains again,
 `edzitronquest` uses the standard route array, and `catsofatproto` is a static
-stub. A sweep on 2026-09-17 checked all 516 sites and found zero problems, so
-the counts below (114 sites, 5 down) describe July, not now. Kept for the
-mention-funnel numbers and the reasoning about what a "failure" outcome means.
+stub. A sweep on 2026-09-17 found every site healthy, so the counts here (114
+sites, 5 down) describe July, not now. Kept for the mention-funnel numbers and
+the reasoning about what a "failure" outcome means.
+
+**Checking from Rob's home network gives false failures.** That sweep first
+reported `blockcurve.bisks.net` as down — plaintext on 443 and "no peer
+certificate available," which reads exactly like a missing Cloudflare
+certificate. It wasn't. Xfinity's xDNS "Advanced Security" had flagged the
+hostname by reputation and was intercepting it: port 80 redirects to
+`safebrowse.io/warn.html` rather than to HTTPS, and the same interceptor
+answers 443 in plaintext. The off-zone watchtower
+(`atprotozoa-watchtower.rwcobbjr.workers.dev/report.json`) saw all 662 sites
+healthy at the same moment. Confirm anything that looks like a single-host TLS
+failure against the watchtower before treating it as real.
 Re-run the sweep with `node audit/check-subdomains.mjs`.
 
 Snapshot taken 2026-07-26 ~21:30 UTC. All raw data is in `audit/raw/`, joined into
