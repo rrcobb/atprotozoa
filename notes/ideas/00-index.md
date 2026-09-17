@@ -147,8 +147,8 @@ nobody. It now keeps per-site state, confirms a break on two consecutive
 probes before believing it, checks newly shipped sites first, keeps an alert
 log at `/alerts.json`, and posts a confirmed break as a reply in the thread
 the site was built from, with a daily cap and a mass-outage collapse. Posting
-stays off until an app password is set on the Worker; which account it should
-be is still Rob's call. See `notes/85-watchtower.md`.
+stays off until buildthis's app password is set on the Worker (Rob's call,
+2026-09-17: post from buildthis, tag @bisks.net). See `notes/85-watchtower.md`.
 
 **7. Protocol-object bot.** (`protocol-object-bot.md`)
 Tag it, get a feed / lexicon / list instead of a page. The four outputs share one

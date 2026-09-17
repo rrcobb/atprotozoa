@@ -78,8 +78,8 @@ posted; an unposted alert records why.
 
 Off until `BOT_APP_PASSWORD` is set as a Worker secret (`wrangler secret put
 BOT_APP_PASSWORD` from `watchtower/`). `BOT_IDENTIFIER` in `wrangler.toml`
-names the account; it currently points at buildthis's DID, and swapping in a
-dedicated account is a one-line change plus the secret.
+names the account: buildthis (decided 2026-09-17). Every break post @-mentions
+@bisks.net so Rob sees it; recoveries do not.
 
 When on:
 

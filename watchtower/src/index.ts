@@ -47,6 +47,9 @@ export interface Env {
   BOT_APP_PASSWORD?: string;
   MAX_POSTS_PER_DAY?: string;
   GITHUB_REPO?: string;
+  // Rob: @-mentioned on every break so a real person sees it.
+  ROB_HANDLE?: string;
+  ROB_DID?: string;
 }
 
 interface SiteResult {
@@ -456,33 +459,45 @@ async function login(env: Env): Promise<Session> {
   return { accessJwt: j.accessJwt, did: j.did };
 }
 
-// Link facets need UTF-8 BYTE offsets, not JS char indices.
-function linkFacets(text: string): unknown[] {
+// Link and mention facets need UTF-8 BYTE offsets, not JS char indices.
+function facets(text: string, mentions: Record<string, string>): unknown[] {
   const enc = new TextEncoder();
-  const facets: unknown[] = [];
-  const re = /https?:\/\/[^\s)]+/g;
+  const out: unknown[] = [];
+  const linkRe = /https?:\/\/[^\s)]+/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
+  while ((m = linkRe.exec(text)) !== null) {
     const byteStart = enc.encode(text.slice(0, m.index)).length;
     const byteEnd = byteStart + enc.encode(m[0]).length;
-    facets.push({
+    out.push({
       index: { byteStart, byteEnd },
       features: [{ $type: "app.bsky.richtext.facet#link", uri: m[0] }],
     });
   }
-  return facets;
+  const mentionRe = /@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
+  while ((m = mentionRe.exec(text)) !== null) {
+    const did = mentions[m[1]];
+    if (!did) continue;
+    const byteStart = enc.encode(text.slice(0, m.index)).length;
+    const byteEnd = byteStart + enc.encode(m[0]).length;
+    out.push({
+      index: { byteStart, byteEnd },
+      features: [{ $type: "app.bsky.richtext.facet#mention", did }],
+    });
+  }
+  return out;
 }
 
 async function createPost(
   session: Session,
   text: string,
+  mentions: Record<string, string>,
   reply?: { root: StrongRef; parent: StrongRef },
 ): Promise<StrongRef> {
   const record: Record<string, unknown> = {
     $type: "app.bsky.feed.post",
     text,
     createdAt: new Date().toISOString(),
-    facets: linkFacets(text),
+    facets: facets(text, mentions),
   };
   if (reply) record.reply = reply;
   const res = await fetch(`${PDS}/xrpc/com.atproto.repo.createRecord`, {
@@ -532,18 +547,20 @@ function humanDuration(ms: number): string {
   return `${Math.round(h / 24)} d`;
 }
 
-function alertText(o: Outbox): string {
+function alertText(o: Outbox, env: Env): string {
   const host = o.url.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  // Breaks tag Rob so a person sees them; recoveries don't need to.
+  const cc = env.ROB_HANDLE ? ` cc @${env.ROB_HANDLE}` : "";
   if (o.kind === "mass-outage") {
-    return `🔭 ${o.count} sites on bisks.net broke at once — probably the zone, not the sites. ${o.url}`;
+    return `🔭 ${o.count} sites on bisks.net broke at once — probably the zone, not the sites. ${o.url}${cc}`;
   }
   if (o.kind === "recovered") {
     const down = o.brokenSince ? humanDuration(Date.now() - Date.parse(o.brokenSince)) : null;
     return `🔭 ${host} is back${down ? ` (was down ${down})` : ""}.`;
   }
   // Keep the post under 300 graphemes: one line per problem, trimmed.
-  const why = o.problems.slice(0, 2).join("; ");
-  return `🔭 ${host} looks broken: ${why}. Seen twice in a row from outside the zone. ${o.url}`;
+  const why = o.problems.slice(0, 2).join("; ").slice(0, 160);
+  return `🔭 ${host} looks broken: ${why}. Seen twice in a row from outside the zone. ${o.url}${cc}`;
 }
 
 // Drain up to MAX_POSTS_PER_TICK queued alerts. Every alert lands in the log
@@ -601,7 +618,9 @@ async function drainOutbox(env: Env): Promise<void> {
         }
         console.log(`posting ${o.kind} for ${o.name}${reply ? ` as a reply to ${reply.parent.uri}` : " top-level"}`);
         session ??= await login(env);
-        const ref = await createPost(session, alertText(o), reply);
+        const mentions: Record<string, string> =
+          env.ROB_HANDLE && env.ROB_DID ? { [env.ROB_HANDLE]: env.ROB_DID } : {};
+        const ref = await createPost(session, alertText(o, env), mentions, reply);
         alert.posted = true;
         alert.postUri = ref.uri;
         postedToday++;
