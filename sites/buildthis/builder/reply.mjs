@@ -24,6 +24,12 @@
 //                     bot stops saying "give the deploy a minute" when it knows
 //                     better. Empty for non-shipping dispositions.
 //   MENTION_URI    -> the tagging post's uri; keys the event-log outcome POST
+//                     AND the request record's rkey (see request-record.mjs)
+//   BRIEF, AUTHOR  -> the request text and the requester's handle, for the
+//                     net.bisks.buildthis.request record. Absent = no record.
+//   BUILD_COMMIT   -> sha the build's work landed as; recorded on the request
+//   BUILD_IS_EDIT  -> "true" if the build edited an existing site, "false" if it
+//                     created a new one; recorded on the request
 //   OUTCOME_URL    -> buildthis worker's /outcome endpoint (optional)
 //   OUTCOME_SECRET -> shared secret for the /outcome POST (optional)
 //
@@ -37,6 +43,7 @@
 // build+reply into a red workflow.
 
 import { readFileSync } from "node:fs";
+import { writeRequestRecord } from "./request-record.mjs";
 
 // Graphemes of the agent's note we refuse to trade away for template boilerplate.
 // About one sentence — enough to say what got built.
@@ -205,6 +212,26 @@ async function main() {
     const session = await login();
     await createReply(session, text, url);
     console.log(`replied: ${JSON.stringify(text)}`);
+
+    // Write the request record (net.bisks.buildthis.request) into the bot's own
+    // repo — who asked, what they asked for, and what this run did about it. See
+    // builder/request-record.mjs and notes/ideas/00-index.md item 15b.
+    //
+    // Here rather than on its own step because this is the one place that holds
+    // both the bot's session and the finished disposition. Deliberately NOT on a
+    // silent requeue: that isn't an outcome yet, and the retry writes the record
+    // (keyed on the same post) when it lands.
+    //
+    // Best-effort, exactly like the outcome POST below: a failed bookkeeping
+    // write must never turn a shipped build and a posted reply into a red run.
+    try {
+      const recUri = await writeRequestRecord(session, { ...process.env, BUILD_RESULT: result }, {
+        siteUrl: url || undefined,
+      });
+      console.log(recUri ? `request record: ${recUri}` : "request record skipped (no mention uri / requester)");
+    } catch (err) {
+      console.error(`request record failed: ${err}`);
+    }
   }
 
   // Report the outcome to the event log so logs.bisks.net can show it. Keyed by

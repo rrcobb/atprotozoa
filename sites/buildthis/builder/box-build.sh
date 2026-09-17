@@ -104,6 +104,12 @@ fi
 git clean -fd
 rm -f BUILD_RESULT BUILD_NOTE
 
+# The commit the build STARTS from, captured before the agent touches anything.
+# Two uses below, both for the net.bisks.buildthis.request record: it tells a new
+# site apart from an edit (did sites/<name>/ exist at this commit?), and it bounds
+# the range whose head is the sha the build's work landed as.
+PRE_BUILD_SHA="$(git rev-parse HEAD)"
+
 # Download the thread's images so the builder can actually look at them. Sonnet is
 # vision-capable, so this is a plumbing problem, not a model one: fetch to a temp
 # dir and name the paths in the brief. Best-effort throughout — a failed download
@@ -459,6 +465,30 @@ else
   echo "  nothing changed — no commit (a note-only reaction or a build that made nothing)"
 fi
 
+# Facts for the request record (see builder/request-record.mjs). Both are
+# recorded on the net.bisks.buildthis.request record so "what changed" is a sha
+# anyone can look up, and "new site or edit" is answerable without guessing from
+# the brief's wording.
+#
+# BUILD_COMMIT is HEAD only when this run actually committed something — HEAD is
+# otherwise just the commit we synced to, i.e. somebody else's work, and pinning
+# that to this request would be a lie.
+BUILD_COMMIT=""
+if [ "$(git rev-parse HEAD)" != "$PRE_BUILD_SHA" ]; then
+  BUILD_COMMIT="$(git rev-parse HEAD)"
+fi
+# Existed at the commit the build started from => this run edited it. Checked
+# against PRE_BUILD_SHA rather than the working tree, which by now contains the
+# new site either way.
+BUILD_IS_EDIT=""
+if [ -n "$BUILT_NAME" ]; then
+  if git cat-file -e "$PRE_BUILD_SHA:sites/${BUILT_NAME%%/*}" 2>/dev/null; then
+    BUILD_IS_EDIT="true"
+  else
+    BUILD_IS_EDIT="false"
+  fi
+fi
+
 # Classify the outcome into a DISPOSITION the reply + queue act on. The key axis is
 # REAL_CHANGED (did the agent's OWN requested work land on main), not raw PUSHED —
 # PUSHED goes true on the mandatory receipts-archive resync alone, which must never
@@ -623,6 +653,8 @@ BUILD_OK="$BUILD_OK" BUILD_RESULT="$BUILT_NAME" BUILD_NOTE="$BUILD_NOTE" BUILD_E
   REPLY_ROOT_URI="${REPLY_ROOT_URI}" REPLY_ROOT_CID="${REPLY_ROOT_CID}" \
   REPLY_PARENT_URI="${REPLY_PARENT_URI}" REPLY_PARENT_CID="${REPLY_PARENT_CID}" \
   MENTION_URI="${MENTION_URI:-}" \
+  BRIEF="$BRIEF" AUTHOR="${AUTHOR:-}" \
+  BUILD_COMMIT="$BUILD_COMMIT" BUILD_IS_EDIT="$BUILD_IS_EDIT" \
   OUTCOME_URL="${OUTCOME_URL:-https://buildthis.bisks.net/outcome}" \
   OUTCOME_SECRET="${OUTCOME_SECRET:-}" \
   node sites/buildthis/builder/reply.mjs
