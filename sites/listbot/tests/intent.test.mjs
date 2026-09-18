@@ -190,3 +190,225 @@ test("an add with no list name can't be acted on", () => {
   const intent = { action: "add", list: "   " };
   assert.equal((intent.list ?? "").trim(), "");
 });
+
+// --- one reply for however many steps ----------------------------------------
+//
+// A tag can ask for two things ("add them to ceramics and make me a mute list")
+// and gets ONE reply. These mirror composeReply in src/index.ts. What they're
+// really guarding: the reply describes what HAPPENED, so a partial result reads
+// as partial rather than as success.
+
+function composeReply(outcomes, taggerDid) {
+  const parts = [];
+  const problems = [];
+
+  for (const o of outcomes) {
+    if (o.problem === "unresolved") {
+      const names = o.unresolved.map((n) => `"${n.replace(/^@/, "")}"`).join(" or ");
+      problems.push(`i couldn't work out who ${names} is`);
+      continue;
+    }
+    if (o.problem) {
+      problems.push(o.problem);
+      continue;
+    }
+
+    if (o.action === "create") {
+      parts.push(
+        o.alreadyThere
+          ? `you've already got "${o.listName}"`
+          : `made you a list called "${o.listName}"`,
+      );
+      continue;
+    }
+
+    const who = (o.done ?? []).map((d) => `@${d.handle}`).join(", ");
+    if ((o.done ?? []).length) {
+      if (o.action === "add") {
+        parts.push(
+          o.alreadyThere && o.done.length === 1
+            ? `@${o.done[0].handle} was already on "${o.listName}"`
+            : `added ${who} to "${o.listName}"`,
+        );
+      } else {
+        parts.push(
+          o.notThere && o.done.length === 1
+            ? `@${o.done[0].handle} wasn't on "${o.listName}"`
+            : `took ${who} off "${o.listName}"`,
+        );
+      }
+    }
+    if ((o.failedPeople ?? []).length) {
+      problems.push(`couldn't do ${o.failedPeople.map((f) => `@${f.handle}`).join(", ")}`);
+    }
+    if ((o.unresolved ?? []).length) {
+      problems.push(
+        `couldn't find ${o.unresolved.map((n) => `"${n.replace(/^@/, "")}"`).join(", ")}`,
+      );
+    }
+  }
+
+  let text = parts.length
+    ? parts.join(" and ") + "."
+    : "that didn't work, sorry — nothing changed on your lists.";
+  if (problems.length) text += ` ${problems.join(", ")}.`;
+
+  const linkable = [...outcomes].reverse().find((o) => o.listUri);
+  if (linkable?.listUri) text += `\n${linkable.listUri}`;
+  return text;
+}
+
+const added = (handle, listName, extra = {}) => ({
+  action: "add",
+  listName,
+  done: [{ handle }],
+  failedPeople: [],
+  unresolved: [],
+  ...extra,
+});
+
+test("one step reads like one sentence", () => {
+  const t = composeReply([added("alice", "ceramics")], "did:plc:me");
+  assert.equal(t, 'added @alice to "ceramics".');
+});
+
+test("two steps are one reply, not two", () => {
+  const t = composeReply(
+    [
+      added("alice", "ceramics"),
+      { action: "create", listName: "crypto spammers", done: [], failedPeople: [], unresolved: [] },
+    ],
+    "did:plc:me",
+  );
+  assert.equal(
+    t,
+    'added @alice to "ceramics" and made you a list called "crypto spammers".',
+  );
+});
+
+// The one that matters. A step that failed must not be papered over by one
+// that worked — someone reading "added @alice" has no reason to check.
+test("a partial result says which part failed", () => {
+  const t = composeReply(
+    [
+      added("alice", "ceramics"),
+      { action: "add", listName: "bots", done: [], failedPeople: [], unresolved: ["fleetingbits"], problem: "unresolved" },
+    ],
+    "did:plc:me",
+  );
+  assert.match(t, /added @alice to "ceramics"/);
+  assert.match(t, /couldn't work out who "fleetingbits" is/);
+});
+
+test("some people added, some not, in one step", () => {
+  const t = composeReply(
+    [
+      {
+        action: "add",
+        listName: "ceramics",
+        done: [{ handle: "alice" }],
+        failedPeople: [{ handle: "bob" }],
+        unresolved: [],
+      },
+    ],
+    "did:plc:me",
+  );
+  assert.match(t, /added @alice to "ceramics"/);
+  assert.match(t, /couldn't do @bob/);
+});
+
+test("everything failing doesn't read as success", () => {
+  const t = composeReply(
+    [{ action: "add", listName: "ceramics", done: [], failedPeople: [{ handle: "alice" }], unresolved: [] }],
+    "did:plc:me",
+  );
+  assert.match(t, /didn't work/);
+  assert.ok(!/^added/.test(t), "must not open with added");
+});
+
+test("already-there is reported as true, not as a fresh add", () => {
+  const t = composeReply([added("alice", "ceramics", { alreadyThere: true })], "did:plc:me");
+  assert.match(t, /already on "ceramics"/);
+});
+
+test("one link at most, for the last list touched", () => {
+  const t = composeReply(
+    [
+      added("alice", "ceramics", { listUri: "uri-one" }),
+      { action: "create", listName: "bots", done: [], failedPeople: [], unresolved: [], listUri: "uri-two" },
+    ],
+    "did:plc:me",
+  );
+  assert.equal(t.match(/uri-/g).length, 1);
+  assert.match(t, /uri-two/);
+});
+
+// --- a flat intent is still a flat intent ------------------------------------
+//
+// Every tag that isn't multi-action goes through the steps path as a list of
+// one, so this is the regression guard on the common case: the derived step
+// must carry exactly what the flat fields said.
+
+function stepsFrom(intent) {
+  return intent.steps?.length
+    ? intent.steps
+    : [
+        {
+          action: intent.action,
+          subjectIndex: intent.subjectIndex,
+          subjectHandle: intent.subjectHandle,
+          subjectHandles: intent.subjectHandles,
+          list: intent.list,
+          listExists: intent.listExists,
+          purpose: intent.purpose,
+        },
+      ];
+}
+
+test("a flat intent becomes exactly one step with the same values", () => {
+  const steps = stepsFrom({
+    action: "add",
+    subjectHandle: "fleetingbits.bsky.social",
+    list: "ai new knowers",
+    listExists: true,
+    purpose: "curatelist",
+    reply: "added @fleetingbits to ai new knowers.",
+  });
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].action, "add");
+  assert.equal(steps[0].subjectHandle, "fleetingbits.bsky.social");
+  assert.equal(steps[0].list, "ai new knowers");
+  assert.equal(steps[0].listExists, true);
+});
+
+test("subjectIndex survives the flat-to-step conversion", () => {
+  const steps = stepsFrom({ action: "add", subjectIndex: 1, list: "bots" });
+  assert.equal(steps[0].subjectIndex, 1);
+});
+
+test("subjectHandles survives, so 'add both of them' still adds both", () => {
+  const steps = stepsFrom({ action: "add", subjectHandles: ["a.bsky.social", "b.bsky.social"], list: "bots" });
+  assert.deepEqual(steps[0].subjectHandles, ["a.bsky.social", "b.bsky.social"]);
+});
+
+test("an explicit steps array wins over the flat fields", () => {
+  const steps = stepsFrom({
+    action: "add",
+    list: "ceramics",
+    steps: [
+      { action: "add", subjectHandle: "a.bsky.social", list: "ceramics" },
+      { action: "create", list: "crypto spammers", purpose: "modlist" },
+    ],
+  });
+  assert.equal(steps.length, 2);
+  assert.equal(steps[1].action, "create");
+  assert.equal(steps[1].purpose, "modlist");
+});
+
+// An empty steps array is the agent saying nothing rather than saying "do
+// nothing" — fall back to the flat fields rather than doing zero work.
+test("an empty steps array falls back to the flat intent", () => {
+  const steps = stepsFrom({ action: "add", list: "bots", steps: [] });
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].list, "bots");
+});

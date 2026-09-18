@@ -66,7 +66,9 @@ import {
   checkRateLimit,
   type JobPayload,
   type JobSubject,
+  type QueueJob,
   type AgentIntent,
+  type IntentStep,
 } from "./queue.js";
 
 export interface Env {
@@ -1721,11 +1723,22 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
     return json({ ok: true, did: "answered" });
   }
 
-  const listName = (intent.list ?? "").trim();
-  if (!listName) {
-    await reply(bot, mention, `i couldn't work out which list you meant, sorry.`);
-    return json({ ok: true, did: "no list name" });
-  }
+  // One or more things to do. Most tags are one, and those arrive as the flat
+  // fields with no `steps` — so the single step below IS the flat intent, and
+  // the common path through this function is unchanged.
+  const steps: IntentStep[] = intent.steps?.length
+    ? intent.steps
+    : [
+        {
+          action: intent.action as "add" | "remove" | "create",
+          subjectIndex: intent.subjectIndex,
+          subjectHandle: intent.subjectHandle,
+          subjectHandles: intent.subjectHandles,
+          list: intent.list,
+          listExists: intent.listExists,
+          purpose: intent.purpose,
+        },
+      ];
 
   const found = await actingSession(env, job.tagger.did);
   if (!found) {
@@ -1733,7 +1746,85 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
     return json({ ok: true, did: "not signed in" });
   }
 
-  const purpose = intent.purpose === "modlist" ? "modlist" : "curatelist";
+  const ctx: StepContext = { env, bot, job, acting: found };
+
+  // Sequential, not parallel: every step writes to the same repo, a later step
+  // may need the list an earlier one made, and each write returns a DPoP nonce
+  // the next one has to carry.
+  const outcomes: StepOutcome[] = [];
+  for (const step of steps) {
+    outcomes.push(await runStep(step, ctx));
+  }
+
+  // One tag, one reply. The agent's own wording wins when there was a single
+  // step and it did exactly what the agent thought — that wording is most of
+  // why the bot reads well. Anything else gets composed from what happened,
+  // because an agent's one-liner can't be honest about a partial result.
+  const single = outcomes.length === 1 ? outcomes[0] : null;
+  const agentReply =
+    single && single.usedAgentWording ? safeReply(intent.reply) : null;
+
+  const text = agentReply
+    ? agentReply + (single?.listUri ? `\n${listWebUrl(job.tagger.did, single.listUri)}` : "")
+    : composeReply(outcomes, job.tagger.did);
+
+  await reply(bot, mention, text);
+  return json({
+    ok: true,
+    did: outcomes.map((o) => o.action).join("+"),
+    steps: outcomes.length,
+  });
+}
+
+// What one step needs, and what it did.
+
+interface StepContext {
+  env: Env;
+  bot: BotSession;
+  job: QueueJob;
+  acting: { acting: ActingSession; session: StoredSession };
+}
+
+interface StepOutcome {
+  action: "add" | "remove" | "create" | "noop";
+  listName: string;
+  listUri?: string;
+  // Who it actually wrote, and who it couldn't.
+  done: { handle: string }[];
+  failedPeople: { handle: string }[];
+  unresolved: string[];
+  // Set when nothing was attempted — no list name, a name that didn't resolve.
+  problem?: string;
+  // "already on that list" / "wasn't on it" — true but not a failure.
+  alreadyThere?: boolean;
+  notThere?: boolean;
+  created?: boolean;
+  // Whether the agent's own reply text would be accurate for this outcome.
+  usedAgentWording: boolean;
+}
+
+// Run one step: resolve who, then write.
+//
+// Returns what happened rather than replying, so the caller can say one honest
+// thing about however many steps there were.
+async function runStep(step: IntentStep, ctx: StepContext): Promise<StepOutcome> {
+  const { env, bot, job, acting: found } = ctx;
+
+  const base: StepOutcome = {
+    action: "noop",
+    listName: (step.list ?? "").trim(),
+    done: [],
+    failedPeople: [],
+    unresolved: [],
+    usedAgentWording: false,
+  };
+
+  const listName = base.listName;
+  if (!listName) {
+    return { ...base, problem: "i couldn't work out which list you meant" };
+  }
+
+  const purpose = step.purpose === "modlist" ? "modlist" : "curatelist";
 
   // Who this acts on.
   //
@@ -1743,12 +1834,8 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
   // "add everyone in this thread".
   //
   // A NAME the agent gives is resolved here, against the same pools it was
-  // given plus resolveHandle. It resolves or the tag fails and says so — a name
-  // the agent invented has nowhere to land. That's the guarantee, and it's
-  // weaker than the index-only design this replaces. Deliberately: that one
-  // made "add fleetingbits" impossible, which is the main thing people want,
-  // and the thing it was protecting is a row in the tagger's own list that the
-  // reply names and one tap undoes.
+  // given plus resolveHandle. It resolves or the step fails and says so — a
+  // name the agent invented has nowhere to land.
   const candidates = job.candidates ?? (job.subject ? [job.subject] : []);
   const pools = [
     candidates.map((c) => ({ did: c.did, handle: c.handle, displayName: c.displayName })),
@@ -1758,10 +1845,10 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
       .map((t) => ({ did: t.did, handle: t.handle })),
   ];
 
-  const named = intent.subjectHandles?.length
-    ? intent.subjectHandles
-    : intent.subjectHandle
-      ? [intent.subjectHandle]
+  const named = step.subjectHandles?.length
+    ? step.subjectHandles
+    : step.subjectHandle
+      ? [step.subjectHandle]
       : [];
 
   let people: { did: string; handle: string }[] = [];
@@ -1769,118 +1856,167 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
 
   if (named.length) {
     for (const n of named) {
-      const found2 = await resolvePerson(bot, n, pools);
-      if (found2) people.push(found2);
+      const person = await resolvePerson(bot, n, pools);
+      if (person) people.push(person);
       else unresolved.push(n);
     }
   } else if (
-    typeof intent.subjectIndex === "number" &&
-    Number.isInteger(intent.subjectIndex) &&
-    intent.subjectIndex >= 0 &&
-    intent.subjectIndex < candidates.length
+    typeof step.subjectIndex === "number" &&
+    Number.isInteger(step.subjectIndex) &&
+    step.subjectIndex >= 0 &&
+    step.subjectIndex < candidates.length
   ) {
-    const c = candidates[intent.subjectIndex];
+    const c = candidates[step.subjectIndex];
     people = [{ did: c.did, handle: c.handle }];
-  } else if (candidates[0]) {
+  } else if (step.action !== "create" && candidates[0]) {
     people = [{ did: candidates[0].did, handle: candidates[0].handle }];
   }
 
-  // Nothing the agent named resolved. Say so with the name it used — "i
-  // couldn't find X" is actionable in a way that silence or a generic failure
-  // is not.
+  // Nothing the agent named resolved. Report the name it used — "i couldn't
+  // find X" is actionable in a way that silence is not.
   if (!people.length && unresolved.length) {
-    const names = unresolved.map((n) => `"${n.replace(/^@/, "")}"`).join(" or ");
-    await reply(bot, mention, `i couldn't work out who ${names} is — try their full handle?`);
-    return json({ ok: true, did: "unresolved subject" });
+    return { ...base, unresolved, problem: "unresolved" };
   }
 
-  const picked = people[0];
+  const persistNonceFrom = async (nonce?: string) => {
+    if (nonce && nonce !== found.session.dpopNonce) {
+      found.session.dpopNonce = nonce;
+      await putSession(env.STATE, env.SESSION_ENC_KEY, found.session).catch((err) =>
+        console.error(`nonce persist failed: ${err}`),
+      );
+    }
+  };
 
-  // "create" makes the list and adds nobody — a top-level tag with no post
-  // being replied to and nobody mentioned.
-  if (intent.action === "create" || !picked) {
+  // "create" makes the list and adds nobody.
+  if (step.action === "create" || !people.length) {
     const created = await ensureList(found.acting, listName, purpose);
-    if (created.nonce && created.nonce !== found.session.dpopNonce) {
-      await putSession(env.STATE, env.SESSION_ENC_KEY, {
-        ...found.session,
-        dpopNonce: created.nonce,
-      }).catch((err) => console.error(`nonce persist failed: ${err}`));
-    }
+    await persistNonceFrom(created.nonce);
     if (!created.ok) {
-      await reply(bot, mention, `that didn't work, sorry — nothing changed on your lists.`);
-      return json({ ok: true, did: "create failed" });
+      return { ...base, action: "create", problem: "that didn't work" };
     }
-    const kindNote = purpose === "modlist" ? " (a mute/block list)" : "";
-    const link = created.listUri ? `\n${listWebUrl(job.tagger.did, created.listUri)}` : "";
-    const text = created.alreadyThere
-      ? `you've already got "${created.listName}".${link}`
-      : `made you a list called "${created.listName}"${kindNote}. tag me in a reply and tell me who to add.${link}`;
-    await reply(bot, mention, text);
-    return json({ ok: true, did: "created", list: created.listName });
+    return {
+      ...base,
+      action: "create",
+      listName: created.listName ?? listName,
+      listUri: created.listUri,
+      created: !created.alreadyThere,
+      alreadyThere: created.alreadyThere,
+      usedAgentWording: !created.alreadyThere,
+    };
   }
 
   // Everyone named, not just the first — "add everyone in this thread" is a
   // normal thing to want, and doing one of four silently is worse than
-  // refusing. Sequential rather than parallel: they write to the same repo, and
-  // the second add needs to see the list the first one created.
-  const results = [];
+  // refusing.
+  const done: { handle: string }[] = [];
+  const failedPeople: { handle: string }[] = [];
+  let listUri: string | undefined;
+  let finalName = listName;
+  let alreadyThere = false;
+  let notThere = false;
+
   for (const person of people) {
-    results.push({
-      person,
-      result:
-        intent.action === "add"
-          ? await addToList(found.acting, listName, person.did, purpose)
-          : await removeFromList(found.acting, listName, person.did),
-    });
-  }
-  const result = results[0].result;
-
-  if (result.nonce && result.nonce !== found.session.dpopNonce) {
-    await putSession(env.STATE, env.SESSION_ENC_KEY, {
-      ...found.session,
-      dpopNonce: result.nonce,
-    }).catch((err) => console.error(`nonce persist failed: ${err}`));
-  }
-
-  // Prefer the agent's wording — it's why there's an agent — but only when the
-  // action actually did what the agent thought. A reply saying "added @alice"
-  // when the write failed is worse than a blunter accurate one.
-  // With several people, the agent's one-line reply can't be accurate about all
-  // of them, so the Worker writes that one from what actually happened.
-  if (people.length > 1) {
-    const ok = results.filter((r) => r.result.ok);
-    const failed = results.filter((r) => !r.result.ok);
-    const name = result.listName ?? listName;
-    const link = result.listUri ? `\n${listWebUrl(job.tagger.did, result.listUri)}` : "";
-    const verb = intent.action === "add" ? "added" : "took off";
-    const who = ok.map((r) => `@${r.person.handle}`).join(", ");
-    let text = ok.length
-      ? `${verb} ${who} ${intent.action === "add" ? "to" : "from"} "${name}".`
-      : `that didn't work, sorry — nothing changed on "${name}".`;
-    if (failed.length && ok.length) {
-      text += ` couldn't do ${failed.map((r) => `@${r.person.handle}`).join(", ")}.`;
+    const result =
+      step.action === "add"
+        ? await addToList(found.acting, listName, person.did, purpose)
+        : await removeFromList(found.acting, listName, person.did);
+    await persistNonceFrom(result.nonce);
+    if (result.listUri) listUri = result.listUri;
+    if (result.listName) finalName = result.listName;
+    if (result.ok) {
+      done.push({ handle: person.handle });
+      if (result.alreadyThere) alreadyThere = true;
+      if (result.notThere) notThere = true;
+    } else {
+      failedPeople.push({ handle: person.handle });
     }
-    if (unresolved.length) {
-      text += ` and i couldn't find ${unresolved.map((n) => `"${n.replace(/^@/, "")}"`).join(", ")}.`;
-    }
-    await reply(bot, mention, text + link);
-    return json({ ok: true, did: intent.action, count: ok.length });
   }
 
-  const agentReply = result.ok && !result.alreadyThere && !result.notThere
-    ? safeReply(intent.reply)
-    : null;
-  const text = agentReply
-    ? agentReply + (result.listUri ? `\n${listWebUrl(job.tagger.did, result.listUri)}` : "")
-    : replyText(
-        intent.action === "remove" ? "remove" : "add",
-        result,
-        picked.handle,
-        job.tagger.did,
+  return {
+    action: step.action === "remove" ? "remove" : "add",
+    listName: finalName,
+    listUri,
+    done,
+    failedPeople,
+    unresolved,
+    alreadyThere,
+    notThere,
+    // The agent's wording is only safe when one person was acted on, it worked,
+    // and nothing surprising happened.
+    usedAgentWording:
+      people.length === 1 &&
+      done.length === 1 &&
+      !failedPeople.length &&
+      !unresolved.length &&
+      !alreadyThere &&
+      !notThere,
+  };
+}
+
+// One reply for however many steps ran.
+//
+// Built from what actually happened, never from what was intended: a reply
+// saying "added @alice" when the write failed is worse than a blunter accurate
+// one.
+function composeReply(outcomes: StepOutcome[], taggerDid: string): string {
+  const parts: string[] = [];
+  const problems: string[] = [];
+
+  for (const o of outcomes) {
+    if (o.problem === "unresolved") {
+      const names = o.unresolved.map((n) => `"${n.replace(/^@/, "")}"`).join(" or ");
+      problems.push(`i couldn't work out who ${names} is`);
+      continue;
+    }
+    if (o.problem) {
+      problems.push(o.problem);
+      continue;
+    }
+
+    if (o.action === "create") {
+      parts.push(
+        o.alreadyThere
+          ? `you've already got "${o.listName}"`
+          : `made you a list called "${o.listName}"`,
       );
+      continue;
+    }
 
-  await reply(bot, mention, text);
-  return json({ ok: true, did: intent.action, list: result.listName });
+    const who = o.done.map((d) => `@${d.handle}`).join(", ");
+    if (o.done.length) {
+      if (o.action === "add") {
+        parts.push(
+          o.alreadyThere && o.done.length === 1
+            ? `@${o.done[0].handle} was already on "${o.listName}"`
+            : `added ${who} to "${o.listName}"`,
+        );
+      } else {
+        parts.push(
+          o.notThere && o.done.length === 1
+            ? `@${o.done[0].handle} wasn't on "${o.listName}"`
+            : `took ${who} off "${o.listName}"`,
+        );
+      }
+    }
+    if (o.failedPeople.length) {
+      problems.push(`couldn't do ${o.failedPeople.map((f) => `@${f.handle}`).join(", ")}`);
+    }
+    if (o.unresolved.length) {
+      problems.push(
+        `couldn't find ${o.unresolved.map((n) => `"${n.replace(/^@/, "")}"`).join(", ")}`,
+      );
+    }
+  }
+
+  let text = parts.length
+    ? parts.join(" and ") + "."
+    : "that didn't work, sorry — nothing changed on your lists.";
+  if (problems.length) text += ` ${problems.join(", ")}.`;
+
+  // One link, for the last list touched — several links in a reply is noise.
+  const linkable = [...outcomes].reverse().find((o) => o.listUri);
+  if (linkable?.listUri) text += `\n${listWebUrl(taggerDid, linkable.listUri)}`;
+  return text;
 }
 
 // The agent's reply text goes out as a post from the bot account, so it gets
