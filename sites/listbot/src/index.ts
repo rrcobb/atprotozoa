@@ -744,11 +744,13 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
   const found = await actingSession(env, m.authorDid);
   if (!found) {
     // The most common first contact: someone saw the bot and tagged it before
-    // signing in. Say what to do and why, in one line.
+    // signing up. Say what to do, and nothing else — the site and the profile
+    // both explain the rest, and a reply is not the place for reassurance
+    // nobody asked for.
     await reply(
       bot,
       m,
-      `hi — sign in once at ${env.SITE_URL} and i can edit your lists. i only ever touch your own lists, nobody else's.`,
+      `sign up once at ${env.SITE_URL} and i'll build and manage lists for you.`,
     );
     return;
   }
@@ -955,11 +957,49 @@ function replyText(
 
 const HELP_TEXT = `reply to someone's post with "@listbot.bisks.net <list name>" and i'll add them to your own list of that name (making it if it's new). "remove <list name>" takes them off. sign in once at listbot.bisks.net.`;
 
+// Rich-text facets, so a URL in a reply is actually clickable.
+//
+// atproto does NOT autolink: a post is plain text plus a `facets` array saying
+// which byte ranges are links or mentions. Without a facet a URL renders as
+// inert characters — which is exactly what every listbot reply did until now,
+// including the list links on a successful add.
+//
+// Offsets are UTF-8 BYTE offsets, not character indices. Anything non-ASCII
+// earlier in the text (an emoji, an accent, the em dashes this bot likes)
+// shifts them, so both ends are measured by encoding the slice rather than by
+// counting characters. Same approach as buildthis's reply.mjs.
+interface Facet {
+  index: { byteStart: number; byteEnd: number };
+  features: { $type: string; uri?: string; did?: string }[];
+}
+
+function buildFacets(text: string): Facet[] {
+  const enc = new TextEncoder();
+  const byteOffset = (charIndex: number) => enc.encode(text.slice(0, charIndex)).length;
+  const facets: Facet[] = [];
+
+  // Links. Trailing punctuation is excluded so "see https://x.example." doesn't
+  // put the full stop inside the link.
+  const urlRe = /https?:\/\/[^\s]+/g;
+  for (let m = urlRe.exec(text); m; m = urlRe.exec(text)) {
+    const raw = m[0].replace(/[.,;:!?)\]}'"]+$/, "");
+    const start = byteOffset(m.index);
+    facets.push({
+      index: { byteStart: start, byteEnd: start + enc.encode(raw).length },
+      features: [{ $type: "app.bsky.richtext.facet#link", uri: raw }],
+    });
+  }
+
+  return facets;
+}
+
 async function reply(bot: BotSession, m: Mention, text: string): Promise<void> {
+  const facets = buildFacets(text);
   const record = {
     $type: "app.bsky.feed.post",
     text,
     createdAt: new Date().toISOString(),
+    ...(facets.length ? { facets } : {}),
     reply: {
       root: { uri: m.rootUri, cid: m.rootCid },
       parent: { uri: m.uri, cid: m.cid },
@@ -1298,7 +1338,7 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
 
   const found = await actingSession(env, job.tagger.did);
   if (!found) {
-    await reply(bot, mention, `you'll need to sign in first so i can edit your lists: ${env.SITE_URL}`);
+    await reply(bot, mention, `sign up once at ${env.SITE_URL} and i'll build and manage lists for you.`);
     return json({ ok: true, did: "not signed in" });
   }
 
