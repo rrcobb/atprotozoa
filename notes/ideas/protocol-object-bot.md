@@ -1,9 +1,40 @@
-# A bot that makes protocol objects
+# The protocol droid
 
-Extending the brainstorm. The idea: **buildthis makes pages; a sibling bot makes
-protocol objects.** Tag it, and instead of a website you get a feed generator, a
-labeler, a lexicon, a list — a thing that lives *in* atproto rather than a page
-that reads it.
+**buildthis makes pages; a sibling bot makes protocol objects.** Tag it, and
+instead of a website you get a list, a lexicon, a feed generator, a labeler — a
+thing that lives *in* atproto rather than a page that reads it.
+
+"Protocol object" was always a stand-in for "the general class of thing a bot
+round here can make." The better name is sitting right there: a **protocol
+droid**. Fluent in six million forms of communication, exists to handle the
+tedious interchange nobody else wants to learn, and — this is the part worth
+keeping — *insufferable about protocol*. A persona that is pedantic, anxious,
+faintly put-upon, and correct is a good fit for a bot whose whole job is
+lexicon validation and record schemas, because the failure modes it protects
+you from are genuinely fiddly ("I do beg your pardon, but 0.34 is a float, and
+the lexicon permits only integers"). The nannying is the value, and admitting
+that is funnier than pretending it's a neutral tool.
+
+Worth saying what the persona must not become: a taste filter. cee.wtf's read on
+why buildthis works — *"it removed the decision to post something after it's
+made"* — applies here. Fussy about schemas, never fussy about whether your idea
+is any good.
+
+## Status, 2026-09-17
+
+**Partly built, and the central open question moved.** `sites/listbot`
+(`notes/88`) shipped the list output as its own bot: tag it, and an
+`app.bsky.graph.list` lands in **your** repo, signed by your key. That was the
+output this note ranked as trivially buildable, and it turned out to carry the
+hardest machinery — see "Who owns the thing" below, which is rewritten in light
+of it.
+
+Also settled, by being tried: the labeler output. Two were built
+(`built-by-bot`, then `gift-link`) and neither went live —
+`labeler-candidates.md` and `labeler-landscape.md` have the post-mortem. The
+short version is that the labeler space is largely occupied and the surviving
+niches are hard, so "labeler" is a weak default output for this bot even though
+it's technically the most impressive one.
 
 This reframes several earlier notes. `other-bots.md` and `bot-ideas-riff.md` listed candidates
 as separate bots; a lot of them are better understood as **outputs of one bot**.
@@ -85,6 +116,9 @@ tag-driven bot creates will be jokes nobody follows.
 
 ### 2. Who owns the thing
 
+> **Substantially answered by listbot, but only for one class of object.** Read
+> this section with the update at the end of it.
+
 A page belongs to nobody in particular; a feed appears in someone's app under
 some DID and shows up in the ecosystem's directories.
 
@@ -107,6 +141,47 @@ with the requester recorded as commissioner** (the corpus already has this
 instinct — void.comind called angussoftware "executive producer"; buildthis
 commits are tagged with the requester's handle). Offer requester-owned as an
 opt-in later if anyone cares.
+
+#### Update: listbot took the other path, and it works
+
+listbot went **requester-owned**, not bisks.net-owned, and the ceremony this
+note worried about turned out to be affordable: the user signs in once at
+`listbot.bisks.net` and thereafter just tags. Records land in their repo, signed
+by their key, and survive us entirely. `notes/88` has the machinery.
+
+What made it work is worth naming, because it's the reusable part:
+**confidential-client OAuth**. Every other OAuth site here is a public client
+where the browser holds the session and the write happens while the user is
+looking at the page. listbot's user tags the bot and walks away, so the Worker
+holds the refresh token and mints access tokens on a cron tick with no browser
+open. That's the general capability — *a bot can act on someone's behalf after
+they've left* — and nothing before it in this repo could.
+
+It also dissolves the "what if the classifier is wrong" worry for this class of
+output. Nothing listbot writes is an assertion about anyone: it's the owner's
+own list in the owner's own repo, so there is no correctness question to
+adjudicate.
+
+**But the answer does not generalize, and it's worth being precise about why.**
+Requester-owned works when the object is a record in a repo *that some consumer
+already reads*. `app.bsky.graph.list` qualifies — Bluesky renders it as mute,
+block, and curation lists, so it's useful the moment it exists and no consumer
+had to be built. The other outputs don't inherit that:
+
+- **a custom `net.bisks.*` record** can live in the user's repo, but nothing
+  renders it. Owned and invisible is a different problem from unowned.
+- **a feed generator** *cannot* be requester-owned in the same sense. The
+  declaration record can sit in their repo, but `getFeedSkeleton` is a service
+  someone has to run, and that someone is us. Ownership splits across the record
+  and the endpoint, and the half that costs money stays ours.
+- **a labeler** is worse: the labels are signed by the labeler's key, so the
+  assertions are irreducibly ours no matter whose repo the declaration lives in.
+
+So the honest statement is: **ownership is solved for objects Bluesky already
+consumes, and open for everything else.** The gradient runs from "user's repo,
+app renders it" (solved) through "user's repo, nobody reads it" (needs a
+consumer) to "inherently a service we operate" (unsolved, and maybe
+unsolvable).
 
 ## What tagging it would look like
 

@@ -10,6 +10,15 @@ The answer that came out of the corpus is that these four aren't peers. Two are
 buildable under today's rules, one is blocked on a single security decision, and
 one is already happening without anyone naming it.
 
+> **Where this stands, 2026-09-17.** Three of the four moved. Lexicon tooling
+> is largely done (59 lexicons published, `_lexicon.bisks.net` serving them).
+> The labeler got built twice and shipped zero times — the blocker turned out
+> to be demand, not the key (`labeler-candidates.md`). And the "single security
+> decision" framing below is wrong: `sites/listbot` acts on other people's
+> repos with no minted identity at all, via confidential-client OAuth. Only the
+> bot maker is still genuinely blocked, and on a narrower thing than this note
+> thought. Details in §3 and §4.
+
 ## What the corpus says the bot can and can't reach
 
 **Reliable:** client-side toys over public read APIs. No auth, no persistence,
@@ -64,6 +73,14 @@ round-trip through a PDS" checker is a tool for a failure mode the builder
 *demonstrably keeps rediscovering.* And it's pure client-side work — no secret
 required. This one has no blocker at all.
 
+**Largely done since.** 59 lexicons are published under
+`apex/public/lexicons/`, served at `_lexicon.bisks.net`, and regenerated on
+every build with the push gated on it (`ab04abf3`). ~85 sites write records.
+What's still missing is the *validator* — the thing that would have caught the
+float bug before a human did. That's the remaining piece worth building here,
+and it's the natural first job for the protocol droid
+(`protocol-object-bot.md`), whose whole persona is being fussy about schemas.
+
 ### 2. Dataset / index — half-built, and the gap is named precisely
 
 Already further along than it looks:
@@ -109,7 +126,20 @@ A labeler is the correct atproto-native shape for this: it's how you publish
 "this post is about X" without owning the client. But it needs a DID, a signing
 key, and a long-lived service endpoint. Same wall as the bot maker.
 
-### 4. Bot maker — the most interesting, the most blocked
+**Update: the wall was never the problem.** The labeler machinery got built
+anyway (`notes/87`) — signed labels, `queryLabels`, low-S normalization, key
+rotation — and works. Two labels were pointed at it and neither went live:
+`built-by-bot` said nothing, and `gift-link` turned out to duplicate
+`paywall-radar.bsky.social`. `labeler-landscape.md` maps the 23 labelers a
+search turns up and why the remaining niches are thin. Semantic mute is still
+the one real ask, and dferrer's field notes above are still the reason to be
+careful. The machinery is sitting there if a good label ever appears.
+
+### 4. Bot maker — the most interesting, and still the most blocked
+
+> **Update 2026-09-17.** The claim below that the labeler and the bot maker are
+> "the same single decision" is **wrong**, and listbot is why. See the revised
+> reading at the end of this section.
 
 The corpus is already a multi-bot ecosystem: buildthis ↔ minomobi built a real
 CORS-open registry exchange and a WebSocket wire to talk over; void.comind filed
@@ -125,6 +155,60 @@ hold a credential it is currently not allowed to read?
 
 That decision is about the security model, not about what to build. Worth
 answering on its own terms before treating either as a project.
+
+#### Revised: three different problems, not one
+
+`sites/listbot` (`notes/88`) pulled these apart by solving one of them.
+
+**Acting as a user — solved, no minted identity.** listbot writes
+`app.bsky.graph.list` records into other people's repos, signed by their keys,
+on a cron tick minutes after they've closed the tab. It does this with
+confidential-client OAuth: the user grants a narrow scope once, the Worker holds
+an encrypted refresh token and mints access tokens itself. No account was
+created for anyone. So "a bot that does things on your behalf" never needed the
+credential decision at all — it needed an OAuth flow, which now exists and is
+copyable.
+
+**Signing as an authority — unsolved, and probably not worth solving.** A
+labeler's assertions are signed by the labeler's own key; there is no per-user
+version of that, because a label is inherently one party's claim about
+something. That key is the thing this note worried about. But two labelers were
+built and neither shipped (`labeler-candidates.md`), so the blocker was never
+the real obstacle — demand was.
+
+**Minting new identities — unsolved, and the genuinely hard one.** A bot maker
+has to create an *account* per bot: a DID, a handle, a credential, and a
+standing service to run the thing. OAuth does nothing here, because there's no
+existing user to delegate from — the whole point is that a new actor appears.
+
+So the "single decision" framing collapsed into: one thing didn't need a
+credential, one thing needs one but has no demand, and one thing needs several
+and is a real project. Only the third is still interesting.
+
+#### What the bot bot would actually have to answer
+
+Keeping it on the list because it remains the best dream in the corpus (norvid's
+*"@s any bot I commission a website with to 'keep going' 100 times in a row...
+so I can take a much-earned vacation"*), but the hard parts are identity and
+lifecycle, not capability:
+
+- **Whose identity?** A minted account is a new actor on the network with a
+  handle under `bisks.net` and a credential someone holds. Every bot it makes is
+  Rob's reputation and Rob's abuse surface. The listbot answer — let it be the
+  user's — does not transfer: you cannot delegate "be a new account" from an
+  existing one.
+- **Who pays for the loop?** A page is finished when it deploys and a list is
+  finished when it's written. A bot *runs*, on a cron, until someone stops it.
+  That's the first output in this family with an open-ended standing cost, and
+  `notes/90` is where that lands.
+- **How does it stop?** Expiry by default, per the cron-manager instinct in
+  `bot-ideas-riff.md`. A bot maker with no garbage collection mints liabilities.
+- **What stops it being a spam engine?** buildthis gates on Rob's mutuals
+  because a tag spends money. A bot maker mints *actors*, which is a strictly
+  bigger deal; the gate has to be at least as tight.
+
+None of that is a reason not to build it. It's the list of things a first
+version has to have opinions about, and it's short enough to be encouraging.
 
 ## The idea that's already happening: customization by tagging
 
