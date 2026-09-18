@@ -125,44 +125,44 @@ test("a corrupt counter reads as zero rather than wedging", async () => {
   assert.equal(r.allowed, true);
 });
 
-// --- the signed-in account cap -----------------------------------------------
+// --- backpressure on queue depth ---------------------------------------------
 //
-// A second, blunter limit with the same purpose: the per-user rate limit bounds
-// what one enthusiast spends, and this bounds how many enthusiasts there can be.
-// Together they cap listbot's total claim on a box it shares with buildthis.
+// The second limit, and deliberately NOT a headcount of signed-in accounts.
+// Being signed in isn't load — it's a KV entry doing nothing — so a headcount
+// would block 25 people who tag once a month while permitting one person
+// tagging all day. Queue depth is the direct measure of falling behind.
 
-async function atAccountCap(countSessions, cap) {
-  if (!cap || cap <= 0) return false;
-  try {
-    return (await countSessions()) >= cap;
-  } catch {
-    return false; // fails open, same as the rate limit
-  }
+function overQueueLimit(stats, maxDepth) {
+  if (!maxDepth || maxDepth <= 0) return false;
+  if (!stats) return false; // a failed read skips the check rather than blocking
+  return stats.queued >= maxDepth;
 }
 
-test("under the cap, a new account may sign in", async () => {
-  assert.equal(await atAccountCap(async () => 10, 25), false);
+test("an empty queue accepts tags", () => {
+  assert.equal(overQueueLimit({ queued: 0 }, 25), false);
 });
 
-test("at the cap, a new account is turned away", async () => {
-  assert.equal(await atAccountCap(async () => 25, 25), true);
+test("a queue under the limit accepts tags — a burst just goes slowly", () => {
+  assert.equal(overQueueLimit({ queued: 24 }, 25), false);
 });
 
-test("over the cap (someone raised then lowered it) still turns people away", async () => {
-  assert.equal(await atAccountCap(async () => 40, 25), true);
+test("a queue at the limit turns new tags away", () => {
+  assert.equal(overQueueLimit({ queued: 25 }, 25), true);
 });
 
-test("a cap of 0 means no cap", async () => {
-  assert.equal(await atAccountCap(async () => 9999, 0), false);
+test("a limit of 0 disables backpressure", () => {
+  assert.equal(overQueueLimit({ queued: 9999 }, 0), false);
 });
 
-test("the cap fails open when the count can't be read", async () => {
-  // Same reasoning as the rate limit: this smooths load, it isn't a boundary.
-  // A sign-in page that breaks whenever KV hiccups is worse than overshooting.
-  const boom = async () => {
-    throw new Error("kv down");
-  };
-  assert.equal(await atAccountCap(boom, 25), false);
+test("a failed queue read skips the check rather than blocking", () => {
+  // Same posture as the rate limit: this smooths load, it isn't a boundary.
+  assert.equal(overQueueLimit(null, 25), false);
+});
+
+test("claimed jobs don't count toward the limit, only waiting ones", () => {
+  // A job the box is working on isn't backlog — it's progress. Counting it
+  // would trip backpressure on a queue that's actually draining fine.
+  assert.equal(overQueueLimit({ queued: 2, claimed: 1 }, 25), false);
 });
 
 // --- build priority ----------------------------------------------------------

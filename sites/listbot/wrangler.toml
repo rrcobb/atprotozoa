@@ -59,28 +59,36 @@ BOT_HANDLE_ALIASES = "listbot.bsky.social,listbot.bisks.net"
 # notes/40's "OAuth sites need a single canonical host".
 SITE_URL = "https://listbot.bisks.net"
 
-# Three limits, all with the same purpose: listbot shares ONE build box with
-# buildthis, and that box runs one job at a time. So a listbot job doesn't just
-# spend inference, it puts a build behind it in line. listbot is meant to be the
-# dumber, lighter bot — it should never be the reason someone's build waits.
+# listbot shares ONE build box with buildthis, and that box runs one job at a
+# time. listbot is meant to be the dumber, lighter bot — it should never be the
+# reason someone's build waits.
 #
-# Sized against measured load: buildthis ran 123 builds in a week (~18/day) at
-# 5-13 minutes each. A listbot job is well under a minute.
+# The protection that matters is in box-poll.sh: the loop claims at most one job
+# per pass and tries buildthis first, so a build never waits behind a tag and
+# listbot only ever uses idle box time. That's structural — no number to tune.
 #
-# The structural protection is in box-poll.sh, which claims at most one job per
-# pass with buildthis first, so a steady stream of builds starves listbot rather
-# than the reverse. These two are the belt to that's braces.
+# The two limits below cover what that priority does NOT: listbot's own backlog.
+# Sized against measured load (buildthis: 123 builds in a week, ~18/day, 5-13
+# min each; a listbot job is well under a minute).
 
 # Per account, per hour. 10 is a lot of list edits for one person in an hour and
 # nowhere near enough to matter next to a build.
 RATE_LIMIT_TAGS = "10"
 RATE_LIMIT_WINDOW_MINUTES = "60"
 
-# How many accounts may be signed in at once. Bounds the number of people who
-# can generate load at all, rather than what any one of them spends. 25 is a
-# "friends and whoever finds it" number; raise it by editing this line if it
-# fills up and nothing has caught fire. 0 disables the cap.
-MAX_ACCOUNTS = "25"
+# Backpressure: how many tags may be waiting on the box before listbot starts
+# turning new ones away with a "try again in a few minutes" reply.
+#
+# Queue DEPTH, not a headcount of signed-in accounts. Being signed in isn't
+# load — it's a KV entry doing nothing — so a headcount would block 25 people
+# who tag once a month while permitting one person tagging all day. Depth is
+# the direct measure of listbot falling behind, and it degrades the right way:
+# a burst just queues and is slow, and only a sustained backlog refuses.
+#
+# 25 is generous against a bot doing a job in under a minute; it only trips if
+# something is genuinely stuck or listbot has gotten far more popular than
+# expected. 0 disables it.
+MAX_QUEUE_DEPTH = "25"
 
 # Key id for the client-assertion key, matching the `kid` in /jwks.json.
 CLIENT_KEY_KID = "listbot-client-1"

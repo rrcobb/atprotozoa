@@ -30,7 +30,6 @@ import {
   countSessions,
   putLoginState,
   takeLoginState,
-  atAccountCap,
   createBrowserSession,
   browserSessionDid,
   deleteBrowserSession,
@@ -90,10 +89,10 @@ export interface Env {
   // ceiling can be tuned without a deploy.
   RATE_LIMIT_TAGS: string;
   RATE_LIMIT_WINDOW_MINUTES: string;
-  // How many accounts may be signed in at once. listbot shares one build box
-  // with buildthis and the box runs one job at a time, so this bounds how much
-  // of that queue listbot can ever claim. 0 or unset means no cap.
-  MAX_ACCOUNTS: string;
+  // Backpressure: how many tags may be waiting on the box before listbot starts
+  // turning new ones away. Queue DEPTH rather than a headcount, because depth is
+  // the thing that actually says listbot is falling behind. 0 or unset = no cap.
+  MAX_QUEUE_DEPTH: string;
 
   // secrets
   BOT_APP_PASSWORD: string;
@@ -299,21 +298,6 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   const handle = String(form.get("handle") ?? "").trim();
   if (!handle) return errorPage("Enter your handle.");
 
-  // Check the cap before doing anything expensive. Someone already signed in
-  // isn't blocked by it — they're in the count — but a new account is.
-  const cap = parseInt(env.MAX_ACCOUNTS ?? "0", 10) || 0;
-  if (await atAccountCap(env.STATE, cap)) {
-    const did = await resolveHandleToDid(handle);
-    const alreadyIn = did ? Boolean(await getSession(env.STATE, env.SESSION_ENC_KEY, did)) : false;
-    if (!alreadyIn) {
-      return page(
-        "full for now",
-        `<p class="bad">listbot is full — it's capped at ${cap} accounts while it shares a build box with another bot.</p>
-<p>it's a toy, and the cap is there so it can't slow the other one down. ask <a href="https://bsky.app/profile/bisks.net">@bisks.net</a> to raise it.</p>`,
-        503,
-      );
-    }
-  }
 
   const did = await resolveHandleToDid(handle);
   if (!did) return errorPage(`Couldn't resolve "${handle}".`);
@@ -778,6 +762,32 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
   if (subject.did === m.authorDid) {
     await reply(bot, m, `that's your own post! tag me under someone else's.`);
     return;
+  }
+
+  // Backpressure. listbot rides on the box's idle time — box-poll.sh claims at
+  // most one job per pass with buildthis first, so a build never waits behind a
+  // tag. What that priority does NOT bound is listbot's own backlog: if tags
+  // arrive faster than idle time drains them, they pile up and every tagger
+  // waits longer with no sign anything is wrong.
+  //
+  // So the ceiling is queue DEPTH, which is the direct measure of falling
+  // behind — not a headcount of who signed in, which measures nothing. Under
+  // the limit, a burst just queues and is slow. Over it, new tags are refused
+  // with a reply that says to try again, because silence for twenty minutes
+  // reads as broken while "busy, come back" reads as busy.
+  const maxDepth = parseInt(env.MAX_QUEUE_DEPTH ?? "0", 10) || 0;
+  if (maxDepth > 0) {
+    const stats = await queueStats(env.STATE).catch(() => null);
+    // A failed read skips the check rather than blocking: this smooths load, it
+    // isn't a boundary, same posture as the rate limit.
+    if (stats && stats.queued >= maxDepth) {
+      await reply(
+        bot,
+        m,
+        `i'm backed up (${stats.queued} waiting) — give me a few minutes and tag me again.`,
+      );
+      return;
+    }
   }
 
   // Spend check, after the cheap rejections above and before the expensive part.
