@@ -1369,6 +1369,10 @@ interface LogEvent {
     // served; false = it pushed but the URL didn't come up in time (worth a look);
     // undefined = not a success / older record from before the check existed.
     liveVerified?: boolean;
+    // What watchtower's /check said about the site right after the root poll
+    // passed (notes/85): a one-line list of asset problems, or absent when it
+    // reported none, was unreachable, or didn't know the site yet.
+    assetProblems?: string;
     // A partial build: a real first pass shipped and is live, but the build ran out
     // of turns (or wall clock) before finishing. The site is continuable by
     // re-tagging the thread. status is still "success" (it IS live); this flags it
@@ -2019,6 +2023,8 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
     requeue?: boolean;
     // Post-deploy liveness result (success only): did the built URL actually serve?
     liveVerified?: boolean;
+    // Watchtower's asset problems for the built site, if any (notes/85).
+    assetProblems?: string;
     // A partial (shipped-but-unfinished) build, continuable by re-tagging.
     partial?: boolean;
     // The box's own classification — the field to count outcomes on. `status` is a
@@ -2059,6 +2065,7 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
       url: body.url || undefined,
       replyText: body.replyText || undefined,
       liveVerified: typeof body.liveVerified === "boolean" ? body.liveVerified : undefined,
+      assetProblems: typeof body.assetProblems === "string" && body.assetProblems ? body.assetProblems.slice(0, 500) : undefined,
       partial: body.partial === true ? true : undefined,
       disposition: body.disposition || undefined,
       maintenance: body.maintenance || undefined,
