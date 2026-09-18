@@ -159,6 +159,46 @@ tagger's existing lists. The lists are what make it good — "add them to my coo
 posters" lands on the existing list instead of minting a near-duplicate. It also
 means the agent makes no authenticated call and holds no credential.
 
+### The worker doesn't decide what a tag means
+
+**The worker assembles context. The agent decides. The worker acts on the
+answer.** Three roles, and the one that keeps going wrong is the middle one
+leaking into the first.
+
+This was learned the hard way — four times in one day, each costing a real tag:
+
+| the check | what it broke |
+| --- | --- |
+| list names capped at 64 chars | the first tag anyone sent, a plain-English request, dropped in silence |
+| other `@handles` stripped from tag text | "add @alice to ceramics" couldn't work at all |
+| "that's your own post" when no mention facet | told someone to name a person they had just named |
+| exchange test as a fixed one-level lookup | stopped listening at the third message of a conversation |
+
+Three of those were written before the agent existed, when the parser *was* the
+product and they were the best available answer. The fourth was written after,
+which is the one that says the pattern is the problem rather than the instances.
+
+None of them looked like judgment while being written. "You can't add someone
+from your own post" reads as a fact about the domain right up until someone
+names a person in the text. That's what makes this worth stating as a rule
+rather than fixing case by case: **any `if` in the worker that refuses a tag is
+probably a bug waiting for someone to phrase something naturally.**
+
+Two things follow from it.
+
+*Failures change shape.* When the worker judges, a wrong judgment is a refusal —
+confident, final, and usually silent. When the agent judges, a wrong judgment is
+a reply you can argue with. Same error, completely different experience for the
+person who tagged.
+
+*"Give it more context" is usually the fix.* Every one of those gates existed
+because the worker had nothing but strings and DIDs to look at. Handing the
+agent the tagger's follows didn't just enable "add fleetingbits" — it removed
+the reason anyone would write a facet-counting check in the first place.
+
+The rule generalises past this bot, and `notes/ideas/other-bots.md` is the place
+to look if you're building another one.
+
 Actions:
 
 | action | what it does |

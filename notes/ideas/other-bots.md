@@ -197,3 +197,21 @@ laws:
    — *"it removed the decision to post something after it's made... that's
    Art"* — is worth preserving. A critic bot that gates the raw feed would kill
    the thing people like. It should comment, not block.
+7. **The worker assembles context, the agent decides, the worker acts.** Three
+   roles; keep the middle one out of the first. Every time listbot's Worker
+   made a cheap structural call about what a tag *could* mean — a length cap, a
+   count of mention facets, whose post was being replied to — it refused a tag
+   the agent would have handled, and it refused it silently. Four of those in
+   one day (`notes/88-listbot.md` lists them).
+
+   None looked like judgment while being written: "you can't add someone from
+   your own post" reads as a fact about the domain until someone names a person
+   in the text. So the useful form is blunt — **any `if` in the worker that
+   refuses a request is probably a bug waiting for someone to phrase something
+   naturally.**
+
+   Two corollaries. A wrong call by the worker is a refusal, confident and
+   usually silent; a wrong call by the agent is a reply someone can argue with.
+   And when a gate seems necessary, the fix is almost always to give the agent
+   more context rather than to write the gate — handing listbot's agent the
+   tagger's follows removed the reason to count mention facets at all.
