@@ -213,6 +213,13 @@ Constellation specifics that have bitten before:
   (heika.dog, 2026-09-16). `getBacklinkDids?subject=<did>&source=<collection>:<path>`
   returns the same `{ total, linking_dids, cursor }` shape. `limit=1000`
   is the max; a page can come back short, so loop on `cursor`.
+- The `source` path is the record field's full path. Follows are
+  `app.bsky.graph.follow:subject`, but a like's subject is a strongRef, so
+  likers of a post are `app.bsky.feed.like:subject.uri`, and quotes are
+  `app.bsky.feed.post:embed.record.uri`. `:subject` on a like returns
+  `total: 0` with no error (`sites/listenheimer/public/lib/likes.js`).
+- It returns DIDs only. Hydrate with `getProfiles` (25 per call) for just
+  the ones you display; a list write or a set comparison needs no hydrate.
 - The index starts 2025-01-28. Anything older isn't there, and several
   people have hit that as a data gap — say so in the UI when it matters.
 - Always keep the AppView walk as the fallback. It's a third-party service

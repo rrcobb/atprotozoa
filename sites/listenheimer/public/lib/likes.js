@@ -1,17 +1,22 @@
 // likes.js — resolve a pasted Bluesky post URL to an AT-URI, then read every
-// public liker via app.bsky.feed.getLikes.
+// public liker.
 //
-// getLikes has no bulk-download equivalent (it's an AppView aggregate, not a
-// repo-backed collection any single account owns) — the "prefer bulk reads"
-// standing order in sites/buildthis/builder/INSTRUCTIONS.md carves out
-// exactly this case as one where pagination is the only option. MAX_LIKE_PAGES
-// below is a safety backstop (100 likers/page, so 2000 pages is 200,000
-// likers), not a default-caution cap — nothing normal will ever hit it.
+// Likers come from microcosm.blue's Constellation first
+// (blue.microcosm.links.getBacklinkDids, source app.bsky.feed.like:subject.uri):
+// it indexes every like record off the firehose by the post it points at and
+// returns DIDs 1000 per page, against the AppView's 100. The list this site
+// writes only needs DIDs, so only the likers shown in the avatar grid get a
+// profile lookup (getProfiles, 25 per call). app.bsky.feed.getLikes is the
+// fallback if Constellation errors — same recipe as kevinmoot's followers
+// read (notes/40, "Ecosystem tools"). Both page caps below are runaway
+// backstops, not budgets.
 
-import { jget, resolveDid } from "./identity.js";
+import { jget, resolveDid, getProfiles } from "./identity.js";
 
 const PUB = "https://api.bsky.app/xrpc";
-const MAX_LIKE_PAGES = 2000; // hard safety backstop: 200,000 likers
+const CONSTELLATION = "https://constellation.microcosm.blue";
+const MAX_CONSTELLATION_PAGES = 400; // 400,000 likers at 1000/page
+const MAX_LIKE_PAGES = 2000; // fallback walk: 200,000 likers at 100/page
 
 // Accepts a bsky.app post URL, an at:// URI, or "<handle-or-did>/<rkey>".
 // Returns { uri, did, rkey }.
@@ -46,10 +51,46 @@ export async function getPost(uri) {
   return post;
 }
 
-// Page through every public liker of a post. Each liker's actor is already a
-// full ProfileView from the getLikes response, so no extra profile-lookup
-// round trip is needed. Returns [{ did, handle, displayName, avatar }].
-export async function getAllLikers(uri, onStep) {
+// Every liker of a post as [{ did, handle, displayName, avatar }]. Only the
+// first `hydrate` entries carry a real handle/avatar; the rest have handle set
+// to the DID, which is all the list write needs.
+export async function getAllLikers(uri, onStep, { hydrate = 400 } = {}) {
+  let dids;
+  try {
+    dids = await likerDidsConstellation(uri, onStep);
+  } catch (e) {
+    console.warn("constellation failed, falling back to getLikes", e);
+    return getAllLikersAppView(uri, onStep);
+  }
+  const profiles = await getProfiles(dids.slice(0, hydrate));
+  return dids.map((did) => profiles.get(did) || { did, handle: did, displayName: did, avatar: "" });
+}
+
+async function likerDidsConstellation(uri, onStep) {
+  const dids = [];
+  const seen = new Set();
+  let cursor = "";
+  for (let page = 0; page < MAX_CONSTELLATION_PAGES; page++) {
+    const u = new URL(`${CONSTELLATION}/xrpc/blue.microcosm.links.getBacklinkDids`);
+    u.searchParams.set("subject", uri);
+    u.searchParams.set("source", "app.bsky.feed.like:subject.uri");
+    u.searchParams.set("limit", "1000");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    const d = await jget(u.toString());
+    const batch = d.linking_dids || [];
+    for (const did of batch) {
+      if (seen.has(did)) continue;
+      seen.add(did);
+      dids.push(did);
+    }
+    if (onStep) onStep(dids.length);
+    cursor = d.cursor;
+    if (!cursor || !batch.length) break;
+  }
+  return dids;
+}
+
+async function getAllLikersAppView(uri, onStep) {
   const likers = [];
   const seen = new Set();
   let cursor = "";

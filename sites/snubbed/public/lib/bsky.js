@@ -86,6 +86,40 @@ export async function getAllLikers(uri, onPage) {
   return likers;
 }
 
+// Just the DIDs of everyone who liked a post, from microcosm.blue's
+// Constellation (blue.microcosm.links.getBacklinkDids, source
+// app.bsky.feed.like:subject.uri) — it indexes every like record off the
+// firehose by the post it points at, 1000 DIDs per page against getLikes'
+// 100. Used for post A, where the only question is "is this DID in the set."
+// Post B stays on getAllLikers above because the snub list needs each like's
+// createdAt and profile, which Constellation doesn't carry. Falls back to
+// getAllLikers if Constellation errors. Same recipe as kevinmoot's followers
+// read (notes/40, "Ecosystem tools").
+const CONSTELLATION = "https://constellation.microcosm.blue";
+const MAX_CONSTELLATION_PAGES = 400; // runaway backstop: 400,000 likers
+
+export async function getLikerDids(uri, onPage) {
+  const dids = new Set();
+  let cursor;
+  try {
+    for (let page = 0; page < MAX_CONSTELLATION_PAGES; page++) {
+      const qs = new URLSearchParams({ subject: uri, source: "app.bsky.feed.like:subject.uri", limit: "1000" });
+      if (cursor) qs.set("cursor", cursor);
+      const data = await jget(`${CONSTELLATION}/xrpc/blue.microcosm.links.getBacklinkDids?${qs}`);
+      const batch = data.linking_dids || [];
+      for (const did of batch) dids.add(did);
+      if (onPage) onPage(dids.size);
+      cursor = data.cursor;
+      if (!cursor || !batch.length) break;
+    }
+    return dids;
+  } catch (e) {
+    console.warn("constellation failed, falling back to getLikes", e);
+    const likers = await getAllLikers(uri, onPage);
+    return new Set(likers.map((l) => l.did));
+  }
+}
+
 export function bskyPostUrl(handle, uri) {
   const rkey = String(uri || "").split("/").pop();
   return `https://bsky.app/profile/${encodeURIComponent(handle)}/post/${rkey}`;

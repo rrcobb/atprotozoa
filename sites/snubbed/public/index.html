@@ -158,7 +158,7 @@
   </div>
 
 <script type="module">
-import { resolvePost, getAllLikers, bskyPostUrl } from "./lib/bsky.js";
+import { resolvePost, getAllLikers, getLikerDids, bskyPostUrl } from "./lib/bsky.js";
 
 const els = {
   form: document.getElementById("f"),
@@ -182,7 +182,7 @@ function b64url(str) {
   return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-let lastResult = null; // { postA, postB, likersA, likersB, snubs }
+let lastResult = null; // { postA, postB, likersASet, likersB, snubs }
 
 function shareUrlFor(uriA, uriB) {
   return "https://snubbed.bisks.net/s/" + encodeURIComponent(b64url(uriA)) + "+" + encodeURIComponent(b64url(uriB));
@@ -295,10 +295,10 @@ async function buildShareCard(canvas, handleA, handleB, snubs) {
   ctx.fillText("snubbed.bisks.net", 56, H - 40);
 }
 
-function renderResultCard(postA, postB, likersA, likersB, snubs) {
+function renderResultCard(postA, postB, likersASet, likersB, snubs) {
   const handleA = (postA.post && postA.post.author && postA.post.author.handle) || postA.actorLabel || "unknown";
   const handleB = (postB.post && postB.post.author && postB.post.author.handle) || postB.actorLabel || "unknown";
-  const both = likersB.filter((l) => likersA.some((a) => a.did === l.did)).length;
+  const both = likersB.filter((l) => likersASet.has(l.did)).length;
 
   const div = document.createElement("div");
   div.className = "card";
@@ -330,7 +330,7 @@ function renderResultCard(postA, postB, likersA, likersB, snubs) {
     <div class="stats">
       <div class="stat"><div class="n snub">${snubs.length}</div><div class="l">snubbed you</div></div>
       <div class="stat"><div class="n both">${both}</div><div class="l">liked both</div></div>
-      <div class="stat"><div class="n">${likersA.length}</div><div class="l">liked A</div></div>
+      <div class="stat"><div class="n">${likersASet.size}</div><div class="l">liked A</div></div>
       <div class="stat"><div class="n">${likersB.length}</div><div class="l">liked B</div></div>
     </div>
     ${listHtml}
@@ -404,16 +404,15 @@ async function run() {
     if (postA.uri === postB.uri) { setStatus("those are the same post.", true); els.go.disabled = false; return; }
 
     setStatus("pulling every liker of the first post...");
-    const likersA = await getAllLikers(postA.uri, (n) => setStatus(`pulling every liker of the first post... ${n} so far`));
+    const likersASet = await getLikerDids(postA.uri, (n) => setStatus(`pulling every liker of the first post... ${n} so far`));
     setStatus("pulling every liker of the second post...");
     const likersB = await getAllLikers(postB.uri, (n) => setStatus(`pulling every liker of the second post... ${n} so far`));
 
-    const likersASet = new Set(likersA.map((l) => l.did));
     const snubs = likersB.filter((l) => !likersASet.has(l.did)).sort((x, y) => (x.createdAt < y.createdAt ? 1 : -1));
 
-    lastResult = { postA, postB, likersA, likersB, snubs };
+    lastResult = { postA, postB, likersASet, likersB, snubs };
     els.results.innerHTML = "";
-    els.results.appendChild(renderResultCard(postA, postB, likersA, likersB, snubs));
+    els.results.appendChild(renderResultCard(postA, postB, likersASet, likersB, snubs));
     els.results.classList.add("show");
     setStatus("");
   } catch (err) {

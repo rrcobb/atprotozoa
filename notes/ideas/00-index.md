@@ -325,10 +325,11 @@ AppView's real `getPostThread` depth=1000 ceiling, which `sites/coliseum`
 already hit — a 2026-09-15 daily-slot pass wired that one case in
 (`sites/coliseum/public/lib/backlinks.js`: BFS the backlink index past the
 ceiling, then bulk-hydrate with `getPosts`), gated behind a "did we actually
-hit depth 1000" check rather than always paying for the walk. Other candidates
-from the same survey are still just flagged, nothing wired in — listenheimer
-and snubbed's `getLikes` walks, quotehof's quote lookup, hindex's mention
-tracking.
+hit depth 1000" check rather than always paying for the walk. listenheimer
+and snubbed's `getLikes` walks moved 2026-09-17, but to Constellation, not
+Cerulea, since the repo already uses it: one page of DIDs per post instead of
+a hundred-per-page walk, AppView as fallback. Still just flagged: quotehof's
+quote lookup, hindex's mention tracking.
 
 ---
 
