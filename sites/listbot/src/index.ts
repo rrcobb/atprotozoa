@@ -1289,6 +1289,35 @@ function buildFacets(text: string): Facet[] {
 // Each part replies to the previous one, so it reads as a thread rather than a
 // burst of separate posts. The thread root stays the original conversation's
 // root, which is what keeps the whole exchange together in the app.
+async function postOne(
+  bot: BotSession,
+  m: Mention,
+  text: string,
+  parent: { uri: string; cid: string },
+): Promise<{ uri: string; cid: string } | null> {
+  const facets = buildFacets(text);
+  const record = {
+    $type: "app.bsky.feed.post",
+    text,
+    createdAt: new Date().toISOString(),
+    ...(facets.length ? { facets } : {}),
+    reply: { root: { uri: m.rootUri, cid: m.rootCid }, parent },
+  };
+  const res = await fetch(`${PDS}/xrpc/com.atproto.repo.createRecord`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${bot.accessJwt}`,
+    },
+    body: JSON.stringify({ repo: bot.did, collection: "app.bsky.feed.post", record }),
+  });
+  if (!res.ok) {
+    console.error(`reply failed: ${res.status} ${await res.text()}`);
+    return null;
+  }
+  return (await res.json()) as { uri: string; cid: string };
+}
+
 async function reply(bot: BotSession, m: Mention, text: string): Promise<void> {
   const parts = splitForPosts(text);
   if (!parts.length) return;
@@ -1316,10 +1345,31 @@ async function reply(bot: BotSession, m: Mention, text: string): Promise<void> {
       body: JSON.stringify({ repo: bot.did, collection: "app.bsky.feed.post", record }),
     });
     if (!res.ok) {
-      // A failed reply shouldn't abort the tick — the list edit already
-      // happened. Stop the thread here rather than posting orphaned parts that
-      // don't follow from anything.
-      console.error(`reply failed: ${res.status} ${await res.text()}`);
+      const body = await res.text();
+      console.error(`reply failed: ${res.status} ${body}`);
+
+      // A post the PDS rejects for length must not become silence. This is what
+      // happened to Rob's "add all of them to the blocklist": eleven handles
+      // plus the list link came to 349 graphemes, the PDS refused it, and the
+      // work had already been done — eleven people added, no reply, no sign
+      // anything had happened.
+      //
+      // splitForPosts sizes each part on its own, but composeReply appends the
+      // list link AFTER that, so the combined length was never measured. Rather
+      // than thread the link through the splitter, retry once without it: the
+      // list is one tap away in the app, and losing the link is much better
+      // than losing the answer.
+      if (body.includes("grapheme too big") && part.includes("\n")) {
+        const withoutLink = part.slice(0, part.lastIndexOf("\n")).trim();
+        for (const shorter of splitForPosts(withoutLink)) {
+          const retry = await postOne(bot, m, shorter, parent);
+          if (!retry) return;
+          parent = retry;
+        }
+        continue;
+      }
+      // Stop the thread rather than posting orphaned parts that don't follow
+      // from anything.
       return;
     }
     const out = (await res.json()) as { uri: string; cid: string };
@@ -1837,6 +1887,9 @@ interface StepOutcome {
   action: "add" | "remove" | "create" | "noop";
   listName: string;
   listUri?: string;
+  // Which kind of list this was. The reply names people on a curation list and
+  // deliberately doesn't on a mute/block list — see composeReply.
+  purpose: "curatelist" | "modlist";
   // Who it actually wrote, and who it couldn't.
   done: { handle: string }[];
   failedPeople: { handle: string }[];
@@ -1861,6 +1914,7 @@ async function runStep(step: IntentStep, ctx: StepContext): Promise<StepOutcome>
   const base: StepOutcome = {
     action: "noop",
     listName: (step.list ?? "").trim(),
+    purpose: step.purpose === "modlist" ? "modlist" : "curatelist",
     done: [],
     failedPeople: [],
     unresolved: [],
@@ -1946,6 +2000,7 @@ async function runStep(step: IntentStep, ctx: StepContext): Promise<StepOutcome>
       ...base,
       action: "create",
       listName: created.listName ?? listName,
+      purpose,
       listUri: created.listUri,
       created: !created.alreadyThere,
       alreadyThere: created.alreadyThere,
@@ -1983,6 +2038,7 @@ async function runStep(step: IntentStep, ctx: StepContext): Promise<StepOutcome>
   return {
     action: step.action === "remove" ? "remove" : "add",
     listName: finalName,
+    purpose,
     listUri,
     done,
     failedPeople,
@@ -2030,24 +2086,49 @@ function composeReply(outcomes: StepOutcome[], taggerDid: string): string {
       continue;
     }
 
-    const who = o.done.map((d) => `@${d.handle}`).join(", ");
+    // Don't name people the bot put on a mute or block list.
+    //
+    // The handles carry no mention facet, so nobody is notified — but the post
+    // is still public, and it's still the BOT saying "these accounts belong on
+    // a blocklist". The list itself is the user's own business; a reply naming
+    // its members in the open is listbot's doing, and it isn't the bot's place
+    // to publish that about anyone.
+    //
+    // Counts instead, with the link. The owner sees exactly who on the list
+    // page, which is where that belongs.
+    const quiet = o.purpose === "modlist";
+    const n = o.done.length;
+    const who = quiet
+      ? n === 1
+        ? "them"
+        : `${n} accounts`
+      : o.done.map((d) => `@${d.handle}`).join(", ");
+
     if (o.done.length) {
       if (o.action === "add") {
         parts.push(
-          o.alreadyThere && o.done.length === 1
-            ? `@${o.done[0].handle} was already on "${o.listName}"`
+          o.alreadyThere && n === 1
+            ? quiet
+              ? `they were already on "${o.listName}"`
+              : `@${o.done[0].handle} was already on "${o.listName}"`
             : `added ${who} to "${o.listName}"`,
         );
       } else {
         parts.push(
-          o.notThere && o.done.length === 1
-            ? `@${o.done[0].handle} wasn't on "${o.listName}"`
+          o.notThere && n === 1
+            ? quiet
+              ? `they weren't on "${o.listName}"`
+              : `@${o.done[0].handle} wasn't on "${o.listName}"`
             : `took ${who} off "${o.listName}"`,
         );
       }
     }
     if (o.failedPeople.length) {
-      problems.push(`couldn't do ${o.failedPeople.map((f) => `@${f.handle}`).join(", ")}`);
+      problems.push(
+        quiet
+          ? `couldn't do ${o.failedPeople.length} of them`
+          : `couldn't do ${o.failedPeople.map((f) => `@${f.handle}`).join(", ")}`,
+      );
     }
     if (o.unresolved.length) {
       problems.push(
@@ -2062,9 +2143,35 @@ function composeReply(outcomes: StepOutcome[], taggerDid: string): string {
   if (problems.length) text += ` ${problems.join(", ")}.`;
 
   // One link, for the last list touched — several links in a reply is noise.
+  //
+  // Summarise the people rather than listing them when naming everyone would
+  // push the post over. Eleven spam handles is 271 characters and reads as a
+  // wall anyway; "added 11 accounts to X" is both shorter and easier to take
+  // in. The list itself is one tap away through the link.
   const linkable = [...outcomes].reverse().find((o) => o.listUri);
-  if (linkable?.listUri) text += `\n${listWebUrl(taggerDid, linkable.listUri)}`;
-  return text;
+  const link = linkable?.listUri ? `\n${listWebUrl(taggerDid, linkable.listUri)}` : "";
+
+  if (graphemes(text + link).length > MAX_REPLY_GRAPHEMES) {
+    const summary: string[] = [];
+    for (const o of outcomes) {
+      if (o.problem || !o.done.length) continue;
+      const n = o.done.length;
+      const people = n === 1 ? `@${o.done[0].handle}` : `${n} accounts`;
+      summary.push(
+        o.action === "add"
+          ? `added ${people} to "${o.listName}"`
+          : o.action === "remove"
+            ? `took ${people} off "${o.listName}"`
+            : `made you a list called "${o.listName}"`,
+      );
+    }
+    if (summary.length) {
+      text = summary.join(" and ") + ".";
+      if (problems.length) text += ` ${problems.join(", ")}.`;
+    }
+  }
+
+  return text + link;
 }
 
 // The agent's reply text goes out as a post from the bot account, so it gets
