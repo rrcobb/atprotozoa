@@ -128,6 +128,19 @@ cycles on demand; can't be spammed into rendering.
   by tagging. Faces and avatars only of people who charged it.
 - **Limits:** check `uploadVideo`'s current size and length ceiling before
   fixing the format; a 45-second 720p render is the safe target.
+- **When it runs (Rob, 2026-09-17): the last hour before the subscription's
+  weekly usage reset.** Whatever budget is left then is gone either way, so
+  the render's tokens cost nothing in practice, it can use Fable with a big
+  context, and the reset gives a one-per-week cap with no rate-limit code.
+  If the week's budget is already spent, it doesn't fire: "not enough charge
+  this week." Needs the reset time on the box (a cron if the reset is fixed;
+  Rob reads it from `/usage`), and `--model claude-fable-5-1` for this job
+  kind only. Move the digest to the same hour so one post carries the week
+  as text and video.
+
+The same window is a general **dregs slot**: expensive, non-urgent jobs (the
+librarian's weekly synthesis, a big sweep) run there in priority order until
+the budget runs dry. The video goes first because people see it.
 
 ### Animation bot (media)
 
