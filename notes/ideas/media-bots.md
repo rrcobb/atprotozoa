@@ -133,10 +133,14 @@ cycles on demand; can't be spammed into rendering.
   the render's tokens cost nothing in practice, it can use Fable with a big
   context, and the reset gives a one-per-week cap with no rate-limit code.
   If the week's budget is already spent, it doesn't fire: "not enough charge
-  this week." Needs the reset time on the box (a cron if the reset is fixed;
-  Rob reads it from `/usage`), and `--model claude-fable-5-1` for this job
-  kind only. Move the digest to the same hour so one post carries the week
-  as text and video.
+  this week." The reset is **Wednesday 12:00 America/New_York** (read from
+  `/usage`, 2026-09-17), so the finisher runs Wednesday 11:00 New York time,
+  as a box cron under `TZ=America/New_York` so it doesn't drift an hour when
+  daylight time ends. `--model claude-fable-5-1` for this job kind only:
+  Fable has its own weekly bucket, mostly untouched by Sonnet builds. Move
+  the digest to the same hour so one post carries the week as text and
+  video; the digest's week then runs Wednesday to Wednesday, matching the
+  usage week.
 
 The same window is a general **dregs slot**: expensive, non-urgent jobs (the
 librarian's weekly synthesis, a big sweep) run there in priority order until
