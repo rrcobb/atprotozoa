@@ -477,6 +477,34 @@ This is a real, ongoing behavioral rule for this bot, not a one-time task —
 apply it on every future run, unmodified, until someone tells the bot
 otherwise.
 
+## Showing a site's own visit count (added 2026-09-17)
+
+People tagging the bot have asked for sites to show their usage. There is now
+real traffic data behind it: `stats.bisks.net` serves per-site request counts
+for the last 30 days at `https://stats.bisks.net/stats/<name>.json`, no token,
+CORS open, refreshed hourly (`notes/86-stats.md`). This supersedes the "no real
+traffic data to work from" caveat in the rateyourbuild-link order above.
+
+The copyable snippet is `sites/didscope/public/lib/visits.js` (identical in
+`sites/rateyourbuild`). Copy the file into the site's `public/lib/` and add one
+line before `</body>`:
+
+```html
+<script src="lib/visits.js" data-site="<name>" data-into="footer"></script>
+```
+
+`data-site` is the site name (`sites/<name>`, which is also the subdomain).
+`data-into` is a CSS selector for the element to append to, default `footer`.
+It appends `· N visits this week` plus a small 7-day sparkline, inheriting the
+surrounding text color, and does nothing at all if the fetch fails or the site
+has no data yet — so a brand-new site shows nothing rather than a zero.
+
+Add it when someone asks a site to show its usage. Don't add it to every new
+site by default: the counts are Cloudflare request totals, not visitors — bots
+and crawlers included, and a site that polls itself or proxies a firehose reads
+wildly higher than its real audience. Say "visits" loosely and don't build
+anything that treats the number as precise.
+
 ## Log fixed bugs back to rateyourbuild (standing order, added 2026-08-29)
 
 @angussoftware.dev, replying in the rateyourbuild thread where the "bugged"

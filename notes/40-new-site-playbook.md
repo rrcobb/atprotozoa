@@ -205,7 +205,7 @@ survey note in `notes/ideas/` first.
 | handle typeahead at login or in a search box | typeahead.waow.tech first, AppView `searchActorsTypeahead` as fallback (cut over 2026-09-17, `notes/ideas/waow-tech-utilities.md`) | `handle-typeahead.js`, identical in 244 sites; edit one, copy to all |
 | every label on an account from every labeler | `atproto-accept-labelers` fan-out over mackuba's labeler directory | `sites/labelmuster` |
 | a link to a raw record | pdsls (`https://pdsls.dev/at://<uri>`), not bsky.app | `sites/selflikes`, `sites/receipts` |
-| how much traffic a site gets | `https://stats.bisks.net/stats/<name>.json` (`notes/86-stats.md`) | any site: one fetch, no token |
+| how much traffic a site gets | `https://stats.bisks.net/stats/<name>.json` (`notes/86-stats.md`) | `sites/didscope/public/lib/visits.js`, same file in `sites/rateyourbuild` |
 
 Constellation specifics that have bitten before:
 

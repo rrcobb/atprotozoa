@@ -20,6 +20,25 @@ const r = await fetch("https://stats.bisks.net/stats/<name>.json").then((r) => r
 // r.days, r.requests, r.errors, r.total7, r.total
 ```
 
+## Showing it on a site
+
+`sites/didscope/public/lib/visits.js` is the copyable snippet (same file in
+`sites/rateyourbuild`). Copy it into `public/lib/` and add one line before
+`</body>`:
+
+```html
+<script src="lib/visits.js" data-site="<name>" data-into="footer"></script>
+```
+
+It appends `· N visits this week` and a 7-day sparkline to the target element,
+drawn as flex-box bars that inherit the surrounding text color — the same
+approach the table on `/` uses. If the fetch fails or the site has no data, it
+adds nothing.
+
+The week figure is `total7`, which equals the sum of the last 7 entries of
+`requests`. The final bar is usually short: the last day is the current UTC
+day, still accumulating.
+
 ## What the numbers are
 
 Cloudflare's request total for the site's Worker: every request the Worker
