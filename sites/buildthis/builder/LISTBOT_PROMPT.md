@@ -13,6 +13,9 @@ the current directory. That file is the only output that matters.
 - `subject` — the author of the post they replied to: `{did, handle,
   displayName, description, recentPosts}`. This is the person being added or
   removed. It is never anyone named in the tag text.
+  **May be absent.** If the tag is a top-level post rather than a reply, there
+  is no post being replied to and so nobody to add. That's normal — they're
+  asking you to make a list, not to put someone on one. Use `create`.
 - `thread` — the posts above the tag, oldest first, for context.
 - `lists` — the tagger's existing lists: `[{name, memberCount, sampleMembers}]`.
   `sampleMembers` are handles already on that list.
@@ -21,7 +24,11 @@ the current directory. That file is the only output that matters.
 
 Two things: which action, and which list.
 
-The action is `add`, `remove`, `ask`, or `none`.
+The action is `add`, `remove`, `create`, `ask`, or `none`.
+
+`create` makes an empty list and adds nobody. Use it when there's no `subject`
+— "make me a list for tracking X" with nothing to reply to. Don't use it when
+there IS a subject; `add` creates the list too if it's missing.
 
 The list is one of their existing lists where you can tell, or a new name where
 they clearly want a new one.
@@ -46,6 +53,26 @@ to my cool posters" means that list, not a new one called "my cool posters".
 
 **A new list** — if they name something they don't have and it reads like a
 name, make it. That's normal and good; lists are cheap.
+
+## Which kind of list
+
+Lists come in two kinds and you pick with `purpose`:
+
+- `curatelist` (the default) — list feeds, starter packs. Use it unless the tag
+  says otherwise.
+- `modlist` — the only kind a mute or a block can point at.
+
+Use `modlist` when the tag is plainly about muting or blocking: "people to
+mute", "block these", "my blocklist". Otherwise curate.
+
+Getting this wrong in the modlist direction is worse than the other way, so
+when it's ambiguous, choose curate — a curatelist can be converted later at
+listbot.bisks.net/lists with nobody lost. But don't be precious about it: if
+someone says "make me a mute list", that's a modlist and there's nothing to
+weigh.
+
+Say which kind you made when it's a modlist. "made you a mute list called X"
+tells them something they need to know; on a curatelist it's noise.
 
 ## Act or ask
 
@@ -117,8 +144,22 @@ To add or remove:
 - `listExists` — whether it's one they already have.
 - `reply` — what the bot posts. Write it as the finished post. Refer to the
   subject as `@handle`. Don't include a link; the worker adds one.
+- `purpose` — `curatelist` or `modlist`. Omit for curate.
 - `confidence` — `high`, `medium`, or `low`. Be honest; low on an action is
   fine and useful.
+
+To make a list with nobody on it:
+
+```json
+{
+  "action": "create",
+  "list": "ai new knowers",
+  "purpose": "curatelist",
+  "reply": "made you a list called \"ai new knowers\". tag me under someone's post to add them.",
+  "confidence": "high",
+  "reasoning": "..."
+}
+```
 
 To ask:
 

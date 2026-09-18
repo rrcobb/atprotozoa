@@ -52,7 +52,9 @@ export interface JobPayload {
   rootCid: string;
   tagText: string;
   tagger: { did: string; handle: string; displayName?: string };
-  subject: JobSubject;
+  // Absent on a top-level tag ("make me a list for X") — no post being replied
+  // to means nobody to add, but the list can still be made.
+  subject?: JobSubject;
   thread: { author: string; text: string }[];
   lists: JobList[];
   outcomeUrl: string;
@@ -147,9 +149,14 @@ export async function claimNextJob(kv: KVNamespace): Promise<QueueJob | null> {
 // instruction. Note there's no subject field: the subject was decided by the
 // Worker when it enqueued the job and the agent cannot change it.
 export interface AgentIntent {
-  action: "add" | "remove" | "ask" | "none" | "failed";
+  // "create" makes an empty list and adds nobody — for a tag with no subject.
+  action: "add" | "remove" | "create" | "ask" | "none" | "failed";
   list?: string;
   listExists?: boolean;
+  // Which kind of list to make. A curatelist (the default) feeds list-feeds and
+  // starter packs; a modlist is what a mute or a block can point at. Both live
+  // in the user's own repo either way — see notes/88.
+  purpose?: "curatelist" | "modlist";
   reply?: string;
   confidence?: "high" | "medium" | "low";
   reasoning?: string;

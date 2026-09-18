@@ -16,10 +16,29 @@ import { dpopFetch, type DpopKey } from "./oauth.js";
 const LIST_NSID = "app.bsky.graph.list";
 const LISTITEM_NSID = "app.bsky.graph.listitem";
 
-// `curatelist` rather than `modlist`: a curation list is the neutral kind. The
-// user can point a mute or block at it in the app, but creating it as a modlist
-// would presume the purpose. See notes/88-listbot.md.
-const CURATE_LIST_PURPOSE = "app.bsky.graph.defs#curatelist";
+// The two kinds of list, and what the difference actually buys.
+//
+// A `curatelist` feeds list-feeds, starter packs and interaction gating. A
+// `modlist` is the one a mute or a block can point at — and note that mute and
+// block are separate records in the SUBSCRIBER's repo (app.bsky.graph.muteActorList
+// and app.bsky.graph.listblock), both pointing at the same list. So one person's
+// blocklist is another person's mute list; the list itself doesn't say which.
+// Mutes are private, blocks are public records.
+//
+// `purpose` gates which of those are available at all: a curatelist can't be
+// muted or blocked. Curate stays the DEFAULT because it presumes least, but a
+// tag that clearly asks for muting or blocking gets a modlist — otherwise the
+// bot quietly makes something that can't do the thing that was asked for.
+//
+// Verified 2026-09-18: purpose can be changed in place with putRecord and the
+// memberships survive, because listitems point at the list URI and the rkey
+// doesn't change. So converting a list later is safe.
+export type ListPurpose = "curatelist" | "modlist";
+const PURPOSE_URI: Record<ListPurpose, string> = {
+  curatelist: "app.bsky.graph.defs#curatelist",
+  modlist: "app.bsky.graph.defs#modlist",
+};
+const CURATE_LIST_PURPOSE = PURPOSE_URI.curatelist;
 
 export interface ActingSession {
   did: string;
@@ -144,11 +163,12 @@ async function createList(
   session: ActingSession,
   name: string,
   nonceRef: { nonce?: string },
+  purpose: ListPurpose = "curatelist",
 ): Promise<RepoRecord<ListValue> | null> {
   const record = {
     $type: LIST_NSID,
     name: name.trim(),
-    purpose: CURATE_LIST_PURPOSE,
+    purpose: PURPOSE_URI[purpose],
     description: "maintained by tagging @listbot.bisks.net",
     createdAt: new Date().toISOString(),
   };
@@ -168,13 +188,14 @@ export async function addToList(
   session: ActingSession,
   listName: string,
   subjectDid: string,
+  purpose: ListPurpose = "curatelist",
 ): Promise<ActionResult> {
   const nonceRef = { nonce: session.dpopNonce };
   try {
     let list = await findList(session, listName, nonceRef);
     let created = false;
     if (!list) {
-      list = await createList(session, listName, nonceRef);
+      list = await createList(session, listName, nonceRef, purpose);
       created = true;
     }
     if (!list) {
@@ -432,6 +453,79 @@ export async function deleteList(
     );
     return r.ok
       ? { ok: true, nonce: nonceRef.nonce }
+      : { ok: false, error: r.error, nonce: nonceRef.nonce };
+  } catch (err) {
+    return { ok: false, error: String((err as Error)?.message ?? err), nonce: nonceRef.nonce };
+  }
+}
+
+// Find-or-create a list, adding nobody. For a tag that asks for a list without
+// naming anyone to put on it — "make me a list for X" — which has no subject
+// because there's no post being replied to.
+export async function ensureList(
+  session: ActingSession,
+  name: string,
+  purpose: ListPurpose = "curatelist",
+): Promise<ActionResult> {
+  const nonceRef = { nonce: session.dpopNonce };
+  try {
+    const existing = await findList(session, name, nonceRef);
+    if (existing) {
+      return {
+        ok: true,
+        alreadyThere: true,
+        listName: existing.value?.name ?? name,
+        listUri: existing.uri,
+        nonce: nonceRef.nonce,
+      };
+    }
+    const made = await createList(session, name, nonceRef, purpose);
+    if (!made) {
+      return { ok: false, error: "couldn't create that list", nonce: nonceRef.nonce };
+    }
+    return {
+      ok: true,
+      created: true,
+      listName: made.value?.name ?? name,
+      listUri: made.uri,
+      nonce: nonceRef.nonce,
+    };
+  } catch (err) {
+    return { ok: false, error: String((err as Error)?.message ?? err), nonce: nonceRef.nonce };
+  }
+}
+
+// Change a list's purpose in place. Verified safe: putRecord keeps the rkey, so
+// the list URI is unchanged and every listitem pointing at it survives.
+export async function setListPurpose(
+  session: ActingSession,
+  rkey: string,
+  purpose: ListPurpose,
+): Promise<ActionResult> {
+  const nonceRef = { nonce: session.dpopNonce };
+  try {
+    const listUri = `at://${session.did}/${LIST_NSID}/${rkey}`;
+    const records = await listRecords<ListValue>(session, LIST_NSID, nonceRef);
+    const current = records.find((r) => r.uri === listUri);
+    if (!current) return { ok: false, error: "no such list", nonce: nonceRef.nonce };
+
+    const r = await xrpc(
+      session,
+      "POST",
+      "com.atproto.repo.putRecord",
+      null,
+      {
+        repo: session.did,
+        collection: LIST_NSID,
+        rkey,
+        // Whole record: putRecord replaces rather than merges, so anything left
+        // out (description, avatar) would be dropped.
+        record: { ...current.value, $type: LIST_NSID, purpose: PURPOSE_URI[purpose] },
+      },
+      nonceRef,
+    );
+    return r.ok
+      ? { ok: true, listName: current.value?.name, listUri, nonce: nonceRef.nonce }
       : { ok: false, error: r.error, nonce: nonceRef.nonce };
   } catch (err) {
     return { ok: false, error: String((err as Error)?.message ?? err), nonce: nonceRef.nonce };

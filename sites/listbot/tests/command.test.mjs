@@ -93,17 +93,49 @@ test("a remove verb with no list name asks for help rather than guessing", () =>
   assert.deepEqual(parse("@listbot.bisks.net remove"), { kind: "help" });
 });
 
-// A sentence is a mis-parse, and creating a list from it would be worse than
-// admitting we didn't understand.
-test("an over-long name is refused rather than made into a list", () => {
-  const long = "x".repeat(65);
-  assert.deepEqual(parse(`@listbot.bisks.net ${long}`), { kind: "none" });
-  assert.deepEqual(parse(`@listbot.bisks.net remove ${long}`), { kind: "none" });
+// A long tag reaches the agent rather than being dropped.
+//
+// This parser used to cap the name at 64 chars and return {kind:"none"} for
+// anything longer — silently, with no reply. That was defensible when the
+// parser WAS the product: a sentence was a mis-parse, and making a list out of
+// it was worse than admitting we hadn't understood.
+//
+// The agent changed what this function is for. Its job now is only to tell a
+// command from a non-command; the agent reads the text and decides the actual
+// name. A tag written in English is exactly what the agent exists for, so
+// dropping it here threw away the good case before anyone could see it.
+//
+// Found the hard way: the first real tag anyone sent was
+// "@listbot can you make me a list to track people who share or comment on ai
+// news? 'ai new knowers'" — perfectly clear, ~100 chars, silently ignored.
+test("a long, sentence-shaped tag reaches the agent instead of being dropped", () => {
+  const real =
+    "@listbot.bisks.net can you make me a list to track people who share or comment on ai news? 'ai new knowers'";
+  const out = parse(real);
+  assert.equal(out.kind, "add");
+  assert.ok(out.listName.length > 64, "the whole sentence is passed along");
+  assert.match(out.listName, /ai new knowers/);
 });
 
-test("a name exactly at the cap is still accepted", () => {
-  const name = "x".repeat(64);
-  assert.deepEqual(parse(`@listbot.bisks.net ${name}`), { kind: "add", listName: name });
+test("a long remove still parses as a remove", () => {
+  const long = "x".repeat(120);
+  assert.deepEqual(parse(`@listbot.bisks.net remove ${long}`), {
+    kind: "remove",
+    listName: long,
+  });
+});
+
+test("the parser passes text through, it doesn't adjudicate names", () => {
+  // Whatever arrives, the parser's answer is a KIND. Judging the name is the
+  // agent's job, and a silent "none" is the one thing this must not do to a
+  // tag that's plainly asking for something.
+  for (const text of [
+    "@listbot.bisks.net x".repeat(1),
+    `@listbot.bisks.net ${"y".repeat(500)}`,
+    "@listbot.bisks.net make me a list of people who post about trains please",
+  ]) {
+    assert.notEqual(parse(text).kind, "none", `should not silently drop: ${text.slice(0, 40)}`);
+  }
 });
 
 test("whitespace and line breaks collapse", () => {

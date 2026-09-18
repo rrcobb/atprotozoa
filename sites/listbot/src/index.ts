@@ -48,6 +48,8 @@ import {
   hydrateMembers,
   deleteListItem,
   deleteList,
+  ensureList,
+  setListPurpose,
   type ActingSession,
   type ListWithMembers,
 } from "./lists.js";
@@ -741,7 +743,13 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
 
   const found = await actingSession(env, m.authorDid);
   if (!found) {
-    await reply(bot, m, `you'll need to sign in first so i can edit your lists: ${env.SITE_URL}`);
+    // The most common first contact: someone saw the bot and tagged it before
+    // signing in. Say what to do and why, in one line.
+    await reply(
+      bot,
+      m,
+      `hi — sign in once at ${env.SITE_URL} and i can edit your lists. i only ever touch your own lists, nobody else's.`,
+    );
     return;
   }
 
@@ -750,18 +758,22 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
     return;
   }
 
-  if (!m.parentUri) {
-    await reply(bot, m, `tag me in a REPLY to someone's post and i'll add that person to your list.`);
-    return;
-  }
-  const subject = await parentAuthor(bot, m.parentUri);
-  if (!subject) {
-    await reply(bot, m, `i couldn't work out whose post that was — try again?`);
-    return;
-  }
-  if (subject.did === m.authorDid) {
-    await reply(bot, m, `that's your own post! tag me under someone else's.`);
-    return;
+  // A tag with no parent post has nobody to add — but it can still be a
+  // perfectly clear instruction ("make me a list for X"). Those go to the agent
+  // with no subject rather than being refused: the first real tag anyone sent
+  // was exactly this, and "tag me in a REPLY" would have been a correct answer
+  // to a question the person didn't ask.
+  let subject: { did: string; handle: string } | null = null;
+  if (m.parentUri) {
+    subject = await parentAuthor(bot, m.parentUri);
+    if (!subject) {
+      await reply(bot, m, `i couldn't work out whose post that was — try again?`);
+      return;
+    }
+    if (subject.did === m.authorDid) {
+      await reply(bot, m, `that's your own post! tag me under someone else's.`);
+      return;
+    }
   }
 
   // Backpressure. listbot rides on the box's idle time — box-poll.sh claims at
@@ -823,8 +835,10 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
     rootCid: m.rootCid,
     tagText: m.text,
     tagger: { did: m.authorDid, handle: found.session.handle },
-    subject: await describeSubject(bot, subject),
-    thread: await threadContext(bot, m.parentUri),
+    // Absent on a top-level tag: there's no post being replied to, so there's
+    // nobody to add. The agent can still make a list.
+    subject: subject ? await describeSubject(bot, subject) : undefined,
+    thread: m.parentUri ? await threadContext(bot, m.parentUri) : [],
     lists: lists.map((l) => ({
       name: l.name,
       memberCount: l.members.length,
@@ -1288,9 +1302,35 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
     return json({ ok: true, did: "not signed in" });
   }
 
+  const purpose = intent.purpose === "modlist" ? "modlist" : "curatelist";
+
+  // "create" makes the list and adds nobody — a top-level tag with no post
+  // being replied to. add/remove need a subject, which the WORKER resolved when
+  // it queued the job; the agent never chose it and can't.
+  if (intent.action === "create" || !job.subject) {
+    const created = await ensureList(found.acting, listName, purpose);
+    if (created.nonce && created.nonce !== found.session.dpopNonce) {
+      await putSession(env.STATE, env.SESSION_ENC_KEY, {
+        ...found.session,
+        dpopNonce: created.nonce,
+      }).catch((err) => console.error(`nonce persist failed: ${err}`));
+    }
+    if (!created.ok) {
+      await reply(bot, mention, `that didn't work, sorry — nothing changed on your lists.`);
+      return json({ ok: true, did: "create failed" });
+    }
+    const kindNote = purpose === "modlist" ? " (a mute/block list)" : "";
+    const link = created.listUri ? `\n${listWebUrl(job.tagger.did, created.listUri)}` : "";
+    const text = created.alreadyThere
+      ? `you've already got "${created.listName}".${link}`
+      : `made you a list called "${created.listName}"${kindNote}. tag me under someone's post to add them.${link}`;
+    await reply(bot, mention, text);
+    return json({ ok: true, did: "created", list: created.listName });
+  }
+
   const result =
     intent.action === "add"
-      ? await addToList(found.acting, listName, job.subject.did)
+      ? await addToList(found.acting, listName, job.subject.did, purpose)
       : await removeFromList(found.acting, listName, job.subject.did);
 
   if (result.nonce && result.nonce !== found.session.dpopNonce) {
@@ -1308,7 +1348,12 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
     : null;
   const text = agentReply
     ? agentReply + (result.listUri ? `\n${listWebUrl(job.tagger.did, result.listUri)}` : "")
-    : replyText(intent.action, result, job.subject.handle, job.tagger.did);
+    : replyText(
+        intent.action === "remove" ? "remove" : "add",
+        result,
+        job.subject.handle,
+        job.tagger.did,
+      );
 
   await reply(bot, mention, text);
   return json({ ok: true, did: intent.action, list: result.listName });
