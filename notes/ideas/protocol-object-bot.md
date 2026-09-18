@@ -183,6 +183,30 @@ app renders it" (solved) through "user's repo, nobody reads it" (needs a
 consumer) to "inherently a service we operate" (unsolved, and maybe
 unsolvable).
 
+Two refinements from whoever builds next, via the listbot build:
+
+**"Owned" and "useful without us" are separate properties, and only the second
+one matters for cost.** What made lists work isn't just that the record sits in
+the user's repo — it's that Bluesky already renders it, so listbot shipped a
+consumer for free. A `net.bisks.*` record has the identical ownership story and
+none of the payoff. When picking an output, ask whether a consumer already
+exists before asking who owns it.
+
+**Ownership decides who adjudicates correctness.** This is the one that
+generalizes furthest. With records in the user's own repo there is nobody for
+the bot to be right *for* — which is what makes "we don't care about wrong
+lists, that's for the owner to determine" true by construction rather than by
+policy. Every other output inherits the opposite: a feed's ranking is ours, so
+its mistakes are ours; a label is our assertion, so its errors are ours to
+defend.
+
+That last line explains the whole 2026-09-17 scoreboard. The labelers died
+because they made claims we'd have to stand behind. The feeds died because we
+computed a ranking nobody asked for (0 and 1 subscribers — see
+`feeds-and-labels.md`). Lists live because the user asserts, the app consumes,
+and nobody has to be right. **The tell for a good output in this family is:
+who owns being wrong?**
+
 ## What tagging it would look like
 
 Riffing on the UX, since it can't just be buildthis's:
