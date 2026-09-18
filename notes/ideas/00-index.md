@@ -162,10 +162,12 @@ per build, a model A/B against Sonnet 5 on cost and quality, and more fluent
 reply text. Each entry there starts from what the code does today. Not
 scheduled.
 
-**7c. Media bots, ranked.** (`media-bots.md`) A YTP hype video bot at the
-top, then animation as its substrate, images, song, feed, explainthis. Nothing
-here posts media today; the note argues for one media path on the box with
-each bot as a template on it.
+**7c. Media bots and lore bots.** (`media-bots.md`) Two substrates that
+don't exist yet, the media path on the box and a lore index over everything
+the bot has done, and the bots as templates on them: screenshots first, then
+explainthis (illuminated posts with every reference glossed), an animation
+bot to prove render-and-upload, and a weekly hype video that people charge
+up by tagging during the week and that fires once, Sunday, with the digest.
 
 **8. Physics-sim / fluoddity-flavored builder.** (`bot-ideas-riff.md`)
 A builder with a narrow taste rather than a general one. Mostly a prompt and
