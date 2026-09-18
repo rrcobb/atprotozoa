@@ -54,6 +54,7 @@ replacement for either. Most files in a site are still copy-and-edit.
 | `handle-typeahead.js` | `sites/didscope` | handle autocomplete, waow.tech first, AppView fallback |
 | `visits.js` | `sites/didscope` | "N visits this week" footer from stats.bisks.net |
 | `microcosm.js` | `sites/listenheimer` | Constellation backlink reads: followers, likers, reposters, quotes, replies, mention count |
+| `oauth-jwt.js` | `sites/alice-meets-bob` | DPoP and PKCE helpers for browser OAuth, Web Crypto only |
 
 `microcosm.js` throws on any failure, so a caller keeps the AppView walk as
 its fallback (`sites/listenheimer/public/lib/likes.js` is the reference). Five
@@ -61,10 +62,11 @@ sites carry an older per-site `constellation.js` with different exports
 (blockcurve, blocksweep, listrank, tacocounter, velvetrope). Those are forks
 by design and are not on the list.
 
-Candidates not yet on the list, each needing a config seam before it can be
-verbatim: `oauth.js` (differs per site by `SCOPE` and `MOUNT`, then drifts in
-behavior), `oauth-jwt.js` (six versions, probably one canonical plus five
-stale), `car.js`, the `/img?u=` avatar proxy in `src/index.ts`.
+`oauth-jwt.js` joined the list on 2026-09-17: its six versions across 66
+sites differed only in the provenance comment, so one sweep made them
+identical. Candidates not yet on the list, each needing a config seam before
+it can be verbatim: `oauth.js` (differs per site by `SCOPE` and `MOUNT`, then
+drifts in behavior), `car.js`, the `/img?u=` avatar proxy in `src/index.ts`.
 
 ## The audit
 

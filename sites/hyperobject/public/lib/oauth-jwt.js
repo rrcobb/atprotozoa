@@ -1,5 +1,9 @@
 // oauth-jwt.js — DPoP proofs (RFC 9449) and PKCE (RFC 7636) primitives.
 //
+// A drop-in (notes/41-drop-ins.md): copy verbatim, never edit the copy. The
+// canonical file is sites/alice-meets-bob/public/lib/oauth-jwt.js; edits go
+// there and are swept with `node audit/drop-ins.mjs --sweep oauth-jwt`.
+//
 // Copied and trimmed from mino.mobi's airchat/oauth/jwt.js (minormobius/agent01),
 // thank you. Theirs runs in a Cloudflare Worker as a *confidential* client; ours
 // runs in the browser as a *public* client, so the client-assertion /

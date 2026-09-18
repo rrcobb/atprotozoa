@@ -28,6 +28,7 @@ export const DROP_INS = {
   "handle-typeahead.js": "sites/didscope/public/lib/handle-typeahead.js",
   "visits.js": "sites/didscope/public/lib/visits.js",
   "microcosm.js": "sites/listenheimer/public/lib/microcosm.js",
+  "oauth-jwt.js": "sites/alice-meets-bob/public/lib/oauth-jwt.js",
 };
 
 const args = process.argv.slice(2);

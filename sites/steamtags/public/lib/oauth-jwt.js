@@ -1,9 +1,15 @@
 // oauth-jwt.js — DPoP proofs (RFC 9449) and PKCE (RFC 7636) primitives.
 //
-// Copied verbatim from sites/docmoot/public/lib/oauth-jwt.js (itself trimmed
-// from mino.mobi's airchat/oauth/jwt.js). Public-client Web Crypto only — no
-// client-assertion / private_key_jwt, a public client authenticates with
-// none.
+// A drop-in (notes/41-drop-ins.md): copy verbatim, never edit the copy. The
+// canonical file is sites/alice-meets-bob/public/lib/oauth-jwt.js; edits go
+// there and are swept with `node audit/drop-ins.mjs --sweep oauth-jwt`.
+//
+// Copied and trimmed from mino.mobi's airchat/oauth/jwt.js (minormobius/agent01),
+// thank you. Theirs runs in a Cloudflare Worker as a *confidential* client; ours
+// runs in the browser as a *public* client, so the client-assertion /
+// private_key_jwt bits are dropped — a public client authenticates with none.
+// Everything here is Web Crypto (crypto.subtle / crypto.getRandomValues), which
+// is identical in the browser and in Workers.
 
 export function base64url(buf) {
   const bytes = new Uint8Array(buf);
