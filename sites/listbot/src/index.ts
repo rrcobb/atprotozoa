@@ -860,6 +860,13 @@ async function parentAuthor(
 async function runWatcher(env: Env): Promise<void> {
   const session = await botLogin(env);
 
+  // DMs, same tick. Best-effort: a chat outage must not stop tags working.
+  try {
+    await runDmWatcher(env, session);
+  } catch (err) {
+    console.error(`dm watcher failed: ${err}`);
+  }
+
   const mentions = await recentMentions(session);
   const tick = await bumpSweepTick(env);
   if (tick % SWEEP_EVERY_N === 0) {
@@ -1471,7 +1478,18 @@ async function postOne(
   return (await res.json()) as { uri: string; cid: string };
 }
 
+// Reply where the request came from.
+//
+// A DM job carries "dm:<convoId>:<messageId>" in place of a post uri, so this
+// is the one place that has to know the difference — every caller just says
+// reply() and the answer goes back down the same channel. Answering a private
+// message with a public post would be its own kind of bug.
 async function reply(bot: BotSession, m: Mention, text: string): Promise<void> {
+  if (m.uri.startsWith("dm:")) {
+    const convoId = m.uri.split(":")[1];
+    if (convoId) await sendDm(bot, convoId, text);
+    return;
+  }
   const parts = splitForPosts(text);
   if (!parts.length) return;
 
@@ -2490,4 +2508,225 @@ export function splitForPosts(text: string, limit = MAX_REPLY_GRAPHEMES): string
   return parts.length > 1
     ? parts.map((p, i) => `${p} ${i + 1}/${parts.length}`)
     : parts;
+}
+
+// --- DMs ---------------------------------------------------------------------
+//
+// The same bot, reached privately. A lot of what people ask for doesn't belong
+// in a public thread: "delete my ceramics list", "who's on people I blocked",
+// "add these six accounts". Tagging works and stays the front door, but a DM is
+// the right place for anything about a list's contents.
+//
+// The chat API is a separate service (api.bsky.chat) reached through a proxy
+// header, but it authenticates with the SAME app-password session the bot
+// already uses — no new credential and no new scope. The bot's
+// chat.bsky.actor.declaration record is set to allowIncoming: "all", without
+// which only accounts it follows could message it.
+//
+// Everything after discovery is shared with tags: the same job, the same agent,
+// the same writes. A DM is a different doorway, not a different bot.
+
+const CHAT_SERVICE = "https://api.bsky.chat";
+const CHAT_PROXY = "did:web:api.bsky.chat#bsky_chat";
+
+// How far back to look in a conversation for context. The agent reads these the
+// way it reads a thread.
+const DM_HISTORY = 10;
+
+async function chatFetch(
+  bot: BotSession,
+  path: string,
+  init?: { method?: string; body?: unknown },
+): Promise<Response> {
+  return fetch(`${CHAT_SERVICE}/xrpc/${path}`, {
+    method: init?.method ?? "GET",
+    headers: {
+      authorization: `Bearer ${bot.accessJwt}`,
+      "atproto-proxy": CHAT_PROXY,
+      ...(init?.body ? { "content-type": "application/json" } : {}),
+    },
+    ...(init?.body ? { body: JSON.stringify(init.body) } : {}),
+  });
+}
+
+interface ChatMessage {
+  id: string;
+  text?: string;
+  sender?: { did?: string };
+  sentAt?: string;
+}
+
+// Conversations with something unread. listConvos reports unreadCount, so this
+// costs one call on a quiet tick.
+async function unreadConvos(
+  bot: BotSession,
+): Promise<{ id: string; memberDid: string; memberHandle: string }[]> {
+  const res = await chatFetch(bot, "chat.bsky.convo.listConvos?limit=20");
+  if (!res.ok) {
+    console.error(`listConvos failed: ${res.status} ${await res.text()}`);
+    return [];
+  }
+  const j = (await res.json()) as {
+    convos?: {
+      id: string;
+      unreadCount?: number;
+      members?: { did: string; handle: string }[];
+    }[];
+  };
+  const out: { id: string; memberDid: string; memberHandle: string }[] = [];
+  for (const c of j.convos ?? []) {
+    if (!c.unreadCount) continue;
+    // A 1:1 conversation has two members; the other one is the person talking.
+    const other = (c.members ?? []).find((m) => m.did !== bot.did);
+    if (!other) continue;
+    out.push({ id: c.id, memberDid: other.did, memberHandle: other.handle });
+  }
+  return out;
+}
+
+async function convoMessages(bot: BotSession, convoId: string): Promise<ChatMessage[]> {
+  const res = await chatFetch(
+    bot,
+    `chat.bsky.convo.getMessages?convoId=${encodeURIComponent(convoId)}&limit=${DM_HISTORY}`,
+  );
+  if (!res.ok) {
+    console.error(`getMessages failed: ${res.status} ${await res.text()}`);
+    return [];
+  }
+  const j = (await res.json()) as { messages?: ChatMessage[] };
+  // Newest first from the API; the agent reads oldest first like a thread.
+  return (j.messages ?? []).slice().reverse();
+}
+
+async function sendDm(bot: BotSession, convoId: string, text: string): Promise<void> {
+  // Same splitting as a reply: a long answer becomes several messages rather
+  // than getting cut off.
+  for (const part of splitForPosts(text)) {
+    const facets = buildFacets(part);
+    const res = await chatFetch(bot, "chat.bsky.convo.sendMessage", {
+      method: "POST",
+      body: {
+        convoId,
+        message: { text: part, ...(facets.length ? { facets } : {}) },
+      },
+    });
+    if (!res.ok) {
+      console.error(`sendMessage failed: ${res.status} ${await res.text()}`);
+      return;
+    }
+  }
+}
+
+async function markRead(bot: BotSession, convoId: string): Promise<void> {
+  const res = await chatFetch(bot, "chat.bsky.convo.updateRead", {
+    method: "POST",
+    body: { convoId },
+  });
+  if (!res.ok) console.error(`updateRead failed: ${res.status}`);
+}
+
+// Handle the unread messages in one conversation.
+//
+// This assembles the same job a tag does and hands it to the same agent. The
+// differences are all in what a DM can't have: no parent post, so no default
+// subject, and no thread — the conversation IS the thread.
+async function handleConvo(
+  env: Env,
+  bot: BotSession,
+  convo: { id: string; memberDid: string; memberHandle: string },
+): Promise<void> {
+  const messages = await convoMessages(bot, convo.id);
+  const theirs = messages.filter((m) => m.sender?.did === convo.memberDid);
+  const latest = theirs[theirs.length - 1];
+  if (!latest?.text?.trim()) {
+    await markRead(bot, convo.id);
+    return;
+  }
+
+  // Keyed on the message id, so the same message can't be acted on twice — the
+  // equivalent of the handled: marker on a tag.
+  const handledKey = `${HANDLED_PREFIX}dm:${latest.id}`;
+  if (await env.STATE.get(handledKey)) {
+    await markRead(bot, convo.id);
+    return;
+  }
+  await env.STATE.put(handledKey, "1", { expirationTtl: HANDLED_TTL });
+
+  const found = await actingSession(env, convo.memberDid);
+  if (!found) {
+    await sendDm(
+      bot,
+      convo.id,
+      `sign up once at ${env.SITE_URL} and i'll build and manage lists for you.`,
+    );
+    await markRead(bot, convo.id);
+    return;
+  }
+
+  const rate = await checkRateLimit(
+    env.STATE,
+    convo.memberDid,
+    parseInt(env.RATE_LIMIT_TAGS ?? "100", 10) || 100,
+    parseInt(env.RATE_LIMIT_WINDOW_MINUTES ?? "60", 10) || 60,
+  );
+  if (!rate.allowed) {
+    await sendDm(bot, convo.id, `that's my limit for the hour — try again in ${rate.resetsInMin}m.`);
+    await markRead(bot, convo.id);
+    return;
+  }
+
+  const { lists } = await readListSummaries(found.acting, APPVIEW).catch(() => ({
+    lists: [] as ListSummary[],
+  }));
+
+  const payload: JobPayload = {
+    kind: "listbot",
+    // The convo id rides in mentionUri so /outcome can find its way back here.
+    // A DM has no post to reply to, so this is an addressing token, not a URI.
+    mentionUri: `dm:${convo.id}:${latest.id}`,
+    mentionCid: "",
+    rootUri: "",
+    rootCid: "",
+    tagText: latest.text,
+    tagger: { did: convo.memberDid, handle: found.session.handle },
+    // No parent post, so no default subject. Everyone has to be named, which
+    // the agent is good at now.
+    subject: undefined,
+    candidates: [],
+    // The conversation reads as the thread.
+    thread: messages
+      .filter((m) => m.text?.trim())
+      .map((m) => {
+        const mine = m.sender?.did === bot.did;
+        return {
+          author: mine ? env.BOT_HANDLE : convo.memberHandle,
+          handle: mine ? env.BOT_HANDLE : convo.memberHandle,
+          did: m.sender?.did ?? "",
+          text: m.text ?? "",
+        };
+      }),
+    follows: await taggerFollows(bot, convo.memberDid),
+    lists: lists.map((l) => ({
+      name: l.name,
+      memberCount: l.memberCount ?? 0,
+      sampleMembers: [],
+    })),
+    outcomeUrl: `${env.SITE_URL}/outcome`,
+  };
+
+  if (!(await enqueueJob(env.STATE, payload))) {
+    await sendDm(bot, convo.id, `something went wrong queueing that, sorry — try again?`);
+  }
+  await markRead(bot, convo.id);
+}
+
+async function runDmWatcher(env: Env, bot: BotSession): Promise<void> {
+  const convos = await unreadConvos(bot);
+  for (const c of convos) {
+    try {
+      await handleConvo(env, bot, c);
+    } catch (err) {
+      console.error(`handling convo ${c.id} failed: ${err}`);
+    }
+  }
 }

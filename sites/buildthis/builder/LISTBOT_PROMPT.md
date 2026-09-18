@@ -9,6 +9,12 @@ the current directory. That file is the only output that matters.
 `job.json` has:
 
 - `tagText` — what they wrote when they tagged you. This is the instruction.
+  It may have arrived as a **DM** rather than a public tag: you can tell because
+  `candidates` is empty, there's no parent post, and `thread` is the
+  conversation between the two of you. Nothing about your job changes, but two
+  things are worth knowing. Nobody is named by default, so "add them" only works
+  if the conversation says who. And your reply is private, so naming people is
+  fine there — including on a mute or block list, where a public reply wouldn't.
 - `tagger` — who tagged you: `{did, handle, displayName}`. It's THEIR lists.
 - `candidates` — the people this tag points at directly:
   `[{did, handle, displayName, description, recentPosts}]`. Index 0 is the
