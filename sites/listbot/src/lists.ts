@@ -595,3 +595,59 @@ export async function setListPurpose(
     return { ok: false, error: String((err as Error)?.message ?? err), nonce: nonceRef.nonce };
   }
 }
+
+// Rename a list, keeping everyone on it.
+//
+// Safe for the same reason setListPurpose is: putRecord replaces the record at
+// the same rkey, so the list URI doesn't change and every listitem pointing at
+// it still resolves. Verified against a live PDS on 2026-09-18.
+export async function renameList(
+  session: ActingSession,
+  rkey: string,
+  newName: string,
+): Promise<ActionResult> {
+  const nonceRef = { nonce: session.dpopNonce };
+  try {
+    const listUri = `at://${session.did}/${LIST_NSID}/${rkey}`;
+    const records = await listRecords<ListValue>(session, LIST_NSID, nonceRef);
+    const current = records.find((r) => r.uri === listUri);
+    if (!current) return { ok: false, error: "no such list", nonce: nonceRef.nonce };
+
+    const r = await xrpc(
+      session,
+      "POST",
+      "com.atproto.repo.putRecord",
+      null,
+      {
+        repo: session.did,
+        collection: LIST_NSID,
+        rkey,
+        // Whole record: putRecord replaces rather than merges, so anything left
+        // out (description, avatar, purpose) would be dropped.
+        record: { ...current.value, $type: LIST_NSID, name: newName.trim() },
+      },
+      nonceRef,
+    );
+    return r.ok
+      ? { ok: true, listName: newName.trim(), listUri, nonce: nonceRef.nonce }
+      : { ok: false, error: r.error, nonce: nonceRef.nonce };
+  } catch (err) {
+    return { ok: false, error: String((err as Error)?.message ?? err), nonce: nonceRef.nonce };
+  }
+}
+
+// Find a list by name and return its rkey — for acting on a list the agent
+// named rather than one the UI passed an rkey for.
+export async function findListRkey(
+  session: ActingSession,
+  name: string,
+): Promise<{ rkey: string; name: string; uri: string } | null> {
+  const nonceRef = { nonce: session.dpopNonce };
+  const found = await findList(session, name, nonceRef);
+  if (!found) return null;
+  return {
+    rkey: found.uri.split("/").pop()!,
+    name: found.value?.name ?? name,
+    uri: found.uri,
+  };
+}

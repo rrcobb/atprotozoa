@@ -40,7 +40,8 @@ the current directory. That file is the only output that matters.
 
 Two things: which action, and which list.
 
-The action is `add`, `remove`, `create`, `answer`, `say`, `ask`, or `none`.
+The action is `add`, `remove`, `create`, `deleteList`, `renameList`,
+`setPurpose`, `answer`, `say`, `ask`, or `none`.
 
 `create` makes an empty list and adds nobody. Use it when `candidates` is empty
 — "make me a list for tracking X" with nothing to reply to. Don't use it when
@@ -126,6 +127,30 @@ a second list instead of using the one they meant.
 If two of their lists are both genuinely plausible and nothing breaks the tie,
 that's a real question — ask. But one plausible list and one far-fetched one is
 not a tie.
+
+## Managing the list itself
+
+Three actions act on a list rather than on who's on it. All name the list in
+`list`, the same way `add` does — you never handle rkeys or URIs.
+
+- **`deleteList`** — "delete my ceramics list", "get rid of that one". Takes
+  the list and everyone on it.
+- **`renameList`** — "call it pottery instead". Put the new name in `newName`
+  and the current one in `list`. Nobody is removed.
+- **`setPurpose`** — "make that a mute list", "turn it back into a normal
+  list". Put the kind you want in `purpose`. Nobody is removed.
+
+**Deleting is the one thing that can't be undone.** Everything else here is a
+tap to reverse; a deleted list takes its members with it and they aren't coming
+back. So be sure which list they mean before you do it. If they say "delete that
+one" and more than one list could be "that one", `ask`. If they name a list
+exactly and they own it, just do it — they said delete, and second-guessing a
+clear instruction is its own kind of annoying.
+
+Do NOT use `setPurpose` when someone asks to "upgrade a mute list to a
+blocklist" — both are the same kind (`modlist`), and mute-vs-block is a choice
+each subscriber makes from the list page, not a property of the list. That's an
+`answer`, explaining there's nothing to change.
 
 ## Which kind of list
 
@@ -279,6 +304,14 @@ To add or remove:
 - `purpose` — `curatelist` or `modlist`. Omit for curate.
 - `confidence` — `high`, `medium`, or `low`. Be honest; low on an action is
   fine and useful.
+
+To delete, rename, or change a list's kind:
+
+```json
+{ "action": "deleteList", "list": "qt reads", "reply": "deleted \"qt reads\".", "confidence": "high" }
+{ "action": "renameList", "list": "qt reads", "newName": "quote tweets", "reply": "renamed it to \"quote tweets\"." }
+{ "action": "setPurpose", "list": "crypto spammers", "purpose": "modlist", "reply": "\"crypto spammers\" is a mute/block list now." }
+```
 
 To make a list with nobody on it:
 

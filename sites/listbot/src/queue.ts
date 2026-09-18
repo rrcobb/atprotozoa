@@ -176,13 +176,15 @@ export async function claimNextJob(kv: KVNamespace): Promise<QueueJob | null> {
 // most tags are exactly one of these, which is why the common case stays flat
 // rather than becoming an array of one.
 export interface IntentStep {
-  action: "add" | "remove" | "create";
+  action: "add" | "remove" | "create" | "deleteList" | "renameList" | "setPurpose";
   subjectIndex?: number;
   subjectHandle?: string;
   subjectHandles?: string[];
   list?: string;
   listExists?: boolean;
   purpose?: "curatelist" | "modlist";
+  // For renameList: what to call it now. `list` still names the list to act on.
+  newName?: string;
 }
 
 export interface AgentIntent {
@@ -190,7 +192,21 @@ export interface AgentIntent {
   // "answer" writes nothing at all: it's a question answered in the thread.
   // "say" is a plain conversational reply — someone addressed the bot without
   // asking for a list operation. "none" is for when nobody is talking TO it.
-  action: "add" | "remove" | "create" | "answer" | "say" | "ask" | "none" | "failed";
+  action:
+    | "add"
+    | "remove"
+    | "create"
+    // Managing the list itself, not its members. The UI could already do these;
+    // the bot couldn't, which meant "delete that list" got a refusal for a
+    // thing listbot plainly knows how to do.
+    | "deleteList"
+    | "renameList"
+    | "setPurpose"
+    | "answer"
+    | "say"
+    | "ask"
+    | "none"
+    | "failed";
   // More than one thing in a single tag: "add them to ceramics and make me a
   // mute list for that other guy". Walked in order by the Worker.
   //
@@ -215,6 +231,8 @@ export interface AgentIntent {
   // starter packs; a modlist is what a mute or a block can point at. Both live
   // in the user's own repo either way — see notes/88.
   purpose?: "curatelist" | "modlist";
+  // For renameList.
+  newName?: string;
   reply?: string;
   confidence?: "high" | "medium" | "low";
   reasoning?: string;

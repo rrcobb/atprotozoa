@@ -50,6 +50,8 @@ import {
   deleteList,
   ensureList,
   setListPurpose,
+  renameList,
+  findListRkey,
   type ActingSession,
   type ListSummary,
   type ListPage,
@@ -2035,7 +2037,9 @@ interface StepContext {
 }
 
 interface StepOutcome {
-  action: "add" | "remove" | "create" | "noop";
+  action: "add" | "remove" | "create" | "deleteList" | "renameList" | "setPurpose" | "noop";
+  // What a renamed list used to be called, so the reply can say both.
+  previousName?: string;
   listName: string;
   listUri?: string;
   // Which kind of list this was. The reply names people on a curation list and
@@ -2140,6 +2144,49 @@ async function runStep(step: IntentStep, ctx: StepContext): Promise<StepOutcome>
     }
   };
 
+  // Managing the list itself rather than who's on it. These act on a list the
+  // agent NAMED, so the rkey is looked up here — the agent never handles rkeys.
+  if (
+    step.action === "deleteList" ||
+    step.action === "renameList" ||
+    step.action === "setPurpose"
+  ) {
+    const target = await findListRkey(found.acting, listName);
+    if (!target) {
+      return { ...base, problem: `you don't have a list called "${listName}"` };
+    }
+
+    if (step.action === "deleteList") {
+      const r = await deleteList(found.acting, target.rkey);
+      await persistNonceFrom(r.nonce);
+      return r.ok
+        ? { ...base, action: "deleteList", listName: target.name }
+        : { ...base, problem: `couldn't delete "${target.name}"` };
+    }
+
+    if (step.action === "renameList") {
+      const newName = (step.newName ?? "").trim();
+      if (!newName) return { ...base, problem: "i didn't catch the new name" };
+      const r = await renameList(found.acting, target.rkey, newName);
+      await persistNonceFrom(r.nonce);
+      return r.ok
+        ? {
+            ...base,
+            action: "renameList",
+            listName: newName,
+            previousName: target.name,
+            listUri: target.uri,
+          }
+        : { ...base, problem: `couldn't rename "${target.name}"` };
+    }
+
+    const r = await setListPurpose(found.acting, target.rkey, purpose);
+    await persistNonceFrom(r.nonce);
+    return r.ok
+      ? { ...base, action: "setPurpose", listName: target.name, purpose, listUri: target.uri }
+      : { ...base, problem: `couldn't change "${target.name}"` };
+  }
+
   // "create" makes the list and adds nobody.
   if (step.action === "create" || !people.length) {
     const created = await ensureList(found.acting, listName, purpose);
@@ -2228,6 +2275,26 @@ function composeReply(outcomes: StepOutcome[], taggerDid: string): string {
       continue;
     }
 
+    if (o.action === "deleteList") {
+      parts.push(`deleted "${o.listName}"`);
+      continue;
+    }
+    if (o.action === "renameList") {
+      parts.push(
+        o.previousName && o.previousName !== o.listName
+          ? `renamed "${o.previousName}" to "${o.listName}"`
+          : `renamed it to "${o.listName}"`,
+      );
+      continue;
+    }
+    if (o.action === "setPurpose") {
+      parts.push(
+        o.purpose === "modlist"
+          ? `"${o.listName}" is a mute/block list now`
+          : `"${o.listName}" is a curation list now`,
+      );
+      continue;
+    }
     if (o.action === "create") {
       parts.push(
         o.alreadyThere
@@ -2299,7 +2366,10 @@ function composeReply(outcomes: StepOutcome[], taggerDid: string): string {
   // push the post over. Eleven spam handles is 271 characters and reads as a
   // wall anyway; "added 11 accounts to X" is both shorter and easier to take
   // in. The list itself is one tap away through the link.
-  const linkable = [...outcomes].reverse().find((o) => o.listUri);
+  // No link to a list that was just deleted — it 404s.
+  const linkable = [...outcomes]
+    .reverse()
+    .find((o) => o.listUri && o.action !== "deleteList");
   const link = linkable?.listUri ? `\n${listWebUrl(taggerDid, linkable.listUri)}` : "";
 
   if (graphemes(text + link).length > MAX_REPLY_GRAPHEMES) {
