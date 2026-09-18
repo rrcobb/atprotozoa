@@ -141,6 +141,9 @@ gets a reply pointing at the site; nothing else happens.
 - `/login`, `/callback` — the OAuth flow.
 - `/client-metadata.json`, `/jwks.json` — the confidential client's identity.
   Public by design: they're how a PDS verifies listbot, not how it authenticates.
+- `/lists` — the signed-in UI: every list in your repo, who's on it, and a
+  remove button per member. Plus delete-a-whole-list. See below.
+- `/lists/remove`, `/lists/delete`, `/logout` — POSTs from that page.
 - `/status.json` — the CORS-open catalog document `notes/ideas/other-bots.md`
   asks every bot here to publish on day one. Says what the service is, whether
   it's `live` or `not-configured`, what it writes and under what scope, and
@@ -149,6 +152,50 @@ gets a reply pointing at the site; nothing else happens.
   point of keeping lists in their own repo.
 - `/.well-known/atproto-did` — handle verification, the HTTP method. Serving it
   costs nothing, but it is **not** what verifies this handle; see below.
+
+## The web UI, and why it exists
+
+The bot acts minutes after a tag, while the user is doing something else.
+Anything that acts on your behalf while you aren't looking needs a place to see
+what it did and undo it. Bluesky's own app can edit these lists — they're
+ordinary records in your repo — but that's a context switch away from where the
+mistake was made, and "go somewhere else and fix it" is a bad worst case.
+
+`/lists` shows every list with its members and a remove button on each. It needs
+**no new permission**: the OAuth grant already covers `listitem` delete, which is
+exactly what the button does.
+
+This also underwrites a product decision. The tag-reading agent is tuned to act
+on decent evidence rather than ask, because a wrong list membership costs one
+tap to fix. That's only true if the one tap exists.
+
+### The browser session
+
+A **separate** thing from the OAuth sessions, and the distinction is the point.
+An OAuth session is standing permission to act on a repo. A browser session is
+one logged-in tab.
+
+The cookie holds a random 256-bit token and **nothing else** — no DID, no
+tokens. The token is a KV key pointing at the DID. So a forged or tampered
+cookie can't name a repo to act on; the worst it can do is fail to resolve.
+
+Deliberately not a signed JWT carrying the DID: that puts the user's identity in
+something the browser holds, and a signing bug becomes an account-takeover bug.
+A lookup table can't be forged, only guessed, and 256 bits doesn't get guessed.
+
+`HttpOnly` so script can't read it, `Secure` so it never crosses plaintext, and
+`SameSite=Lax` — Lax rather than Strict because the OAuth callback is a
+cross-site redirect back into this origin and Strict would drop the cookie on
+exactly that hop. Lax still stops another origin driving a state-changing POST.
+
+A token that doesn't match `^[0-9a-f]{64}$` is refused **before** the KV read, so
+a crafted cookie can't be used to probe or to build a key of its own choosing.
+There's a test on precisely that, asserting KV was never touched.
+
+Signing out drops the browser session only. The OAuth grant stays, because the
+point of the bot is that it keeps working after you close the tab — revoking it
+is something you do in Bluesky's app settings, and the page says so rather than
+offering a button that quietly means something else.
 
 ## The handle is verified by DNS, not by the Worker
 
@@ -174,7 +221,7 @@ Cloudflare item, which is a different credential from the Workers token the
 
 ## Tests
 
-`node audit/run-tests.mjs listbot` — 25 tests, no network.
+`node audit/run-tests.mjs listbot` — 39 tests, no network.
 
 - `tests/command.test.mjs` — the tag parser. The load-bearing case is that other
   people's handles in a tag never become the subject or the list name.
@@ -185,6 +232,8 @@ Cloudflare item, which is a different credential from the Workers token the
   reject); a stored session round-trips, the blob never contains the refresh
   token, the wrong key can't decrypt it, and the same session encrypts
   differently every time.
+- `tests/session.test.mjs` — the browser cookie. The load-bearing case is that a
+  malformed token never reaches KV.
 
 These mirror the source rather than importing it (`src/*.ts` uses Workers
 globals), so an edit to either has to be made in both places deliberately.

@@ -30,10 +30,27 @@ import {
   countSessions,
   putLoginState,
   takeLoginState,
+  createBrowserSession,
+  browserSessionDid,
+  deleteBrowserSession,
+  readCookie,
+  sessionCookie,
+  clearedCookie,
+  COOKIE_NAME,
   type StoredSession,
   type KVNamespace,
 } from "./store.js";
-import { addToList, removeFromList, listWebUrl, type ActingSession } from "./lists.js";
+import {
+  addToList,
+  removeFromList,
+  listWebUrl,
+  readLists,
+  hydrateMembers,
+  deleteListItem,
+  deleteList,
+  type ActingSession,
+  type ListWithMembers,
+} from "./lists.js";
 // .mjs on purpose: it's pure logic with unit tests that import it directly.
 import { parseCommand } from "./command.mjs";
 
@@ -111,6 +128,21 @@ export default {
     }
     if (url.pathname === "/callback") {
       return handleCallback(request, env).catch((err) => errorPage(String(err)));
+    }
+
+    // The signed-in UI: see your lists, take someone off, delete a list. The
+    // undo surface for a bot that acts while you're not looking.
+    if (url.pathname === "/lists") {
+      return handleListsPage(request, env).catch((err) => errorPage(String(err)));
+    }
+    if (url.pathname === "/lists/remove" && request.method === "POST") {
+      return handleRemoveMember(request, env).catch((err) => errorPage(String(err)));
+    }
+    if (url.pathname === "/lists/delete" && request.method === "POST") {
+      return handleDeleteList(request, env).catch((err) => errorPage(String(err)));
+    }
+    if (url.pathname === "/logout" && request.method === "POST") {
+      return handleLogout(request, env);
     }
 
     return env.ASSETS.fetch(request);
@@ -360,7 +392,12 @@ async function handleCallback(request: Request, env: Env): Promise<Response> {
     updatedAt: Date.now(),
   });
 
-  return signedInPage(env, login.handle);
+  // Log the browser in too, so they land on their lists rather than a dead end.
+  const token = await createBrowserSession(env.STATE, tok.sub ?? login.did);
+  return new Response(null, {
+    status: 302,
+    headers: { location: "/lists", "set-cookie": sessionCookie(token) },
+  });
 }
 
 // --- token refresh -----------------------------------------------------------
@@ -810,17 +847,180 @@ function errorPage(message: string): Response {
   return page("couldn't sign in", `<p class="bad">${escapeHtml(message)}</p>`, 400);
 }
 
-function signedInPage(env: Env, handle: string): Response {
-  return page(
-    "signed in",
-    `<p class="good">signed in as <strong>${escapeHtml(handle)}</strong>.</p>
-<p>now reply to any post with <code>@${escapeHtml(env.BOT_HANDLE)} bots</code> — or any list name — and that post's author joins your list. <code>remove bots</code> takes them off.</p>
-<p>your lists: <a href="https://bsky.app/profile/${escapeHtml(handle)}/lists">bsky.app/profile/${escapeHtml(handle)}/lists</a></p>`,
-  );
-}
-
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
   );
+}
+
+// --- the signed-in UI --------------------------------------------------------
+//
+// Why this exists: the bot acts minutes after a tag, while the user is doing
+// something else. Anything that acts on your behalf while you're not looking
+// needs a place to see what it did and undo it — and "go to the Bluesky app and
+// find the list" is a context switch away from where the mistake was made.
+//
+// It needs no new permission. The OAuth grant already covers listitem delete,
+// which is exactly what the remove button does.
+
+// Resolve the browser cookie to a session ready to act, or null.
+async function uiSession(
+  request: Request,
+  env: Env,
+): Promise<{ session: StoredSession; acting: ActingSession } | null> {
+  const did = await browserSessionDid(env.STATE, readCookie(request, COOKIE_NAME));
+  if (!did) return null;
+  return actingSession(env, did);
+}
+
+async function handleListsPage(request: Request, env: Env): Promise<Response> {
+  const found = await uiSession(request, env);
+  if (!found) return signInPrompt(env);
+
+  const { lists, nonce } = await readLists(found.acting);
+  await hydrateMembers(lists, APPVIEW);
+  await persistNonce(env, found.session, nonce);
+
+  const flash = new URL(request.url).searchParams.get("done");
+  return listsPage(env, found.session.handle, lists, flash);
+}
+
+async function handleRemoveMember(request: Request, env: Env): Promise<Response> {
+  const found = await uiSession(request, env);
+  if (!found) return signInPrompt(env);
+
+  const form = await request.formData();
+  const rkey = String(form.get("rkey") ?? "");
+  if (!rkey) return redirect("/lists");
+
+  const result = await deleteListItem(found.acting, rkey);
+  await persistNonce(env, found.session, result.nonce);
+  return redirect(result.ok ? "/lists?done=removed" : "/lists?done=failed");
+}
+
+async function handleDeleteList(request: Request, env: Env): Promise<Response> {
+  const found = await uiSession(request, env);
+  if (!found) return signInPrompt(env);
+
+  const form = await request.formData();
+  const rkey = String(form.get("rkey") ?? "");
+  if (!rkey) return redirect("/lists");
+
+  const result = await deleteList(found.acting, rkey);
+  await persistNonce(env, found.session, result.nonce);
+  return redirect(result.ok ? "/lists?done=deleted" : "/lists?done=failed");
+}
+
+// Signing out drops the browser session only. The OAuth grant stays, because
+// the point of the bot is that it keeps working after you close the tab —
+// revoking it is a thing you do in Bluesky's own app settings, and saying so is
+// better than offering a button that quietly means something else.
+function handleLogout(request: Request, env: Env): Response {
+  const token = readCookie(request, COOKIE_NAME);
+  // Fire-and-forget: the cookie is cleared regardless, so a failed KV delete
+  // leaves an orphan key that expires on its own rather than a logged-in user.
+  void deleteBrowserSession(env.STATE, token);
+  return new Response(null, {
+    status: 302,
+    headers: { location: "/", "set-cookie": clearedCookie() },
+  });
+}
+
+async function persistNonce(
+  env: Env,
+  session: StoredSession,
+  nonce?: string,
+): Promise<void> {
+  if (!nonce || nonce === session.dpopNonce) return;
+  await putSession(env.STATE, env.SESSION_ENC_KEY, { ...session, dpopNonce: nonce }).catch(
+    (err) => console.error(`nonce persist failed: ${err}`),
+  );
+}
+
+function redirect(location: string): Response {
+  return new Response(null, { status: 302, headers: { location } });
+}
+
+function signInPrompt(env: Env): Response {
+  return page(
+    "sign in",
+    `<p>sign in to see and edit your lists.</p>
+<form method="post" action="/login">
+  <input name="handle" placeholder="your.handle" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <button type="submit">sign in</button>
+</form>`,
+  );
+}
+
+const FLASH: Record<string, string> = {
+  removed: "took them off.",
+  deleted: "deleted that list.",
+  failed: "that didn't work — nothing changed.",
+};
+
+function listsPage(
+  env: Env,
+  handle: string,
+  lists: ListWithMembers[],
+  flash: string | null,
+): Response {
+  const note = flash && FLASH[flash]
+    ? `<p class="${flash === "failed" ? "bad" : "good"}">${FLASH[flash]}</p>`
+    : "";
+
+  const body = lists.length
+    ? lists.map((l) => renderList(handle, l)).join("")
+    : `<p>no lists yet. reply to someone's post with <code>@${escapeHtml(env.BOT_HANDLE)} bots</code> — or any name — and they'll land on a list called that.</p>`;
+
+  return page(
+    "your lists",
+    `<p class="who">signed in as <strong>${escapeHtml(handle)}</strong> ·
+      <form method="post" action="/logout" class="inline"><button type="submit" class="linkish">sign out</button></form></p>
+${note}
+${body}
+<p class="fine">these lists live in your own repo. removing someone here deletes the record from it — the same thing <code>remove</code> does when you tag me.</p>`,
+  );
+}
+
+function renderList(ownerHandle: string, l: ListWithMembers): string {
+  const members = l.members.length
+    ? `<ul class="members">${l.members.map(renderMember).join("")}</ul>`
+    : `<p class="empty">nobody on this one yet.</p>`;
+
+  return `<section class="list">
+  <h2>${escapeHtml(l.name)} <span class="count">${l.members.length}</span></h2>
+  <p class="listlinks">
+    <a href="https://bsky.app/profile/${escapeHtml(ownerHandle)}/lists/${escapeHtml(l.rkey)}">open in bluesky</a>
+    <form method="post" action="/lists/delete" class="inline"
+      onsubmit="return confirm('delete the list &quot;${escapeAttr(l.name)}&quot; and all ${l.members.length} of its members?')">
+      <input type="hidden" name="rkey" value="${escapeAttr(l.rkey)}">
+      <button type="submit" class="linkish danger">delete list</button>
+    </form>
+  </p>
+  ${members}
+</section>`;
+}
+
+function renderMember(m: { rkey: string; subjectDid: string; handle?: string; displayName?: string; avatar?: string }): string {
+  const name = m.handle ?? m.subjectDid;
+  const avatar = m.avatar
+    ? `<img src="${escapeAttr(m.avatar)}" alt="" width="32" height="32">`
+    : `<span class="noavatar"></span>`;
+  const display = m.displayName ? `<span class="display">${escapeHtml(m.displayName)}</span>` : "";
+  const profile = m.handle
+    ? `<a href="https://bsky.app/profile/${escapeHtml(m.handle)}">@${escapeHtml(m.handle)}</a>`
+    : `<span class="did">${escapeHtml(m.subjectDid)}</span>`;
+
+  return `<li>
+  ${avatar}
+  <span class="names">${display}${profile}</span>
+  <form method="post" action="/lists/remove" class="inline">
+    <input type="hidden" name="rkey" value="${escapeAttr(m.rkey)}">
+    <button type="submit" class="remove" title="take ${escapeAttr(name)} off this list">remove</button>
+  </form>
+</li>`;
+}
+
+function escapeAttr(s: string): string {
+  return escapeHtml(s).replace(/"/g, "&quot;");
 }

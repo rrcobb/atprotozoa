@@ -192,3 +192,77 @@ export interface KVNamespace {
     cursor?: string;
   }>;
 }
+
+// --- browser sessions, for the web UI ----------------------------------------
+//
+// A SEPARATE thing from the OAuth sessions above, and the distinction matters.
+// An OAuth session is the bot's standing permission to act on a repo; a browser
+// session is one logged-in tab. The cookie holds a random token and NOTHING
+// else — no DID, no tokens — so a forged or tampered cookie can't name a repo
+// to act on. The token is a KV key pointing at the DID, and a token we don't
+// have is simply not logged in.
+//
+// Deliberately NOT a signed JWT carrying the DID: that would put the user's
+// identity in something the browser holds, and a signing bug would become an
+// account-takeover bug. A lookup table can't be forged, only guessed, and 256
+// bits doesn't get guessed.
+
+const BROWSER_PREFIX = "browser:";
+
+// Long enough that people aren't re-authing constantly, short enough that an
+// abandoned session on a shared machine goes away on its own.
+const BROWSER_TTL = 60 * 60 * 24 * 30;
+
+export const COOKIE_NAME = "listbot_session";
+
+export async function createBrowserSession(
+  kv: KVNamespace,
+  did: string,
+): Promise<string> {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const token = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  await kv.put(BROWSER_PREFIX + token, did, { expirationTtl: BROWSER_TTL });
+  return token;
+}
+
+export async function browserSessionDid(
+  kv: KVNamespace,
+  token: string | null,
+): Promise<string | null> {
+  if (!token) return null;
+  // Guard the KV read: a token shaped wrong is a bad request, not a lookup.
+  if (!/^[0-9a-f]{64}$/.test(token)) return null;
+  return (await kv.get(BROWSER_PREFIX + token)) ?? null;
+}
+
+export async function deleteBrowserSession(
+  kv: KVNamespace,
+  token: string | null,
+): Promise<void> {
+  if (!token || !/^[0-9a-f]{64}$/.test(token)) return;
+  await kv.delete(BROWSER_PREFIX + token);
+}
+
+export function readCookie(request: Request, name: string): string | null {
+  const header = request.headers.get("cookie");
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    if (part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim();
+  }
+  return null;
+}
+
+// HttpOnly so script can't read it, Secure so it never crosses plaintext, and
+// SameSite=Lax so another origin can't drive a state-changing POST with the
+// user's cookie attached. Lax rather than Strict because the OAuth callback is
+// a cross-site redirect back into this origin and Strict would drop the cookie
+// on exactly that hop.
+export function sessionCookie(token: string): string {
+  return `${COOKIE_NAME}=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${BROWSER_TTL}`;
+}
+
+export function clearedCookie(): string {
+  return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
+}
