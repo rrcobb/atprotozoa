@@ -1,4 +1,4 @@
-import { findFirst } from "/lib/search.js";
+import { findFirst } from "./lib/search.js";
 
 const els = {
   form: document.getElementById("form"),
