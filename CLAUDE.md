@@ -66,6 +66,7 @@ Read from the notes if you have a question about how things work.
 - `atproto-surface-map.md`
 - `beyond-buildthis.md`
 - `bot-ideas-riff.md`
+- `buildthis-next.md`
 - `feeds-and-labels.md`
 - `labeler-candidates.md`
 - `labeler-landscape.md`

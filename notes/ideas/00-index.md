@@ -156,6 +156,12 @@ template (declaration record, optional endpoint, optional DID, some logic) —
 a form with slots, which suits automation better than buildthis's
 fresh-design-per-build. Three of four need no forbidden secret.
 
+**7b. Five buildthis threads from Rob, 2026-09-17.** (`buildthis-next.md`)
+Images in replies and generated images, an explainthis bot, an effort level
+per build, a model A/B against Sonnet 5 on cost and quality, and more fluent
+reply text. Each entry there starts from what the code does today. Not
+scheduled.
+
 **8. Physics-sim / fluoddity-flavored builder.** (`bot-ideas-riff.md`)
 A builder with a narrow taste rather than a general one. Mostly a prompt and
 reference-material change, which makes it a cheap real experiment. The repo's
