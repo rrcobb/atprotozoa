@@ -110,8 +110,25 @@ page can't put words in the bot's mouth.
 - It does not check OG images or OAuth metadata. Both would fit the two-fetch
   budget if a site class starts breaking that way.
 
-## Not yet wired
+## Wired into the box build
 
-`box-build.sh`'s post-deploy liveness check is root-only and runs from the
-Hetzner box. Calling `/check?name=<builtName>` instead would give the build a
-real off-zone verdict, including the asset check, before it replies "built it".
+After `box-build.sh`'s root poll confirms a site is serving, it calls
+`/check?name=<builtName>` once and passes the returned `problems` to
+`reply.mjs` as `ASSET_PROBLEMS`. A non-empty list demotes the reply from
+"built it 🎉 / (it's live)" to "built it — heads up: it's up but not serving
+right", in the same protected paragraph the stale and dead caveats use. The
+list is also recorded on the outcome as `assetProblems`.
+
+The root poll alone passes the failure that broke 110 sites at once — an asset
+served as `text/html` — because the root itself was 200 throughout. This check
+is the one that sees it.
+
+Advisory, never blocking: a watchtower that's unreachable, slow, or that
+doesn't know the site yet leaves `ASSET_PROBLEMS` empty, and the reply reads
+exactly as it did before. It only runs on a verified root, since a stale or
+dead URL is already worse news than a broken asset.
+
+One call at reply time, not a second delayed one. The cron probes sites that
+just appeared on the gallery first (above), so a fresh site is re-checked
+within minutes regardless, and a real break posts its own in-thread alert. A
+delayed second poll would hold the box open to duplicate that.

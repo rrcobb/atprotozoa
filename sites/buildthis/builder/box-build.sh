@@ -627,6 +627,45 @@ if { [ "$DISPOSITION" = "success" ] || [ "$DISPOSITION" = "partial" ]; } && [ -n
   fi
 fi
 
+# Asset check, once, after the root verify passed. The root fetch alone can't see
+# the failure class that broke 110 sites at once: an asset served as text/html
+# (the trailing-slash prefix strip). The root was 200 the whole time. watchtower
+# does the two-fetch check per site from OFF-zone and will answer for one site on
+# demand, so ask it rather than reimplement the check here.
+#
+# Advisory only. A watchtower that's down, slow, or doesn't know the site yet is
+# no information, not a failure — ASSET_PROBLEMS stays empty and the reply reads
+# exactly as it does today. Never gate the reply on this call.
+#
+# Only runs on a verified root: on stale/dead the reply already leads with worse
+# news, and an asset caveat on top would just muddy it.
+#
+# One call at reply time is enough. watchtower's own cron probes sites that just
+# appeared on the gallery FIRST (notes/85), so a fresh site gets re-checked within
+# minutes anyway, and a real break alerts in-thread from watchtower itself. A
+# second delayed poll here would hold the box open for minutes to duplicate that.
+ASSET_PROBLEMS=""
+if [ "$LIVE_STATUS" = "verified" ] && [ -n "$BUILT_NAME" ]; then
+  echo "=== asset check (watchtower): $BUILT_NAME ==="
+  WT_FILE="$(mktemp /tmp/buildthis-wt.XXXXXX)"
+  # /check runs a real probe inline, so allow more than the root poll's 8s.
+  WT_CODE="$(curl -s -o "$WT_FILE" -w '%{http_code}' --max-time 25 \
+    "https://atprotozoa-watchtower.rwcobbjr.workers.dev/check?name=${BUILT_NAME}" 2>/dev/null || echo 000)"
+  if [ "$WT_CODE" = "200" ]; then
+    # .problems is a string array, empty when the site is serving correctly.
+    ASSET_PROBLEMS="$(jq -r '(.problems // []) | join("; ")' < "$WT_FILE" 2>/dev/null || echo "")"
+    if [ -n "$ASSET_PROBLEMS" ]; then
+      echo "  watchtower reports problems: $ASSET_PROBLEMS"
+    else
+      echo "  watchtower: serving correctly (root + asset)"
+    fi
+  else
+    # 404 = not on the gallery yet, anything else = unreachable. Either way: no info.
+    echo "  watchtower unreachable or site unknown (http $WT_CODE) — no extra info"
+  fi
+  rm -f "$WT_FILE"
+fi
+
 echo "=== build rc=$BUILD_RC name='${BUILT_NAME}' (result='${BUILD_RESULT}' derived='${DERIVED_NAME}') note?=$([ -n "$BUILD_NOTE" ] && echo y || echo n) pushed=$PUSHED live=${LIVE_STATUS:-n/a} disp=$DISPOSITION attempt=$ATTEMPT/$MAX_ATTEMPTS requeue=$REQUEUE ==="
 
 # When we're going to retry silently, don't post to the thread — a requeue isn't a
@@ -657,6 +696,7 @@ BUILD_OK="$BUILD_OK" BUILD_RESULT="$BUILT_NAME" BUILD_NOTE="$BUILD_NOTE" BUILD_E
   DISPOSITION="$DISPOSITION" REQUEUE="$REQUEUE" REPLY_SKIP="$REPLY_SKIP" \
   ATTEMPT="$ATTEMPT" MAX_ATTEMPTS="$MAX_ATTEMPTS" \
   LIVE_VERIFIED="$LIVE_VERIFIED" LIVE_STATUS="$LIVE_STATUS" \
+  ASSET_PROBLEMS="$ASSET_PROBLEMS" \
   BOT_IDENTIFIER="${BOT_IDENTIFIER}" BOT_APP_PASSWORD="${BOT_APP_PASSWORD}" \
   REPLY_ROOT_URI="${REPLY_ROOT_URI}" REPLY_ROOT_CID="${REPLY_ROOT_CID}" \
   REPLY_PARENT_URI="${REPLY_PARENT_URI}" REPLY_PARENT_CID="${REPLY_PARENT_CID}" \

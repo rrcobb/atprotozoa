@@ -23,6 +23,11 @@
 //                     or "dead" (never served). Picks the reply's caveat, so the
 //                     bot stops saying "give the deploy a minute" when it knows
 //                     better. Empty for non-shipping dispositions.
+//   ASSET_PROBLEMS -> what watchtower said when asked about this site right after
+//                     a verified root ("/check?name="). Non-empty means the page
+//                     loads but something a root fetch can't see is wrong — an
+//                     asset served as HTML, say. Advisory: empty also means the
+//                     call failed or wasn't made, and the reply reads as before.
 //   MENTION_URI    -> the tagging post's uri; keys the event-log outcome POST
 //                     AND the request record's rkey (see request-record.mjs)
 //   BRIEF, AUTHOR  -> the request text and the requester's handle, for the
@@ -115,6 +120,12 @@ async function main() {
   const note = (process.env.BUILD_NOTE || "").trim();
   const partial = (process.env.BUILD_ERROR || "").trim() === "partial";
   const liveStatus = (process.env.LIVE_STATUS || "").trim();
+  // watchtower's off-zone verdict for this site, asked once after the root verify
+  // passed (box-build.sh). Non-empty means it fetched the site and found something
+  // wrong that a root fetch can't see — an asset coming back as HTML is the one
+  // that broke 110 sites at once. Empty covers both "checked, fine" and "couldn't
+  // reach watchtower": the check is advisory, so no answer changes nothing.
+  const assetProblems = (process.env.ASSET_PROBLEMS || "").trim();
 
   let text;
   const url = siteUrl(result); // the built-site URL, if any, so we can link-facet it
@@ -140,9 +151,19 @@ async function main() {
     // a user means re-tagging.
     // Joined to the headline with a SINGLE newline, so it stays inside the tail's
     // protected first paragraph rather than becoming a sheddable one of its own.
+    // A verified root plus watchtower problems is its own case: the page loads, so
+    // "i couldn't get that url to load" would be wrong, but the site is visibly
+    // broken to anyone who opens it. Say what's true — it shipped, it's not working
+    // — in the same protected paragraph the stale/dead caveats use, and with the
+    // same action: another push, which for the user means re-tagging. The specific
+    // problem strings are watchtower's own words about the fetch, not site content,
+    // so they're safe to omit here; the thread gets the detail from watchtower's
+    // own alert if the break is real.
     const caveat =
       liveStatus === "verified"
-        ? ""
+        ? assetProblems
+          ? `\nheads up: it's up but not serving right — looks like its assets are broken. tag me and i'll push a fix.`
+          : ""
         : liveStatus === "stale"
           ? `\nheads up: the deploy didn't land — that link is still the old version. tag me and i'll push it again.`
           : `\nheads up: i couldn't get that url to load after building it. tag me and i'll take another run at it.`;
@@ -156,7 +177,10 @@ async function main() {
     // finished build — worse than the truncation this whole change is fixing.
     // "not fully done; tag me here" is predictable boilerplate and sits in the
     // second paragraph, which is what gets dropped under pressure.
-    const shipped = liveStatus === "verified";
+    // "shipped" gates the celebration AND the "(it's live)" line. Broken assets
+    // disqualify a build from both for the same reason a dead url does: the user
+    // opens it and it doesn't work. The caveat above carries the news instead.
+    const shipped = liveStatus === "verified" && !assetProblems;
     const headline = partial
       ? `got a first pass up${shipped ? " 🚧" : ""} — ${url}`
       : `built it${shipped ? " 🎉" : ""} — ${url}`;
@@ -244,7 +268,7 @@ async function main() {
   // the outcome so /health and the timeline can flag a build that pushed but never
   // came up (a broken deploy) vs. one verified live.
   const liveVerified = process.env.LIVE_VERIFIED === "true";
-  await reportOutcome({ ok, result, url, text, requeue, posted: !skipReply, liveVerified, liveStatus, partial });
+  await reportOutcome({ ok, result, url, text, requeue, posted: !skipReply, liveVerified, liveStatus, partial, assetProblems });
 }
 
 // Count graphemes, not UTF-16 code units — Bluesky's 300 limit is graphemes, so
@@ -340,7 +364,7 @@ function fitToLimit(head, tail, limit, minHead = 0) {
 // a log line) if the endpoint or secret isn't configured, so an unconfigured or
 // briefly-down log sink never fails the build. Non-2xx and network errors are
 // logged and swallowed for the same reason.
-async function reportOutcome({ ok, result, url, text, requeue = false, posted = true, liveVerified = false, liveStatus = "", partial = false }) {
+async function reportOutcome({ ok, result, url, text, requeue = false, posted = true, liveVerified = false, liveStatus = "", partial = false, assetProblems = "" }) {
   const endpoint = process.env.OUTCOME_URL;
   const secret = process.env.OUTCOME_SECRET;
   const mentionUri = process.env.MENTION_URI;
@@ -376,6 +400,10 @@ async function reportOutcome({ ok, result, url, text, requeue = false, posted = 
     liveStatus: liveStatus || undefined,
     // Unfinished-but-live: a first pass shipped, continuable by re-tagging.
     partial: partial || undefined,
+    // What watchtower found wrong when asked about this site right after the
+    // deploy — a root fetch can pass while an asset serves as HTML. Absent means
+    // either clean or not asked; the check is advisory and never blocks the reply.
+    assetProblems: assetProblems || undefined,
   };
   try {
     const res = await fetch(endpoint, {

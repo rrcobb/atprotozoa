@@ -125,6 +125,15 @@ disposition — success links the live URL, a partial invites a re-tag, a failur
 says so honestly. Automatic; no human in the loop. See `notes/90` for how
 disposition is decided and when a job requeues instead of replying.
 
+The celebration is earned, not assumed. "built it 🎉" and "(it's live)" only go
+out when the box confirmed the URL serves (and, on an edit, serves new bytes)
+AND watchtower's `/check?name=` came back without problems. Anything else drops
+the emoji and adds a one-line caveat saying what's actually wrong — the deploy
+didn't land, the URL never came up, or it's up but its assets aren't serving —
+each ending in the same ask, since the fix is another push and the user's way to
+trigger one is a re-tag. The asset case is the one a root fetch can't see; see
+`notes/85`.
+
 ### 5. The request record
 
 Every build also writes one `net.bisks.buildthis.request` record into the bot's
