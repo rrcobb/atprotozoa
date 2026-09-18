@@ -37,6 +37,8 @@ function mentionsUs(rec) {
   );
 }
 
+const MAX_EXCHANGE_HOPS = 6;
+
 // `parents` stands in for the AppView lookup of a post's own parent.
 async function addressedToUs(n, parents) {
   const rec = n.record ?? {};
@@ -46,8 +48,16 @@ async function addressedToUs(n, parents) {
   const parent = rec.reply?.parent?.uri;
   if (isOurs(parent)) return true;
   if (!parent) return false;
-  if (!parent.includes(`/${n.author.did}/`)) return false;
-  return isOurs(parents[parent]);
+
+  // Walk up the unbroken run of this author's own posts; the first post that
+  // isn't theirs ends it, and whether THAT one is ours decides.
+  let cursor = parent;
+  for (let hop = 0; hop < MAX_EXCHANGE_HOPS; hop++) {
+    if (!cursor) return false;
+    if (!cursor.includes(`/${n.author.did}/`)) return isOurs(cursor);
+    cursor = parents[cursor];
+  }
+  return false;
 }
 
 const reply = (author, parentUri, opts = {}) => ({
@@ -85,6 +95,49 @@ test("two other people talking in a thread the bot spoke in is not addressed to 
 test("someone replying to a third party is not addressed to it", async () => {
   const n = reply(ROB, post(OTHER, "someonespost"));
   assert.equal(await addressedToUs(n, {}), false);
+});
+
+test("a run of your own posts stays addressed to it however deep", async () => {
+  // The case the old one-level version got wrong: it stopped listening at the
+  // third message. A conversation doesn't stop at a fixed depth.
+  const first = post(ROB, "first");
+  const second = post(ROB, "second");
+  const third = post(ROB, "third");
+  const parents = {
+    [first]: post(BOT, "botpost"),
+    [second]: first,
+    [third]: second,
+  };
+  // Replying to your own fourth message, four deep from the bot's post.
+  const n = reply(ROB, third);
+  assert.equal(await addressedToUs(n, parents), true);
+});
+
+test("someone else speaking ends the run", async () => {
+  // The other direction the old version got wrong. Rob talked to the bot early,
+  // then someone else replied, and the conversation moved on. A later
+  // follow-up isn't the bot's to answer even though the bot is up the thread.
+  const mine = post(ROB, "mine");
+  const interruption = post(OTHER, "interruption");
+  const parents = {
+    [mine]: interruption,
+    [interruption]: post(BOT, "botpost"),
+  };
+  const n = reply(ROB, mine);
+  assert.equal(await addressedToUs(n, parents), false);
+});
+
+test("a run deeper than the hop limit gives up rather than looping", async () => {
+  // Runaway guard. Each hop is an API call.
+  const parents = {};
+  let prev = post(ROB, "p0");
+  for (let i = 1; i <= 20; i++) {
+    const cur = post(ROB, `p${i}`);
+    parents[cur] = prev;
+    prev = cur;
+  }
+  const n = reply(ROB, prev);
+  assert.equal(await addressedToUs(n, parents), false);
 });
 
 test("your own follow-up is NOT addressed to it if the exchange wasn't with the bot", async () => {
@@ -137,5 +190,22 @@ test("a like or follow notification is never a tag", async () => {
 
 test("a reply with no parent at all is not addressed to it", async () => {
   const n = { reason: "reply", author: { did: ROB }, record: { text: "hi" } };
+  assert.equal(await addressedToUs(n, {}), false);
+});
+
+test("the bot speaking mid-run keeps it addressed", async () => {
+  // A real back-and-forth alternates. Rob, bot, Rob, bot, Rob — the walk hits
+  // the bot's post and that's the answer, not an interruption.
+  const mine = post(ROB, "mine");
+  const parents = { [mine]: post(BOT, "botreply") };
+  const n = reply(ROB, mine);
+  assert.equal(await addressedToUs(n, parents), true);
+});
+
+test("a run that walks off the top of the thread isn't addressed to it", async () => {
+  // The first post in a thread has no parent. Walking past it must terminate
+  // rather than treat undefined as a match.
+  const mine = post(ROB, "mine");
+  const n = reply(ROB, mine);
   assert.equal(await addressedToUs(n, {}), false);
 });

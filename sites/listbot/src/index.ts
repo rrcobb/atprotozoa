@@ -665,11 +665,29 @@ async function recentMentions(session: BotSession): Promise<Mention[]> {
     if (isOurs(parent)) return true;
     if (!parent) return false;
 
-    // Their own follow-up to their own message: still theirs to us, provided
-    // the message before it was in this exchange with the bot.
-    if (!parent.includes(`/${n.author.did}/`)) return false;
-    const grandparent = await parentOfPost(session, parent);
-    return isOurs(grandparent);
+    // A run of their own posts that began by addressing us.
+    //
+    // Walk up while the posts are still theirs, and ask whether the thing the
+    // run started from was ours. Someone talking to us doesn't re-@ on every
+    // message and doesn't always reply to our post directly — they reply to
+    // their own last one, three or four deep.
+    //
+    // Stopping at the first post that ISN'T theirs is what keeps this from
+    // over-firing: the moment anyone else speaks, the exchange has moved on and
+    // a later reply isn't ours to answer.
+    //
+    // This replaces a fixed one-level lookup, which was wrong both ways — it
+    // stopped listening at the third message in a conversation, and "the post
+    // two above is ours" isn't the same question as "is this run still with
+    // us".
+    let cursor: string | undefined = parent;
+    for (let hop = 0; hop < MAX_EXCHANGE_HOPS; hop++) {
+      if (!cursor) return false;
+      // Someone else's post ends the run. If it's ours the run was with us.
+      if (!cursor.includes(`/${n.author.did}/`)) return isOurs(cursor);
+      cursor = await parentOfPost(session, cursor);
+    }
+    return false;
   };
 
   const out: typeof j.notifications = [];
@@ -699,6 +717,12 @@ async function recentMentions(session: BotSession): Promise<Mention[]> {
       };
     });
 }
+
+// How far up a run of someone's own posts to walk before giving up. Each hop is
+// one AppView call and only happens when the cheap checks miss, so this is a
+// runaway guard rather than a budget — a conversation deeper than this is rare
+// and the tagger can always @ the bot again.
+const MAX_EXCHANGE_HOPS = 6;
 
 // The URI a post was replying to. One AppView call, used only when deciding
 // whether someone's follow-up to their own message is still part of an exchange
