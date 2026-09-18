@@ -571,6 +571,10 @@ interface Mention {
   rootCid: string;
   parentUri?: string;
   indexedAt?: string;
+  // The at:// uri of a post this tag QUOTES, if any. A quote is often the whole
+  // referent — "add this person" means the quoted author, and the quoted text
+  // is usually how you tell which list.
+  quotedUri?: string;
   // Everyone the TAGGER mentioned in this tag, bot excluded, as DIDs.
   //
   // From the post's facets, not from the text: Bluesky resolved these handles
@@ -585,6 +589,7 @@ interface Mention {
 
 interface PostRecord {
   text?: string;
+  embed?: unknown;
   reply?: { root?: { uri: string; cid: string }; parent?: { uri: string; cid: string } };
   facets?: { features?: { $type?: string; did?: string }[] }[];
 }
@@ -714,6 +719,7 @@ async function recentMentions(session: BotSession): Promise<Mention[]> {
         parentUri: rec.reply?.parent?.uri,
         indexedAt: n.indexedAt,
         mentionedDids: mentionedDids(rec, session.did),
+        quotedUri: quotedUri(rec),
       };
     });
 }
@@ -801,6 +807,7 @@ async function searchMentionSweep(session: BotSession, env: Env): Promise<Mentio
       parentUri: rec.reply?.parent?.uri,
       indexedAt: p.indexedAt,
       mentionedDids: mentionedDids(rec, session.did),
+      quotedUri: quotedUri(rec),
     };
   });
 }
@@ -989,6 +996,10 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
   const { lists } = await readListSummaries(found.acting, APPVIEW).catch(() => ({
     lists: [] as ListSummary[],
   }));
+
+  // The post this tag quotes, if any. Both halves matter: the author is usually
+  // who to add, the text is usually how you tell which list.
+  const quoted = await quotedPost(bot, m.quotedUri);
   const payload: JobPayload = {
     kind: "listbot",
     mentionUri: m.uri,
@@ -1003,8 +1014,27 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
     // Everyone this tag may add, in order. The parent author is index 0 when
     // there is one, so an agent that says nothing about who gets the same
     // person it always did.
-    candidates: await describeCandidates(bot, subject, m.mentionedDids ?? []),
-    thread: m.parentUri ? await threadContext(bot, m.parentUri) : [],
+    candidates: await describeCandidates(
+      bot,
+      subject,
+      m.mentionedDids ?? [],
+      quoted?.did,
+    ),
+    // The thread above the tag, plus the post it quotes if it quotes one. A
+    // quote is context in exactly the way a parent post is — often more so,
+    // since quoting something and saying "add this person" makes the quoted
+    // post the whole referent.
+    thread: [
+      ...(m.parentUri ? await threadContext(bot, m.parentUri) : []),
+      ...(quoted
+        ? [{
+            author: quoted.handle,
+            handle: quoted.handle,
+            did: quoted.did,
+            text: `[quoted post] ${quoted.text}`,
+          }]
+        : []),
+    ],
     // Who the tagger follows — the set that makes "add fleetingbits" resolvable.
     follows: await taggerFollows(bot, m.authorDid),
     lists: lists.map((l) => ({
@@ -1038,9 +1068,15 @@ async function describeCandidates(
   bot: BotSession,
   parentAuthor: { did: string; handle: string } | null,
   mentioned: string[],
+  quotedDid?: string,
 ): Promise<JobSubject[]> {
   const dids: { did: string; handle: string }[] = [];
   if (parentAuthor) dids.push(parentAuthor);
+  // The author of a quoted post. "@listbot add this person" while quoting
+  // someone means them, and before this they weren't reachable at all.
+  if (quotedDid && !dids.some((d) => d.did === quotedDid)) {
+    dids.push({ did: quotedDid, handle: quotedDid });
+  }
   for (const did of mentioned) {
     if (!dids.some((d) => d.did === did)) dids.push({ did, handle: did });
   }
@@ -1118,11 +1154,15 @@ async function threadContext(
     let node: ThreadNode | undefined = j.thread;
     while (node?.post) {
       const handle = node.post.author?.handle ?? "someone";
+      // Embeds appended to the text, so a quoted post, an image's alt text or a
+      // link card is visible to the agent rather than silently missing.
+      const described = describeEmbed(node.post.embed);
+      const text = [node.post.record?.text ?? "", ...described].filter(Boolean).join("\n");
       chain.push({
         author: handle,
         handle,
         did: node.post.author?.did ?? "",
-        text: node.post.record?.text ?? "",
+        text,
       });
       node = node.parent;
       if (chain.length >= 10) break;
@@ -1223,8 +1263,119 @@ async function resolvePerson(
 }
 
 interface ThreadNode {
-  post?: { author?: { handle?: string; did?: string }; record?: { text?: string } };
+  post?: {
+    author?: { handle?: string; did?: string };
+    record?: { text?: string };
+    // The HYDRATED embed view. Embeds are only reachable here, never on
+    // `record` — buildthis learned this the hard way and says so at its own
+    // getPostThread call. listbot read only `record.text`, so a tag that quoted
+    // someone arrived with the quote invisible: "@listbot can you add colin to
+    // the ai news list" quoting Colin's post got back "which colin? there's no
+    // thread to go on", which was true of what the agent could see.
+    embed?: EmbedView;
+  };
   parent?: ThreadNode;
+}
+
+interface EmbedView {
+  $type?: string;
+  images?: { alt?: string }[];
+  alt?: string;
+  external?: { uri?: string; title?: string; description?: string };
+  record?: QuotedRecord & { record?: QuotedRecord };
+  media?: EmbedView;
+}
+
+interface QuotedRecord {
+  uri?: string;
+  author?: { handle?: string; did?: string };
+  value?: { text?: string };
+}
+
+// Describe an embed as bracketed lines, so the agent sees what a reader sees.
+// Copied from buildthis's describeEmbed (see sites/buildthis/src/index.ts),
+// which handles the shapes that actually turn up: images, link cards, quote
+// posts, and a quote carrying media.
+function describeEmbed(embed: EmbedView | undefined, depth = 0): string[] {
+  if (!embed || depth > 1) return [];
+  const t = embed.$type ?? "";
+  const out: string[] = [];
+
+  if (t.startsWith("app.bsky.embed.images")) {
+    for (const img of embed.images ?? []) {
+      const alt = (img.alt ?? "").trim();
+      out.push(alt ? `[image, alt text: ${alt}]` : `[image, no alt text]`);
+    }
+  } else if (t.startsWith("app.bsky.embed.video")) {
+    const alt = (embed.alt ?? "").trim();
+    out.push(alt ? `[video, alt text: ${alt}]` : `[video, no alt text]`);
+  } else if (t.startsWith("app.bsky.embed.external")) {
+    const e = embed.external;
+    if (e?.uri) {
+      const bits = [e.title, e.description].map((x) => (x ?? "").trim()).filter(Boolean);
+      out.push(`[link: ${e.uri}${bits.length ? ` — ${bits.join(" — ")}` : ""}]`);
+    }
+  } else if (t.startsWith("app.bsky.embed.record")) {
+    const rec = embed.record?.record ?? embed.record;
+    const handle = rec?.author?.handle;
+    const text = (rec?.value?.text ?? "").trim();
+    if (handle || text) {
+      out.push(`[quoting @${handle ?? "someone"}: ${text}]`);
+    }
+    out.push(...describeEmbed(embed.media, depth + 1));
+  }
+  return out;
+}
+
+// The post a tag quotes: who wrote it, and what it says.
+//
+// Both matter, and for different reasons. The AUTHOR is usually the person to
+// add — quoting someone and saying "add colin" means them. The TEXT is usually
+// how you tell which list — quoting a post about ceramics and saying "add this
+// person" says everything about where they go.
+//
+// The raw record on a notification carries neither: an app.bsky.embed.record is
+// just a uri and a cid. So the quoted post is fetched. One call, only when the
+// tag actually quotes something.
+async function quotedPost(
+  bot: BotSession,
+  embedUri: string | undefined,
+): Promise<{ did: string; handle: string; text: string } | null> {
+  if (!embedUri) return null;
+  try {
+    const u = new URL(`${APPVIEW}/xrpc/app.bsky.feed.getPosts`);
+    u.searchParams.set("uris", embedUri);
+    const res = await fetch(u.toString(), {
+      headers: { authorization: `Bearer ${bot.accessJwt}` },
+    });
+    if (!res.ok) return null;
+    const j = (await res.json()) as {
+      posts?: {
+        author?: { did?: string; handle?: string };
+        record?: { text?: string };
+        embed?: EmbedView;
+      }[];
+    };
+    const p = j.posts?.[0];
+    if (!p?.author?.did || !p.author.handle) return null;
+    // A quoted post can itself carry an image or a link, and that can be the
+    // referent — "add whoever made this" under a quoted photo.
+    const described = describeEmbed(p.embed);
+    const text = [p.record?.text ?? "", ...described].filter(Boolean).join("\n");
+    return { did: p.author.did, handle: p.author.handle, text };
+  } catch {
+    return null;
+  }
+}
+
+// The at:// uri a post quotes, from its RAW record (what a notification gives
+// us), rather than the hydrated view.
+function quotedUri(rec: PostRecord): string | undefined {
+  const embed = rec.embed as
+    | { $type?: string; record?: { uri?: string; record?: { uri?: string } } }
+    | undefined;
+  if (!embed?.$type?.startsWith("app.bsky.embed.record")) return undefined;
+  return embed.record?.record?.uri ?? embed.record?.uri;
 }
 
 function replyText(

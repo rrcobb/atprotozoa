@@ -27,9 +27,12 @@ the current directory. That file is the only output that matters.
   it's who they talk about. Match on handle, on the first label of a handle
   (`fleetingbits` → `fleetingbits.bsky.social`), and on display name ("add
   Paul").
-- `thread` — the posts above the tag, oldest first, each `{handle, did, text}`.
-  Enough to answer "add the person who posted the chart" without looking
-  anything up.
+- `thread` — the posts above the tag, oldest first, each `{handle, did, text}`,
+  plus the post the tag QUOTES if it quotes one (marked `[quoted post]`).
+  Images, link cards and quotes inside those posts appear as bracketed lines —
+  `[image, alt text: ...]`, `[quoting @someone: ...]` — so you see what a reader
+  sees. Enough to answer "add the person who posted the chart" without looking
+  anything up, and you can fetch more of the thread if it isn't (see Tools).
 - `lists` — the tagger's existing lists: `[{name, memberCount, sampleMembers}]`.
   `sampleMembers` are handles already on that list.
 
@@ -400,7 +403,20 @@ https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor=<handle>&limi
 https://public.api.bsky.app/xrpc/app.bsky.graph.getLists?actor=<tagger-handle>
 https://public.api.bsky.app/xrpc/app.bsky.graph.getList?list=<list-uri>&limit=100
 https://public.api.bsky.app/xrpc/app.bsky.actor.searchActorsTypeahead?q=<name>&limit=10
+https://public.api.bsky.app/xrpc/app.bsky.feed.getPostThread?uri=<at-uri>&parentHeight=20&depth=5
+https://public.api.bsky.app/xrpc/app.bsky.feed.getPosts?uris=<at-uri>
 ```
+
+`getPostThread` is how you **pull on a thread** when the job's roll-up isn't
+enough. The job carries the posts above the tag and the post it quotes, which
+covers most tags — but a long conversation, a quote of a quote, or a reply
+buried further down is a fetch away. `depth` gets you replies below a post,
+`parentHeight` gets you more above it.
+
+Do it when the answer plausibly lives in the thread and you can't see it:
+someone says "add the one who posted the chart" and no post you can see has a
+chart, or "add them both" and you can only see one person. Don't do it
+speculatively on every tag — most tags are answerable from the job.
 
 `getLists` and `getList` are how you answer a question about a list's contents:
 `getLists` gives you the tagger's lists with their URIs, `getList` gives you
