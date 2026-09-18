@@ -10,14 +10,21 @@
 // opposite of sites/innercircle's approach (which downloads every mutual's
 // full repo to see how often *they've* replied to the searched handle) —
 // here the natural bulk unit is "my own post history," and per-post
-// engagement (getLikes, Cerulea backlinks) has no bulk-download equivalent
-// of its own, so pagination there is the only option, exhausted to the end
-// of the cursor every time, no page cap.
+// engagement (Constellation/Cerulea backlinks, getLikes) has no bulk-download
+// equivalent of its own, so pagination there is the only option, exhausted to
+// the end of the cursor every time, no page cap.
+//
+// Likers come from microcosm.blue's Constellation first
+// (blue.microcosm.links.getBacklinkDids, source app.bsky.feed.like:subject.uri)
+// — 1000 DIDs per page against getLikes' 100, and this scan only ever counts
+// DIDs, so the AppView's hydrated actor buys nothing. getLikes stays as the
+// per-post fallback. Gotchas in notes/40-new-site-playbook.md.
 
 import { fetchRepoRecordsWithKeys } from "./car.js";
 
 const PUB = "https://api.bsky.app/xrpc";
 const CERULEA = "https://backlinks.cerulea.blue/xrpc/blue.cerulea.backlinks.listBacklinks";
+const CONSTELLATION = "https://constellation.microcosm.blue";
 const POST_TYPE = "app.bsky.feed.post";
 
 // Backstop, not a budget — same treatment as the rest of the moot family
@@ -30,6 +37,7 @@ const GRAPH_PAGES = 400;
 // number is far past what any real post's like/reply count reaches. Only
 // exists so a misbehaving cursor that never terminates can't hang the tab.
 const MAX_LIKE_PAGES = 2000;
+const MAX_CONSTELLATION_PAGES = 200; // same ceiling in 1000-DID pages
 const MAX_BACKLINK_PAGES = 2000;
 
 // How many posts get scanned for likes+replies at once — a politeness/
@@ -125,9 +133,42 @@ export async function fetchOwnPosts(session, onProgress) {
 }
 
 // Every liker of a post, exhausted to the end of the cursor. Returns a plain
-// array of liker DIDs — getLikes' actor is already hydrated, but callers
-// here only need the count, so no profile data is kept.
+// array of liker DIDs — callers here only need the count, so no profile data
+// is kept. Constellation first, the AppView's getLikes walk as fallback.
 async function likersOf(uri) {
+  try {
+    return await likerDidsConstellation(uri);
+  } catch {
+    return likerDidsAppView(uri);
+  }
+}
+
+// Throws if any page fails, so likersOf can fall back to the AppView walk
+// rather than counting a partial list as if it were complete.
+async function likerDidsConstellation(uri) {
+  const dids = [];
+  const seen = new Set();
+  let cursor = "";
+  for (let page = 0; page < MAX_CONSTELLATION_PAGES; page++) {
+    const u = new URL(`${CONSTELLATION}/xrpc/blue.microcosm.links.getBacklinkDids`);
+    u.searchParams.set("subject", uri);
+    u.searchParams.set("source", "app.bsky.feed.like:subject.uri");
+    u.searchParams.set("limit", "1000");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    const d = await jget(u.toString());
+    const batch = d.linking_dids || [];
+    for (const did of batch) {
+      if (seen.has(did)) continue;
+      seen.add(did);
+      dids.push(did);
+    }
+    cursor = d.cursor;
+    if (!cursor || !batch.length) break;
+  }
+  return dids;
+}
+
+async function likerDidsAppView(uri) {
   const dids = [];
   let cursor;
   for (let page = 0; page < MAX_LIKE_PAGES; page++) {
