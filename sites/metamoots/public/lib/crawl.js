@@ -10,11 +10,20 @@
 //   reposted, replied to, and quoted.
 //
 //   inbound (candidate -> target): there's no anonymous "who liked this
-//   account" endpoint, but there IS a public per-post one
-//   (app.bsky.feed.getLikes / getRepostedBy), and a public thread endpoint
-//   for direct replies (app.bsky.feed.getPostThread). So: fetch the
-//   target's own recent posts via getAuthorFeed, then for each one pull its
-//   likers, reposters, and direct repliers.
+//   account" endpoint, but per-post backlinks answer the same question.
+//   Likers and reposters come from microcosm.blue's Constellation
+//   (blue.microcosm.links.getBacklinkDids, sources
+//   app.bsky.feed.like:subject.uri and app.bsky.feed.repost:subject.uri),
+//   which returns 1000 DIDs per page and the whole list; the AppView's
+//   getLikes/getRepostedBy stay as the fallback. Direct replies still come
+//   from the public thread endpoint (app.bsky.feed.getPostThread). So:
+//   fetch the target's own recent posts via getAuthorFeed, then for each
+//   one pull its likers, reposters, and direct repliers.
+//
+//   The AppView reads here took one page of 100 and stopped, so a popular
+//   post's engagement tailed off into nothing and candidates were
+//   undercounted. Only the DID is ever used, so nothing is lost by
+//   dropping the hydrated actor. Gotchas in notes/40-new-site-playbook.md.
 //
 // Both directions are restricted to candidates outside `exclude` (the
 // target + their follows + their followers) as they're collected, so
@@ -24,6 +33,7 @@ import { jget, resolvePds, authorFromUri, pooledEach } from "./identity.js";
 import { fetchRepoRecords } from "./car.js";
 
 const PUB = "https://api.bsky.app/xrpc";
+const CONSTELLATION = "https://constellation.microcosm.blue";
 
 const LIKE_PAGES = 5; // <= 500 recent likes read off the target's own PDS
 const REPOST_PAGES = 3; // <= 300 recent reposts
@@ -31,6 +41,8 @@ const POST_PAGES = 5; // <= 500 recent posts (source of replies + quotes given)
 const AUTHOR_FEED_PAGES = 4; // pages of getAuthorFeed scanned to find the target's own posts
 const MAX_SAMPLED_POSTS = 30; // how many of the target's own posts get inbound-crawled
 const POST_CONCURRENCY = 5;
+const MAX_CONSTELLATION_PAGES = 50; // backstop only — 50,000 engagers on one post
+const MAX_APPVIEW_PAGES = 500; // same ceiling for the fallback walks, at 100/page
 
 async function listOwnRecords(did, pds, collection, maxPages) {
   const out = [];
@@ -161,6 +173,76 @@ async function sampleOwnPosts(did) {
   return posts;
 }
 
+// Engager DIDs for one post from Constellation, paged to the end of the
+// cursor. Throws on a failed page so the caller can fall back to the
+// AppView walk instead of counting a partial list.
+async function engagerDidsConstellation(uri, source) {
+  const dids = [];
+  const seen = new Set();
+  let cursor = "";
+  for (let p = 0; p < MAX_CONSTELLATION_PAGES; p++) {
+    const u = new URL(`${CONSTELLATION}/xrpc/blue.microcosm.links.getBacklinkDids`);
+    u.searchParams.set("subject", uri);
+    u.searchParams.set("source", source);
+    u.searchParams.set("limit", "1000");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    const d = await jget(u.toString());
+    const batch = d.linking_dids || [];
+    for (const did of batch) {
+      if (seen.has(did)) continue;
+      seen.add(did);
+      dids.push(did);
+    }
+    cursor = d.cursor;
+    if (!cursor || !batch.length) break;
+  }
+  return dids;
+}
+
+// Fallback: the AppView endpoint, paged to the end of the cursor rather
+// than stopping after the first 100. `key`/`pick` differ between getLikes
+// (likes[].actor.did) and getRepostedBy (repostedBy[].did).
+async function engagerDidsAppView(uri, endpoint, key, pick) {
+  const dids = [];
+  let cursor = "";
+  for (let p = 0; p < MAX_APPVIEW_PAGES; p++) {
+    const u = new URL(`${PUB}/${endpoint}`);
+    u.searchParams.set("uri", uri);
+    u.searchParams.set("limit", "100");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    let d;
+    try {
+      d = await jget(u.toString());
+    } catch {
+      break;
+    }
+    const batch = d[key] || [];
+    for (const item of batch) {
+      const did = pick(item);
+      if (did) dids.push(did);
+    }
+    cursor = d.cursor;
+    if (!cursor || !batch.length) break;
+  }
+  return dids;
+}
+
+async function likerDids(uri) {
+  try {
+    return await engagerDidsConstellation(uri, "app.bsky.feed.like:subject.uri");
+  } catch {
+    return engagerDidsAppView(uri, "app.bsky.feed.getLikes", "likes", (l) => l.actor && l.actor.did);
+  }
+}
+
+async function reposterDids(uri) {
+  try {
+    return await engagerDidsConstellation(uri, "app.bsky.feed.repost:subject.uri");
+  } catch {
+    return engagerDidsAppView(uri, "app.bsky.feed.getRepostedBy", "repostedBy", (r) => r.did);
+  }
+}
+
 // candidate -> target: who liked, reposted, and directly replied to the
 // target's sampled posts.
 async function crawlInbound(did, exclude, out, onProgress) {
@@ -168,17 +250,15 @@ async function crawlInbound(did, exclude, out, onProgress) {
   let done = 0;
   await pooledEach(posts, POST_CONCURRENCY, async (uri) => {
     const u = encodeURIComponent(uri);
-    const [likesRes, repostsRes, threadRes] = await Promise.all([
-      jget(`${PUB}/app.bsky.feed.getLikes?uri=${u}&limit=100`).catch(() => null),
-      jget(`${PUB}/app.bsky.feed.getRepostedBy?uri=${u}&limit=100`).catch(() => null),
+    const [likers, reposters, threadRes] = await Promise.all([
+      likerDids(uri).catch(() => []),
+      reposterDids(uri).catch(() => []),
       jget(`${PUB}/app.bsky.feed.getPostThread?uri=${u}&depth=1&parentHeight=0`).catch(() => null),
     ]);
-    for (const l of (likesRes && likesRes.likes) || []) {
-      const author = l.actor && l.actor.did;
+    for (const author of likers) {
       if (author && author !== did && !exclude.has(author)) bump(out, author, "likesReceived", 1);
     }
-    for (const r of (repostsRes && repostsRes.repostedBy) || []) {
-      const author = r.did;
+    for (const author of reposters) {
       if (author && author !== did && !exclude.has(author)) bump(out, author, "repostsReceived", 1);
     }
     const replies = (threadRes && threadRes.thread && threadRes.thread.replies) || [];
