@@ -59,6 +59,7 @@ import {
   getJob,
   retireJob,
   queueStats,
+  checkRateLimit,
   type JobPayload,
   type AgentIntent,
 } from "./queue.js";
@@ -82,6 +83,12 @@ export interface Env {
   SITE_URL: string;
   CLIENT_KEY_KID: string;
   CLIENT_PUBLIC_JWK: string;
+  // How many tags one account may spend per window. Every tag is a Sonnet run
+  // on a subscription, so this is a budget guard, not a safety one — a tagger
+  // can only ever edit their own lists. Vars rather than constants so the
+  // ceiling can be tuned without a deploy.
+  RATE_LIMIT_TAGS: string;
+  RATE_LIMIT_WINDOW_MINUTES: string;
 
   // secrets
   BOT_APP_PASSWORD: string;
@@ -749,6 +756,24 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
   }
   if (subject.did === m.authorDid) {
     await reply(bot, m, `that's your own post! tag me under someone else's.`);
+    return;
+  }
+
+  // Spend check, after the cheap rejections above and before the expensive part.
+  // Deliberately here rather than at the top of the function: a tag that was
+  // going to be refused anyway shouldn't consume someone's budget.
+  const rate = await checkRateLimit(
+    env.STATE,
+    m.authorDid,
+    parseInt(env.RATE_LIMIT_TAGS ?? "20", 10) || 20,
+    parseInt(env.RATE_LIMIT_WINDOW_MINUTES ?? "60", 10) || 60,
+  );
+  if (!rate.allowed) {
+    await reply(
+      bot,
+      m,
+      `that's ${rate.limit} tags in an hour, which is my limit — try again in ${rate.resetsInMin}m. your lists are fine: ${env.SITE_URL}/lists`,
+    );
     return;
   }
 

@@ -188,3 +188,62 @@ export async function queueStats(kv: KVNamespace): Promise<QueueStats> {
     oldestQueuedAgeMin: oldest === null ? null : Math.round((now - oldest) / 60000),
   };
 }
+
+// --- rate limiting -----------------------------------------------------------
+//
+// Every tag is a Sonnet run on a subscription, which makes a tag cost something
+// real — the same rate-limited capacity buildthis needs to build things. This
+// caps what one account can spend.
+//
+// Not a safety control: a tagger can only ever edit their own lists, so this is
+// about budget, not blast radius. It bounds an enthusiastic user as much as a
+// hostile one, which is the common case and worth bounding either way.
+//
+// A fixed window, not a sliding one. It's cruder — someone can spend two
+// windows' worth across a boundary — but it's one KV read and one write instead
+// of a list scan per tag, and the imprecision doesn't matter for a budget guard.
+
+const RATE_PREFIX = "rate:";
+
+export interface RateLimit {
+  allowed: boolean;
+  used: number;
+  limit: number;
+  resetsInMin: number;
+}
+
+export async function checkRateLimit(
+  kv: KVNamespace,
+  did: string,
+  limit: number,
+  windowMinutes: number,
+): Promise<RateLimit> {
+  const windowMs = windowMinutes * 60 * 1000;
+  const windowStart = Math.floor(Date.now() / windowMs) * windowMs;
+  const key = `${RATE_PREFIX}${did}:${windowStart}`;
+  const resetsInMin = Math.max(1, Math.ceil((windowStart + windowMs - Date.now()) / 60000));
+
+  let used = 0;
+  try {
+    const raw = await kv.get(key);
+    used = raw ? parseInt(raw, 10) || 0 : 0;
+  } catch (err) {
+    // A KV failure must not become a free pass OR a wall. Treat it as allowed
+    // and log: the alternative is a bot that silently stops working whenever KV
+    // hiccups, which is worse than briefly over-spending.
+    console.error(`rate limit read failed for ${did}: ${err}`);
+    return { allowed: true, used: 0, limit, resetsInMin };
+  }
+
+  if (used >= limit) return { allowed: false, used, limit, resetsInMin };
+
+  try {
+    // TTL just past the window so the key cleans itself up.
+    await kv.put(key, String(used + 1), {
+      expirationTtl: Math.ceil((windowMs * 2) / 1000),
+    });
+  } catch (err) {
+    console.error(`rate limit write failed for ${did}: ${err}`);
+  }
+  return { allowed: true, used: used + 1, limit, resetsInMin };
+}
