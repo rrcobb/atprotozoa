@@ -1,0 +1,29 @@
+name = "atprotozoa-dibs"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# The search itself runs entirely client-side (public/index.html + public/lib/
+# search.js): page Bluesky search latest-first through sites/trigrams's open
+# /api/search proxy, filtering to literal matches, until the cursor is
+# genuinely exhausted — that's the true first person to ever say a phrase, not
+# a sampled guess. Anonymous app.bsky.feed.searchPosts 403s at volume
+# (notes/71); trigrams's proxy is CORS-open by design for exactly this reuse
+# (see sites/patientzero doing the same thing). No secrets live here.
+#
+# Two small server jobs, same shape as sites/patientzero/src/index.ts:
+#   - /api/avatar proxies cdn.bsky.app (sends no CORS headers of its own) so
+#     the share-card canvas can draw a real avatar without tainting the canvas.
+#   - /s/<phrase> renders the static shell with a per-phrase og:title/description
+#     baked in server-side (one quick /api/search page for a rough guess), so
+#     every shared result gets its own link-preview instead of one generic card.
+#
+# routes MUST stay above [assets] — in TOML, keys after a table header join
+# that table, so a routes line below [assets] silently becomes assets.routes.
+routes = [{ pattern = "dibs.bisks.net/*", zone_name = "bisks.net" }]
+
+# run_worker_first: both /s/<phrase> and /api/avatar are dynamic, so the
+# Worker must run BEFORE the static-asset router picks it up.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true

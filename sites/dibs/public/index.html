@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>dibs — find the first person to ever say a phrase</title>
+    <meta
+      name="description"
+      content="Type a phrase and it pages Bluesky search all the way back to the beginning to find whoever said it first."
+    />
+    <meta property="og:title" content="dibs — find the first person to ever say a phrase" />
+    <meta
+      property="og:description"
+      content="Type a phrase and it pages Bluesky search all the way back to the beginning to find whoever said it first."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://dibs.bisks.net/" />
+    <meta property="og:image" content="https://dibs.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        --bg: #0b0d10;
+        --panel: #14171c;
+        --panel-2: #1b1f26;
+        --ink: #f2f4f6;
+        --muted: #8d97a3;
+        --faint: #262b33;
+        --gold: #f2c14e;
+        --gold-dim: #4d3f1c;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+      }
+      body {
+        background: radial-gradient(1000px 560px at 50% -8%, #1a1710, var(--bg));
+        color: var(--ink);
+        font-family: var(--sans);
+        font-size: 16px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+      }
+      .wrap {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 2.5rem 1.1rem 6rem;
+      }
+      a {
+        color: var(--gold);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      header {
+        text-align: center;
+        margin-bottom: 2rem;
+      }
+      h1 {
+        font-family: var(--mono);
+        font-size: 2.4rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        margin: 0 0 0.4rem;
+        color: var(--gold);
+      }
+      .tagline {
+        color: var(--muted);
+        font-size: 0.98rem;
+        margin: 0;
+      }
+      form {
+        display: flex;
+        gap: 0.5rem;
+        margin: 1.8rem 0 0.6rem;
+      }
+      input[type="text"] {
+        flex: 1;
+        background: var(--panel);
+        border: 1px solid var(--faint);
+        color: var(--ink);
+        border-radius: 10px;
+        padding: 0.85rem 1rem;
+        font-size: 1rem;
+        font-family: var(--sans);
+      }
+      input[type="text"]:focus {
+        outline: none;
+        border-color: var(--gold-dim);
+      }
+      button {
+        background: var(--gold);
+        color: #1a1508;
+        border: none;
+        border-radius: 10px;
+        padding: 0.85rem 1.3rem;
+        font-weight: 800;
+        font-size: 1rem;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      button:disabled {
+        opacity: 0.55;
+        cursor: default;
+      }
+      button.secondary {
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--faint);
+        font-weight: 600;
+      }
+      .hint {
+        color: var(--muted);
+        font-size: 0.82rem;
+        margin: 0 0 1rem;
+      }
+      .status {
+        font-family: var(--mono);
+        font-size: 0.85rem;
+        color: var(--muted);
+        min-height: 1.4em;
+        margin: 0.6rem 0;
+      }
+      .status.err {
+        color: #e37373;
+      }
+      .progress-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+      .result {
+        display: none;
+        margin-top: 1.4rem;
+        background: var(--panel);
+        border: 1px solid var(--faint);
+        border-radius: 16px;
+        padding: 1.6rem;
+      }
+      .result.show {
+        display: block;
+      }
+      .result-kicker {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--gold);
+        margin-bottom: 0.6rem;
+      }
+      .who {
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        margin-bottom: 1rem;
+      }
+      .who img {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: var(--panel-2);
+        object-fit: cover;
+      }
+      .who .names {
+        display: flex;
+        flex-direction: column;
+      }
+      .who .display-name {
+        font-weight: 700;
+      }
+      .who .handle {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .quote {
+        background: var(--panel-2);
+        border-left: 3px solid var(--gold);
+        border-radius: 6px;
+        padding: 0.9rem 1rem;
+        margin: 0 0 1rem;
+        font-size: 1.02rem;
+      }
+      .quote mark {
+        background: var(--gold-dim);
+        color: var(--gold);
+        border-radius: 3px;
+        padding: 0 0.15em;
+      }
+      .meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 1rem;
+        color: var(--muted);
+        font-size: 0.85rem;
+        font-family: var(--mono);
+        margin-bottom: 1.2rem;
+      }
+      .caveat {
+        font-size: 0.82rem;
+        color: var(--muted);
+        margin-bottom: 1rem;
+      }
+      .share-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      .share-row a,
+      .share-row button {
+        font-size: 0.88rem;
+      }
+      .empty {
+        display: none;
+        margin-top: 1.4rem;
+        background: var(--panel);
+        border: 1px dashed var(--faint);
+        border-radius: 16px;
+        padding: 1.6rem;
+        text-align: center;
+      }
+      .empty.show {
+        display: block;
+      }
+      .empty h2 {
+        font-family: var(--mono);
+        color: var(--gold);
+        margin: 0 0 0.5rem;
+      }
+      .empty p {
+        color: var(--muted);
+        margin: 0 0 1rem;
+      }
+      footer {
+        margin-top: 3rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 1rem;
+        font-size: 0.82rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>dibs</h1>
+        <p class="tagline">who said it first? paged all the way back to find out.</p>
+      </header>
+
+      <form id="form">
+        <input type="text" id="phrase" name="phrase" placeholder="type a phrase..." autocomplete="off" maxlength="300" />
+        <button type="submit" id="go">call dibs</button>
+      </form>
+      <p class="hint">searches every post Bluesky's index still has — short/common phrases can take a while.</p>
+
+      <div class="progress-row">
+        <p class="status" id="status"></p>
+        <button type="button" class="secondary" id="cancel" style="display: none">stop</button>
+      </div>
+
+      <div class="result" id="result">
+        <div class="result-kicker" id="kicker">first spotted</div>
+        <div class="who">
+          <img id="avatar" alt="" />
+          <div class="names">
+            <span class="display-name" id="displayName"></span>
+            <a class="handle" id="handleLink" target="_blank" rel="noopener"></a>
+          </div>
+        </div>
+        <div class="quote" id="quote"></div>
+        <div class="meta-row">
+          <span id="when"></span>
+          <span id="count"></span>
+        </div>
+        <p class="caveat" id="caveat"></p>
+        <div class="share-row">
+          <a id="permalink" target="_blank" rel="noopener">view the post →</a>
+          <a id="shareBluesky" target="_blank" rel="noopener">share on Bluesky</a>
+          <button type="button" id="shareDownload">download card</button>
+          <button type="button" id="shareNative" style="display: none">share card</button>
+        </div>
+      </div>
+
+      <div class="empty" id="empty">
+        <h2>nobody's ever said that</h2>
+        <p>at least not that Bluesky's search can find. say it now and dibs is yours.</p>
+        <a id="claimLink" target="_blank" rel="noopener"><button type="button">say it first</button></a>
+      </div>
+
+      <canvas id="shareCanvas" width="1200" height="630" style="display: none"></canvas>
+
+      <footer>
+        <a href="https://bisks.net/">bisks.net</a>
+        <a href="https://rateyourbuild.bisks.net/site/dibs">rate this on rateyourbuild →</a>
+      </footer>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
