@@ -53,6 +53,15 @@ import {
 } from "./lists.js";
 // .mjs on purpose: it's pure logic with unit tests that import it directly.
 import { parseCommand } from "./command.mjs";
+import {
+  enqueueJob,
+  claimNextJob,
+  getJob,
+  retireJob,
+  queueStats,
+  type JobPayload,
+  type AgentIntent,
+} from "./queue.js";
 
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
@@ -78,6 +87,13 @@ export interface Env {
   BOT_APP_PASSWORD: string;
   CLIENT_PRIVATE_KEY: string;
   SESSION_ENC_KEY: string;
+  // Shared secret the BOX presents to claim a job (POST /next-job). Without it
+  // the endpoint rejects — fail closed, same as buildthis.
+  QUEUE_TOKEN: string;
+  // Shared secret the box presents when reporting an agent's answer
+  // (POST /outcome). Separate from QUEUE_TOKEN so the two capabilities —
+  // "read the queue" and "assert what a tag meant" — aren't one credential.
+  OUTCOME_SECRET: string;
 }
 
 const PDS = "https://bsky.social";
@@ -143,6 +159,15 @@ export default {
     }
     if (url.pathname === "/logout" && request.method === "POST") {
       return handleLogout(request, env);
+    }
+
+    // The box claims a tag to resolve here, and reports the agent's answer
+    // there. Both authed by their own shared secret; see Env.
+    if (url.pathname === "/next-job" && request.method === "POST") {
+      return handleNextJob(request, env);
+    }
+    if (url.pathname === "/outcome" && request.method === "POST") {
+      return handleOutcome(request, env).catch((err) => json({ error: String(err) }, 500));
     }
 
     return env.ASSETS.fetch(request);
@@ -690,6 +715,11 @@ async function runWatcher(env: Env): Promise<void> {
 async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<void> {
   if (m.authorDid === env.BOT_DID) return;
 
+  // The parser still runs, but only to spot the two things that need no agent
+  // and no round trip: a tag asking for help, and a tag that isn't asking for
+  // anything. Everything else — including a bare list name, which the parser
+  // could handle — goes to the agent, so there's one path to reason about and
+  // one place the behavior lives.
   const command = parseCommand(m.text, botHandles(env));
   if (command.kind === "none") return;
   if (command.kind === "help") {
@@ -704,7 +734,7 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
   }
 
   if (command.kind === "lists") {
-    await reply(bot, m, `your lists live at https://bsky.app/profile/${found.session.handle}/lists`);
+    await reply(bot, m, `your lists live at ${env.SITE_URL}/lists`);
     return;
   }
 
@@ -722,22 +752,116 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
     return;
   }
 
-  const result =
-    command.kind === "add"
-      ? await addToList(found.acting, command.listName, subject.did)
-      : await removeFromList(found.acting, command.listName, subject.did);
+  // Hand it to the box. Everything the agent needs travels with the job: it
+  // makes no authenticated call, holds no credential, and can't reach a token.
+  //
+  // The subject is resolved HERE, from the parent post's author, and rides along
+  // as a fixed field. The agent decides which list and whether to act — never
+  // who. That's the one thing a tag's text must never be able to change.
+  const { lists } = await readLists(found.acting).catch(() => ({ lists: [] }));
+  const payload: JobPayload = {
+    kind: "listbot",
+    mentionUri: m.uri,
+    mentionCid: m.cid,
+    rootUri: m.rootUri,
+    rootCid: m.rootCid,
+    tagText: m.text,
+    tagger: { did: m.authorDid, handle: found.session.handle },
+    subject: await describeSubject(bot, subject),
+    thread: await threadContext(bot, m.parentUri),
+    lists: lists.map((l) => ({
+      name: l.name,
+      memberCount: l.members.length,
+      // A few handles, not the whole list: enough for the agent to see what
+      // kind of list it is, not so much that a big list floods the prompt.
+      sampleMembers: l.members.slice(0, 8).map((mm) => mm.handle ?? mm.subjectDid),
+    })),
+    outcomeUrl: `${env.SITE_URL}/outcome`,
+  };
 
-  // Persist whatever nonce the PDS last handed us, so the next tick skips a
-  // round trip. Best-effort: a failed write here costs latency, not
-  // correctness.
-  if (result.nonce && result.nonce !== found.session.dpopNonce) {
-    await putSession(env.STATE, env.SESSION_ENC_KEY, {
-      ...found.session,
-      dpopNonce: result.nonce,
-    }).catch((err) => console.error(`nonce persist failed: ${err}`));
+  if (!(await enqueueJob(env.STATE, payload))) {
+    await reply(bot, m, `something went wrong queueing that, sorry — try again?`);
   }
+}
 
-  await reply(bot, m, replyText(command.kind, result, subject.handle, found.session.did));
+// What the agent gets told about the person being added. Public profile data,
+// fetched from the AppView — no auth, nothing the tagger couldn't see.
+async function describeSubject(
+  bot: BotSession,
+  subject: { did: string; handle: string },
+): Promise<JobPayload["subject"]> {
+  const out: JobPayload["subject"] = { did: subject.did, handle: subject.handle };
+  try {
+    const u = new URL(`${APPVIEW}/xrpc/app.bsky.actor.getProfile`);
+    u.searchParams.set("actor", subject.did);
+    const res = await fetch(u.toString(), {
+      headers: { authorization: `Bearer ${bot.accessJwt}` },
+    });
+    if (res.ok) {
+      const p = (await res.json()) as { displayName?: string; description?: string };
+      out.displayName = p.displayName;
+      out.description = p.description;
+    }
+  } catch {}
+
+  // A few recent posts, so "do it" can resolve against what someone actually
+  // posts rather than just their bio.
+  try {
+    const u = new URL(`${APPVIEW}/xrpc/app.bsky.feed.getAuthorFeed`);
+    u.searchParams.set("actor", subject.did);
+    u.searchParams.set("limit", "10");
+    u.searchParams.set("filter", "posts_no_replies");
+    const res = await fetch(u.toString(), {
+      headers: { authorization: `Bearer ${bot.accessJwt}` },
+    });
+    if (res.ok) {
+      const j = (await res.json()) as { feed?: { post?: { record?: { text?: string } } }[] };
+      out.recentPosts = (j.feed ?? [])
+        .map((f) => f.post?.record?.text)
+        .filter((t): t is string => Boolean(t))
+        .slice(0, 8);
+    }
+  } catch {}
+
+  return out;
+}
+
+// The posts above the tag, oldest first. Context for a tag like "do it", which
+// only makes sense against what was being discussed.
+async function threadContext(
+  bot: BotSession,
+  parentUri: string,
+): Promise<{ author: string; text: string }[]> {
+  try {
+    const u = new URL(`${APPVIEW}/xrpc/app.bsky.feed.getPostThread`);
+    u.searchParams.set("uri", parentUri);
+    u.searchParams.set("parentHeight", "10");
+    u.searchParams.set("depth", "0");
+    const res = await fetch(u.toString(), {
+      headers: { authorization: `Bearer ${bot.accessJwt}` },
+    });
+    if (!res.ok) return [];
+    const j = (await res.json()) as { thread?: ThreadNode };
+
+    const chain: { author: string; text: string }[] = [];
+    let node: ThreadNode | undefined = j.thread;
+    while (node?.post) {
+      chain.push({
+        author: node.post.author?.handle ?? "someone",
+        text: node.post.record?.text ?? "",
+      });
+      node = node.parent;
+      if (chain.length >= 10) break;
+    }
+    return chain.reverse();
+  } catch {
+    return [];
+  }
+}
+
+interface ThreadNode {
+  post?: { author?: { handle?: string }; record?: { text?: string } };
+  parent?: ThreadNode;
 }
 
 function replyText(
@@ -793,6 +917,10 @@ async function handleStatus(env: Env): Promise<Response> {
   try {
     signedIn = await countSessions(env.STATE);
   } catch {}
+  let queue: Awaited<ReturnType<typeof queueStats>> | null = null;
+  try {
+    queue = await queueStats(env.STATE);
+  } catch {}
 
   return json({
     name: "listbot",
@@ -806,6 +934,9 @@ async function handleStatus(env: Env): Promise<Response> {
     // Counts only — never who. A list is the user's own business, and listbot
     // publishing its membership would undo the point of keeping it in their repo.
     signedInAccounts: signedIn,
+    // Tags waiting on the box to work out what they meant. Counts only, no
+    // content — same reasoning as signedInAccounts.
+    queue,
     writes: {
       collections: ["app.bsky.graph.list", "app.bsky.graph.listitem"],
       target: "the tagging user's own PDS, via their own OAuth session",
@@ -1023,4 +1154,127 @@ function renderMember(m: { rkey: string; subjectDid: string; handle?: string; di
 
 function escapeAttr(s: string): string {
   return escapeHtml(s).replace(/"/g, "&quot;");
+}
+
+// --- the job queue -----------------------------------------------------------
+
+// POST /next-job — the box claims the oldest tag waiting to be resolved.
+async function handleNextJob(request: Request, env: Env): Promise<Response> {
+  if (!env.QUEUE_TOKEN || request.headers.get("authorization") !== `Bearer ${env.QUEUE_TOKEN}`) {
+    return new Response("unauthorized", { status: 401 });
+  }
+  const job = await claimNextJob(env.STATE);
+  if (!job) return new Response(null, { status: 204 });
+  return json(job);
+}
+
+// POST /outcome — the box reports what the agent decided. THIS is where the
+// write happens, because this is where the tokens are.
+//
+// The intent is a claim from a process that read a stranger's post text, so it
+// is validated, not trusted:
+//   - the subject comes from the JOB, never from the intent. The agent has no
+//     way to name a different person, because there's no field for it.
+//   - the list name is checked against the user's actual lists when the agent
+//     says it already exists.
+//   - the reply text is posted as the bot, so it's length-capped and stripped
+//     of anything that would make it a mention of someone uninvolved.
+async function handleOutcome(request: Request, env: Env): Promise<Response> {
+  if (!env.OUTCOME_SECRET || request.headers.get("authorization") !== `Bearer ${env.OUTCOME_SECRET}`) {
+    return new Response("unauthorized", { status: 401 });
+  }
+
+  const body = (await request.json()) as { mentionUri?: string; intent?: AgentIntent };
+  const mentionUri = body.mentionUri;
+  const intent = body.intent;
+  if (!mentionUri || !intent) return json({ error: "need mentionUri and intent" }, 400);
+
+  const job = await getJob(env.STATE, mentionUri);
+  if (!job) return json({ error: "no such job" }, 404);
+
+  // Retire it first. A job that half-fails below is better than one the box can
+  // claim again and re-run — the user gets a reply either way.
+  await retireJob(env.STATE, mentionUri);
+
+  const bot = await botLogin(env);
+  const mention: Mention = {
+    uri: job.mentionUri,
+    cid: job.mentionCid,
+    authorDid: job.tagger.did,
+    authorHandle: job.tagger.handle,
+    text: job.tagText,
+    rootUri: job.rootUri,
+    rootCid: job.rootCid,
+  };
+
+  if (intent.action === "none") return json({ ok: true, did: "nothing" });
+
+  if (intent.action === "failed") {
+    console.error(`agent failed on ${mentionUri}: ${intent.reason ?? "no reason"}`);
+    await reply(bot, mention, `something went wrong working that out, sorry — nothing changed.`);
+    return json({ ok: true, did: "reported failure" });
+  }
+
+  if (intent.action === "ask") {
+    await reply(bot, mention, safeReply(intent.reply) ?? `which list did you mean?`);
+    return json({ ok: true, did: "asked" });
+  }
+
+  const listName = (intent.list ?? "").trim();
+  if (!listName) {
+    await reply(bot, mention, `i couldn't work out which list you meant, sorry.`);
+    return json({ ok: true, did: "no list name" });
+  }
+
+  const found = await actingSession(env, job.tagger.did);
+  if (!found) {
+    await reply(bot, mention, `you'll need to sign in first so i can edit your lists: ${env.SITE_URL}`);
+    return json({ ok: true, did: "not signed in" });
+  }
+
+  const result =
+    intent.action === "add"
+      ? await addToList(found.acting, listName, job.subject.did)
+      : await removeFromList(found.acting, listName, job.subject.did);
+
+  if (result.nonce && result.nonce !== found.session.dpopNonce) {
+    await putSession(env.STATE, env.SESSION_ENC_KEY, {
+      ...found.session,
+      dpopNonce: result.nonce,
+    }).catch((err) => console.error(`nonce persist failed: ${err}`));
+  }
+
+  // Prefer the agent's wording — it's why there's an agent — but only when the
+  // action actually did what the agent thought. A reply saying "added @alice"
+  // when the write failed is worse than a blunter accurate one.
+  const agentReply = result.ok && !result.alreadyThere && !result.notThere
+    ? safeReply(intent.reply)
+    : null;
+  const text = agentReply
+    ? agentReply + (result.listUri ? `\n${listWebUrl(job.tagger.did, result.listUri)}` : "")
+    : replyText(intent.action, result, job.subject.handle, job.tagger.did);
+
+  await reply(bot, mention, text);
+  return json({ ok: true, did: intent.action, list: result.listName });
+}
+
+// The agent's reply text goes out as a post from the bot account, so it gets
+// checked rather than posted as-is.
+//
+// The mention strip is the important one: an @handle in a post becomes a real
+// notification for that person only if the bot facets it, and the bot doesn't —
+// but it still READS as the bot talking about someone uninvolved, and a prompt
+// injection that gets "@someone you should follow this scam" into a bot's voice
+// is worth not shipping. The subject's own handle is added back by the caller
+// through replyText, so nothing legitimate is lost.
+const MAX_REPLY_CHARS = 280;
+
+function safeReply(text: string | undefined): string | null {
+  if (!text) return null;
+  let t = text.replace(/\s+/g, " ").trim();
+  if (!t) return null;
+  // Strip URLs — the only link in a reply should be the one we add.
+  t = t.replace(/https?:\/\/\S+/g, "").trim();
+  if (t.length > MAX_REPLY_CHARS) t = t.slice(0, MAX_REPLY_CHARS - 1).trimEnd() + "…";
+  return t || null;
 }
