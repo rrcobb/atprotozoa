@@ -3569,6 +3569,10 @@ interface HealthSnapshot {
     failures: number;
     // Of `successes`, how many shipped a first pass but ran out of turns/clock.
     partials: number;
+    // Of `successes`, how many were maintenance passes — a sweep or repair across
+    // the fleet with no single site to name. Split out so the page can show how
+    // much recent output went to fixing rather than making (notes/80).
+    sweeps: number;
     // Deliberate non-builds ("nothing to build here") — not failures.
     declined: number;
   };
