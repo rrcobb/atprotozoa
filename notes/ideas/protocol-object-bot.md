@@ -29,12 +29,13 @@ output this note ranked as trivially buildable, and it turned out to carry the
 hardest machinery — see "Who owns the thing" below, which is rewritten in light
 of it.
 
-Also settled, by being tried: the labeler output. Two were built
-(`built-by-bot`, then `gift-link`) and neither went live —
-`labeler-candidates.md` and `labeler-landscape.md` have the post-mortem. The
-short version is that the labeler space is largely occupied and the surviving
-niches are hard, so "labeler" is a weak default output for this bot even though
-it's technically the most impressive one.
+The labeler output got two attempts and neither shipped — `built-by-bot`, then
+`gift-link`. Worth reading `labeler-candidates.md` and `labeler-landscape.md`
+before picking a third label, but read them as **a map, not a verdict**: the
+failures were a duplicate of an existing labeler and a label that restated its
+own posts, both of which a five-minute check would have caught. The machinery
+works and is sitting there. A label with real information in it, that nobody
+else publishes, is still a good thing for this bot to make.
 
 This reframes several earlier notes. `other-bots.md` and `bot-ideas-riff.md` listed candidates
 as separate bots; a lot of them are better understood as **outputs of one bot**.
@@ -200,12 +201,24 @@ policy. Every other output inherits the opposite: a feed's ranking is ours, so
 its mistakes are ours; a label is our assertion, so its errors are ours to
 defend.
 
-That last line explains the whole 2026-09-17 scoreboard. The labelers died
-because they made claims we'd have to stand behind. The feeds died because we
-computed a ranking nobody asked for (0 and 1 subscribers — see
-`feeds-and-labels.md`). Lists live because the user asserts, the app consumes,
-and nobody has to be right. **The tell for a good output in this family is:
-who owns being wrong?**
+This is a distinction about **liability**, not about which outputs are worth
+building. It says what you're signing up for, and the answer differs per output:
+a list commits you to nothing, a feed commits you to a ranking, a label commits
+you to a claim. All three are fine things to build; they just cost different
+amounts of standing behind.
+
+Resist reading the 2026-09-17 run as evidence against feeds and labelers. What
+actually happened is narrower: `gift-link` duplicated an existing labeler
+(`paywall-radar`), `built-by-bot` restated what its posts already showed, and
+the two feeds were published at the network rather than made for anyone. Those
+are three specific mistakes — no novelty check, no information gain, no demand —
+and all three are avoidable without giving up the form. A feed with someone
+attached to it is a different proposition from one pushed at the timeline, and
+none of this was ever tested with promotion behind it in a repo where shipping
+is deliberately cheap.
+
+So: **ask who owns being wrong before you build, and price it in.** Not as a
+filter that leaves only lists standing.
 
 ## What tagging it would look like
 

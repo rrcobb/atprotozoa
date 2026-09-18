@@ -179,11 +179,13 @@ about. Good first labeler for the same reason a link checker is a good first bot
    For scale: davidsacerdote's gift-links feed has ~10,800 likes. That's the
    difference between a feed people want and a feed that merely exists.
 
-   **This step was skipped.** Step 3 went ahead in September on the assumption
-   the classifiers were fine, and produced two labelers nobody will ever
-   subscribe to either. Had anyone run the query above first, the honest read
-   would have been: publishing the thing is the easy part, and this repo has
-   twice now mistaken "it serves correct bytes" for "it works."
+   **Read this as "we never tested it," not "feeds don't work here."** Neither
+   feed was announced, promoted, or made for a particular person — they were
+   published and left. Zero subscribers on something nobody was told about is
+   close to no information. The one real lesson is cheaper than it looks:
+   publishing the thing is the easy part, so if a feed is meant to be used,
+   someone has to want it first. A feed built because a person asked for it has
+   a demand signal the way every buildthis site does; these didn't.
 3. **Then** consider a labeler, starting with something descriptive like
    `built-by-bot` rather than semantic moderation. **Built 2026-09-17** —
    `sites/builtbybot`, written up in `notes/87-labeler.md`. It took the
@@ -196,7 +198,9 @@ about. Good first labeler for the same reason a link checker is a good first bot
    **Dropped 2026-09-17, never launched** — `paywall-radar.bsky.social`
    already runs a paywall labeler, and the gift-link feed niche is saturated.
    See `labeler-candidates.md` and `labeler-landscape.md`. Both labelers this
-   note proposed got built and neither will go live.
+   note proposed got built and neither went live — for reasons specific to the
+   two labels chosen, not to labelers. The machinery from this section works and
+   is ready for a better label.
 
    Two findings from building it, both worth knowing before anyone writes a
    second labeler here. **The label stream can't be served from this repo** —

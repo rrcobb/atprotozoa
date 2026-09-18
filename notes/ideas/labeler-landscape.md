@@ -59,10 +59,11 @@ and misses the long tail.
   many.
 - **Involuntary labels cluster in moderation**, where there's an existing norm
   that someone is being judged, and usually a report path.
-- **The descriptive-claim-about-a-stranger space is thin**, and it's thin
-  because it's hard: it needs a fact worth knowing, checkable without judgment,
-  that a subscriber acts on at the moment they see the post. Paywall status is
-  one of the few that works, which is why it's taken.
+- **The descriptive-claim-about-a-stranger space is thin.** Partly because it's
+  hard — it needs a fact worth knowing, checkable without judgment, that a
+  subscriber acts on when they see the post — and partly because it's just
+  underexplored. Paywall status is one of the few taken. Thin is not the same as
+  closed, and a short list of competitors is as easily an opening as a warning.
 - **Nobody has to subscribe.** Every one of these competes for a subscription
   the user must actively choose and can revoke. That's a much higher bar than a
   feed, which people try and forget about.
@@ -71,5 +72,11 @@ and misses the long tail.
 
 Not "is this claim true and checkable" — that's necessary, not sufficient.
 Ask: *what does the subscriber do differently at the moment they see the
-label?* If the answer is "seek out more of this," it's a feed. If it's "nothing,
-but it's nice to know," nobody subscribes.
+label?* If the answer is "seek out more of this," the same classifier is
+probably better as a feed — a label can only annotate what's already in front of
+you.
+
+Use this to pick the right **form**, not to talk yourself out of building. The
+one hard-won rule from 2026-09-17 is much smaller than it felt at the time:
+**search first.** A minute of `searchActors` would have caught the gift-link
+duplicate before a day of work went into it.
