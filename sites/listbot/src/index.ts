@@ -1284,29 +1284,46 @@ function buildFacets(text: string): Facet[] {
   return facets;
 }
 
+// Post the reply, as a thread when it doesn't fit in one post.
+//
+// Each part replies to the previous one, so it reads as a thread rather than a
+// burst of separate posts. The thread root stays the original conversation's
+// root, which is what keeps the whole exchange together in the app.
 async function reply(bot: BotSession, m: Mention, text: string): Promise<void> {
-  const facets = buildFacets(text);
-  const record = {
-    $type: "app.bsky.feed.post",
-    text,
-    createdAt: new Date().toISOString(),
-    ...(facets.length ? { facets } : {}),
-    reply: {
-      root: { uri: m.rootUri, cid: m.rootCid },
-      parent: { uri: m.uri, cid: m.cid },
-    },
-  };
-  const res = await fetch(`${PDS}/xrpc/com.atproto.repo.createRecord`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${bot.accessJwt}`,
-    },
-    body: JSON.stringify({ repo: bot.did, collection: "app.bsky.feed.post", record }),
-  });
-  if (!res.ok) {
-    // A failed reply shouldn't abort the tick — the list edit already happened.
-    console.error(`reply failed: ${res.status} ${await res.text()}`);
+  const parts = splitForPosts(text);
+  if (!parts.length) return;
+
+  let parent = { uri: m.uri, cid: m.cid };
+
+  for (const part of parts) {
+    const facets = buildFacets(part);
+    const record = {
+      $type: "app.bsky.feed.post",
+      text: part,
+      createdAt: new Date().toISOString(),
+      ...(facets.length ? { facets } : {}),
+      reply: {
+        root: { uri: m.rootUri, cid: m.rootCid },
+        parent,
+      },
+    };
+    const res = await fetch(`${PDS}/xrpc/com.atproto.repo.createRecord`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${bot.accessJwt}`,
+      },
+      body: JSON.stringify({ repo: bot.did, collection: "app.bsky.feed.post", record }),
+    });
+    if (!res.ok) {
+      // A failed reply shouldn't abort the tick — the list edit already
+      // happened. Stop the thread here rather than posting orphaned parts that
+      // don't follow from anything.
+      console.error(`reply failed: ${res.status} ${await res.text()}`);
+      return;
+    }
+    const out = (await res.json()) as { uri: string; cid: string };
+    parent = { uri: out.uri, cid: out.cid };
   }
 }
 
@@ -1738,8 +1755,14 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
   // session and no list name, and it falls out before every check below.
   // Someone asking "who's on ceramics?" deserves the answer, not a link to a
   // webpage.
-  if (intent.action === "answer") {
-    const text = safeReply(intent.reply);
+  // A question answered, or a plain conversational reply. Neither writes
+  // anything, so both stop here.
+  //
+  // `answer` uses the long form: "who's on that list" for a 35-member list is a
+  // legitimately long answer, and reply() posts a thread rather than cutting it
+  // off. `say` is conversational and should be one line anyway.
+  if (intent.action === "answer" || intent.action === "say") {
+    const text = intent.action === "answer" ? longReply(intent.reply) : safeReply(intent.reply);
     if (!text) {
       await reply(bot, mention, `i couldn't work that out, sorry.`);
       return json({ ok: true, did: "empty answer" });
@@ -2053,7 +2076,19 @@ function composeReply(outcomes: StepOutcome[], taggerDid: string): string {
 // injection that gets "@someone you should follow this scam" into a bot's voice
 // is worth not shipping. The subject's own handle is added back by the caller
 // through replyText, so nothing legitimate is lost.
-const MAX_REPLY_CHARS = 280;
+// Bluesky's post limit is 300 GRAPHEMES. Counting with .length counts UTF-16
+// code units instead, so an emoji costs 2 and anything outside the BMP
+// miscounts — a reply full of emoji would get truncated well before the real
+// limit. Intl.Segmenter counts what Bluesky counts.
+//
+// A little under 300 so the link the Worker appends always fits.
+const MAX_REPLY_GRAPHEMES = 280;
+
+const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function graphemes(text: string): string[] {
+  return Array.from(segmenter.segment(text), (seg) => seg.segment);
+}
 
 function safeReply(text: string | undefined): string | null {
   if (!text) return null;
@@ -2061,6 +2096,70 @@ function safeReply(text: string | undefined): string | null {
   if (!t) return null;
   // Strip URLs — the only link in a reply should be the one we add.
   t = t.replace(/https?:\/\/\S+/g, "").trim();
-  if (t.length > MAX_REPLY_CHARS) t = t.slice(0, MAX_REPLY_CHARS - 1).trimEnd() + "…";
+  const g = graphemes(t);
+  if (g.length > MAX_REPLY_GRAPHEMES) {
+    t = g.slice(0, MAX_REPLY_GRAPHEMES - 1).join("").trimEnd() + "…";
+  }
   return t || null;
+}
+
+// Same cleaning as safeReply but WITHOUT the length cap — for replies that are
+// allowed to run to a thread. reply() does the splitting.
+const MAX_THREAD_GRAPHEMES = 280 * 5;
+
+function longReply(text: string | undefined): string | null {
+  if (!text) return null;
+  let t = text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  if (!t) return null;
+  t = t.replace(/https?:\/\/\S+/g, "").trim();
+  // A ceiling even here: five posts is a long answer and anything past it is
+  // the agent having lost the plot, not a genuinely longer list.
+  const g = graphemes(t);
+  if (g.length > MAX_THREAD_GRAPHEMES) {
+    t = g.slice(0, MAX_THREAD_GRAPHEMES - 1).join("").trimEnd() + "…";
+  }
+  return t || null;
+}
+
+// Split a long reply into posts that fit, breaking on sentence ends where it
+// can and word boundaries otherwise.
+//
+// Truncation was fine when every reply was "added @alice to ceramics", and
+// wrong the moment the bot could answer questions: "who's on that list?" for a
+// 35-member list is a legitimately long answer, and cutting it mid-handle turns
+// a good answer into a broken one. The prompt used to ask the agent to keep
+// answers short, which is working around the limitation rather than fixing it.
+export function splitForPosts(text: string, limit = MAX_REPLY_GRAPHEMES): string[] {
+  const t = text.trim();
+  if (!t) return [];
+  if (graphemes(t).length <= limit) return [t];
+
+  const parts: string[] = [];
+  let rest = t;
+  // Leave room for the " 1/4" counter the caller appends.
+  const room = limit - 5;
+
+  while (graphemes(rest).length > room) {
+    const window = graphemes(rest).slice(0, room).join("");
+    // Prefer a sentence end, then a comma or newline, then any space. Below
+    // half the window a break point is doing more harm than a clean word cut.
+    let cut = Math.max(
+      window.lastIndexOf(". "),
+      window.lastIndexOf("! "),
+      window.lastIndexOf("? "),
+      window.lastIndexOf("\n"),
+    );
+    if (cut < room / 2) cut = Math.max(window.lastIndexOf(", "), window.lastIndexOf(" "));
+    if (cut < room / 2) cut = window.length;
+    else cut += 1;
+
+    parts.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) parts.push(rest);
+
+  // Number them, so a reader knows there's more and knows when it ended.
+  return parts.length > 1
+    ? parts.map((p, i) => `${p} ${i + 1}/${parts.length}`)
+    : parts;
 }

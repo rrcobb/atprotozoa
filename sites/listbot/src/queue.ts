@@ -188,7 +188,9 @@ export interface IntentStep {
 export interface AgentIntent {
   // "create" makes an empty list and adds nobody — for a tag with no subject.
   // "answer" writes nothing at all: it's a question answered in the thread.
-  action: "add" | "remove" | "create" | "answer" | "ask" | "none" | "failed";
+  // "say" is a plain conversational reply — someone addressed the bot without
+  // asking for a list operation. "none" is for when nobody is talking TO it.
+  action: "add" | "remove" | "create" | "answer" | "say" | "ask" | "none" | "failed";
   // More than one thing in a single tag: "add them to ceramics and make me a
   // mute list for that other guy". Walked in order by the Worker.
   //
