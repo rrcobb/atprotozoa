@@ -1,14 +1,24 @@
-# listbot — keep your own lists by tagging
+# listbot — list management by tagging a bot
 
-`@listbot.bisks.net` is a Bluesky account. You sign in once at
-`listbot.bisks.net`, and after that you reply `@listbot.bisks.net bots` under
-anyone's post and that post's author joins **your** list called "bots" — created
-if you don't have one. `@listbot.bisks.net remove bots` takes them off.
+`@listbot.bisks.net` is a Bluesky account that keeps your lists for you. You
+sign in once at `listbot.bisks.net`; after that you tag it and say what you
+want, and it makes the list, adds people, and takes them off.
 
-You don't have to write it that neatly. A tag goes to an agent that reads the
-thread, the person's profile, and the lists you already have, so "@listbot do
-it" resolves when the context makes it obvious, and "make me a list for tracking
-X" works as a top-level post with nobody to add. See "How a tag is resolved".
+**What makes it work is that it understands the ask.** A tag goes to an agent
+that reads the thread, the subject's profile, and the lists you already have, so
+"add them to my cool posters" lands on the list you already own rather than
+minting a near-duplicate, "@listbot do it" resolves when the context makes it
+obvious, and "make me a mute list for these crypto spammers" gets both the list
+and the right kind of list. It asks only when it genuinely can't tell.
+
+Terse tags work too — `@listbot.bisks.net bots` adds someone, `remove bots`
+takes them off — but that's one way to phrase it, not the interface. Treating
+the terse form as the real command and English as a fallback is backwards, and
+it produced a real bug: see "What the parser still does".
+
+The user is reading a thread and thinks "these two are worth keeping track of".
+Who gets added, and to which list, is the bot's problem. The mechanics below —
+reply parsing, subject resolution — are load-bearing but invisible from there.
 
 Bluesky already reads `app.bsky.graph.list` as mute lists, block lists, and feed
 curation lists, so a list is useful the moment it exists. No consumer had to be
