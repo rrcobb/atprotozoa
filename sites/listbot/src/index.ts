@@ -1789,14 +1789,15 @@ function listsPage(
 ): Response {
   const body = lists.length
     ? `<ul class="listindex">${lists.map(renderListRow).join("")}</ul>`
-    : `<p>no lists yet. reply to someone's post with <code>@${escapeHtml(env.BOT_HANDLE)} cool posters</code> — or any name — and they'll land on a list called that.</p>`;
+    : `<p>no lists yet. reply to someone's post with <code>@${escapeHtml(env.BOT_HANDLE)} cool posters</code> — or any name — and they'll land on a list called that.</p>
+<p class="fine">you can also <a href="https://bsky.app/messages">DM @${escapeHtml(env.BOT_HANDLE)}</a> instead of tagging it. same bot, and better for anything you'd rather keep off a public thread.</p>`;
 
   return page(
     "your lists",
     `${whoBar(handle)}
 ${flashNote(flash)}
 ${body}
-<p class="fine">these live in your own repo. anything you change here changes it there.</p>`,
+<p class="fine">these live in your own repo. anything you change here changes it there. you can tag <strong>@${escapeHtml(env.BOT_HANDLE)}</strong> under a post or DM it — either works.</p>`,
   );
 }
 

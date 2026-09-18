@@ -123,7 +123,7 @@ failure notes/50 warns about, removed by construction rather than by discipline.
 Note the metadata is **served by the Worker**, not a static file in `public/`,
 because it interpolates `SITE_URL` and the jwks location.
 
-## Watching for tags
+## Watching for requests
 
 Cron every 2 minutes, `listNotifications` plus a periodic `searchPosts` sweep —
 copied from `sites/buildthis/src/index.ts`, not Jetstream. Jetstream is a
@@ -136,6 +136,43 @@ caught — the two incidents are documented in `notes/80` (a reply on the bot's
 own post arrives as `reason: "reply"`, not `"mention"`; and Bluesky once dropped
 an author's mentions from every recipient's notifications account-wide while the
 posts stayed live and searchable). Every 5th tick runs the sweep.
+
+## Two doorways: tags and DMs
+
+A request reaches listbot two ways, and everything after discovery is shared —
+the same job shape, the same agent, the same writes. A DM is a different
+doorway, not a different bot.
+
+**DMs matter more than they sound.** A lot of what people ask doesn't belong in
+a public thread: "delete my ceramics list", "who's on people I blocked", adding
+six accounts at once. Tagging stays the front door because it's what you reach
+for mid-scroll; a DM is right for anything about a list's contents.
+
+The chat API is a separate service (`api.bsky.chat`, reached with an
+`atproto-proxy` header) but it authenticates with the **same app-password
+session** the bot already had — no new credential, no new scope.
+
+One thing that would have silently broken it: incoming DMs default to
+followers-only, which would have blocked nearly everyone. The fix is a
+`chat.bsky.actor.declaration` record with `allowIncoming: "all"` in the bot's
+repo. It is a **record, not a preference** — `putPreferences` rejects it with
+"Some preferences are not in the app.bsky namespace".
+
+Two differences fall out of what a DM lacks:
+
+- **No parent post**, so nobody is named by default. Everyone has to be resolved
+  from the text, which is what the `follows` work made possible — before that a
+  DM would have been nearly useless.
+- **The conversation is the thread.** Both sides go into context, so "add colin
+  to it" resolves against the bot's own previous message.
+
+`reply()` branches on the addressing token (`dm:<convoId>:<messageId>` in place
+of a post URI) rather than each caller deciding, so one place knows the
+difference and a new reply path can't answer a private message in public.
+
+DM messages are keyed by **message** id for the handled marker, not conversation
+id — keying on the conversation would mean only the first message anyone ever
+sent got handled.
 
 ## How a tag is resolved
 
@@ -518,7 +555,7 @@ Cloudflare item, which is a different credential from the Workers token the
 
 ## Tests
 
-`node audit/run-tests.mjs listbot` — 133 tests, no network.
+`node audit/run-tests.mjs listbot` — 182 tests, no network.
 
 - `tests/command.test.mjs` — the routing decision: help, or the agent. The
   load-bearing case is that no tag is silently dropped.
@@ -541,6 +578,18 @@ Cloudflare item, which is a different credential from the Workers token the
   differently every time.
 - `tests/session.test.mjs` — the browser cookie. The load-bearing case is that a
   malformed token never reaches KV.
+- `tests/dm.test.mjs` — the DM seam. The load-bearing cases are that a private
+  request comes back privately, and that a message is keyed by message id rather
+  than conversation id (keying on the conversation would handle only the first
+  message anyone ever sent).
+- `tests/embeds.test.mjs` — quoted posts, images and link cards. A quote's raw
+  embed carries only a uri and cid, which is why the quoted post is fetched;
+  there's a test pinning that, so if it ever stops being true the fetch can go.
+- `tests/split.test.mjs` — long replies across posts, counted in graphemes
+  because that's what Bluesky counts. Also pins that the bot never names people
+  it put on a mute or block list.
+- `tests/listadmin.test.mjs` — delete, rename and re-kind. The load-bearing case
+  is that the agent can only NAME a list, never point at a record.
 - `tests/intent.test.mjs` — what the Worker does with an agent's answer. Two
   load-bearing cases: a partial result reads as partial (a step that failed is
   never papered over by one that worked), and a flat intent with no `steps`
