@@ -266,3 +266,32 @@ export function sessionCookie(token: string): string {
 export function clearedCookie(): string {
   return `${COOKIE_NAME}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`;
 }
+
+// --- the signed-in account cap -----------------------------------------------
+//
+// listbot shares one build box with buildthis, and the box runs ONE job at a
+// time. So a listbot job doesn't merely consume capacity — it puts a build
+// behind it in line. A listbot job is short (well under a minute against a
+// build's five to thirteen), but the queue is the shared resource and an
+// unbounded number of signed-in accounts is an unbounded queue.
+//
+// Hence a cap on how many people can sign in at all. It's a blunter instrument
+// than a per-user rate limit and it's meant to be: the per-user limit bounds
+// what one enthusiast spends, and this bounds how many enthusiasts there can be.
+// Together they put a ceiling on listbot's total claim on the box.
+//
+// Deliberately NOT an allowlist. Whoever gets there first is as good a rule as
+// any for a toy, and it needs no judgment about who deserves a list.
+
+export async function atAccountCap(kv: KVNamespace, cap: number): Promise<boolean> {
+  if (!cap || cap <= 0) return false; // 0 or unset = no cap
+  try {
+    return (await countSessions(kv)) >= cap;
+  } catch (err) {
+    // A KV failure here fails OPEN, same reasoning as the rate limit: a sign-in
+    // page that breaks whenever KV hiccups is worse than briefly overshooting a
+    // cap that exists to smooth load, not to enforce a boundary.
+    console.error(`account cap check failed: ${err}`);
+    return false;
+  }
+}

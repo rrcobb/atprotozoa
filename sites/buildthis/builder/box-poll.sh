@@ -55,7 +55,20 @@ done
 while true; do
   WORKED=0
 
+  # Builds come first, always. The box runs one job at a time, so a listbot job
+  # claimed while a build is queued puts that build behind it. listbot's jobs are
+  # short (well under a minute against a build's five to thirteen), but "short"
+  # isn't "free" and the bot is meant to be the dumber, lighter one — it should
+  # never be the reason someone's build waits.
+  #
+  # QUEUES is already ordered with buildthis first, and this preserves that
+  # within a pass: once any queue yields a job, later queues wait for the next
+  # pass. So a steady stream of builds naturally starves listbot rather than the
+  # other way round, which is the priority we want.
+  CLAIMED_THIS_PASS=0
+
   for QUEUE in $QUEUES; do
+    [ "$CLAIMED_THIS_PASS" = "1" ] && break
     QNAME="$(echo "$QUEUE" | cut -d'|' -f1)"
     QURL="$(echo "$QUEUE" | cut -d'|' -f2)"
     QTOKEN_VAR="$(echo "$QUEUE" | cut -d'|' -f3)"
@@ -94,6 +107,7 @@ while true; do
 
     echo "box-poll: claimed $KIND job for $MENTION_URI"
     WORKED=1
+    CLAIMED_THIS_PASS=1
 
     case "$KIND" in
       build)

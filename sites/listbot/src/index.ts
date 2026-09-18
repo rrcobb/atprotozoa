@@ -30,6 +30,7 @@ import {
   countSessions,
   putLoginState,
   takeLoginState,
+  atAccountCap,
   createBrowserSession,
   browserSessionDid,
   deleteBrowserSession,
@@ -89,6 +90,10 @@ export interface Env {
   // ceiling can be tuned without a deploy.
   RATE_LIMIT_TAGS: string;
   RATE_LIMIT_WINDOW_MINUTES: string;
+  // How many accounts may be signed in at once. listbot shares one build box
+  // with buildthis and the box runs one job at a time, so this bounds how much
+  // of that queue listbot can ever claim. 0 or unset means no cap.
+  MAX_ACCOUNTS: string;
 
   // secrets
   BOT_APP_PASSWORD: string;
@@ -293,6 +298,22 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
   const form = await request.formData();
   const handle = String(form.get("handle") ?? "").trim();
   if (!handle) return errorPage("Enter your handle.");
+
+  // Check the cap before doing anything expensive. Someone already signed in
+  // isn't blocked by it — they're in the count — but a new account is.
+  const cap = parseInt(env.MAX_ACCOUNTS ?? "0", 10) || 0;
+  if (await atAccountCap(env.STATE, cap)) {
+    const did = await resolveHandleToDid(handle);
+    const alreadyIn = did ? Boolean(await getSession(env.STATE, env.SESSION_ENC_KEY, did)) : false;
+    if (!alreadyIn) {
+      return page(
+        "full for now",
+        `<p class="bad">listbot is full — it's capped at ${cap} accounts while it shares a build box with another bot.</p>
+<p>it's a toy, and the cap is there so it can't slow the other one down. ask <a href="https://bsky.app/profile/bisks.net">@bisks.net</a> to raise it.</p>`,
+        503,
+      );
+    }
+  }
 
   const did = await resolveHandleToDid(handle);
   if (!did) return errorPage(`Couldn't resolve "${handle}".`);
