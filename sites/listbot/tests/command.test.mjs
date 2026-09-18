@@ -41,16 +41,21 @@ test("a tag with nothing in it asks for help", () => {
   assert.deepEqual(parse("@listbot.bisks.net    "), { kind: "help" });
 });
 
-test("help and lists are commands only when they're the whole tag", () => {
+test("help is a command only when it's the whole tag", () => {
   for (const word of ["help", "?", "halp"]) {
     assert.deepEqual(parse(`@listbot.bisks.net ${word}`), { kind: "help" }, word);
   }
-  for (const word of ["lists", "mylists"]) {
-    assert.deepEqual(parse(`@listbot.bisks.net ${word}`), { kind: "lists" }, word);
-  }
   // Anything longer is an ask, not a command.
   assert.equal(parse("@listbot.bisks.net help me build a list").kind, "agent");
+});
+
+// "lists" used to be reserved, which turned a plausible list name into a
+// command. The agent answers "where are my lists?" as well as it answers
+// anything else, so there's nothing to reserve it for.
+test("lists is a list name like any other", () => {
+  assert.deepEqual(parse("@listbot.bisks.net lists"), { kind: "agent", text: "lists" });
   assert.equal(parse("@listbot.bisks.net lists of painters").kind, "agent");
+  assert.equal(parse("@listbot.bisks.net where are my lists?").kind, "agent");
 });
 
 // The load-bearing property. A tag that's plainly asking for something must

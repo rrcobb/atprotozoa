@@ -193,6 +193,10 @@ To ask:
 }
 ```
 
+A tag that's asking a question rather than giving an instruction — "where are my
+lists?", "what can you do?" — is an `ask` with the answer in `reply`. Their lists
+are at listbot.bisks.net/lists.
+
 To do nothing — the tag isn't asking for anything (someone saying "cool bot", or
 talking about you rather than to you):
 

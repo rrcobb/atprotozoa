@@ -797,16 +797,11 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
     return;
   }
 
-  if (command.kind === "lists") {
-    await reply(bot, m, `your lists live at ${env.SITE_URL}/lists`);
-    return;
-  }
-
-  // A tag with no parent post has nobody to add — but it can still be a
-  // perfectly clear instruction ("make me a list for X"). Those go to the agent
-  // with no subject rather than being refused: the first real tag anyone sent
-  // was exactly this, and "tag me in a REPLY" would have been a correct answer
-  // to a question the person didn't ask.
+  // A tag with no parent post has nobody to add by default — but it can still be
+  // a perfectly clear instruction ("make me a list for X"), and it can name
+  // someone outright. Those go to the agent rather than being refused: the first
+  // real tag anyone sent was exactly this, and "tag me in a REPLY" would have
+  // been a correct answer to a question the person didn't ask.
   let subject: { did: string; handle: string } | null = null;
   if (m.parentUri) {
     subject = await parentAuthor(bot, m.parentUri);
@@ -814,9 +809,20 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
       await reply(bot, m, `i couldn't work out whose post that was — try again?`);
       return;
     }
+    // Your own post is not a subject — "add me to my own list" isn't what
+    // anyone means by tagging their own thread. But it's only a dead end if
+    // they also didn't name anyone: "@listbot add @alice to ceramics" under
+    // your own post is a perfectly sensible way to use this.
     if (subject.did === m.authorDid) {
-      await reply(bot, m, `that's your own post! tag me under someone else's.`);
-      return;
+      subject = null;
+      if (!m.mentionedDids?.length) {
+        await reply(
+          bot,
+          m,
+          `that's your own post — reply to someone else's, or tell me who to add.`,
+        );
+        return;
+      }
     }
   }
 
@@ -852,7 +858,7 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
   const rate = await checkRateLimit(
     env.STATE,
     m.authorDid,
-    parseInt(env.RATE_LIMIT_TAGS ?? "20", 10) || 20,
+    parseInt(env.RATE_LIMIT_TAGS ?? "100", 10) || 100,
     parseInt(env.RATE_LIMIT_WINDOW_MINUTES ?? "60", 10) || 60,
   );
   if (!rate.allowed) {
@@ -1120,7 +1126,7 @@ async function handleStatus(env: Env): Promise<Response> {
     // than advertising a loop that will never run.
     status: configured ? "live" : "not-configured",
     description:
-      "maintain your own Bluesky lists by tagging. reply '@listbot.bisks.net <list name>' under a post and its author joins your list of that name.",
+      "keeps your Bluesky lists for you. tag @listbot.bisks.net in a reply and say what you want — it makes lists, adds people, and takes them off.",
     bot: { did: env.BOT_DID, handle: env.BOT_HANDLE },
     // Counts only — never who. A list is the user's own business, and listbot
     // publishing its membership would undo the point of keeping it in their repo.
@@ -1384,7 +1390,7 @@ function listDetailPage(
 ): Response {
   const members = l.members.length
     ? `<ul class="members">${l.members.map((m) => renderMember(m, l.rkey)).join("")}</ul>`
-    : `<p class="empty">nobody on this one yet. tag me under someone's post to add them.</p>`;
+    : `<p class="empty">nobody on this one yet. tag me in a reply and tell me who to add.</p>`;
 
   const more = l.cursor
     ? `<p class="more"><a href="/lists/${escapeAttr(l.rkey)}?cursor=${encodeURIComponent(l.cursor)}">next page →</a></p>`
@@ -1569,7 +1575,7 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
     const link = created.listUri ? `\n${listWebUrl(job.tagger.did, created.listUri)}` : "";
     const text = created.alreadyThere
       ? `you've already got "${created.listName}".${link}`
-      : `made you a list called "${created.listName}"${kindNote}. tag me under someone's post to add them.${link}`;
+      : `made you a list called "${created.listName}"${kindNote}. tag me in a reply and tell me who to add.${link}`;
     await reply(bot, mention, text);
     return json({ ok: true, did: "created", list: created.listName });
   }
