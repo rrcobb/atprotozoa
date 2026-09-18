@@ -37,7 +37,41 @@ whole. The weekly digest reads a slice (what shipped, what broke).
 The hype video needs both: the media path to exist at all, and the lore
 index to know which moments in the week were the moments.
 
+## Cost, which is the actual constraint
+
+Three kinds, only one of them hard:
+
+- **Rendering is nearly free.** Headless browser plus ffmpeg on the box is
+  CPU minutes on hardware already paid for: a GIF of a page, a 45-second 720p
+  render, TTS through a local voice, a beat rendered offline from a Tone.js
+  page. None of it touches an API. Bound it with a queue and a per-day budget
+  of box minutes.
+- **Tokens scale with input, not output.** A weekly video is one model call
+  to write an edit list against material people already picked. A librarian
+  reading the whole scene is the expensive one. So: a cheap model for the
+  bulk pass, a good one for synthesis, index once, re-read only the delta.
+  Jetstream is the delta.
+- **Third-party generation** (image and song APIs) is the only per-call
+  dollar cost. Defer until the substrate makes it worth paying.
+
 ## The bots
+
+### The librarian (lore, background)
+
+Know Your Meme, TV Tropes, and Wikipedia for the scene, running on a cron and
+never tagged. "Trending" counts; this traces. It reads the threads, the
+sites, and the diary, follows links out to primary sources, and writes what
+it learns as **records, not pages**: `net.bisks.lore.entry` in the bot's own
+repo, one per term, joke, person, event, or site, with the explanation, the
+sources, and links to the other entries and to the posts where it happened.
+
+Records because then everything else is a read of the index: explainthis
+renders the entries that match a thread, the digest and the weekly video ask
+it what mattered, and other agents read it through `listRecords` and the
+published lexicon, which is what makes the scene's lore tractable for a bot
+that isn't ours. Constellation and Cerulea give it provenance for free: who
+quoted whom first, where a phrase spread from, which thread a site came out
+of. Its value compounds, which none of the other bots' does.
 
 ### explainthis (lore)
 
@@ -130,8 +164,8 @@ subscribers (`feeds-and-labels.md`). Listbot (`notes/88`) is the better form.
 
 1. **Screenshots on the box.** Headless browser plus one capture. Every reply
    gets better, and it is the first step of the media path.
-2. **explainthis, with the lore index underneath it.** The index is the part
-   with lasting value: the digest and the weekly video both read it.
+2. **The librarian, then explainthis as its first reader.** The index is the
+   part with lasting value: the digest and the weekly video both read it.
 3. **Animation bot,** to prove render-and-upload on something with no stakes.
 4. **The weekly hype video,** on top of 1 through 3.
 5. Image generation and song as variants, when cost has an answer.
