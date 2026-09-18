@@ -55,13 +55,24 @@ export interface JobPayload {
   // Absent on a top-level tag ("make me a list for X") — no post being replied
   // to means nobody to add, but the list can still be made.
   subject?: JobSubject;
-  // Everyone this tag may add: the parent author first (when there is one),
-  // then anyone the tagger @-mentioned. The agent answers with an INDEX into
-  // this array rather than naming a person, which is what keeps a stranger's
-  // text from choosing who gets added. Empty on a top-level tag with no
-  // mentions.
+  // People this tag obviously refers to: the parent author first (when there is
+  // one), then anyone the tagger @-mentioned. A fast path, not a fence — the
+  // agent can also name someone it found in `follows` or via search, and the
+  // Worker resolves whatever it names.
   candidates: JobSubject[];
-  thread: { author: string; text: string }[];
+  // WHO THE TAGGER FOLLOWS. The single highest-value thing in this payload.
+  //
+  // People refer to accounts the way they talk: "add fleetingbits", not
+  // "add @fleetingbits.bsky.social". That shorthand is only resolvable against
+  // a set of people, and the tagger's follows is overwhelmingly the right set —
+  // it's who they talk about. Handle and display name both, because "add Paul"
+  // is just as normal as "add fleetingbits".
+  //
+  // Prefetched rather than left to the agent to look up: it's one call the
+  // Worker is already authenticated for, and it turns the common case from a
+  // multi-step search into a lookup the agent does in its head.
+  follows: { did: string; handle: string; displayName?: string }[];
+  thread: { author: string; handle: string; did: string; text: string }[];
   lists: JobList[];
   outcomeUrl: string;
 }
@@ -154,16 +165,24 @@ export async function claimNextJob(kv: KVNamespace): Promise<QueueJob | null> {
 // this is a claim from a process that read a stranger's text, not an
 // instruction.
 //
-// There is still no field naming a person. The agent may only point at one of
-// the candidates the Worker built, by index, so the set of people a tag can
-// touch is fixed before the agent runs and an injected handle has nothing to
-// select. Out of range, or absent, means candidate 0 — the parent post's
-// author, which is what every tag did before this existed.
+// The agent may name a person, and the Worker resolves whatever it names.
+// An earlier design let it pick only by index into a Worker-built list, which
+// is a stronger property — but it made "add fleetingbits" impossible, and that
+// is the main thing people want from this bot. The right price here: a listitem
+// lands in the tagger's OWN list, the reply says exactly who was added, and one
+// tap undoes it. So the guarantee is that a name the agent invented fails to
+// resolve and is reported, rather than quietly becoming a record.
 export interface AgentIntent {
   // "create" makes an empty list and adds nobody — for a tag with no subject.
-  action: "add" | "remove" | "create" | "ask" | "none" | "failed";
-  // Index into JobPayload.candidates. Absent means 0.
+  // "answer" writes nothing at all: it's a question answered in the thread.
+  action: "add" | "remove" | "create" | "answer" | "ask" | "none" | "failed";
+  // Who to act on. Either an index into `candidates` (the fast path, when the
+  // tagger pointed at someone directly), or a handle/DID the agent worked out —
+  // from `follows`, the thread, or a search it ran.
   subjectIndex?: number;
+  subjectHandle?: string;
+  // For "add everyone in this thread" / "add both of them".
+  subjectHandles?: string[];
   list?: string;
   listExists?: boolean;
   // Which kind of list to make. A curatelist (the default) feeds list-feeds and

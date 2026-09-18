@@ -617,11 +617,29 @@ async function recentMentions(session: BotSession): Promise<Mention[]> {
       ),
     );
 
+  // A reply directly under one of the bot's OWN posts counts as talking to it,
+  // whether or not it repeats the @mention.
+  //
+  // This is how a conversation works. listbot answers, you say "ok cool add
+  // fleetingbits", and you are plainly still talking to it — nobody re-@s
+  // someone mid-thread. Requiring the mention meant that reply never reached
+  // the watcher at all, so the bot looked like it was ignoring you in a thread
+  // it had just spoken in. buildthis hit the same thing (notes/80) and fixed it
+  // the same way.
+  //
+  // It's scoped to the bot's own posts on purpose: a reply somewhere else in a
+  // thread the bot happens to be in isn't addressed to it.
+  const repliesToUs = (rec: PostRecord): boolean => {
+    const parent = rec.reply?.parent?.uri;
+    return Boolean(parent && parent.includes(`/${session.did}/`));
+  };
+
   return j.notifications
     .filter((n) => {
       if (n.reason === "mention") return true;
       if (n.reason !== "reply") return false;
-      return mentionsUs((n.record ?? {}) as PostRecord);
+      const rec = (n.record ?? {}) as PostRecord;
+      return mentionsUs(rec) || repliesToUs(rec);
     })
     .map((n) => {
       const rec = (n.record ?? {}) as PostRecord;
@@ -897,6 +915,8 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
     // person it always did.
     candidates: await describeCandidates(bot, subject, m.mentionedDids ?? []),
     thread: m.parentUri ? await threadContext(bot, m.parentUri) : [],
+    // Who the tagger follows — the set that makes "add fleetingbits" resolvable.
+    follows: await taggerFollows(bot, m.authorDid),
     lists: lists.map((l) => ({
       name: l.name,
       memberCount: l.memberCount ?? 0,
@@ -990,7 +1010,7 @@ async function describeSubject(
 async function threadContext(
   bot: BotSession,
   parentUri: string,
-): Promise<{ author: string; text: string }[]> {
+): Promise<{ author: string; handle: string; did: string; text: string }[]> {
   try {
     const u = new URL(`${APPVIEW}/xrpc/app.bsky.feed.getPostThread`);
     u.searchParams.set("uri", parentUri);
@@ -1002,11 +1022,16 @@ async function threadContext(
     if (!res.ok) return [];
     const j = (await res.json()) as { thread?: ThreadNode };
 
-    const chain: { author: string; text: string }[] = [];
+    // DIDs ride along, so "add the person who posted the chart" is answerable
+    // from the thread alone rather than needing a second lookup.
+    const chain: { author: string; handle: string; did: string; text: string }[] = [];
     let node: ThreadNode | undefined = j.thread;
     while (node?.post) {
+      const handle = node.post.author?.handle ?? "someone";
       chain.push({
-        author: node.post.author?.handle ?? "someone",
+        author: handle,
+        handle,
+        did: node.post.author?.did ?? "",
         text: node.post.record?.text ?? "",
       });
       node = node.parent;
@@ -1018,8 +1043,97 @@ async function threadContext(
   }
 }
 
+// Who the tagger follows, for resolving how people actually refer to accounts.
+//
+// "add fleetingbits" is not a handle, it's how someone talks. It only resolves
+// against a set of people, and who you follow is overwhelmingly the right set —
+// it's who you talk about. Display names come too, because "add Paul" is just
+// as normal as "add fleetingbits".
+//
+// Capped at 2000. Someone following more than that has a long tail the agent
+// can still reach with a search, and the whole point of prefetching is to make
+// the COMMON case a lookup rather than a multi-step hunt.
+const MAX_FOLLOWS = 2000;
+
+async function taggerFollows(
+  bot: BotSession,
+  did: string,
+): Promise<{ did: string; handle: string; displayName?: string }[]> {
+  const out: { did: string; handle: string; displayName?: string }[] = [];
+  let cursor: string | undefined;
+  try {
+    for (let page = 0; page < 20 && out.length < MAX_FOLLOWS; page++) {
+      const u = new URL(`${APPVIEW}/xrpc/app.bsky.graph.getFollows`);
+      u.searchParams.set("actor", did);
+      u.searchParams.set("limit", "100");
+      if (cursor) u.searchParams.set("cursor", cursor);
+      const res = await fetch(u.toString(), {
+        headers: { authorization: `Bearer ${bot.accessJwt}` },
+      });
+      if (!res.ok) break;
+      const j = (await res.json()) as {
+        follows?: { did: string; handle: string; displayName?: string }[];
+        cursor?: string;
+      };
+      for (const f of j.follows ?? []) {
+        out.push({ did: f.did, handle: f.handle, displayName: f.displayName });
+      }
+      cursor = j.cursor;
+      if (!cursor) break;
+    }
+  } catch (err) {
+    // Best-effort: without follows the agent falls back to search, which is
+    // slower but works. A failure here must not cost the tag.
+    console.error(`follows fetch failed for ${did}: ${err}`);
+  }
+  return out;
+}
+
+// Turn whatever the agent named into a real account.
+//
+// The agent may hand back a handle, a partial handle, or a DID it found in the
+// follows list or a search. This is the step that decides whether that becomes
+// a record: it resolves, or the tag fails and says so. A name the agent
+// invented has nowhere to land.
+//
+// Order matters — cheap and certain first:
+//   1. already a DID
+//   2. exact handle among the people the Worker prefetched
+//   3. resolveHandle, for a full handle the agent got right
+//   4. handle prefix among follows ("fleetingbits" -> fleetingbits.bsky.social)
+//   5. display-name match among follows ("Paul")
+async function resolvePerson(
+  bot: BotSession,
+  named: string,
+  pools: { did: string; handle: string; displayName?: string }[][],
+): Promise<{ did: string; handle: string } | null> {
+  const want = named.trim().replace(/^@/, "").toLowerCase();
+  if (!want) return null;
+  if (want.startsWith("did:")) return { did: named.trim(), handle: named.trim() };
+
+  const all = pools.flat();
+
+  const exact = all.find((p) => p.handle.toLowerCase() === want);
+  if (exact) return { did: exact.did, handle: exact.handle };
+
+  if (want.includes(".")) {
+    const did = await resolveHandleToDid(want);
+    if (did) return { did, handle: want };
+  }
+
+  // "fleetingbits" -> "fleetingbits.bsky.social". Only when it's unambiguous:
+  // two matches means asking is better than picking.
+  const prefix = all.filter((p) => p.handle.toLowerCase().split(".")[0] === want);
+  if (prefix.length === 1) return { did: prefix[0].did, handle: prefix[0].handle };
+
+  const byName = all.filter((p) => (p.displayName ?? "").toLowerCase() === want);
+  if (byName.length === 1) return { did: byName[0].did, handle: byName[0].handle };
+
+  return null;
+}
+
 interface ThreadNode {
-  post?: { author?: { handle?: string }; record?: { text?: string } };
+  post?: { author?: { handle?: string; did?: string }; record?: { text?: string } };
   parent?: ThreadNode;
 }
 
@@ -1526,6 +1640,20 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
     return json({ ok: true, did: "asked" });
   }
 
+  // A question, answered in the thread. Writes nothing — so it needs no acting
+  // session and no list name, and it falls out before every check below.
+  // Someone asking "who's on ceramics?" deserves the answer, not a link to a
+  // webpage.
+  if (intent.action === "answer") {
+    const text = safeReply(intent.reply);
+    if (!text) {
+      await reply(bot, mention, `i couldn't work that out, sorry.`);
+      return json({ ok: true, did: "empty answer" });
+    }
+    await reply(bot, mention, text);
+    return json({ ok: true, did: "answered" });
+  }
+
   const listName = (intent.list ?? "").trim();
   if (!listName) {
     await reply(bot, mention, `i couldn't work out which list you meant, sorry.`);
@@ -1540,22 +1668,66 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
 
   const purpose = intent.purpose === "modlist" ? "modlist" : "curatelist";
 
-  // Who this acts on. The agent answers with an index into the candidate list
-  // the Worker built when it queued the job — the parent post's author, plus
-  // anyone the tagger @-mentioned. Anything out of range falls back to
-  // candidate 0 rather than erroring, so a confused agent adds the person the
-  // tag has always added instead of nobody.
+  // Who this acts on.
   //
-  // This is the whole defense, and it's structural: the agent hands back a
-  // number, so no text it read can name a person who isn't already here.
+  // Three ways the agent can answer, in order of directness: an index into the
+  // candidates the Worker built (parent author, plus anyone @-mentioned), a
+  // name it worked out from `follows` or the thread, or a list of names for
+  // "add everyone in this thread".
+  //
+  // A NAME the agent gives is resolved here, against the same pools it was
+  // given plus resolveHandle. It resolves or the tag fails and says so — a name
+  // the agent invented has nowhere to land. That's the guarantee, and it's
+  // weaker than the index-only design this replaces. Deliberately: that one
+  // made "add fleetingbits" impossible, which is the main thing people want,
+  // and the thing it was protecting is a row in the tagger's own list that the
+  // reply names and one tap undoes.
   const candidates = job.candidates ?? (job.subject ? [job.subject] : []);
-  const picked =
+  const pools = [
+    candidates.map((c) => ({ did: c.did, handle: c.handle, displayName: c.displayName })),
+    job.follows ?? [],
+    (job.thread ?? [])
+      .filter((t) => t.did)
+      .map((t) => ({ did: t.did, handle: t.handle })),
+  ];
+
+  const named = intent.subjectHandles?.length
+    ? intent.subjectHandles
+    : intent.subjectHandle
+      ? [intent.subjectHandle]
+      : [];
+
+  let people: { did: string; handle: string }[] = [];
+  const unresolved: string[] = [];
+
+  if (named.length) {
+    for (const n of named) {
+      const found2 = await resolvePerson(bot, n, pools);
+      if (found2) people.push(found2);
+      else unresolved.push(n);
+    }
+  } else if (
     typeof intent.subjectIndex === "number" &&
     Number.isInteger(intent.subjectIndex) &&
     intent.subjectIndex >= 0 &&
     intent.subjectIndex < candidates.length
-      ? candidates[intent.subjectIndex]
-      : candidates[0];
+  ) {
+    const c = candidates[intent.subjectIndex];
+    people = [{ did: c.did, handle: c.handle }];
+  } else if (candidates[0]) {
+    people = [{ did: candidates[0].did, handle: candidates[0].handle }];
+  }
+
+  // Nothing the agent named resolved. Say so with the name it used — "i
+  // couldn't find X" is actionable in a way that silence or a generic failure
+  // is not.
+  if (!people.length && unresolved.length) {
+    const names = unresolved.map((n) => `"${n.replace(/^@/, "")}"`).join(" or ");
+    await reply(bot, mention, `i couldn't work out who ${names} is — try their full handle?`);
+    return json({ ok: true, did: "unresolved subject" });
+  }
+
+  const picked = people[0];
 
   // "create" makes the list and adds nobody — a top-level tag with no post
   // being replied to and nobody mentioned.
@@ -1580,10 +1752,21 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
     return json({ ok: true, did: "created", list: created.listName });
   }
 
-  const result =
-    intent.action === "add"
-      ? await addToList(found.acting, listName, picked.did, purpose)
-      : await removeFromList(found.acting, listName, picked.did);
+  // Everyone named, not just the first — "add everyone in this thread" is a
+  // normal thing to want, and doing one of four silently is worse than
+  // refusing. Sequential rather than parallel: they write to the same repo, and
+  // the second add needs to see the list the first one created.
+  const results = [];
+  for (const person of people) {
+    results.push({
+      person,
+      result:
+        intent.action === "add"
+          ? await addToList(found.acting, listName, person.did, purpose)
+          : await removeFromList(found.acting, listName, person.did),
+    });
+  }
+  const result = results[0].result;
 
   if (result.nonce && result.nonce !== found.session.dpopNonce) {
     await putSession(env.STATE, env.SESSION_ENC_KEY, {
@@ -1595,6 +1778,28 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
   // Prefer the agent's wording — it's why there's an agent — but only when the
   // action actually did what the agent thought. A reply saying "added @alice"
   // when the write failed is worse than a blunter accurate one.
+  // With several people, the agent's one-line reply can't be accurate about all
+  // of them, so the Worker writes that one from what actually happened.
+  if (people.length > 1) {
+    const ok = results.filter((r) => r.result.ok);
+    const failed = results.filter((r) => !r.result.ok);
+    const name = result.listName ?? listName;
+    const link = result.listUri ? `\n${listWebUrl(job.tagger.did, result.listUri)}` : "";
+    const verb = intent.action === "add" ? "added" : "took off";
+    const who = ok.map((r) => `@${r.person.handle}`).join(", ");
+    let text = ok.length
+      ? `${verb} ${who} ${intent.action === "add" ? "to" : "from"} "${name}".`
+      : `that didn't work, sorry — nothing changed on "${name}".`;
+    if (failed.length && ok.length) {
+      text += ` couldn't do ${failed.map((r) => `@${r.person.handle}`).join(", ")}.`;
+    }
+    if (unresolved.length) {
+      text += ` and i couldn't find ${unresolved.map((n) => `"${n.replace(/^@/, "")}"`).join(", ")}.`;
+    }
+    await reply(bot, mention, text + link);
+    return json({ ok: true, did: intent.action, count: ok.length });
+  }
+
   const agentReply = result.ok && !result.alreadyThere && !result.notThere
     ? safeReply(intent.reply)
     : null;
