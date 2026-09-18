@@ -5,11 +5,19 @@
 // account endpoint, so sample the target's own posts and read each one's
 // getLikes" trick) but this site only needs the inbound half, and needs the
 // post *text* too (crawlInbound only needed the author).
+//
+// Likers come from microcosm.blue's Constellation first
+// (blue.microcosm.links.getBacklinkDids, source app.bsky.feed.like:subject.uri):
+// it returns 1000 liker DIDs per page against getLikes' 100, and this site
+// only ever keeps the DID, so nothing is lost by dropping the AppView's
+// hydrated actor. getLikes stays as the fallback when Constellation errors —
+// same recipe as listenheimer/public/lib/likes.js, gotchas in notes/40.
 
 import { jget, pooledEach } from "./identity.js";
 import { termCounts, scorePostTerms, topTags } from "./keywords.js";
 
 const PUB = "https://api.bsky.app/xrpc";
+const CONSTELLATION = "https://constellation.microcosm.blue";
 
 // No page/post caps by design — sample every original post the account has,
 // paging getAuthorFeed until its cursor runs out. These are safety ceilings
@@ -18,6 +26,7 @@ const PUB = "https://api.bsky.app/xrpc";
 const MAX_FEED_PAGES = 500; // hard stop on getAuthorFeed pagination
 const MAX_SAMPLED_POSTS = 20000; // hard stop on how many own posts get read for likers
 const MAX_LIKE_PAGES_PER_POST = 500; // hard stop on getLikes pagination per post (<= 50000 likers)
+const MAX_CONSTELLATION_PAGES_PER_POST = 50; // same ceiling in 1000-DID pages (<= 50000 likers)
 const POST_CONCURRENCY = 6;
 const TAGS_PER_POST = 3; // top topic tags kept per post
 const MIN_LIKES_TO_RANK = 2; // a liker needs at least this many liked posts to get a topic verdict
@@ -58,44 +67,86 @@ export async function sampleOwnPosts(did, onStep) {
   return posts;
 }
 
-// Read the public likers of every sampled post — paging getLikes until each
-// post's cursor runs out, not just a fixed slice. Returns Map<did, { count,
-// uris: string[] }> — how many of the target's sampled posts each liker
-// showed up on, and which ones.
+// Read the public likers of every sampled post, exhausted to the end of the
+// cursor rather than a fixed slice. Returns Map<did, { count, uris:
+// string[] }> — how many of the target's sampled posts each liker showed up
+// on, and which ones.
 async function crawlLikers(posts, onProgress) {
   const out = new Map();
   let done = 0;
   await pooledEach(posts, POST_CONCURRENCY, async (post) => {
-    let cursor = "";
-    for (let p = 0; p < MAX_LIKE_PAGES_PER_POST; p++) {
-      const u = new URL(`${PUB}/app.bsky.feed.getLikes`);
-      u.searchParams.set("uri", post.uri);
-      u.searchParams.set("limit", "100");
-      if (cursor) u.searchParams.set("cursor", cursor);
-      let d;
-      try {
-        d = await jget(u.toString());
-      } catch {
-        break;
+    let dids;
+    try {
+      dids = await likerDidsConstellation(post.uri);
+    } catch {
+      dids = await likerDidsAppView(post.uri);
+    }
+    for (const liker of dids) {
+      let row = out.get(liker);
+      if (!row) {
+        row = { count: 0, uris: [] };
+        out.set(liker, row);
       }
-      for (const l of d.likes || []) {
-        const liker = l.actor && l.actor.did;
-        if (!liker) continue;
-        let row = out.get(liker);
-        if (!row) {
-          row = { count: 0, uris: [] };
-          out.set(liker, row);
-        }
-        row.count += 1;
-        row.uris.push(post.uri);
-      }
-      cursor = d.cursor;
-      if (!cursor) break;
+      row.count += 1;
+      row.uris.push(post.uri);
     }
     done++;
     if (onProgress) onProgress(done, posts.length);
   });
   return out;
+}
+
+// Liker DIDs for one post from Constellation, deduped, paged to the end of
+// the cursor. Throws if any page fails, so the caller can fall back to the
+// AppView walk for that post rather than counting a partial list.
+async function likerDidsConstellation(uri) {
+  const dids = [];
+  const seen = new Set();
+  let cursor = "";
+  for (let p = 0; p < MAX_CONSTELLATION_PAGES_PER_POST; p++) {
+    const u = new URL(`${CONSTELLATION}/xrpc/blue.microcosm.links.getBacklinkDids`);
+    u.searchParams.set("subject", uri);
+    u.searchParams.set("source", "app.bsky.feed.like:subject.uri");
+    u.searchParams.set("limit", "1000");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    const d = await jget(u.toString());
+    const batch = d.linking_dids || [];
+    for (const did of batch) {
+      if (seen.has(did)) continue;
+      seen.add(did);
+      dids.push(did);
+    }
+    cursor = d.cursor;
+    if (!cursor || !batch.length) break;
+  }
+  return dids;
+}
+
+// Fallback: the AppView's getLikes walk, 100 per page. Swallows a failed
+// page (returning what it has) the way this crawl always has — one
+// unreadable post shouldn't sink the whole cluster run.
+async function likerDidsAppView(uri) {
+  const dids = [];
+  let cursor = "";
+  for (let p = 0; p < MAX_LIKE_PAGES_PER_POST; p++) {
+    const u = new URL(`${PUB}/app.bsky.feed.getLikes`);
+    u.searchParams.set("uri", uri);
+    u.searchParams.set("limit", "100");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    let d;
+    try {
+      d = await jget(u.toString());
+    } catch {
+      break;
+    }
+    for (const l of d.likes || []) {
+      const liker = l.actor && l.actor.did;
+      if (liker) dids.push(liker);
+    }
+    cursor = d.cursor;
+    if (!cursor) break;
+  }
+  return dids;
 }
 
 // Full pipeline: sample posts, score their topic terms, crawl likers, and
