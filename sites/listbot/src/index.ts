@@ -44,14 +44,16 @@ import {
   addToList,
   removeFromList,
   listWebUrl,
-  readLists,
-  hydrateMembers,
+  readListSummaries,
+  readListPage,
   deleteListItem,
   deleteList,
   ensureList,
   setListPurpose,
   type ActingSession,
-  type ListWithMembers,
+  type ListSummary,
+  type ListPage,
+  type ListMember,
 } from "./lists.js";
 // .mjs on purpose: it's pure logic with unit tests that import it directly.
 import { parseCommand } from "./command.mjs";
@@ -163,6 +165,18 @@ export default {
     // undo surface for a bot that acts while you're not looking.
     if (url.pathname === "/lists") {
       return handleListsPage(request, env).catch((err) => errorPage(String(err)));
+    }
+    // /lists/<rkey> — one list's members. Not a route table: /lists/remove and
+    // /lists/delete are POSTs and are matched below, and an rkey is never one
+    // of those words.
+    if (url.pathname.startsWith("/lists/") && request.method === "GET") {
+      const rkey = url.pathname.slice("/lists/".length);
+      if (rkey && !rkey.includes("/")) {
+        return handleListPage(request, env, rkey).catch((err) => errorPage(String(err)));
+      }
+    }
+    if (url.pathname === "/lists/purpose" && request.method === "POST") {
+      return handleSetPurpose(request, env).catch((err) => errorPage(String(err)));
     }
     if (url.pathname === "/lists/remove" && request.method === "POST") {
       return handleRemoveMember(request, env).catch((err) => errorPage(String(err)));
@@ -828,7 +842,9 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
   // The subject is resolved HERE, from the parent post's author, and rides along
   // as a fixed field. The agent decides which list and whether to act — never
   // who. That's the one thing a tag's text must never be able to change.
-  const { lists } = await readLists(found.acting).catch(() => ({ lists: [] }));
+  const { lists } = await readListSummaries(found.acting, APPVIEW).catch(() => ({
+    lists: [] as ListSummary[],
+  }));
   const payload: JobPayload = {
     kind: "listbot",
     mentionUri: m.uri,
@@ -843,10 +859,12 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
     thread: m.parentUri ? await threadContext(bot, m.parentUri) : [],
     lists: lists.map((l) => ({
       name: l.name,
-      memberCount: l.members.length,
-      // A few handles, not the whole list: enough for the agent to see what
-      // kind of list it is, not so much that a big list floods the prompt.
-      sampleMembers: l.members.slice(0, 8).map((mm) => mm.handle ?? mm.subjectDid),
+      memberCount: l.memberCount ?? 0,
+      // Names and counts only. Sample members used to ride along so the agent
+      // could see what kind of list it was, but that meant reading every
+      // listitem in the repo on every tag — and the name plus the thread turns
+      // out to carry the decision anyway.
+      sampleMembers: [],
     })),
     outcomeUrl: `${env.SITE_URL}/outcome`,
   };
@@ -1118,12 +1136,43 @@ async function handleListsPage(request: Request, env: Env): Promise<Response> {
   const found = await uiSession(request, env);
   if (!found) return signInPrompt(env);
 
-  const { lists, nonce } = await readLists(found.acting);
-  await hydrateMembers(lists, APPVIEW);
+  const { lists, nonce } = await readListSummaries(found.acting, APPVIEW);
   await persistNonce(env, found.session, nonce);
 
   const flash = new URL(request.url).searchParams.get("done");
   return listsPage(env, found.session.handle, lists, flash);
+}
+
+// /lists/<rkey> — one list's members, paginated.
+async function handleListPage(request: Request, env: Env, rkey: string): Promise<Response> {
+  const found = await uiSession(request, env);
+  if (!found) return signInPrompt(env);
+
+  const url = new URL(request.url);
+  const { page, nonce } = await readListPage(
+    found.acting,
+    rkey,
+    APPVIEW,
+    url.searchParams.get("cursor") ?? undefined,
+  );
+  await persistNonce(env, found.session, nonce);
+  if (!page) return page404();
+
+  return listDetailPage(env, found.session.handle, page, url.searchParams.get("done"));
+}
+
+async function handleSetPurpose(request: Request, env: Env): Promise<Response> {
+  const found = await uiSession(request, env);
+  if (!found) return signInPrompt(env);
+
+  const form = await request.formData();
+  const rkey = String(form.get("rkey") ?? "");
+  const want = String(form.get("purpose") ?? "");
+  if (!rkey || (want !== "curatelist" && want !== "modlist")) return redirect("/lists");
+
+  const result = await setListPurpose(found.acting, rkey, want);
+  await persistNonce(env, found.session, result.nonce);
+  return redirect(`/lists/${rkey}?done=${result.ok ? "purpose" : "failed"}`);
 }
 
 async function handleRemoveMember(request: Request, env: Env): Promise<Response> {
@@ -1132,11 +1181,14 @@ async function handleRemoveMember(request: Request, env: Env): Promise<Response>
 
   const form = await request.formData();
   const rkey = String(form.get("rkey") ?? "");
-  if (!rkey) return redirect("/lists");
+  // Where to go back to — the list they were looking at.
+  const listRkey = String(form.get("list") ?? "");
+  if (!rkey) return redirect(listRkey ? `/lists/${listRkey}` : "/lists");
 
   const result = await deleteListItem(found.acting, rkey);
   await persistNonce(env, found.session, result.nonce);
-  return redirect(result.ok ? "/lists?done=removed" : "/lists?done=failed");
+  const where = listRkey ? `/lists/${listRkey}` : "/lists";
+  return redirect(`${where}?done=${result.ok ? "removed" : "failed"}`);
 }
 
 async function handleDeleteList(request: Request, env: Env): Promise<Response> {
@@ -1149,7 +1201,8 @@ async function handleDeleteList(request: Request, env: Env): Promise<Response> {
 
   const result = await deleteList(found.acting, rkey);
   await persistNonce(env, found.session, result.nonce);
-  return redirect(result.ok ? "/lists?done=deleted" : "/lists?done=failed");
+  // Back to the index either way — the list they were on may be gone.
+  return redirect(`/lists?done=${result.ok ? "deleted" : "failed"}`);
 }
 
 // Signing out drops the browser session only. The OAuth grant stays, because
@@ -1182,13 +1235,17 @@ function redirect(location: string): Response {
   return new Response(null, { status: 302, headers: { location } });
 }
 
+function page404(): Response {
+  return page("not found", `<p class="bad">no list with that id.</p>`, 404);
+}
+
 function signInPrompt(env: Env): Response {
   return page(
-    "sign in",
-    `<p>sign in to see and edit your lists.</p>
+    "sign up",
+    `<p>sign up to see and edit your lists.</p>
 <form method="post" action="/login">
   <input name="handle" placeholder="your.handle" autocapitalize="off" autocorrect="off" spellcheck="false">
-  <button type="submit">sign in</button>
+  <button type="submit">sign up</button>
 </form>`,
   );
 }
@@ -1196,53 +1253,122 @@ function signInPrompt(env: Env): Response {
 const FLASH: Record<string, string> = {
   removed: "took them off.",
   deleted: "deleted that list.",
+  purpose: "changed what that list is for.",
   failed: "that didn't work — nothing changed.",
 };
 
+function flashNote(flash: string | null): string {
+  if (!flash || !FLASH[flash]) return "";
+  return `<p class="${flash === "failed" ? "bad" : "good"}">${FLASH[flash]}</p>`;
+}
+
+function whoBar(handle: string): string {
+  return `<p class="who">signed in as <strong>${escapeHtml(handle)}</strong> ·
+    <form method="post" action="/logout" class="inline"><button type="submit" class="linkish">sign out</button></form></p>`;
+}
+
+// /lists — names, kinds, counts. No members: this is the "what have I got"
+// view, and loading every member of every list to render it was what made the
+// old page slow.
 function listsPage(
   env: Env,
   handle: string,
-  lists: ListWithMembers[],
+  lists: ListSummary[],
   flash: string | null,
 ): Response {
-  const note = flash && FLASH[flash]
-    ? `<p class="${flash === "failed" ? "bad" : "good"}">${FLASH[flash]}</p>`
-    : "";
-
   const body = lists.length
-    ? lists.map((l) => renderList(handle, l)).join("")
-    : `<p>no lists yet. reply to someone's post with <code>@${escapeHtml(env.BOT_HANDLE)} bots</code> — or any name — and they'll land on a list called that.</p>`;
+    ? `<ul class="listindex">${lists.map(renderListRow).join("")}</ul>`
+    : `<p>no lists yet. reply to someone's post with <code>@${escapeHtml(env.BOT_HANDLE)} cool posters</code> — or any name — and they'll land on a list called that.</p>`;
 
   return page(
     "your lists",
-    `<p class="who">signed in as <strong>${escapeHtml(handle)}</strong> ·
-      <form method="post" action="/logout" class="inline"><button type="submit" class="linkish">sign out</button></form></p>
-${note}
+    `${whoBar(handle)}
+${flashNote(flash)}
 ${body}
-<p class="fine">these lists live in your own repo. removing someone here deletes the record from it — the same thing <code>remove</code> does when you tag me.</p>`,
+<p class="fine">these live in your own repo. anything you change here changes it there.</p>`,
   );
 }
 
-function renderList(ownerHandle: string, l: ListWithMembers): string {
-  const members = l.members.length
-    ? `<ul class="members">${l.members.map(renderMember).join("")}</ul>`
-    : `<p class="empty">nobody on this one yet.</p>`;
+function renderListRow(l: ListSummary): string {
+  const count =
+    l.memberCount === null
+      ? `<span class="count">—</span>`
+      : `<span class="count">${l.memberCount}</span>`;
+  const kind =
+    l.purpose === "modlist" ? `<span class="kind mod">mute/block</span>` : "";
 
-  return `<section class="list">
-  <h2>${escapeHtml(l.name)} <span class="count">${l.members.length}</span></h2>
-  <p class="listlinks">
-    <a href="https://bsky.app/profile/${escapeHtml(ownerHandle)}/lists/${escapeHtml(l.rkey)}">open in bluesky</a>
-    <form method="post" action="/lists/delete" class="inline"
-      onsubmit="return confirm('delete the list &quot;${escapeAttr(l.name)}&quot; and all ${l.members.length} of its members?')">
-      <input type="hidden" name="rkey" value="${escapeAttr(l.rkey)}">
-      <button type="submit" class="linkish danger">delete list</button>
-    </form>
-  </p>
-  ${members}
-</section>`;
+  return `<li>
+  <a class="listlink" href="/lists/${escapeAttr(l.rkey)}">
+    <span class="listname">${escapeHtml(l.name)}</span>
+    ${kind}
+    ${count}
+  </a>
+  <form method="post" action="/lists/delete" class="inline"
+    onsubmit="return confirm('delete &quot;${escapeAttr(l.name)}&quot; and everyone on it?')">
+    <input type="hidden" name="rkey" value="${escapeAttr(l.rkey)}">
+    <button type="submit" class="linkish danger">delete</button>
+  </form>
+</li>`;
 }
 
-function renderMember(m: { rkey: string; subjectDid: string; handle?: string; displayName?: string; avatar?: string }): string {
+// /lists/<rkey> — one list: its members, and the settings that belong to a
+// list rather than to the collection of them.
+function listDetailPage(
+  env: Env,
+  handle: string,
+  l: ListPage,
+  flash: string | null,
+): Response {
+  const members = l.members.length
+    ? `<ul class="members">${l.members.map((m) => renderMember(m, l.rkey)).join("")}</ul>`
+    : `<p class="empty">nobody on this one yet. tag me under someone's post to add them.</p>`;
+
+  const more = l.cursor
+    ? `<p class="more"><a href="/lists/${escapeAttr(l.rkey)}?cursor=${encodeURIComponent(l.cursor)}">next page →</a></p>`
+    : "";
+
+  // The purpose toggle. A curatelist can't be muted or blocked at all, so this
+  // is the difference between a list that can do what someone wants and one
+  // that can't — worth an explanation rather than a bare switch.
+  const otherPurpose = l.purpose === "modlist" ? "curatelist" : "modlist";
+  const purposeNote =
+    l.purpose === "modlist"
+      ? `this is a <strong>mute/block list</strong> — you or anyone else can point a mute or a block at it.`
+      : `this is a <strong>curation list</strong> — good for feeds and starter packs, but a mute or block can't point at it.`;
+
+  return page(
+    escapeHtml(l.name),
+    `${whoBar(handle)}
+<p class="crumb"><a href="/lists">← all lists</a></p>
+${flashNote(flash)}
+<h2 class="listtitle">${escapeHtml(l.name)}${
+      l.memberCount !== null ? ` <span class="count">${l.memberCount}</span>` : ""
+    }</h2>
+<p class="listlinks">
+  <a href="https://bsky.app/profile/${escapeHtml(handle)}/lists/${escapeAttr(l.rkey)}">open in bluesky</a>
+</p>
+${members}
+${more}
+<section class="settings">
+  <p class="fine">${purposeNote}</p>
+  <form method="post" action="/lists/purpose" class="inline">
+    <input type="hidden" name="rkey" value="${escapeAttr(l.rkey)}">
+    <input type="hidden" name="purpose" value="${otherPurpose}">
+    <button type="submit" class="linkish">make it a ${
+      otherPurpose === "modlist" ? "mute/block list" : "curation list"
+    }</button>
+  </form>
+  <p class="fine">nobody is removed when you switch.</p>
+  <form method="post" action="/lists/delete" class="inline"
+    onsubmit="return confirm('delete &quot;${escapeAttr(l.name)}&quot; and everyone on it?')">
+    <input type="hidden" name="rkey" value="${escapeAttr(l.rkey)}">
+    <button type="submit" class="linkish danger">delete this list</button>
+  </form>
+</section>`,
+  );
+}
+
+function renderMember(m: ListMember, listRkey: string): string {
   const name = m.handle ?? m.subjectDid;
   const avatar = m.avatar
     ? `<img src="${escapeAttr(m.avatar)}" alt="" width="32" height="32">`
@@ -1257,6 +1383,7 @@ function renderMember(m: { rkey: string; subjectDid: string; handle?: string; di
   <span class="names">${display}${profile}</span>
   <form method="post" action="/lists/remove" class="inline">
     <input type="hidden" name="rkey" value="${escapeAttr(m.rkey)}">
+    <input type="hidden" name="list" value="${escapeAttr(listRkey)}">
     <button type="submit" class="remove" title="take ${escapeAttr(name)} off this list">remove</button>
   </form>
 </li>`;

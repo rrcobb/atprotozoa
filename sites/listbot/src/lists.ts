@@ -321,84 +321,148 @@ export interface ListMember {
   avatar?: string;
 }
 
-export interface ListWithMembers {
+export interface ListSummary {
   uri: string;
   rkey: string;
   name: string;
-  purpose?: string;
-  members: ListMember[];
+  purpose: ListPurpose;
+  // From the AppView, which already counts these. Null when it hasn't indexed
+  // the list yet — a list listbot made seconds ago renders with no count rather
+  // than a wrong one.
+  memberCount: number | null;
 }
 
-// Every list in the user's repo with its members, for the signed-in page.
+// Every list in the user's repo: names, kinds, counts. NO members.
 //
-// Read from the user's OWN repo (listRecords) rather than the AppView, so a
-// list shows up here the moment listbot writes it instead of whenever the
-// AppView catches up. Handles are hydrated separately and are cosmetic — a
-// member with no handle still renders, by DID, and still removes.
-export async function readLists(session: ActingSession): Promise<{
-  lists: ListWithMembers[];
-  nonce?: string;
-}> {
+// This is the whole of what /lists needs, and keeping members out of it is the
+// point. The old version read every listitem in the repo to render a list of
+// lists — two round trips for 150 members, far worse for someone with
+// thousands, and all of it thrown away except the counts.
+//
+// Lists come from the user's OWN repo so a list shows up the moment listbot
+// writes it. Counts come from the AppView, which has already done the counting;
+// they lag by a few seconds on a brand-new list, which is worth it to avoid
+// paging every listitem on every page load.
+export async function readListSummaries(
+  session: ActingSession,
+  appview: string,
+): Promise<{ lists: ListSummary[]; nonce?: string }> {
   const nonceRef = { nonce: session.dpopNonce };
-  const listRecs = await listRecords<ListValue>(session, LIST_NSID, nonceRef);
-  const itemRecs = await listRecords<ListItemValue>(session, LISTITEM_NSID, nonceRef);
+  const records = await listRecords<ListValue>(session, LIST_NSID, nonceRef);
 
-  const byList = new Map<string, ListMember[]>();
-  for (const item of itemRecs) {
-    const listUri = item.value?.list;
-    const subject = item.value?.subject;
-    if (!listUri || !subject) continue;
-    const members = byList.get(listUri) ?? [];
-    members.push({ rkey: item.uri.split("/").pop()!, subjectDid: subject });
-    byList.set(listUri, members);
-  }
-
-  const lists: ListWithMembers[] = listRecs.map((r) => ({
+  const lists: ListSummary[] = records.map((r) => ({
     uri: r.uri,
     rkey: r.uri.split("/").pop()!,
     name: r.value?.name ?? "(unnamed)",
-    purpose: r.value?.purpose,
-    members: byList.get(r.uri) ?? [],
+    purpose: r.value?.purpose === PURPOSE_URI.modlist ? "modlist" : "curatelist",
+    memberCount: null,
   }));
-  lists.sort((a, b) => a.name.localeCompare(b.name));
 
+  // One AppView call for all of them. Best-effort: counts are a nicety, and a
+  // failure here should leave the page working without them.
+  try {
+    const u = new URL(`${appview}/xrpc/app.bsky.graph.getLists`);
+    u.searchParams.set("actor", session.did);
+    u.searchParams.set("limit", "100");
+    const res = await fetch(u.toString());
+    if (res.ok) {
+      const j = (await res.json()) as {
+        lists?: { uri: string; listItemCount?: number }[];
+      };
+      const counts = new Map((j.lists ?? []).map((l) => [l.uri, l.listItemCount ?? 0]));
+      for (const l of lists) {
+        const n = counts.get(l.uri);
+        if (n !== undefined) l.memberCount = n;
+      }
+    }
+  } catch {}
+
+  lists.sort((a, b) => a.name.localeCompare(b.name));
   return { lists, nonce: nonceRef.nonce };
 }
 
-// Fill in handles/avatars for the DIDs on those lists. Public AppView data, so
-// no auth — and best-effort: a failure here leaves bare DIDs on the page rather
-// than failing the whole render.
-export async function hydrateMembers(
-  lists: ListWithMembers[],
+// One list, and one page of its members. For /lists/<rkey>.
+//
+// Members come from the AppView's getList, which pages properly and hydrates
+// handles and avatars in the same call — rather than reading every listitem in
+// the repo and then looking up profiles separately, which is what the old
+// all-in-one read did.
+//
+// The catch: a listitem the AppView hasn't indexed yet won't appear. That's a
+// few seconds on a fresh add, and the alternative costs a full repo scan on
+// every page view.
+export interface ListPage {
+  uri: string;
+  rkey: string;
+  name: string;
+  purpose: ListPurpose;
+  members: ListMember[];
+  cursor?: string;
+  memberCount: number | null;
+}
+
+export async function readListPage(
+  session: ActingSession,
+  rkey: string,
   appview: string,
-): Promise<void> {
-  const dids = [...new Set(lists.flatMap((l) => l.members.map((m) => m.subjectDid)))];
-  if (!dids.length) return;
+  cursor?: string,
+  limit = 50,
+): Promise<{ page: ListPage | null; nonce?: string }> {
+  const nonceRef = { nonce: session.dpopNonce };
+  const uri = `at://${session.did}/${LIST_NSID}/${rkey}`;
 
-  const profiles = new Map<string, { handle?: string; displayName?: string; avatar?: string }>();
-  // getProfiles caps at 25 actors per call.
-  for (let i = 0; i < dids.length; i += 25) {
-    const batch = dids.slice(i, i + 25);
-    const u = new URL(`${appview}/xrpc/app.bsky.actor.getProfiles`);
-    for (const d of batch) u.searchParams.append("actors", d);
-    try {
-      const res = await fetch(u.toString());
-      if (!res.ok) continue;
+  // The list record itself from the user's own repo, so a list listbot just
+  // made is viewable immediately even before the AppView indexes it.
+  const got = await xrpc<{ uri: string; value: ListValue }>(
+    session,
+    "GET",
+    "com.atproto.repo.getRecord",
+    { repo: session.did, collection: LIST_NSID, rkey },
+    null,
+    nonceRef,
+  );
+  if (!got.ok || !got.data) return { page: null, nonce: nonceRef.nonce };
+
+  const page: ListPage = {
+    uri,
+    rkey,
+    name: got.data.value?.name ?? "(unnamed)",
+    purpose: got.data.value?.purpose === PURPOSE_URI.modlist ? "modlist" : "curatelist",
+    members: [],
+    memberCount: null,
+  };
+
+  // Members, hydrated, from the AppView.
+  try {
+    const u = new URL(`${appview}/xrpc/app.bsky.graph.getList`);
+    u.searchParams.set("list", uri);
+    u.searchParams.set("limit", String(limit));
+    if (cursor) u.searchParams.set("cursor", cursor);
+    const res = await fetch(u.toString());
+    if (res.ok) {
       const j = (await res.json()) as {
-        profiles?: { did: string; handle?: string; displayName?: string; avatar?: string }[];
+        list?: { listItemCount?: number };
+        items?: {
+          uri: string;
+          subject: { did: string; handle?: string; displayName?: string; avatar?: string };
+        }[];
+        cursor?: string;
       };
-      for (const p of j.profiles ?? []) {
-        profiles.set(p.did, { handle: p.handle, displayName: p.displayName, avatar: p.avatar });
-      }
-    } catch {}
-  }
-
-  for (const l of lists) {
-    for (const m of l.members) {
-      const p = profiles.get(m.subjectDid);
-      if (p) Object.assign(m, p);
+      page.memberCount = j.list?.listItemCount ?? null;
+      page.cursor = j.cursor;
+      page.members = (j.items ?? []).map((it) => ({
+        // The listitem's own rkey — what a remove needs. getList returns the
+        // listitem URI here, not the subject's.
+        rkey: it.uri.split("/").pop()!,
+        subjectDid: it.subject.did,
+        handle: it.subject.handle,
+        displayName: it.subject.displayName,
+        avatar: it.subject.avatar,
+      }));
     }
-  }
+  } catch {}
+
+  return { page, nonce: nonceRef.nonce };
 }
 
 // Delete one listitem by rkey. The UI's undo button: the page already showed
