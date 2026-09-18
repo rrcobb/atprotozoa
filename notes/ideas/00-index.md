@@ -337,7 +337,17 @@ Cerulea, since the repo already uses it: one page of DIDs per post instead of
 a hundred-per-page walk, AppView as fallback. hindex's mention count moved
 the same day (Constellation `total` across both facet path encodings, search
 kept for the recent list). quotehof turned out to be Jetstream-driven, not a
-lookup, so there's nothing to swap.
+lookup, so there's nothing to swap. A follow-up pass the same day moved the
+remaining per-post walks: likeclusters and relegation (both already exhausted
+`getLikes`' cursor, so this is purely ~10x fewer requests) and metamoots,
+purge and lurkhelper — those three took a single 100-item page per post with
+no cursor loop at all, which was a wrong-answer bug, not just a slow read,
+since roughly half of a mid-size account's posts clear 100 likes and the
+missing likers were being reported as quiet mutuals or lurkers. metamoots and
+lurkhelper also read reposts (`app.bsky.feed.repost:subject.uri`). areyoumad
+was left alone: its `didLike` is a membership test for one DID that
+short-circuits on a hit within 3 pages, so fetching a whole liker list to
+answer a boolean would be more work, not less.
 
 ---
 
