@@ -65,3 +65,35 @@ export function postUrl(uri) {
   if (!m) return "https://bsky.app";
   return `https://bsky.app/profile/${m[1]}/post/${m[2]}`;
 }
+
+// Exact count of posts that @-mention a DID as a facet, from microcosm.blue's
+// Constellation (blue.microcosm.links.getBacklinks). The AppView search above
+// caps at two pages and says "100+"; Constellation's `total` is the whole
+// index (which starts 2025-01-28). Two source paths because two versions of
+// the facet encoding are in the wild; both are summed. `/links/all?target=`
+// on Constellation lists which paths point at a DID, if a third turns up.
+// Returns null on any failure so the caller can fall back to the search count.
+const CONSTELLATION = "https://constellation.microcosm.blue";
+const MENTION_PATHS = [
+  "app.bsky.feed.post:facets[app.bsky.richtext.facet].features[app.bsky.richtext.facet#mention].did",
+  "app.bsky.feed.post:facets[].features[app.bsky.richtext.facet#mention].did",
+];
+
+export async function countMentions(did) {
+  try {
+    let total = 0;
+    for (const source of MENTION_PATHS) {
+      const u = new URL(`${CONSTELLATION}/xrpc/blue.microcosm.links.getBacklinks`);
+      u.searchParams.set("subject", did);
+      u.searchParams.set("source", source);
+      u.searchParams.set("limit", "1");
+      const r = await fetch(u);
+      if (!r.ok) return null;
+      const d = await r.json();
+      total += Number(d.total) || 0;
+    }
+    return total;
+  } catch {
+    return null;
+  }
+}

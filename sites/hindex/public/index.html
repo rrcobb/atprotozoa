@@ -167,7 +167,7 @@
 </div>
 
 <script type="module">
-  import { scanPhrase, postUrl } from "/lib/bsky.js";
+  import { scanPhrase, countMentions, postUrl } from "/lib/bsky.js";
 
   function esc(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -186,11 +186,19 @@
   })();
 
   (async () => {
-    const { posts, cappedOut } = await scanPhrase("@buildthis.bisks.net");
+    const [{ posts, cappedOut }, exact] = await Promise.all([
+      scanPhrase("@buildthis.bisks.net"),
+      countMentions("did:plc:wlj4p2kazhifag6w4nanjnee"),
+    ]);
     const list = document.getElementById("cite-list");
     const note = document.getElementById("cite-note");
-    document.getElementById("live-mentions").textContent = cappedOut ? `${posts.length}+` : String(posts.length);
-    document.getElementById("live-mentions-note").textContent = cappedOut ? "capped scan, real count is higher" : "full recent scan";
+    if (exact !== null) {
+      document.getElementById("live-mentions").textContent = String(exact);
+      document.getElementById("live-mentions-note").textContent = "every @-mention since 2025-01-28, via constellation.microcosm.blue";
+    } else {
+      document.getElementById("live-mentions").textContent = cappedOut ? `${posts.length}+` : String(posts.length);
+      document.getElementById("live-mentions-note").textContent = cappedOut ? "capped scan, real count is higher" : "full recent scan";
+    }
 
     if (!posts.length) {
       list.innerHTML = '<li class="txt">nothing found this load — the search index is a little laggy sometimes, try refreshing.</li>';

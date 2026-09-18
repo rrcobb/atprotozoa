@@ -218,6 +218,9 @@ Constellation specifics that have bitten before:
   likers of a post are `app.bsky.feed.like:subject.uri`, and quotes are
   `app.bsky.feed.post:embed.record.uri`. `:subject` on a like returns
   `total: 0` with no error (`sites/listenheimer/public/lib/likes.js`).
+  Mention facets have two encodings in the wild; sum both paths
+  (`sites/hindex/public/lib/bsky.js`). `/links/all?target=<did>` lists every
+  path that points at a subject, which is how to find the right one.
 - It returns DIDs only. Hydrate with `getProfiles` (25 per call) for just
   the ones you display; a list write or a set comparison needs no hydrate.
 - The index starts 2025-01-28. Anything older isn't there, and several

@@ -328,8 +328,10 @@ ceiling, then bulk-hydrate with `getPosts`), gated behind a "did we actually
 hit depth 1000" check rather than always paying for the walk. listenheimer
 and snubbed's `getLikes` walks moved 2026-09-17, but to Constellation, not
 Cerulea, since the repo already uses it: one page of DIDs per post instead of
-a hundred-per-page walk, AppView as fallback. Still just flagged: quotehof's
-quote lookup, hindex's mention tracking.
+a hundred-per-page walk, AppView as fallback. hindex's mention count moved
+the same day (Constellation `total` across both facet path encodings, search
+kept for the recent list). quotehof turned out to be Jetstream-driven, not a
+lookup, so there's nothing to swap.
 
 ---
 
