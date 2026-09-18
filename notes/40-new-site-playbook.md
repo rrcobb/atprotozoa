@@ -200,9 +200,9 @@ survey note in `notes/ideas/` first.
 
 | need | tool | copy from |
 | --- | --- | --- |
-| who follows / likes / quotes / lists / blocks a DID or URI, in bulk | Constellation (`constellation.microcosm.blue`), the backlink index | `sites/innercircle/public/lib/topmutuals.js` (`getBacklinkDids` + `getBacklinks`) |
+| who follows / likes / reposts / quotes / mentions a DID or URI, in bulk | Constellation (`constellation.microcosm.blue`), the backlink index | `sites/listenheimer/public/lib/microcosm.js`, a drop-in: copy verbatim (`notes/41-drop-ins.md`) |
 | live records as they land | Jetstream (`wss://jetstream*.us-*.bsky.network/subscribe?wantedCollections=`) | `sites/voidshout/public/lib/ingest.js`, `sites/trigrams/public/firehose/` |
-| handle typeahead at login or in a search box | typeahead.waow.tech first, AppView `searchActorsTypeahead` as fallback (cut over 2026-09-17, `notes/ideas/waow-tech-utilities.md`) | `handle-typeahead.js`, identical in 244 sites; edit one, copy to all |
+| handle typeahead at login or in a search box | typeahead.waow.tech first, AppView `searchActorsTypeahead` as fallback (cut over 2026-09-17, `notes/ideas/waow-tech-utilities.md`) | `handle-typeahead.js`, a drop-in identical in 245 sites: edit the canonical, `node audit/drop-ins.mjs --sweep` |
 | every label on an account from every labeler | `atproto-accept-labelers` fan-out over mackuba's labeler directory | `sites/labelmuster` |
 | a link to a raw record | pdsls (`https://pdsls.dev/at://<uri>`), not bsky.app | `sites/selflikes`, `sites/receipts` |
 | how much traffic a site gets | `https://stats.bisks.net/stats/<name>.json` (`notes/86-stats.md`) | `sites/didscope/public/lib/visits.js`, same file in `sites/rateyourbuild` |

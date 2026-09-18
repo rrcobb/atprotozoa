@@ -66,6 +66,12 @@ and prefix-stripping in their handler; see the playbook before editing one.
 Each site is deployed independently as its own Cloudflare Worker named
 `atprotozoa-<sitename>` (see `notes/20-deploy.md`).
 
+## Drop-ins
+
+The one exception to copy-and-edit: a few small files are copied verbatim and
+kept byte-identical across every site, so a fix sweeps to all of them in one
+commit. `notes/41-drop-ins.md` has the list and the audit.
+
 ## Frontend-first rule
 
 The default site starts in the frontend, but frontend-first does not mean

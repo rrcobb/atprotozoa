@@ -34,6 +34,7 @@ It intentionally runs looser than a shared production codebase.
 - `20-deploy.md`
 - `30-identity-and-did.md`
 - `40-new-site-playbook.md`
+- `41-drop-ins.md`
 - `45-sharing-and-virality.md`
 - `50-oauth-scopes.md`
 - `60-testing.md`

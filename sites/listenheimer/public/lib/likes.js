@@ -1,10 +1,9 @@
 // likes.js — resolve a pasted Bluesky post URL to an AT-URI, then read every
 // public liker.
 //
-// Likers come from microcosm.blue's Constellation first
-// (blue.microcosm.links.getBacklinkDids, source app.bsky.feed.like:subject.uri):
-// it indexes every like record off the firehose by the post it points at and
-// returns DIDs 1000 per page, against the AppView's 100. The list this site
+// Likers come from microcosm.blue's Constellation first (lib/microcosm.js,
+// the drop-in): it indexes every like record off the firehose by the post it
+// points at and returns DIDs 1000 per page, against the AppView's 100. The list this site
 // writes only needs DIDs, so only the likers shown in the avatar grid get a
 // profile lookup (getProfiles, 25 per call). app.bsky.feed.getLikes is the
 // fallback if Constellation errors — same recipe as kevinmoot's followers
@@ -12,10 +11,9 @@
 // backstops, not budgets.
 
 import { jget, resolveDid, getProfiles } from "./identity.js";
+import { likerDids } from "./microcosm.js";
 
 const PUB = "https://api.bsky.app/xrpc";
-const CONSTELLATION = "https://constellation.microcosm.blue";
-const MAX_CONSTELLATION_PAGES = 400; // 400,000 likers at 1000/page
 const MAX_LIKE_PAGES = 2000; // fallback walk: 200,000 likers at 100/page
 
 // Accepts a bsky.app post URL, an at:// URI, or "<handle-or-did>/<rkey>".
@@ -57,37 +55,13 @@ export async function getPost(uri) {
 export async function getAllLikers(uri, onStep, { hydrate = 400 } = {}) {
   let dids;
   try {
-    dids = await likerDidsConstellation(uri, onStep);
+    dids = await likerDids(uri, { onStep });
   } catch (e) {
     console.warn("constellation failed, falling back to getLikes", e);
     return getAllLikersAppView(uri, onStep);
   }
   const profiles = await getProfiles(dids.slice(0, hydrate));
   return dids.map((did) => profiles.get(did) || { did, handle: did, displayName: did, avatar: "" });
-}
-
-async function likerDidsConstellation(uri, onStep) {
-  const dids = [];
-  const seen = new Set();
-  let cursor = "";
-  for (let page = 0; page < MAX_CONSTELLATION_PAGES; page++) {
-    const u = new URL(`${CONSTELLATION}/xrpc/blue.microcosm.links.getBacklinkDids`);
-    u.searchParams.set("subject", uri);
-    u.searchParams.set("source", "app.bsky.feed.like:subject.uri");
-    u.searchParams.set("limit", "1000");
-    if (cursor) u.searchParams.set("cursor", cursor);
-    const d = await jget(u.toString());
-    const batch = d.linking_dids || [];
-    for (const did of batch) {
-      if (seen.has(did)) continue;
-      seen.add(did);
-      dids.push(did);
-    }
-    if (onStep) onStep(dids.length);
-    cursor = d.cursor;
-    if (!cursor || !batch.length) break;
-  }
-  return dids;
 }
 
 async function getAllLikersAppView(uri, onStep) {

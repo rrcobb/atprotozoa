@@ -248,6 +248,17 @@ there's genuinely nothing to make.
 - **Copy, don't abstract.** Need an OAuth helper, a card component, an AppView
   fetch that another site already has? Copy the file in and edit it. No shared
   packages across sites; near-duplicate files are fine and expected.
+- **Except drop-ins, which you copy verbatim and never edit.** A few files are
+  kept byte-identical across every site so a fix can be swept to all of them
+  at once (`notes/41-drop-ins.md`): `handle-typeahead.js` (handle
+  autocomplete), `visits.js` (a site's own traffic in the footer), and
+  `microcosm.js` (Constellation backlink reads: followers, likers, reposters,
+  quotes, mention counts, 1000 per page). Before writing any of those from
+  scratch, copy the canonical file named in `audit/drop-ins.mjs`. If you need
+  it to do something different, change the canonical file and run
+  `node audit/drop-ins.mjs --sweep`, or copy it under a different name — never
+  edit a file that still has the drop-in's name. `node audit/drop-ins.mjs`
+  lists every copy and which ones have drifted.
 - **OAuth scope: minimal necessary, always.** When a site needs OAuth, scope
   it to exactly what it does — never default to the broad `atproto
   transition:generic` (full account access) out of habit or as a shortcut.
