@@ -3,18 +3,22 @@
 //
 // 1. His real live profile, fetched from the public AppView.
 // 2. "In his own words" — a handful of apropos quotes pulled out of his
-//    *entire* posting history via one com.atproto.sync.getRepo CAR download
-//    (lib/car.js), scored by keyword instead of sampling his last N posts.
-//    Per notes/40-new-site-playbook.md's no-arbitrary-caps rule: this reads
-//    everything once, then picks the best handful to *display* — that's a
-//    curation choice, not a data cap.
+//    *entire* posting history, scored by keyword instead of sampling his
+//    last N posts. The scoring itself runs once, at build time
+//    (build-quotes.js, one com.atproto.sync.getRepo CAR download), and the
+//    picks are baked into data/quotes.json — @dave.9000ish.uk, after the
+//    first version downloaded and re-scored the CAR in every visitor's
+//    browser: "you don't need to download the car everytime. the posts
+//    you've picked are fine." Per notes/40-new-site-playbook.md's
+//    no-arbitrary-caps rule this is still a full read of everything, just
+//    once rather than once per visit — the curation choice was always in
+//    which handful to *display*, never in how much got read.
 // 3. A real, shared guestbook: well-wishes are ordinary Bluesky posts tagged
 //    #brennanswedding, read back with app.bsky.feed.searchPosts. No backend
 //    of ours — the AppView's search index *is* the guestbook, so it's shared
 //    across every visitor's browser for real, not just localStorage.
 
-import { resolveDid, resolvePds, getProfile } from "./lib/identity.js";
-import { fetchRepoRecordsWithKeys } from "./lib/car.js";
+import { getProfile } from "./lib/identity.js";
 
 const HANDLE = "brennan.computer";
 const HASHTAG = "#brennanswedding";
@@ -75,39 +79,11 @@ function renderCountdown() {
 
 // ---- in his own words ------------------------------------------------------
 
-// Three tiers, weighted by how directly a hit relates to the occasion.
-// Word lists were tuned against his actual repo (see git history for the
-// tuning pass): early drafts scored on "propose"/"engaged"/"aisle"/"i do"
-// and mostly surfaced unrelated tech-talk ("request for proposal", "user
-// engagement", grocery aisles) — those got dropped in favor of words that
-// are unambiguous even out of context.
-//
-// STRONG hits (weight 3) are unambiguously about weddings. VOICE hits
-// (weight 2) echo his own bio ("a world of magic and vibrance") — a post
-// can be apropos without ever mentioning marriage. WARM hits (weight 1) are
-// generic warmth, kept as a low-weight tiebreaker rather than a primary
-// signal since "love"/"together" show up in all kinds of unrelated posts.
-const STRONG_WORDS = [
-  "wedding", "married", "marriage", "marry", "marrying", "fiance", "fiancé",
-  "fiancee", "fiancée", "vow", "vows", "bride", "groom", "honeymoon", "altar",
-  "tie the knot", "best man", "maid of honor",
-];
-const VOICE_WORDS = [
-  "magic", "magical", "alchemy", "alchemical", "vibrance", "vibrant",
-  "cosmic", "transform", "transformed", "eternal",
-];
-const WARM_WORDS = ["love", "forever", "soulmate", "together", "promise", "commitment", "spark"];
-
-function scorePost(text) {
-  const t = text.toLowerCase();
-  let score = 0;
-  for (const w of STRONG_WORDS) if (new RegExp(`\\b${w}\\b`).test(t)) score += 3;
-  for (const w of VOICE_WORDS) if (new RegExp(`\\b${w}\\b`).test(t)) score += 2;
-  for (const w of WARM_WORDS) if (new RegExp(`\\b${w}\\b`).test(t)) score += 1;
-  return score;
-}
-
-const QUOTES_TO_SHOW = 6; // a curated highlight reel, not a cap on what got read — the whole repo is downloaded first
+// The picks themselves live in data/quotes.json, baked by build-quotes.js
+// from one com.atproto.sync.getRepo CAR download of his whole repo — see
+// that script for the scoring (three keyword tiers weighted by how directly
+// a hit relates to the occasion) and the git history for the tuning pass
+// that got there.
 
 function quoteHTML(q) {
   return `
@@ -121,46 +97,20 @@ async function loadQuotes() {
   const status = document.getElementById("quotesStatus");
   const list = document.getElementById("quotesList");
   try {
-    status.textContent = "resolving @" + HANDLE + " ...";
-    const did = await resolveDid(HANDLE);
-    const pds = await resolvePds(did);
-    if (!pds) throw new Error("couldn't find his PDS");
+    const res = await fetch("data/quotes.json");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
 
-    const { records } = await fetchRepoRecordsWithKeys(pds, did, "app.bsky.feed.post", (m) => {
-      status.textContent = m;
-    });
-
-    const candidates = [];
-    for (const r of records) {
-      const v = r.value;
-      const text = (v.text || "").trim();
-      if (!text || text.length < 6 || text.length > 240) continue;
-      if (v.reply) continue; // standalone posts only — a reply quoted alone loses its context
-      if (/https?:\/\/|\.(com|net|org|io)\b/i.test(text)) continue; // link-share posts don't quote well on their own
-      const score = scorePost(text);
-      if (score <= 0) continue;
-      const rkey = r.uri.split("/").pop();
-      candidates.push({
-        text,
-        score,
-        createdAt: v.createdAt ? Date.parse(v.createdAt) : 0,
-        url: `https://bsky.app/profile/${HANDLE}/post/${rkey}`,
-      });
-    }
-
-    candidates.sort((a, b) => b.score - a.score || b.createdAt - a.createdAt);
-    const picked = candidates.slice(0, QUOTES_TO_SHOW);
-
-    if (!picked.length) {
-      status.textContent = `read all ${records.length.toLocaleString()} of his posts and he's never once mentioned love, magic, or marriage in so many words — so here's his own bio instead:`;
-      list.innerHTML = `<li class="quote"><p class="text">${esc(document.getElementById("pfBio").textContent || "unlicensed back alley alchemy")}</p><div class="meta">— @${HANDLE}'s profile</div></li>`;
+    if (!data.picked || !data.picked.length) {
+      status.textContent = `read all ${data.totalPosts.toLocaleString()} of his posts and he's never once mentioned love, magic, or marriage in so many words — so here's his own bio instead:`;
+      list.innerHTML = `<li class="quote"><p class="text">${esc(data.fallbackBio || document.getElementById("pfBio").textContent || "unlicensed back alley alchemy")}</p><div class="meta">— @${HANDLE}'s profile</div></li>`;
       return;
     }
 
-    status.textContent = `dug out of ${records.length.toLocaleString()} posts, downloaded in one repo CAR:`;
-    list.innerHTML = picked.map(quoteHTML).join("");
+    status.textContent = `dug out of ${data.totalPosts.toLocaleString()} posts, read in one repo CAR download:`;
+    list.innerHTML = data.picked.map(quoteHTML).join("");
   } catch (e) {
-    status.textContent = "couldn't download his repo CAR right now — try refreshing in a bit.";
+    status.textContent = "couldn't load his archived quotes right now — try refreshing in a bit.";
   }
 }
 
