@@ -5,10 +5,13 @@
 // somebody's repo. So the intent is a CLAIM, not an instruction, and these
 // tests pin the checks that stand between the two.
 //
-// The structural one first: an intent has no subject field. The person being
-// added was decided by the Worker from the parent post's author before the job
-// was ever queued, so there is nothing for a prompt injection to overwrite —
-// not "we validate the subject", but "the agent is never asked for one".
+// The structural one first: an intent can point at a person, but only by INDEX
+// into a candidate list the Worker built before the job was queued (the parent
+// post's author, plus anyone the TAGGER @-mentioned via facets). The agent
+// never types a DID or a handle, so an injected one has nothing to select — it
+// isn't rejected, it's unrepresentable. Not "we validate the subject", but
+// "the agent is only ever asked which of these, and out of range means the
+// default".
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -28,22 +31,38 @@ function safeReply(text) {
 // The shape the box is allowed to send. Mirrors AgentIntent in src/queue.ts.
 const INTENT_FIELDS = [
   "action",
+  "subjectIndex",
   "list",
   "listExists",
+  "purpose",
   "reply",
   "confidence",
   "reasoning",
   "reason",
 ];
 
+// Mirrors the pick in handleOutcome. Out of range, wrong type, or absent all
+// fall back to candidate 0 — the parent post's author, which is what every tag
+// did before an index existed.
+function pickSubject(candidates, subjectIndex) {
+  return typeof subjectIndex === "number" &&
+    Number.isInteger(subjectIndex) &&
+    subjectIndex >= 0 &&
+    subjectIndex < candidates.length
+    ? candidates[subjectIndex]
+    : candidates[0];
+}
+
 // --- the subject is not the agent's to choose --------------------------------
 
-test("the intent shape has no field naming a subject", () => {
-  // If this ever fails, someone added a way for the agent to pick who gets
-  // added — which is the one thing the tag text must never control.
+test("the only field that can point at a person is an index", () => {
+  // subjectIndex is allowed. Anything that could CARRY a person — a did, a
+  // handle, an actor — is not. If this fails, someone gave the agent a way to
+  // name who gets added rather than choose from a fixed set.
   for (const f of INTENT_FIELDS) {
+    if (f === "subjectIndex") continue;
     assert.ok(
-      !/subject|did|actor|target|who/i.test(f),
+      !/subject|did|actor|handle|target|who/i.test(f),
       `"${f}" looks like it could name a person`,
     );
   }
@@ -55,9 +74,48 @@ test("an injected subject field is not in the accepted shape", () => {
     list: "cool posters",
     subject: { did: "did:plc:attacker" },
     subjectDid: "did:plc:attacker",
+    subjectHandle: "eve.bsky.social",
   };
   const accepted = Object.keys(hostile).filter((k) => INTENT_FIELDS.includes(k));
   assert.deepEqual(accepted, ["action", "list"]);
+});
+
+// --- choosing among candidates ----------------------------------------------
+
+const ALICE = { did: "did:plc:alice", handle: "alice.bsky.social" };
+const BOB = { did: "did:plc:bob", handle: "bob.bsky.social" };
+
+test("no index means the parent post's author, as it always did", () => {
+  assert.equal(pickSubject([ALICE, BOB], undefined).did, ALICE.did);
+});
+
+test("an index selects a candidate the tagger named", () => {
+  assert.equal(pickSubject([ALICE, BOB], 1).did, BOB.did);
+});
+
+// The hostile case, restated for the new shape. An injected value can only ever
+// be a number, and a number outside the candidate list resolves to the default
+// rather than to a person of the attacker's choosing.
+test("an out-of-range or junk index falls back to the default, never to nobody", () => {
+  for (const junk of [7, -1, 1.5, NaN, "0", "did:plc:attacker", null, {}]) {
+    assert.equal(
+      pickSubject([ALICE, BOB], junk).did,
+      ALICE.did,
+      `${JSON.stringify(junk)} should fall back to candidate 0`,
+    );
+  }
+});
+
+test("a DID the agent invents cannot be selected, because only indexes select", () => {
+  // The whole point: there is no value of subjectIndex that yields a person who
+  // isn't already in the Worker-built list.
+  const candidates = [ALICE, BOB];
+  const reachable = new Set();
+  for (let i = -5; i < 20; i++) {
+    const got = pickSubject(candidates, i);
+    if (got) reachable.add(got.did);
+  }
+  assert.deepEqual([...reachable].sort(), [ALICE.did, BOB.did].sort());
 });
 
 // --- reply text --------------------------------------------------------------

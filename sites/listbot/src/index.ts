@@ -65,6 +65,7 @@ import {
   queueStats,
   checkRateLimit,
   type JobPayload,
+  type JobSubject,
   type AgentIntent,
 } from "./queue.js";
 
@@ -568,6 +569,16 @@ interface Mention {
   rootCid: string;
   parentUri?: string;
   indexedAt?: string;
+  // Everyone the TAGGER mentioned in this tag, bot excluded, as DIDs.
+  //
+  // From the post's facets, not from the text: Bluesky resolved these handles
+  // to DIDs when the tag was composed, so this is what the tagger actually
+  // linked. A handle written as bare text — by them or by anyone whose post the
+  // agent reads — is not in here.
+  //
+  // Optional because handleOutcome rebuilds a Mention from a stored job just to
+  // post a reply; nothing on that path looks at who was mentioned.
+  mentionedDids?: string[];
 }
 
 interface PostRecord {
@@ -624,6 +635,7 @@ async function recentMentions(session: BotSession): Promise<Mention[]> {
         rootCid: rec.reply?.root?.cid ?? n.cid,
         parentUri: rec.reply?.parent?.uri,
         indexedAt: n.indexedAt,
+        mentionedDids: mentionedDids(rec, session.did),
       };
     });
 }
@@ -681,8 +693,27 @@ async function searchMentionSweep(session: BotSession, env: Env): Promise<Mentio
       rootCid: rec.reply?.root?.cid ?? p.cid,
       parentUri: rec.reply?.parent?.uri,
       indexedAt: p.indexedAt,
+      mentionedDids: mentionedDids(rec, session.did),
     };
   });
+}
+
+// The DIDs a tag's facets point at, minus the bot itself.
+//
+// Facets are how atproto records a mention: Bluesky resolved the handle to a
+// DID when the post was composed. So this says who the TAGGER linked, and it
+// can't be forged by writing a handle as plain text — in the tag, in a parent
+// post, or in anyone's bio.
+function mentionedDids(rec: PostRecord, botDid: string): string[] {
+  const out: string[] = [];
+  for (const f of rec.facets ?? []) {
+    for (const feat of f.features ?? []) {
+      if (feat.$type !== "app.bsky.richtext.facet#mention") continue;
+      if (!feat.did || feat.did === botDid) continue;
+      if (!out.includes(feat.did)) out.push(feat.did);
+    }
+  }
+  return out;
 }
 
 const HANDLED_PREFIX = "handled:";
@@ -743,13 +774,10 @@ async function runWatcher(env: Env): Promise<void> {
 async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<void> {
   if (m.authorDid === env.BOT_DID) return;
 
-  // The parser still runs, but only to spot the two things that need no agent
-  // and no round trip: a tag asking for help, and a tag that isn't asking for
-  // anything. Everything else — including a bare list name, which the parser
-  // could handle — goes to the agent, so there's one path to reason about and
-  // one place the behavior lives.
+  // Two cases need no agent and no round trip: a tag asking for help, and a tag
+  // with no text. Everything else goes to the agent, so there's one path to
+  // reason about and one place the behavior lives.
   const command = parseCommand(m.text, botHandles(env));
-  if (command.kind === "none") return;
   if (command.kind === "help") {
     await reply(bot, m, HELP_TEXT);
     return;
@@ -839,9 +867,11 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
   // Hand it to the box. Everything the agent needs travels with the job: it
   // makes no authenticated call, holds no credential, and can't reach a token.
   //
-  // The subject is resolved HERE, from the parent post's author, and rides along
-  // as a fixed field. The agent decides which list and whether to act — never
-  // who. That's the one thing a tag's text must never be able to change.
+  // Who can be added is decided HERE. The default subject is the parent post's
+  // author; anyone the tagger @-mentioned is an additional candidate, resolved
+  // from the tag's facets. The agent picks from that fixed set by INDEX and
+  // never names anyone, so no text it reads — a parent post, a bio, the tag
+  // itself — can introduce a person who isn't already on this list.
   const { lists } = await readListSummaries(found.acting, APPVIEW).catch(() => ({
     lists: [] as ListSummary[],
   }));
@@ -856,6 +886,10 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
     // Absent on a top-level tag: there's no post being replied to, so there's
     // nobody to add. The agent can still make a list.
     subject: subject ? await describeSubject(bot, subject) : undefined,
+    // Everyone this tag may add, in order. The parent author is index 0 when
+    // there is one, so an agent that says nothing about who gets the same
+    // person it always did.
+    candidates: await describeCandidates(bot, subject, m.mentionedDids ?? []),
     thread: m.parentUri ? await threadContext(bot, m.parentUri) : [],
     lists: lists.map((l) => ({
       name: l.name,
@@ -874,12 +908,41 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
   }
 }
 
+// Everyone this tag is allowed to add: the parent post's author first, then
+// anyone the tagger @-mentioned.
+//
+// The ORDER is the contract — the agent answers with an index into this array,
+// so index 0 is the person a tag has always added and an agent that doesn't
+// mention a subject gets exactly the old behavior.
+//
+// Mentions come from the tag's facets, so they're handles the tagger actually
+// linked while composing. A handle typed as bare text anywhere — including in
+// the tag — never lands here.
+async function describeCandidates(
+  bot: BotSession,
+  parentAuthor: { did: string; handle: string } | null,
+  mentioned: string[],
+): Promise<JobSubject[]> {
+  const dids: { did: string; handle: string }[] = [];
+  if (parentAuthor) dids.push(parentAuthor);
+  for (const did of mentioned) {
+    if (!dids.some((d) => d.did === did)) dids.push({ did, handle: did });
+  }
+  if (!dids.length) return [];
+
+  const out: JobSubject[] = [];
+  for (const d of dids) {
+    out.push(await describeSubject(bot, d));
+  }
+  return out;
+}
+
 // What the agent gets told about the person being added. Public profile data,
 // fetched from the AppView — no auth, nothing the tagger couldn't see.
 async function describeSubject(
   bot: BotSession,
   subject: { did: string; handle: string },
-): Promise<JobPayload["subject"]> {
+): Promise<JobSubject> {
   const out: JobPayload["subject"] = { did: subject.did, handle: subject.handle };
   try {
     const u = new URL(`${APPVIEW}/xrpc/app.bsky.actor.getProfile`);
@@ -1471,10 +1534,26 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
 
   const purpose = intent.purpose === "modlist" ? "modlist" : "curatelist";
 
+  // Who this acts on. The agent answers with an index into the candidate list
+  // the Worker built when it queued the job — the parent post's author, plus
+  // anyone the tagger @-mentioned. Anything out of range falls back to
+  // candidate 0 rather than erroring, so a confused agent adds the person the
+  // tag has always added instead of nobody.
+  //
+  // This is the whole defense, and it's structural: the agent hands back a
+  // number, so no text it read can name a person who isn't already here.
+  const candidates = job.candidates ?? (job.subject ? [job.subject] : []);
+  const picked =
+    typeof intent.subjectIndex === "number" &&
+    Number.isInteger(intent.subjectIndex) &&
+    intent.subjectIndex >= 0 &&
+    intent.subjectIndex < candidates.length
+      ? candidates[intent.subjectIndex]
+      : candidates[0];
+
   // "create" makes the list and adds nobody — a top-level tag with no post
-  // being replied to. add/remove need a subject, which the WORKER resolved when
-  // it queued the job; the agent never chose it and can't.
-  if (intent.action === "create" || !job.subject) {
+  // being replied to and nobody mentioned.
+  if (intent.action === "create" || !picked) {
     const created = await ensureList(found.acting, listName, purpose);
     if (created.nonce && created.nonce !== found.session.dpopNonce) {
       await putSession(env.STATE, env.SESSION_ENC_KEY, {
@@ -1497,8 +1576,8 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
 
   const result =
     intent.action === "add"
-      ? await addToList(found.acting, listName, job.subject.did, purpose)
-      : await removeFromList(found.acting, listName, job.subject.did);
+      ? await addToList(found.acting, listName, picked.did, purpose)
+      : await removeFromList(found.acting, listName, picked.did);
 
   if (result.nonce && result.nonce !== found.session.dpopNonce) {
     await putSession(env.STATE, env.SESSION_ENC_KEY, {
@@ -1518,7 +1597,7 @@ async function handleOutcome(request: Request, env: Env): Promise<Response> {
     : replyText(
         intent.action === "remove" ? "remove" : "add",
         result,
-        job.subject.handle,
+        picked.handle,
         job.tagger.did,
       );
 

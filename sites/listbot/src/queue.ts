@@ -55,6 +55,12 @@ export interface JobPayload {
   // Absent on a top-level tag ("make me a list for X") — no post being replied
   // to means nobody to add, but the list can still be made.
   subject?: JobSubject;
+  // Everyone this tag may add: the parent author first (when there is one),
+  // then anyone the tagger @-mentioned. The agent answers with an INDEX into
+  // this array rather than naming a person, which is what keeps a stranger's
+  // text from choosing who gets added. Empty on a top-level tag with no
+  // mentions.
+  candidates: JobSubject[];
   thread: { author: string; text: string }[];
   lists: JobList[];
   outcomeUrl: string;
@@ -146,11 +152,18 @@ export async function claimNextJob(kv: KVNamespace): Promise<QueueJob | null> {
 
 // What the agent hands back. Validated in index.ts before anything is written —
 // this is a claim from a process that read a stranger's text, not an
-// instruction. Note there's no subject field: the subject was decided by the
-// Worker when it enqueued the job and the agent cannot change it.
+// instruction.
+//
+// There is still no field naming a person. The agent may only point at one of
+// the candidates the Worker built, by index, so the set of people a tag can
+// touch is fixed before the agent runs and an injected handle has nothing to
+// select. Out of range, or absent, means candidate 0 — the parent post's
+// author, which is what every tag did before this existed.
 export interface AgentIntent {
   // "create" makes an empty list and adds nobody — for a tag with no subject.
   action: "add" | "remove" | "create" | "ask" | "none" | "failed";
+  // Index into JobPayload.candidates. Absent means 0.
+  subjectIndex?: number;
   list?: string;
   listExists?: boolean;
   // Which kind of list to make. A curatelist (the default) feeds list-feeds and
