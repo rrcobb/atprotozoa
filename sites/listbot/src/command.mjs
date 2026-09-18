@@ -1,45 +1,27 @@
-// Parsing a tag into an action.
+// Does this tag need the agent?
 //
-// The grammar is deliberately tiny, because it's typed on a phone into a reply
-// box:
+// Almost always yes. Two cases don't: a tag asking for help, and a tag with no
+// text at all. Everything else — a bare list name, a sentence, anything — goes
+// to the agent, which reads the thread and the user's lists and decides what
+// was meant.
 //
-//   @listbot.bisks.net bots            -> add the parent post's author to "bots"
-//   @listbot.bisks.net remove bots     -> take them off "bots"
-//   @listbot.bisks.net add cool people -> multi-word names work; "add" optional
-//   @listbot.bisks.net lists           -> reply with the user's listbot lists
+// This used to be a grammar: add/remove verbs, multi-word list names, a length
+// cap. All of it computed a listName that nothing read, because the agent
+// decides the list. The verbs are gone rather than kept "just in case" — two
+// things deciding what a tag means is how they drift apart.
 //
-// Everything after the verb is the list name, verbatim. No quoting, no flags —
-// a list called "remove" is a casualty we accept, and it's why `remove` is only
-// treated as a verb in first position.
+// Plain .mjs rather than .ts so the tests can import it directly, the way
+// sites/voidshout's pure logic modules do.
+//
+// @typedef {{kind:"help"}|{kind:"lists"}|{kind:"agent",text:string}} Command
 
-// Plain .mjs rather than .ts so the test suite can import it directly, the way
-// sites/voidshout's pure logic modules do — this is the one piece of listbot
-// with enough branching to be worth unit tests, and it needs no Worker globals.
-//
-// @typedef {{kind:"add",listName:string}
-//          |{kind:"remove",listName:string}
-//          |{kind:"lists"}|{kind:"help"}|{kind:"none"}} Command
-
-const REMOVE_VERBS = new Set(["remove", "rm", "delete", "del", "unadd", "-"]);
-const ADD_VERBS = new Set(["add", "+"]);
-const LIST_VERBS = new Set(["lists", "list", "mylists"]);
 const HELP_VERBS = new Set(["help", "?", "halp"]);
+const LIST_VERBS = new Set(["lists", "mylists"]);
 
-// Longest list name we'll accept. app.bsky.graph.list caps `name` at 64
-// graphemes; anything longer is a mis-parse (someone wrote a sentence), and
-// creating a list from it would be worse than saying we didn't understand.
-// Kept for the UI and for anything that wants a sanity bound on a NAME. It is
-// deliberately NOT applied to tag text any more: this parser's job is to tell a
-// command from a non-command, and the agent decides the actual list name.
-//
-// It used to reject a tag longer than this as {kind:"none"} — silently, with no
-// reply. That was defensible when the parser WAS the product and a long string
-// probably wasn't a list name. It became wrong the moment the agent arrived,
-// because a tag written in English is exactly what the agent is for, and this
-// threw those away before the agent ever saw them. First real tag anyone sent
-// hit it: "@listbot can you make me a list to track people who share or comment
-// on ai news? 'ai new knowers'" — a perfectly clear instruction, ~100 chars,
-// dropped in silence.
+// app.bsky.graph.list caps `name` at 64 graphemes. The UI wants the bound; tag
+// text is NOT measured against it — a tag written in English is exactly what
+// the agent is for, and capping here once dropped the first real tag anyone
+// sent, silently and with no reply.
 export const MAX_LIST_NAME = 64;
 
 /**
@@ -48,36 +30,24 @@ export const MAX_LIST_NAME = 64;
  * @returns {Command}
  */
 export function parseCommand(text, botHandles) {
+  // Strip mentions of the BOT, wherever they sit — people write
+  // "@listbot.bisks.net bots" but also "bots @listbot.bisks.net". Other
+  // people's handles stay: a handle the tagger typed is them saying who they
+  // mean, and the agent should see it. (What stops a STRANGER's text from
+  // choosing a subject is the candidate list the Worker builds, not this.)
   let rest = text;
-
-  // Strip every mention of the bot, wherever it sits — people write
-  // "@listbot.bisks.net bots" but also "bots @listbot.bisks.net".
   for (const handle of botHandles) {
     rest = rest.replace(new RegExp(`@${handle.replace(/\./g, "\\.")}`, "gi"), " ");
   }
 
-  // Drop other @mentions too: a tag like "@listbot bots @someone" is about the
-  // post's author, not the people named in it. Being explicit about this
-  // matters — silently folding a mentioned handle into the subject would make
-  // the bot add the wrong person.
-  rest = rest.replace(/@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, " ");
+  const trimmed = rest.trim().replace(/\s+/g, " ");
+  if (!trimmed) return { kind: "help" };
 
-  const words = rest.trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return { kind: "help" };
+  const lower = trimmed.toLowerCase();
+  // Only when it's the whole tag. "help me build a list" and "lists of
+  // painters" are asks, not commands.
+  if (HELP_VERBS.has(lower)) return { kind: "help" };
+  if (LIST_VERBS.has(lower)) return { kind: "lists" };
 
-  const first = words[0].toLowerCase();
-
-  if (HELP_VERBS.has(first) && words.length === 1) return { kind: "help" };
-  if (LIST_VERBS.has(first) && words.length === 1) return { kind: "lists" };
-
-  if (REMOVE_VERBS.has(first)) {
-    const name = words.slice(1).join(" ");
-    if (!name) return { kind: "help" };
-    return { kind: "remove", listName: name };
-  }
-
-  const withoutAdd = ADD_VERBS.has(first) ? words.slice(1) : words;
-  const name = withoutAdd.join(" ");
-  if (!name) return { kind: "help" };
-  return { kind: "add", listName: name };
+  return { kind: "agent", text: trimmed };
 }

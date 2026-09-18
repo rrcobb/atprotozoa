@@ -1,10 +1,9 @@
-// Unit tests for the tag parser — the one piece of listbot with enough
-// branching to be worth testing, and pure enough to test directly.
+// Does a tag need the agent?
 //
-// What these are really guarding: a mis-parse writes a record into somebody
-// else's repo. "@listbot bots" must never resolve to anything but "add to the
-// list called bots", and a tag naming other people must never turn those people
-// into subjects.
+// The parser used to be a grammar and these tests checked the list names it
+// produced. Nothing read those names — the agent decides the list — so both the
+// grammar and the tests for it are gone. What's left is the routing decision
+// and one property that matters: a tag is never silently dropped.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseCommand } from "../src/command.mjs";
@@ -12,161 +11,82 @@ import { parseCommand } from "../src/command.mjs";
 const HANDLES = ["listbot.bisks.net", "listbot"];
 const parse = (text) => parseCommand(text, HANDLES);
 
-test("a bare list name is an add", () => {
-  assert.deepEqual(parse("@listbot.bisks.net bots"), { kind: "add", listName: "bots" });
-});
-
-test("an explicit add verb is stripped", () => {
-  assert.deepEqual(parse("@listbot.bisks.net add bots"), { kind: "add", listName: "bots" });
-});
-
-test("multi-word list names survive intact", () => {
-  assert.deepEqual(parse("@listbot.bisks.net cool people i like"), {
-    kind: "add",
-    listName: "cool people i like",
+test("an ordinary tag goes to the agent, text intact", () => {
+  assert.deepEqual(parse("@listbot.bisks.net bots"), { kind: "agent", text: "bots" });
+  assert.deepEqual(parse("@listbot.bisks.net add them to my 'cool posters' list"), {
+    kind: "agent",
+    text: "add them to my 'cool posters' list",
   });
 });
 
-test("remove and its synonyms all parse as remove", () => {
-  for (const verb of ["remove", "rm", "delete", "del", "unadd", "-"]) {
-    assert.deepEqual(
-      parse(`@listbot.bisks.net ${verb} bots`),
-      { kind: "remove", listName: "bots" },
-      `"${verb}" should remove`,
-    );
-  }
+test("the bot's handle is stripped wherever it sits", () => {
+  assert.deepEqual(parse("bots @listbot.bisks.net"), { kind: "agent", text: "bots" });
+  assert.deepEqual(parse("@listbot bots"), { kind: "agent", text: "bots" });
+  assert.deepEqual(parse("@LISTBOT.BISKS.NET bots"), { kind: "agent", text: "bots" });
 });
 
-test("remove is only a verb in first position, so a list can be called remove", () => {
-  assert.deepEqual(parse("@listbot.bisks.net add remove"), { kind: "add", listName: "remove" });
-});
-
-test("the mention can come after the list name", () => {
-  assert.deepEqual(parse("bots @listbot.bisks.net"), { kind: "add", listName: "bots" });
-});
-
-test("the short handle form is stripped too", () => {
-  assert.deepEqual(parse("@listbot bots"), { kind: "add", listName: "bots" });
-});
-
-test("mentions are matched case-insensitively", () => {
-  assert.deepEqual(parse("@LISTBOT.BISKS.NET bots"), { kind: "add", listName: "bots" });
-});
-
-// The important one. A tag that names other people is still about the post's
-// author — folding a mentioned handle into the list name (or worse, treating it
-// as the subject) would put the wrong person on a list.
-test("other people's handles never become part of the list name", () => {
-  assert.deepEqual(parse("@listbot.bisks.net bots @someone.bsky.social"), {
-    kind: "add",
-    listName: "bots",
-  });
-  assert.deepEqual(parse("@listbot.bisks.net remove bots @a.bsky.social @b.bsky.social"), {
-    kind: "remove",
-    listName: "bots",
+// The change that made "add @someone to ceramics" possible. The parser used to
+// strip every other @handle, so a handle the TAGGER typed never reached the
+// agent. A stranger's text is a different problem, handled by building the
+// subject candidates from the tag's facets rather than from any text.
+test("other people's handles reach the agent", () => {
+  assert.deepEqual(parse("@listbot.bisks.net add @potterymouth.plate to ceramics"), {
+    kind: "agent",
+    text: "add @potterymouth.plate to ceramics",
   });
 });
 
-test("a mention with nothing else is help, not a list called empty", () => {
+test("a tag with nothing in it asks for help", () => {
   assert.deepEqual(parse("@listbot.bisks.net"), { kind: "help" });
   assert.deepEqual(parse("@listbot.bisks.net    "), { kind: "help" });
 });
 
-test("explicit help and lists verbs", () => {
+test("help and lists are commands only when they're the whole tag", () => {
   for (const word of ["help", "?", "halp"]) {
     assert.deepEqual(parse(`@listbot.bisks.net ${word}`), { kind: "help" }, word);
   }
-  for (const word of ["lists", "list", "mylists"]) {
+  for (const word of ["lists", "mylists"]) {
     assert.deepEqual(parse(`@listbot.bisks.net ${word}`), { kind: "lists" }, word);
   }
+  // Anything longer is an ask, not a command.
+  assert.equal(parse("@listbot.bisks.net help me build a list").kind, "agent");
+  assert.equal(parse("@listbot.bisks.net lists of painters").kind, "agent");
 });
 
-test("help and lists are only verbs when alone, so they can name a list", () => {
-  assert.deepEqual(parse("@listbot.bisks.net list of cool people"), {
-    kind: "add",
-    listName: "list of cool people",
-  });
-  assert.deepEqual(parse("@listbot.bisks.net help me"), { kind: "add", listName: "help me" });
-});
-
-test("a remove verb with no list name asks for help rather than guessing", () => {
-  assert.deepEqual(parse("@listbot.bisks.net remove"), { kind: "help" });
-});
-
-// A long tag reaches the agent rather than being dropped.
-//
-// This parser used to cap the name at 64 chars and return {kind:"none"} for
-// anything longer — silently, with no reply. That was defensible when the
-// parser WAS the product: a sentence was a mis-parse, and making a list out of
-// it was worse than admitting we hadn't understood.
-//
-// The agent changed what this function is for. Its job now is only to tell a
-// command from a non-command; the agent reads the text and decides the actual
-// name. A tag written in English is exactly what the agent exists for, so
-// dropping it here threw away the good case before anyone could see it.
-//
-// Found the hard way: the first real tag anyone sent was
-// "@listbot can you make me a list to track people who share or comment on ai
-// news? 'ai new knowers'" — perfectly clear, ~100 chars, silently ignored.
-test("a long, sentence-shaped tag reaches the agent instead of being dropped", () => {
-  const real =
-    "@listbot.bisks.net can you make me a list to track people who share or comment on ai news? 'ai new knowers'";
-  const out = parse(real);
-  assert.equal(out.kind, "add");
-  assert.ok(out.listName.length > 64, "the whole sentence is passed along");
-  assert.match(out.listName, /ai new knowers/);
-});
-
-test("a long remove still parses as a remove", () => {
-  const long = "x".repeat(120);
-  assert.deepEqual(parse(`@listbot.bisks.net remove ${long}`), {
-    kind: "remove",
-    listName: long,
-  });
-});
-
-test("the parser passes text through, it doesn't adjudicate names", () => {
-  // Whatever arrives, the parser's answer is a KIND. Judging the name is the
-  // agent's job, and a silent "none" is the one thing this must not do to a
-  // tag that's plainly asking for something.
+// The load-bearing property. A tag that's plainly asking for something must
+// always reach the agent — this parser once capped names at 64 chars and
+// returned a silent no-op for anything longer, which swallowed the first real
+// tag anyone sent: "@listbot can you make me a list to track people who share
+// or comment on ai news? 'ai new knowers'".
+test("no tag is silently dropped", () => {
   for (const text of [
-    "@listbot.bisks.net x".repeat(1),
+    "@listbot.bisks.net can you make me a list to track people who share or comment on ai news? 'ai new knowers'",
     `@listbot.bisks.net ${"y".repeat(500)}`,
     "@listbot.bisks.net make me a list of people who post about trains please",
+    "@listbot.bisks.net remove them from bots",
   ]) {
-    assert.notEqual(parse(text).kind, "none", `should not silently drop: ${text.slice(0, 40)}`);
+    assert.equal(parse(text).kind, "agent", `should reach the agent: ${text.slice(0, 48)}`);
   }
 });
 
 test("whitespace and line breaks collapse", () => {
-  assert.deepEqual(parse("@listbot.bisks.net\n  bots  "), { kind: "add", listName: "bots" });
+  assert.deepEqual(parse("@listbot.bisks.net\n  bots  "), { kind: "agent", text: "bots" });
 });
 
 // The account is created on listbot.bsky.social and switches to
-// listbot.bisks.net later. Both have to strip cleanly: whichever handle a tag
-// uses, the list name is what's left over. Missing one would turn
-// "@listbot.bsky.social bots" into a list literally named
-// "@listbot.bsky.social bots".
+// listbot.bisks.net later. Both have to strip cleanly, or the old handle sits
+// in the text the agent reads.
 test("either handle strips, across the handle switch", () => {
   const both = ["listbot.bsky.social", "listbot.bisks.net", "listbot"];
   for (const handle of both) {
     assert.deepEqual(
       parseCommand(`@${handle} bots`, both),
-      { kind: "add", listName: "bots" },
+      { kind: "agent", text: "bots" },
       `@${handle} should strip`,
     );
-    assert.deepEqual(
-      parseCommand(`@${handle} remove bots`, both),
-      { kind: "remove", listName: "bots" },
-      `@${handle} remove should strip`,
-    );
   }
-});
-
-test("a tag naming both handles still yields just the list name", () => {
-  const both = ["listbot.bsky.social", "listbot.bisks.net", "listbot"];
   assert.deepEqual(parseCommand("@listbot.bsky.social @listbot.bisks.net bots", both), {
-    kind: "add",
-    listName: "bots",
+    kind: "agent",
+    text: "bots",
   });
 });
