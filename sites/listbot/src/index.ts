@@ -629,18 +629,58 @@ async function recentMentions(session: BotSession): Promise<Mention[]> {
   //
   // It's scoped to the bot's own posts on purpose: a reply somewhere else in a
   // thread the bot happens to be in isn't addressed to it.
-  const repliesToUs = (rec: PostRecord): boolean => {
+  // Is this post ADDRESSED to the bot?
+  //
+  // Not "is the bot in this thread" — a reply notification arrives for any post
+  // in a thread the bot has spoken in, including people talking to each other.
+  // The bot has no business weighing in on those.
+  //
+  // Addressed means one of:
+  //   - it @mentions us (a `mention` notification, or a facet on a reply)
+  //   - it replies directly to something we said
+  //   - it continues a run of posts by the same person that began by addressing
+  //     us, and nobody else has spoken since
+  //
+  // That last one is the conversational case, and it's what two of Rob's tags
+  // hit: "ok cool add fleetingbits" replied to the bot without repeating the
+  // @mention, and "yea have another go at adding fleetingbits" replied to his
+  // OWN previous message. Both were plainly still talking to the bot, and both
+  // were dropped in silence. Nobody re-@s someone mid-conversation.
+  //
+  // The check is cheap because the notification carries the parent: if the
+  // parent is ours, or the parent is the tagger's own post whose parent is
+  // ours, they're still in the exchange. Anyone else replying in the thread
+  // fails all three tests and is correctly ignored.
+  const isOurs = (uri?: string) => Boolean(uri && uri.includes(`/${session.did}/`));
+
+  const addressedToUs = async (n: {
+    author: { did: string };
+    record?: unknown;
+  }): Promise<boolean> => {
+    const rec = (n.record ?? {}) as PostRecord;
+    if (mentionsUs(rec)) return true;
     const parent = rec.reply?.parent?.uri;
-    return Boolean(parent && parent.includes(`/${session.did}/`));
+    if (isOurs(parent)) return true;
+    if (!parent) return false;
+
+    // Their own follow-up to their own message: still theirs to us, provided
+    // the message before it was in this exchange with the bot.
+    if (!parent.includes(`/${n.author.did}/`)) return false;
+    const grandparent = await parentOfPost(session, parent);
+    return isOurs(grandparent);
   };
 
-  return j.notifications
-    .filter((n) => {
-      if (n.reason === "mention") return true;
-      if (n.reason !== "reply") return false;
-      const rec = (n.record ?? {}) as PostRecord;
-      return mentionsUs(rec) || repliesToUs(rec);
-    })
+  const out: typeof j.notifications = [];
+  for (const n of j.notifications) {
+    if (n.reason === "mention") {
+      out.push(n);
+      continue;
+    }
+    if (n.reason !== "reply") continue;
+    if (await addressedToUs(n)) out.push(n);
+  }
+
+  return out
     .map((n) => {
       const rec = (n.record ?? {}) as PostRecord;
       return {
@@ -656,6 +696,29 @@ async function recentMentions(session: BotSession): Promise<Mention[]> {
         mentionedDids: mentionedDids(rec, session.did),
       };
     });
+}
+
+// The URI a post was replying to. One AppView call, used only when deciding
+// whether someone's follow-up to their own message is still part of an exchange
+// with the bot.
+async function parentOfPost(
+  session: BotSession,
+  uri: string,
+): Promise<string | undefined> {
+  try {
+    const u = new URL(`${APPVIEW}/xrpc/app.bsky.feed.getPosts`);
+    u.searchParams.set("uris", uri);
+    const res = await fetch(u.toString(), {
+      headers: { authorization: `Bearer ${session.accessJwt}` },
+    });
+    if (!res.ok) return undefined;
+    const j = (await res.json()) as {
+      posts?: { record?: { reply?: { parent?: { uri?: string } } } }[];
+    };
+    return j.posts?.[0]?.record?.reply?.parent?.uri;
+  } catch {
+    return undefined;
+  }
 }
 
 const SWEEP_EVERY_N = 5;
