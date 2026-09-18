@@ -9,10 +9,15 @@
 #
 # THE SPLIT THAT MATTERS: this agent reads, it does not write.
 #
-#   - No repo checkout. It runs in an empty scratch dir, so there is no source
-#     tree to edit even by accident. (box-build.sh runs in /opt/atprotozoa and
-#     needs Edit/Write; this deliberately does not.)
-#   - No Edit, no Write. Read-only tools only.
+#   - No repo checkout. It runs in a FRESH TEMP DIR created per job and deleted
+#     after, so there is no source tree to edit even by accident. (box-build.sh
+#     runs in /opt/atprotozoa and needs to edit it; this deliberately does not.)
+#   - It can write, but only into that temp dir, and the directory is the
+#     boundary — not a permission rule. Tried `--allowedTools 'Edit(INTENT.json)'`
+#     first, on the assumption it confines writes to one path. Measured: it does
+#     NOT. In a directory the CLI already trusts it writes anything; outside one,
+#     it wrote a file the rule didn't name and declined the file it did. So the
+#     scoping is not a boundary and isn't treated as one here.
 #   - No credentials in its environment. No BUILDER_PAT (can't push), no
 #     BOT_APP_PASSWORD (can't post as the bot), and nothing that could decrypt a
 #     user's OAuth session — those never leave Cloudflare.
@@ -68,7 +73,8 @@ set +e
     claude -p "$(cat "$BUILDER_DIR/LISTBOT_PROMPT.md")" \
       --model "$LISTBOT_MODEL" \
       --max-turns "$LISTBOT_MAX_TURNS" \
-      --allowedTools Read,Grep,Glob,WebFetch \
+      --allowedTools Read,Grep,Glob,WebFetch,Write \
+      --permission-mode bypassPermissions \
     2>&1
 ) | tee "$CLAUDE_LOG"
 AGENT_RC=${PIPESTATUS[0]}
@@ -78,6 +84,16 @@ set -e
 # rather than parsing stdout: the CLI's output carries reasoning prose around the
 # answer, and grepping JSON out of prose is exactly the brittleness that makes a
 # bot feel broken at 2am.
+#
+# It needs Write and bypassPermissions to do that. Without them the run ends with
+# the agent ASKING for permission to write its own output — which is exactly what
+# happened to the first tag that reached it: it reasoned correctly, then said
+# "I need permission to write the output file", nobody was there to answer, and
+# the user got "something went wrong working that out".
+#
+# bypassPermissions is safe here for the reason box-build.sh relies on and then
+# some: unprivileged user, no repo checkout, no credentials in the environment,
+# and a working directory that is a fresh temp dir holding one file.
 INTENT=""
 if [ -f "$WORK_DIR/INTENT.json" ]; then
   if jq -e . >/dev/null 2>&1 < "$WORK_DIR/INTENT.json"; then
