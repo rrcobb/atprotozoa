@@ -161,3 +161,58 @@ test("a handle beats a display name that collides with it", async () => {
   const r = await resolvePerson("zed.bsky.social", pools);
   assert.equal(r.did, "did:plc:handle");
 });
+
+// --- the search path ---------------------------------------------------------
+//
+// Step 4 of the cascade: someone the tagger doesn't follow and didn't link, so
+// the agent searched Bluesky and returned a handle from the results. Untested
+// until now — every case that had been run resolved out of `follows`.
+//
+// From the Worker's side a searched handle is just a full handle: it resolves
+// against the network or it doesn't. The judgement about WHICH search result to
+// trust belongs to the agent and lives in the prompt, because the Worker can't
+// tell a searched handle from a remembered one.
+
+const STRANGER_NETWORK = {
+  ...NETWORK,
+  "samreich.bsky.social": "did:plc:samreich",
+  "potterymouth.plate": "did:plc:pottery",
+};
+
+test("a handle found by search resolves even though it's in no pool", async () => {
+  const r = await resolvePerson("samreich.bsky.social", POOLS, STRANGER_NETWORK);
+  assert.equal(r.did, "did:plc:samreich");
+  assert.equal(r.handle, "samreich.bsky.social");
+});
+
+test("a non-bsky.social domain handle resolves the same way", async () => {
+  const r = await resolvePerson("potterymouth.plate", POOLS, STRANGER_NETWORK);
+  assert.equal(r.did, "did:plc:pottery");
+});
+
+// The failure that matters. If the agent transcribes a searched handle slightly
+// wrong, it must resolve to nobody rather than to someone else — the tagger
+// gets "couldn't find them" and can retry, which is recoverable. Silently
+// landing on a different account is not.
+test("a mistyped handle resolves to nobody, not to someone else", async () => {
+  assert.equal(await resolvePerson("samrich.bsky.social", POOLS, STRANGER_NETWORK), null);
+  assert.equal(await resolvePerson("fleetingbit.bsky.social", POOLS, STRANGER_NETWORK), null);
+});
+
+// A bare first name is exactly what search is bad at, and the prompt tells the
+// agent to ask rather than guess. The Worker's half of that: a bare name that
+// matches nobody in the pools doesn't get resolved by a hopeful lookup.
+test("a bare first name that's in no pool resolves to nobody", async () => {
+  assert.equal(await resolvePerson("sam", POOLS, STRANGER_NETWORK), null);
+});
+
+// And the reason the prompt says to prefer follows over search: a name that IS
+// in follows must not go to the network, or an unrelated stranger with a
+// matching handle could win.
+test("follows beats the network for the same shorthand", async () => {
+  const r = await resolvePerson("fleetingbits", POOLS, {
+    ...STRANGER_NETWORK,
+    fleetingbits: "did:plc:someone-else",
+  });
+  assert.equal(r.did, "did:plc:fleeting");
+});

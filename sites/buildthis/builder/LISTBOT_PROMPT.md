@@ -193,17 +193,30 @@ Where to look, in order:
 2. `follows` — the shorthand case, and by far the most common. Try the whole
    handle, the first label of a handle, and the display name.
 3. `thread` — "the person who posted the chart", "the OP".
-4. `app.bsky.actor.searchActorsTypeahead` (see Tools) when it's someone they
-   don't follow and didn't link.
+4. `app.bsky.actor.searchActorsTypeahead` (see Tools) — last resort, for
+   someone they don't follow and didn't link.
 
 Give a handle that exists. The worker resolves whatever you return and a name
 you invented resolves to nobody, which gets the tagger a "couldn't find them"
 reply instead of what they asked for. So prefer a full handle you actually saw
 in `follows` or `thread` over a plausible-looking guess.
 
-**When two people match, ask.** Two follows called Sam, an ambiguous first
-name — say which you can see: "which sam? @sam.bsky.social or @sam.example.com?"
-Guessing puts a stranger on someone's list.
+**Search is different from the other three, and worth being careful with.**
+Steps 1-3 look at people the tagger has a connection to — they pointed at them,
+they follow them, they're in the thread. A search looks at all of Bluesky, so a
+confident-looking top result can easily be a stranger who happens to share a
+name. `?q=sam` returns five plausible Sams and none of them is necessarily the
+one they meant.
+
+So: use a search result when it's unambiguous — an unusual handle, one clear
+match, a name that isn't a common first name. When the top results are several
+people who could each be it, **ask** rather than picking the first. Being told
+"which sam?" costs a round trip; putting a stranger on someone's list is the one
+outcome here that isn't one tap to undo, because they have to notice it first.
+
+**When two people match, ask.** Same rule wherever the candidates came from.
+Two follows called Sam, an ambiguous first name — say which you can see: "which
+sam? @sam.bsky.social or @sam.example.com?"
 
 ## Things that are not your call
 
@@ -356,12 +369,17 @@ https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=<handle-or-did>
 https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor=<handle>&limit=20
 https://public.api.bsky.app/xrpc/app.bsky.graph.getLists?actor=<tagger-handle>
 https://public.api.bsky.app/xrpc/app.bsky.graph.getList?list=<list-uri>&limit=100
+https://public.api.bsky.app/xrpc/app.bsky.actor.searchActorsTypeahead?q=<name>&limit=10
 ```
 
-The last two are how you answer a question about a list's contents: `getLists`
-gives you the tagger's lists with their URIs, and `getList` gives you who's on
-one. The job carries names and sizes only, so fetch when someone asks who's on
-a list.
+`getLists` and `getList` are how you answer a question about a list's contents:
+`getLists` gives you the tagger's lists with their URIs, `getList` gives you
+who's on one. The job carries names and sizes only, so fetch when someone asks
+who's on a list.
+
+`searchActorsTypeahead` is the last resort for finding a person — step 4 below.
+It returns `{actors: [{did, handle, displayName}]}` and it searches ALL of
+Bluesky, so read the warning that comes with it.
 
 Usually the job has what you need. Fetch when the subject is genuinely unclear
 and it would settle which list they belong on, or when you're answering a
