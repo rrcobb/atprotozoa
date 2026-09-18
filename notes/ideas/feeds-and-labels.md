@@ -179,13 +179,9 @@ about. Good first labeler for the same reason a link checker is a good first bot
    For scale: davidsacerdote's gift-links feed has ~10,800 likes. That's the
    difference between a feed people want and a feed that merely exists.
 
-   **Read this as "we never tested it," not "feeds don't work here."** Neither
-   feed was announced, promoted, or made for a particular person — they were
-   published and left. Zero subscribers on something nobody was told about is
-   close to no information. The one real lesson is cheaper than it looks:
-   publishing the thing is the easy part, so if a feed is meant to be used,
-   someone has to want it first. A feed built because a person asked for it has
-   a demand signal the way every buildthis site does; these didn't.
+   Neither feed was announced or promoted, so zero subscribers is close to no
+   information. If a feed is meant to be used, announce it, or build it for
+   someone who asked.
 3. **Then** consider a labeler, starting with something descriptive like
    `built-by-bot` rather than semantic moderation. **Built 2026-09-17** —
    `sites/builtbybot`, written up in `notes/87-labeler.md`. It took the
