@@ -1593,12 +1593,16 @@ async function handleNextJob(request: Request, env: Env): Promise<Response> {
 //
 // The intent is a claim from a process that read a stranger's post text, so it
 // is validated, not trusted:
-//   - the subject comes from the JOB, never from the intent. The agent has no
-//     way to name a different person, because there's no field for it.
+//   - a person the agent NAMES is resolved here, against the pools it was given
+//     plus resolveHandle. A name it invented doesn't resolve, and the tag fails
+//     saying so rather than writing something.
 //   - the list name is checked against the user's actual lists when the agent
 //     says it already exists.
 //   - the reply text is posted as the bot, so it's length-capped and stripped
 //     of anything that would make it a mention of someone uninvolved.
+//   - every write lands in the TAGGER's own repo, under their own grant. That's
+//     the backstop under all of it: the worst case is a row in your own list,
+//     named in the reply, one tap from gone.
 async function handleOutcome(request: Request, env: Env): Promise<Response> {
   if (!env.OUTCOME_SECRET || request.headers.get("authorization") !== `Bearer ${env.OUTCOME_SECRET}`) {
     return new Response("unauthorized", { status: 401 });

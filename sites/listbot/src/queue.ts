@@ -172,10 +172,34 @@ export async function claimNextJob(kv: KVNamespace): Promise<QueueJob | null> {
 // lands in the tagger's OWN list, the reply says exactly who was added, and one
 // tap undoes it. So the guarantee is that a name the agent invented fails to
 // resolve and is reported, rather than quietly becoming a record.
+// One thing to do. A whole intent is this plus the bookkeeping fields below —
+// most tags are exactly one of these, which is why the common case stays flat
+// rather than becoming an array of one.
+export interface IntentStep {
+  action: "add" | "remove" | "create";
+  subjectIndex?: number;
+  subjectHandle?: string;
+  subjectHandles?: string[];
+  list?: string;
+  listExists?: boolean;
+  purpose?: "curatelist" | "modlist";
+}
+
 export interface AgentIntent {
   // "create" makes an empty list and adds nobody — for a tag with no subject.
   // "answer" writes nothing at all: it's a question answered in the thread.
   action: "add" | "remove" | "create" | "answer" | "ask" | "none" | "failed";
+  // More than one thing in a single tag: "add them to ceramics and make me a
+  // mute list for that other guy". Walked in order by the Worker.
+  //
+  // When this is set, `action` is "add"/"remove"/"create" describing the FIRST
+  // step and the flat fields mirror it, so anything reading only the flat shape
+  // still does something sensible rather than nothing.
+  //
+  // A step carries no `reply` on purpose. One tag gets one reply, composed by
+  // the Worker from what actually happened — an agent writing a line per step
+  // would post a thread at someone who asked for one thing.
+  steps?: IntentStep[];
   // Who to act on. Either an index into `candidates` (the fast path, when the
   // tagger pointed at someone directly), or a handle/DID the agent worked out —
   // from `follows`, the thread, or a search it ran.
