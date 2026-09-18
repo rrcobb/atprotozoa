@@ -89,6 +89,20 @@ BOT_APP_PASSWORD=
 # token it presents to pull jobs from the queue endpoint (added with the queue).
 OUTCOME_SECRET=
 QUEUE_TOKEN=
+
+# --- other bots ------------------------------------------------------------
+# The box is a general runner: each bot's Worker serves its own /next-job with
+# its own token, and box-poll.sh polls them in turn. QUEUES is a
+# space-separated list of name|url|token-var-name. Unset, it falls back to
+# buildthis alone, so an older env file keeps working.
+QUEUES="buildthis|https://buildthis.bisks.net/next-job|QUEUE_TOKEN listbot|https://listbot.bisks.net/next-job|LISTBOT_QUEUE_TOKEN"
+
+# listbot (sites/listbot): resolves a tag into an add/remove intent. Its agent
+# READS only — no repo checkout, no write tools, no push credential — and the
+# listbot Worker does the actual write, because that's where the OAuth tokens
+# are. These two secrets are its queue token and its outcome token.
+LISTBOT_QUEUE_TOKEN=
+LISTBOT_OUTCOME_SECRET=
 ENVTEMPLATE
   echo "  wrote template -> EDIT /etc/buildthis/env and fill in the blanks"
 else
