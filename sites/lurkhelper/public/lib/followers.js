@@ -4,19 +4,29 @@
 // Reads Bluesky's public AppView anonymously (public.api.bsky.app, CORS *).
 // Handle-resolution + follower paging copied from sites/followwall (copy,
 // don't abstract); the recent-post + engagement fetch is new.
+//
+// Likers and reposters come from microcosm.blue's Constellation
+// (blue.microcosm.links.getBacklinkDids, sources app.bsky.feed.like:subject.uri
+// and app.bsky.feed.repost:subject.uri), with the AppView's getLikes/
+// getRepostedBy as the fallback. This is a correctness fix: the old read took
+// one page of 100 per post and stopped, so a follower who liked a post with
+// more than 100 likes was invisible and got labelled a lurker — the one
+// verdict this site exists to give. Only the DID is ever used, so the
+// AppView's hydrated actor buys nothing. Gotchas in notes/40.
 
 const PUB = "https://public.api.bsky.app/xrpc";
+const CONSTELLATION = "https://constellation.microcosm.blue";
 
 // Hard cap so a mega-account (millions of followers) doesn't turn one page
 // load into thousands of requests — plenty to fill a wall and compute stats.
 const MAX_PAGES = 20; // 20 * 100 = up to 2000 followers
 
-// How many recent posts to check for engagement, and how many likers/
-// reposters/repliers to read per post. Each post costs up to 3 requests
-// (likes, reposts, thread), so this bounds the whole lurker check to a
-// couple dozen requests instead of scaling with account size.
+// How many recent posts to check for engagement. Likers and reposters are
+// now read in full rather than sampled, so this is the only bound on the
+// lurker check that matters.
 const MAX_POSTS = 10;
-const MAX_ENGAGERS_PER_POST = 100;
+const MAX_CONSTELLATION_PAGES = 50; // backstop only — 50,000 engagers on one post
+const MAX_APPVIEW_PAGES = 500; // same ceiling for the fallback walks, at 100/page
 
 async function jget(url) {
   const r = await fetch(url);
@@ -113,25 +123,69 @@ export async function fetchRecentPosts(did) {
     .slice(0, MAX_POSTS);
 }
 
+// Engager DIDs for one post from Constellation, paged to the end of the
+// cursor. Throws on a failed page so the caller falls back to the AppView
+// walk instead of treating a partial read as the whole list.
+async function engagerDidsConstellation(uri, source) {
+  const dids = [];
+  let cursor = "";
+  for (let p = 0; p < MAX_CONSTELLATION_PAGES; p++) {
+    const u = new URL(`${CONSTELLATION}/xrpc/blue.microcosm.links.getBacklinkDids`);
+    u.searchParams.set("subject", uri);
+    u.searchParams.set("source", source);
+    u.searchParams.set("limit", "1000");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    const d = await jget(u.toString());
+    const batch = d.linking_dids || [];
+    for (const did of batch) dids.push(did);
+    cursor = d.cursor;
+    if (!cursor || !batch.length) break;
+  }
+  return dids;
+}
+
+// Fallback: the AppView endpoint, paged to the end of the cursor. `key`/
+// `pick` differ between getLikes (likes[].actor.did) and getRepostedBy
+// (repostedBy[].did).
+async function engagerDidsAppView(uri, endpoint, key, pick) {
+  const dids = [];
+  let cursor = "";
+  for (let p = 0; p < MAX_APPVIEW_PAGES; p++) {
+    const u = new URL(`${PUB}/${endpoint}`);
+    u.searchParams.set("uri", uri);
+    u.searchParams.set("limit", "100");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    let d;
+    try {
+      d = await jget(u.toString());
+    } catch {
+      break;
+    }
+    const batch = d[key] || [];
+    for (const item of batch) {
+      const did = pick(item);
+      if (did) dids.push(did);
+    }
+    cursor = d.cursor;
+    if (!cursor || !batch.length) break;
+  }
+  return dids;
+}
+
 // Every DID that liked, reposted, or directly replied to a single post.
 async function fetchPostEngagers(uri) {
   const dids = new Set();
 
-  const likes = new URL(`${PUB}/app.bsky.feed.getLikes`);
-  likes.searchParams.set("uri", uri);
-  likes.searchParams.set("limit", String(MAX_ENGAGERS_PER_POST));
-  try {
-    const d = await jget(likes.toString());
-    for (const l of d.likes || []) if (l.actor?.did) dids.add(l.actor.did);
-  } catch {}
-
-  const reposts = new URL(`${PUB}/app.bsky.feed.getRepostedBy`);
-  reposts.searchParams.set("uri", uri);
-  reposts.searchParams.set("limit", String(MAX_ENGAGERS_PER_POST));
-  try {
-    const d = await jget(reposts.toString());
-    for (const a of d.repostedBy || []) if (a.did) dids.add(a.did);
-  } catch {}
+  const [likers, reposters] = await Promise.all([
+    engagerDidsConstellation(uri, "app.bsky.feed.like:subject.uri").catch(() =>
+      engagerDidsAppView(uri, "app.bsky.feed.getLikes", "likes", (l) => l.actor?.did),
+    ),
+    engagerDidsConstellation(uri, "app.bsky.feed.repost:subject.uri").catch(() =>
+      engagerDidsAppView(uri, "app.bsky.feed.getRepostedBy", "repostedBy", (a) => a.did),
+    ),
+  ]);
+  for (const did of likers) dids.add(did);
+  for (const did of reposters) dids.add(did);
 
   const thread = new URL(`${PUB}/app.bsky.feed.getPostThread`);
   thread.searchParams.set("uri", uri);
