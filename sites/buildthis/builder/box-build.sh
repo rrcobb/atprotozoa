@@ -98,11 +98,11 @@ else
   git reset --hard origin/main
 fi
 # `git clean -fd` removes untracked leftovers but SKIPS gitignored files, so
-# BUILD_RESULT / BUILD_NOTE (both gitignored) survive a clean and would leak into the
-# next build — a stale note once posted under a later, unrelated request. Clear the
-# scratch files explicitly, every build, before anything runs.
+# BUILD_RESULT / BUILD_NOTE / BUILD_MAINTENANCE (all gitignored) survive a clean and
+# would leak into the next build — a stale note once posted under a later, unrelated
+# request. Clear the scratch files explicitly, every build, before anything runs.
 git clean -fd
-rm -f BUILD_RESULT BUILD_NOTE
+rm -f BUILD_RESULT BUILD_NOTE BUILD_MAINTENANCE
 
 # The commit the build STARTS from, captured before the agent touches anything.
 # Two uses below, both for the net.bisks.buildthis.request record: it tells a new
@@ -274,6 +274,16 @@ BUILD_RESULT=""
 [ -f BUILD_RESULT ] && BUILD_RESULT="$(head -n1 BUILD_RESULT | tr -d '[:space:]')"
 BUILD_NOTE=""
 [ -f BUILD_NOTE ] && BUILD_NOTE="$(cat BUILD_NOTE)"
+# BUILD_MAINTENANCE: the agent's declaration that this run was a SWEEP, not a build
+# of one thing — a repair across N sites, a drop-in sweep, a batch conversion. Its
+# first line is the summary the reply uses ("swept handle-typeahead.js onto 9
+# sites"). Written mostly by the daily slot, which is told about it in its brief,
+# but nothing restricts it to that: a tagged "go fix the drifted copies" run is the
+# same shape. Without this file such a run had no way to report itself — it either
+# invented a BUILD_RESULT naming one arbitrary site it touched, or landed in
+# no_build and got replied to as "nothing built" despite pushing real work.
+BUILD_MAINTENANCE=""
+[ -f BUILD_MAINTENANCE ] && BUILD_MAINTENANCE="$(head -n1 BUILD_MAINTENANCE)"
 
 # Distinguish "out of budget" from "build flopped". The box hits the subscription's
 # usage ceiling; the CLI prints a usage/rate-limit message ("usage limit reached",
@@ -392,7 +402,13 @@ fi
 # otherwise an explain-only run (BUILD_RESULT set to the site being explained, but
 # nothing in it touched) would stamp a false "rebuilt by" record onto a site that
 # wasn't rebuilt.
-if [ -n "$BUILT_NAME" ] && printf '%s\n' "$CHANGED_PATHS" | grep -q "^sites/${BUILT_NAME%%/*}/"; then
+#
+# A declared SWEEP (BUILD_MAINTENANCE, no BUILD_RESULT) is skipped for the same
+# reason: BUILT_NAME is then only DERIVED_NAME's guess, and stamping it would
+# write "this site was built for the daily slot" onto one arbitrary member of a
+# batch that was merely swept. A sweep has no single origin site to record.
+if [ -n "$BUILT_NAME" ] && { [ -z "$BUILD_MAINTENANCE" ] || [ -n "$BUILD_RESULT" ]; } \
+   && printf '%s\n' "$CHANGED_PATHS" | grep -q "^sites/${BUILT_NAME%%/*}/"; then
   SITE_DIR="sites/${BUILT_NAME%%/*}"
   [ -d "$SITE_DIR" ] && write_provenance "$SITE_DIR/.buildthis.json"
 fi
@@ -408,9 +424,13 @@ fi
 # site that did not exist cannot serve a stale page.
 #
 # Computing the URL here rather than in the liveness block so both use one definition.
+# Same skip as provenance above: a declared sweep with no named site has no one
+# URL whose liveness means anything. (The liveness block is gated on DISPOSITION
+# being success/partial anyway, and maintenance is neither — this just keeps
+# LIVE_URL from holding a guess in the log line.)
 LIVE_URL=""
 PRE_DEPLOY_HASH=""
-if [ -n "$BUILT_NAME" ]; then
+if [ -n "$BUILT_NAME" ] && { [ -z "$BUILD_MAINTENANCE" ] || [ -n "$BUILD_RESULT" ]; }; then
   SITE_HOST="${BUILT_NAME%%/*}"
   SITE_PATH=""
   [ "$BUILT_NAME" != "$SITE_HOST" ] && SITE_PATH="/${BUILT_NAME#*/}"
@@ -510,6 +530,11 @@ fi
 #   usage_limit-> out of budget, nothing landed. Honest reply, REQUEUE (budget resets).
 #   too_big    -> ran out of turns AND got nothing real onto disk. Terminal, no
 #                 retry (an identical run overruns identically); honest "too big" reply.
+#   maintenance-> real work landed, the agent declared it a SWEEP (BUILD_MAINTENANCE),
+#                 and there is no single site to link. Reply "fixed X on N sites",
+#                 retire. Ranks ABOVE success so a sweep isn't announced as "built
+#                 it \xf0\x9f\x8e\x89 \u2014 <one arbitrary site it touched>"; the daily slot is
+#                 explicitly allowed to spend its whole run this way (notes/80).
 #   no_build   -> clean exit, nothing REAL changed (a note-only reaction, an
 #                 explain-only answer, or a receipts-only resync). Reply the note;
 #                 reply.mjs links BUILD_RESULT if the agent set one without the
@@ -541,6 +566,14 @@ if [ "$PUSHED" = "true" ] && [ -n "$REAL_CHANGED" ] \
   # reaching the wrap-up. Same user-facing situation either way: a real first pass is
   # live and isn't finished.
   DISPOSITION="partial"
+elif [ "$PUSHED" = "true" ] && [ -n "$REAL_CHANGED" ] && [ -n "$BUILD_MAINTENANCE" ]; then
+  # A declared sweep that pushed real work and finished. Checked before plain
+  # success because the two are distinguished only by the agent's declaration:
+  # both pushed, and a sweep's DERIVED_NAME would be whichever swept site happens
+  # to have the most changed files — a name the reply would then present as "the
+  # site I built", which is the wrong-URL failure mode SIDE_EFFECT_PATHS_RE exists
+  # to prevent, arriving by a different route.
+  DISPOSITION="maintenance"
 elif [ "$PUSHED" = "true" ] && [ -n "$REAL_CHANGED" ]; then
   DISPOSITION="success"
 elif [ -n "$USAGE_LIMIT" ]; then
@@ -557,8 +590,8 @@ else
 fi
 
 # Requeue decision. usage_limit always retries (budget will reset); a TRANSIENT
-# incomplete retries until attempts run out. partial / too_big / success / no_build
-# are all terminal for THIS job — a partial is continued by a NEW re-tag, not by
+# incomplete retries until attempts run out. partial / too_big / success /
+# maintenance / no_build are all terminal for THIS job — a partial is continued by a NEW re-tag, not by
 # requeuing this one (that would just re-run and overrun again).
 REQUEUE="false"
 if [ "$DISPOSITION" = "usage_limit" ]; then
@@ -666,7 +699,7 @@ if [ "$LIVE_STATUS" = "verified" ] && [ -n "$BUILT_NAME" ]; then
   rm -f "$WT_FILE"
 fi
 
-echo "=== build rc=$BUILD_RC name='${BUILT_NAME}' (result='${BUILD_RESULT}' derived='${DERIVED_NAME}') note?=$([ -n "$BUILD_NOTE" ] && echo y || echo n) pushed=$PUSHED live=${LIVE_STATUS:-n/a} disp=$DISPOSITION attempt=$ATTEMPT/$MAX_ATTEMPTS requeue=$REQUEUE ==="
+echo "=== build rc=$BUILD_RC name='${BUILT_NAME}' (result='${BUILD_RESULT}' derived='${DERIVED_NAME}') note?=$([ -n "$BUILD_NOTE" ] && echo y || echo n) sweep=$([ -n "$BUILD_MAINTENANCE" ] && echo y || echo n) pushed=$PUSHED live=${LIVE_STATUS:-n/a} disp=$DISPOSITION attempt=$ATTEMPT/$MAX_ATTEMPTS requeue=$REQUEUE ==="
 
 # When we're going to retry silently, don't post to the thread — a requeue isn't a
 # user-facing event, and "trying again" spam under every slow build would be noise.
@@ -692,7 +725,16 @@ BUILD_ERROR=""
 # logged replyText). DISPOSITION/REQUEUE tell the worker whether to retire or
 # requeue the job. Same script the Action's reply step runs, same env contract.
 echo "=== reply + report outcome (reply.mjs) ==="
-BUILD_OK="$BUILD_OK" BUILD_RESULT="$BUILT_NAME" BUILD_NOTE="$BUILD_NOTE" BUILD_ERROR="$BUILD_ERROR" \
+# On a maintenance run the agent deliberately named no site, so there is nothing
+# to link and BUILT_NAME holds only DERIVED_NAME's guess (whichever swept site had
+# the most changed files). Pass it empty so reply.mjs can't turn that guess into a
+# url — the sweep summary is the deliverable, not a site page. The request record
+# gets the same empty `site`, which is honest: the run edited many.
+REPLY_NAME="$BUILT_NAME"
+[ "$DISPOSITION" = "maintenance" ] && [ -z "$BUILD_RESULT" ] && REPLY_NAME=""
+
+BUILD_OK="$BUILD_OK" BUILD_RESULT="$REPLY_NAME" BUILD_NOTE="$BUILD_NOTE" BUILD_ERROR="$BUILD_ERROR" \
+  BUILD_MAINTENANCE="$BUILD_MAINTENANCE" \
   DISPOSITION="$DISPOSITION" REQUEUE="$REQUEUE" REPLY_SKIP="$REPLY_SKIP" \
   ATTEMPT="$ATTEMPT" MAX_ATTEMPTS="$MAX_ATTEMPTS" \
   LIVE_VERIFIED="$LIVE_VERIFIED" LIVE_STATUS="$LIVE_STATUS" \

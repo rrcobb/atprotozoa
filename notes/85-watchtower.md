@@ -110,6 +110,18 @@ page can't put words in the bot's mouth.
 - It does not check OG images or OAuth metadata. Both would fit the two-fetch
   budget if a site class starts breaking that way.
 
+## Who reads the report
+
+Three consumers, all off-zone fetches of the `workers.dev` hostname:
+
+- **The weekly digest** reads `/alerts.json` for "what broke, for how long"
+  (`notes/80`). A null read is reported as a gap, never as an all-clear.
+- **The daily slot's brief** reads both `/report.json` and `/alerts.json` before
+  the job is enqueued, so "what's broken right now" arrives in the brief as fact
+  rather than as something the run has to go find. That's what makes a
+  maintenance-only daily pass practical (`notes/80`, daily slot).
+- **The box build** calls `/check?name=` per build, below.
+
 ## Wired into the box build
 
 After `box-build.sh`'s root poll confirms a site is serving, it calls

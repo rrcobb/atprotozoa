@@ -398,19 +398,121 @@ async function ensureFeedGeneratorPublished(env: Env, session: Session): Promise
   }
 }
 
-// Once per day, put one broad creative-maintenance brief through the same queue
-// as a real tag. Sonnet can choose to build, edit, prank, improve, or do nothing;
-// the point is the cadence, not an artificially narrow task. The announcement
-// gives the build a real atproto URI, so the existing outcome/reply machinery and
-// provenance remain unchanged.
+// The daily slot's own view of the fleet. The brief is worth more when "what is
+// broken" and "what has drifted" arrive as FACTS in it rather than as a research
+// task the run has to spend its turns on. Two sources, both already built:
+// watchtower's off-zone fleet verdict (notes/85) and audit/drop-ins.mjs
+// (notes/41). watchtower is fetched here, Worker-side, because it is one HTTP
+// read and the answer is small; the drop-in audit is a repo script, so the brief
+// names the command instead of trying to run it from a Worker.
+//
+// Every one of these is best-effort and says so in the brief. A daily slot that
+// refused to run because watchtower was down would be worse than one that runs
+// without today's breakage list — and a brief that silently omitted the list
+// would read as "nothing is broken", the same false all-clear notes/80 warns
+// about for the digest.
+const WATCHTOWER_REPORT_URL =
+  "https://atprotozoa-watchtower.rwcobbjr.workers.dev/report.json";
+const DAILY_USER_AGENT =
+  "atprotozoa-buildthis-daily (+https://buildthis.bisks.net/)";
+
+interface WatchtowerProblem {
+  name?: string;
+  url?: string;
+  problems?: string[];
+  since?: string;
+  state?: string;
+}
+
+// Returns the brief's fleet-health paragraph. Null when watchtower couldn't be
+// read at all, which the caller renders as an explicit "couldn't reach it" line
+// rather than as an all-clear.
+async function fleetHealthForBrief(): Promise<string | null> {
+  try {
+    const [reportRes, alertsRes] = await Promise.all([
+      fetch(WATCHTOWER_REPORT_URL, { headers: { "user-agent": DAILY_USER_AGENT } }),
+      fetch(WATCHTOWER_ALERTS_URL, { headers: { "user-agent": DAILY_USER_AGENT } }),
+    ]);
+    if (!reportRes.ok) {
+      console.error(`daily tick: report.json -> ${reportRes.status}`);
+      return null;
+    }
+    const report = (await reportRes.json()) as {
+      checkedAt?: string;
+      checked?: number;
+      healthy?: number;
+      problems?: WatchtowerProblem[];
+    };
+    const problems = report.problems ?? [];
+    const lines: string[] = [];
+    lines.push(
+      `watchtower (${WATCHTOWER_REPORT_URL}) last checked ${report.checkedAt ?? "unknown"}: ` +
+        `${report.checked ?? "?"} sites checked, ${report.healthy ?? "?"} healthy, ${problems.length} with problems.`,
+    );
+    if (problems.length) {
+      for (const p of problems.slice(0, 20)) {
+        const what = (p.problems ?? []).join("; ") || p.state || "unspecified";
+        lines.push(`- ${p.name ?? "?"} (${p.url ?? "?"}): ${what}${p.since ? `, since ${p.since}` : ""}`);
+      }
+      if (problems.length > 20) lines.push(`- …and ${problems.length - 20} more; read the full list at ${WATCHTOWER_REPORT_URL}`);
+    } else {
+      lines.push("No site is currently failing its check.");
+    }
+
+    // Alerts add the time dimension the report doesn't have: a site that broke
+    // and is still down, versus one that has been flapping. Best-effort on top
+    // of a report that already succeeded, so a failure here just omits the line.
+    if (alertsRes.ok) {
+      const body = (await alertsRes.json()) as { alerts?: WatchtowerAlert[] };
+      const recent = (body.alerts ?? []).slice(0, 12);
+      if (recent.length) {
+        lines.push(`Recent alerts (newest first, full log at ${WATCHTOWER_ALERTS_URL}):`);
+        for (const a of recent) {
+          lines.push(`- ${a.at} ${a.kind} ${a.name}${a.downForMs ? ` (down ${Math.round(a.downForMs / 60000)}m)` : ""}`);
+        }
+      }
+    }
+    return lines.join("\n");
+  } catch (err) {
+    console.error(`daily tick: fleet health failed: ${err}`);
+    return null;
+  }
+}
+
+// Once per day, put one brief through the same queue as a real tag. The run may
+// spend itself on NEW work or on MAINTENANCE — a sweep, a repair, a backfill —
+// and the brief hands it the inputs for both so the choice is informed rather
+// than invented. The announcement gives the build a real atproto URI, so the
+// existing outcome/reply machinery and provenance remain unchanged.
 async function runDailyTick(env: Env): Promise<void> {
   try {
     const session = await login(env);
     const post = await createPost(
       session,
-      "☀️ daily slot: taking one quiet pass through the garden — no promises, just seeing what wants to happen.",
+      "\u2600\ufe0f daily slot: taking one quiet pass through the garden \u2014 fixing or making, whichever the day wants.",
     );
-    const brief = `This is the daily autonomous slot for atprotozoa. Take a broad, playful pass through the repository and decide what would be fun or worthwhile to do today. You can build a new small site, improve or combine existing sites, make a harmless prank-like edit, develop a theme idea, update an explanation, or do several related things in one coherent pass. Use your judgment and the repository's existing history; do not force work just to say something happened. If there is nothing compelling, leave the repo unchanged and explain that briefly in BUILD_NOTE.
+    const fleet = await fleetHealthForBrief();
+    const fleetSection = fleet
+      ? `FLEET HEALTH RIGHT NOW\n${fleet}`
+      : `FLEET HEALTH RIGHT NOW\nCouldn't reach watchtower this tick, so this brief has no breakage list. That is a GAP, not an all-clear — if you want to know what's broken, read ${WATCHTOWER_REPORT_URL} and ${WATCHTOWER_ALERTS_URL} yourself.`;
+
+    const brief = `This is the daily autonomous slot for atprotozoa. Decide what would be worthwhile to do today and do it. Two kinds of run are equally valid, and you pick:
+
+A. MAKE something. Build a new small site, improve or combine existing sites, make a harmless prank-like edit, develop a theme idea, update an explanation.
+
+B. FIX something. Spend the whole run on maintenance across the fleet: repair what's broken, sweep what's drifted, or bring a group of sites up to a better standard. A maintenance pass is a first-class outcome here — it does NOT have to end with a new site, and it is not a lesser use of the slot.
+
+Use your judgment and the repository's existing history; do not force work just to say something happened. If there is nothing compelling, leave the repo unchanged and explain that briefly in BUILD_NOTE.
+
+${fleetSection}
+
+DRIFT AND COVERAGE (run these yourself from the repo root — they're fast)
+- \`node audit/drop-ins.mjs\` lists each drop-in file, how many copies exist, and which copies have drifted from canonical. \`node audit/drop-ins.mjs --sweep\` brings drifted copies back. See notes/41-drop-ins.md; look at a drifted copy's diff before sweeping it.
+- handle-typeahead.js is carried by 244 sites, but some sites with a handle input still don't have it. sites/sidenote's diary records forgetting it on a first pass. Finding those sites and dropping it in is a good maintenance pass.
+- notes/40-new-site-playbook.md "Ecosystem tools" is the table of which third-party tool to use for what, and which site to copy it from. Many sites still walk getFollowers/getLikes at 100 per page instead of using Constellation via the microcosm.js drop-in. Converting a batch of them is also a good maintenance pass.
+
+REPORTING A MAINTENANCE RUN
+If your run was maintenance rather than a single new thing, write a repo-root file called BUILD_MAINTENANCE whose first line is a short summary of what you did across how many sites (e.g. "swept handle-typeahead.js onto 9 sites" or "fixed the 404 on listbot"). Write BUILD_NOTE as usual. Do NOT invent a BUILD_RESULT site just to have something to name — a maintenance run reports itself through BUILD_MAINTENANCE and gets its own reply. If the run really did center on one site, name it in BUILD_RESULT as normal and skip BUILD_MAINTENANCE.
 
 This is not a user request and does not need to be interpreted narrowly. You have the same normal build permissions and house rules as a tagged job. Keep the result small enough for one Sonnet run, but you may touch multiple related files or sites when that makes sense. Do not modify .github or read secrets.`;
     const payload: BuildPayload = {
@@ -1272,11 +1374,15 @@ interface LogEvent {
     // re-tagging the thread. status is still "success" (it IS live); this flags it
     // as work-in-progress.
     partial?: boolean;
-    // The box's full classification: success | partial | usage_limit | too_big |
-    // no_build | incomplete. Count outcomes on THIS, not on `status` — status
-    // collapses six states into two and reads a deliberate non-build as a failure.
-    // Absent on records written before 2026-08-02.
+    // The box's full classification: success | partial | maintenance | usage_limit |
+    // too_big | no_build | incomplete. Count outcomes on THIS, not on `status` —
+    // status collapses the states into two and reads a deliberate non-build as a
+    // failure. Absent on records written before 2026-08-02.
     disposition?: string;
+    // A maintenance pass: the run swept or repaired across many sites and named
+    // none, so there is no builtName. This one-liner ("swept handle-typeahead.js
+    // onto 9 sites") is what the timeline and the digest show in its place.
+    maintenance?: string;
     at: string; // ISO
   };
 }
@@ -1919,6 +2025,8 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
     // two-way collapse that reads a shipped-but-unfinished build as success and a
     // deliberate non-build as failure, so it can't answer "how many partials".
     disposition?: string;
+    // A maintenance pass's one-line summary, in place of a builtName.
+    maintenance?: string;
   };
   try {
     body = await request.json();
@@ -1953,6 +2061,7 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
       liveVerified: typeof body.liveVerified === "boolean" ? body.liveVerified : undefined,
       partial: body.partial === true ? true : undefined,
       disposition: body.disposition || undefined,
+      maintenance: body.maintenance || undefined,
       at: new Date().toISOString(),
     },
   });
@@ -3518,6 +3627,7 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
   let successes = 0,
     failures = 0,
     partials = 0,
+    sweeps = 0,
     declined = 0;
   // Candidates for the dead-link check: recent successes the box couldn't verify
   // live at build time (liveVerified===false). But that's often just new-custom-
@@ -3533,6 +3643,10 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
       // A shipped-but-unfinished build is live and counts as shipped; tracked
       // separately so the page shows how much of the recent output is a first pass.
       if (e.outcome.partial || e.outcome.disposition === "partial") partials++;
+      // A sweep is a success with no site. Counted separately so the page can say
+      // how much of the recent output went to fixing rather than making — the
+      // whole point of letting the daily slot choose maintenance (notes/80).
+      if (e.outcome.disposition === "maintenance") sweeps++;
       if (e.outcome.liveVerified === false && e.outcome.builtName) {
         deadLinkCandidates.push({
           name: e.outcome.builtName,
@@ -3607,7 +3721,7 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
       backlog,
     },
     orphans,
-    recent: { window: recentWindow.length, successes, failures, partials, declined },
+    recent: { window: recentWindow.length, successes, failures, partials, sweeps, declined },
     deadLinks,
     unverifiable,
     issues,
@@ -4108,6 +4222,9 @@ interface RequestRecord {
   note?: string;
   disposition: string;
   outcome?: string;
+  // A maintenance pass's one-line summary; stands in for `site`, which such a
+  // run leaves unset because it edited many.
+  maintenance?: string;
   partial?: boolean;
   site?: string;
   siteUrl?: string;
@@ -4233,6 +4350,10 @@ function requestStatusLabel(r: RequestRecord): { text: string; cls: string } {
   switch (r.disposition) {
     case "success":
       return { text: "shipped", cls: "shipped" };
+    case "maintenance":
+      // Shares the "shipped" styling because it is one: real work landed. The
+      // wording says what kind, since there's no site to click through to.
+      return { text: "maintenance pass", cls: "shipped" };
     case "no_build":
       return { text: "answered, nothing built", cls: "none" };
     case "too_big":
@@ -4249,9 +4370,14 @@ function renderRequestCard(r: RequestRecord): string {
   const link = postPermalink(r.postUri);
   const handle = r.requester?.handle;
   const whoKey = handle || r.requester?.did || "";
+  // A maintenance run names no site, so its summary takes the slot the built-site
+  // link would occupy — otherwise the card shows a status and nothing about what
+  // the run actually did.
   const built = r.site
     ? `${r.edit === true ? "edited" : r.edit === false ? "built" : "changed"} <a href="${escHtml(r.siteUrl || `https://${r.site.split("/")[0]}.bisks.net`)}">${escHtml(r.site)}</a>`
-    : "";
+    : r.maintenance
+      ? escHtml(truncate(r.maintenance, 160))
+      : "";
   const commit = r.commit
     ? ` · <a href="https://github.com/rrcobb/atprotozoa/commit/${escHtml(r.commit)}"><code>${escHtml(r.commit.slice(0, 7))}</code></a>`
     : "";
@@ -4447,6 +4573,11 @@ interface DigestShipped {
   runs: number; // successful build RUNS against this site (a site edited twice = 2)
 }
 
+interface DigestSweep {
+  summary: string; // the builder's own one-liner, e.g. "swept handle-typeahead.js onto 9 sites"
+  at: string; // ISO
+}
+
 interface DigestBreak {
   name: string;
   downForMs?: number;
@@ -4469,6 +4600,10 @@ interface Digest {
   from: string;
   to: string;
   shipped: DigestShipped[];
+  // Maintenance passes: runs that fixed or swept across the fleet instead of
+  // shipping one site. They carry no builtName, so computeShipped can't see them
+  // and a week spent on repairs used to read as a week where nothing happened.
+  sweeps: DigestSweep[];
   askedBy: string[]; // distinct handles, most-requested first
   // null on any of these three means the source couldn't be read, as distinct
   // from [] meaning it was read and had nothing. See each compute* function.
@@ -4526,6 +4661,21 @@ const DIGEST_NOT_A_BUILD = new Set([
 // `buildthis` itself is deliberately NOT excluded: "make your replies funnier"
 // is a request someone made and a change that shipped, so it belongs in the
 // week's list like any other.
+
+// Maintenance runs, newest first. Deliberately NOT folded into `shipped`: a sweep
+// has no site to name, no url to link and no traffic or rating to rank, so every
+// field DigestShipped carries would be empty for it. Reported as its own line.
+function computeSweeps(events: LogEvent[], fromMs: number, toMs: number): DigestSweep[] {
+  const out: DigestSweep[] = [];
+  for (const e of events) {
+    const o = e.outcome;
+    if (!o || o.disposition !== "maintenance") continue;
+    const at = new Date(o.at).getTime();
+    if (isNaN(at) || at < fromMs || at >= toMs) continue;
+    out.push({ summary: (o.maintenance || "a maintenance pass").trim(), at: o.at });
+  }
+  return out.sort((a, b) => (a.at < b.at ? 1 : -1));
+}
 
 function computeShipped(events: LogEvent[], fromMs: number, toMs: number): {
   shipped: DigestShipped[];
@@ -4840,12 +4990,20 @@ function renderDigestPost(d: Digest, digestUrl: string): string[] {
   const parts: string[] = [];
 
   // Part 1: what shipped, who asked, and the link to the web version.
+  // A week can be all maintenance, so "no new builds" is only the whole story
+  // when there were no sweeps either — otherwise it reads as a dead week for one
+  // that was spent fixing things.
+  const sweepCount = d.sweeps.length;
+  const sweepSuffix =
+    sweepCount > 0
+      ? `, ${sweepCount} maintenance ${sweepCount === 1 ? "pass" : "passes"}`
+      : "";
   const head =
     siteCount === 0
-      ? `this week: no new builds`
+      ? `this week: no new builds${sweepSuffix}`
       : siteCount === 1
-        ? `this week: 1 site${runCount > 1 ? ` across ${runCount} builds` : ""}`
-        : `this week: ${siteCount} sites across ${runCount} builds`;
+        ? `this week: 1 site${runCount > 1 ? ` across ${runCount} builds` : ""}${sweepSuffix}`
+        : `this week: ${siteCount} sites across ${runCount} builds${sweepSuffix}`;
 
   const askers = d.askedBy.slice(0, 6).map((h) => `@${h}`);
   const askLine = askers.length
@@ -4892,6 +5050,9 @@ function renderDigestPost(d: Digest, digestUrl: string): string[] {
       `best rated: ${best.name} (${best.avg.toFixed(1)}/10 from ${best.count} ${best.count === 1 ? "rating" : "ratings"})`,
     );
   }
+  // The newest sweep's own summary — "swept handle-typeahead.js onto 9 sites" is
+  // the part worth reading; the count in the head only says it happened.
+  if (d.sweeps.length) lines.push(`fixed: ${d.sweeps[0].summary}`);
   // d.breaks === null means watchtower was unreadable. Say nothing at all then:
   // "nothing broke" is an all-clear, and an all-clear we can't substantiate is
   // worse than an absent line.
@@ -4926,6 +5087,7 @@ async function buildDigest(env: Env, now: number): Promise<Digest> {
   const fromMs = now - WEEK_MS;
   const events = await loadAllEvents(env);
   const { shipped, askedBy } = computeShipped(events, fromMs, now);
+  const sweeps = computeSweeps(events, fromMs, now);
   const names = shipped.map((s) => s.name);
 
   // Independent of each other and each best-effort, so one dead source degrades
@@ -4941,6 +5103,7 @@ async function buildDigest(env: Env, now: number): Promise<Digest> {
     from: new Date(fromMs).toISOString(),
     to: new Date(now).toISOString(),
     shipped,
+    sweeps,
     askedBy,
     visited,
     rated,
@@ -4957,7 +5120,9 @@ async function buildDigest(env: Env, now: number): Promise<Digest> {
 // shipped and we couldn't read the alert log, we have no evidence either way,
 // so stay quiet rather than announce a week we can't describe.
 function digestIsEmpty(d: Digest): boolean {
-  return d.shipped.length === 0 && (d.breaks?.length ?? 0) === 0;
+  // A week of pure maintenance is a week with news. Before sweeps were counted,
+  // such a week returned here and posted nothing at all.
+  return d.shipped.length === 0 && d.sweeps.length === 0 && (d.breaks?.length ?? 0) === 0;
 }
 
 // Resolve the handles the digest mentions to DIDs so the @-tags are real facets
@@ -5205,9 +5370,12 @@ function renderNoDigestPage(): string {
 
 function renderDigestPage(d: Digest): string {
   const runCount = d.shipped.reduce((n, s) => n + s.runs, 0);
+  const sweepBit = d.sweeps.length
+    ? `${d.sweeps.length} maintenance ${d.sweeps.length === 1 ? "pass" : "passes"}`
+    : "";
   const subtitle = d.shipped.length
-    ? `${d.shipped.length} ${d.shipped.length === 1 ? "site" : "sites"} across ${runCount} ${runCount === 1 ? "build" : "builds"}`
-    : `no new builds`;
+    ? `${d.shipped.length} ${d.shipped.length === 1 ? "site" : "sites"} across ${runCount} ${runCount === 1 ? "build" : "builds"}${sweepBit ? `, ${sweepBit}` : ""}`
+    : sweepBit || `no new builds`;
 
   const shippedRows = d.shipped.length
     ? d.shipped
@@ -5267,6 +5435,16 @@ function renderDigestPage(d: Digest): string {
         })
         .join("")}</ul>`
     : `<p class="empty">nothing broke.</p>`;
+
+  // Maintenance gets its own section rather than a row in "shipped": a sweep has
+  // no name and no url, so it would be a card with nothing in it. Omitted
+  // entirely on a week with no sweeps — an empty "fixed" section on every
+  // creative week would be noise.
+  const sweepRows = d.sweeps.length
+    ? `<section><h2>fixed</h2><ul class="breaks">${d.sweeps
+        .map((w) => `<li>${escHtml(w.summary)} <span class="up">${escHtml(fmtDay(w.at))}</span></li>`)
+        .join("")}</ul></section>`
+    : "";
 
   const postLink = d.postUri
     ? `<a href="https://bsky.app/profile/buildthis.bisks.net/post/${escHtml(d.postUri.split("/").pop() ?? "")}">on bluesky</a> · `
@@ -5350,6 +5528,7 @@ function renderDigestPage(d: Digest): string {
           <h2>shipped</h2>
           ${shippedRows}
         </section>
+        ${sweepRows}
         ${
           d.visited === null
             ? `<section><h2>most visited</h2><p class="empty">couldn't read the traffic numbers this week.</p></section>`

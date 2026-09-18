@@ -209,6 +209,17 @@ reply + queue act on it:
   specifically excludes a push that's *only* the mandatory receipts-archive resync
   (`REAL_CHANGED` in `box-build.sh`) — that housekeeping runs every build and must
   never by itself read as "built it 🎉" (fixed 2026-08-14, see `reply.mjs`).
+- **maintenance** — real work landed and the agent declared the run a SWEEP by
+  writing `BUILD_MAINTENANCE` (its first line is the summary: "swept
+  handle-typeahead.js onto 9 sites"). A repair or batch conversion across the
+  fleet, with no single site to name. Reply says what was fixed, with no URL and
+  no "built it"; retire. Classified ahead of `success` because the two differ
+  only by that declaration — both pushed — and a sweep's derived name would be
+  whichever swept site happened to have the most changed files, which the reply
+  would then present as "the site I built". For the same reason a declared sweep
+  writes no provenance stamp and skips the liveness check. Counted as
+  `status: "success"` on the outcome. The daily slot is explicitly allowed to
+  spend its whole run this way; see `notes/80`.
 - **usage_limit** — out of subscription budget. Honest "out of budget, back soon"
   reply, and **requeue** (retry once budget resets — not the build's fault).
 - **incomplete** — the agent worked but nothing reached main (`rc != 0`, or it
@@ -233,7 +244,7 @@ The box caps retries on the job's `attempts` field; the worker enforces the same
 ceiling as a backstop, so a buggy box can't loop a job forever.
 
 **Count outcomes on `disposition`, not `status`.** The outcome record carries
-both. `status` is only success/failure, and it collapses the six dispositions in
+both. `status` is only success/failure, and it collapses the seven dispositions in
 a way that misleads in both directions: a `partial` reads as success (work did
 ship) and a `no_build` reads as failure (nothing did). So neither field alone
 answers "how many partials" or "how often does the bot decline". `disposition` is

@@ -78,4 +78,6 @@ node audit/drop-ins.mjs --json
 
 Look at a drifted copy's diff before sweeping it. The builder is told to use
 drop-ins in `sites/buildthis/builder/INSTRUCTIONS.md`, and the daily slot may
-spend its run on a sweep instead of a new site.
+spend its run on a sweep instead of a new site — its brief names this command,
+and a sweep reports itself through the `maintenance` disposition rather than
+having to name a site it built (`notes/80`, `notes/90`).

@@ -126,10 +126,37 @@ async function main() {
   // that broke 110 sites at once. Empty covers both "checked, fine" and "couldn't
   // reach watchtower": the check is advisory, so no answer changes nothing.
   const assetProblems = (process.env.ASSET_PROBLEMS || "").trim();
+  // A declared maintenance pass: the run swept/repaired across the fleet instead
+  // of building one thing. box-build.sh sets DISPOSITION=maintenance and passes
+  // the agent's own one-line summary here. See notes/80's daily-slot section —
+  // the slot is explicitly allowed to spend itself this way, and before this the
+  // outcome had nowhere to land: with no BUILD_RESULT it fell through to
+  // no_build and got replied to as "couldn't build that one", which is false
+  // about a run that pushed real fixes to main.
+  const maintenance = (process.env.BUILD_MAINTENANCE || "").trim();
+  // The DISPOSITION is the authority, not the presence of the file: box-build.sh
+  // only reaches "maintenance" when the sweep also pushed real work, so a run
+  // that wrote BUILD_MAINTENANCE and then crashed stays incomplete and requeues.
+  const isMaintenance = (process.env.DISPOSITION || "").trim() === "maintenance";
 
   let text;
   const url = siteUrl(result); // the built-site URL, if any, so we can link-facet it
-  if (ok && result) {
+  if (isMaintenance) {
+    // Deliberately NOT "built it" and deliberately no url. Nothing new exists to
+    // link, and linking one swept site would present a batch edit as that site's
+    // build. The summary IS the deliverable, so it gets the whole budget; the
+    // agent's note follows when there's room for it.
+    //
+    // Checked before the `ok && result` branch below because a sweep that DID
+    // name a site (an agent that wrote both files) still deserves the sweep copy
+    // — it fixed N things, it didn't build one.
+    // The summary is the head (guaranteed MIN_NOTE graphemes); the agent's own
+    // note rides as a sheddable second paragraph, since the two often overlap
+    // and the summary is the one that has to survive.
+    const summary = maintenance || note || "did a maintenance pass over the fleet";
+    const tail = maintenance && note && note !== maintenance ? note : "";
+    text = fitToLimit(summary, tail, 300, MIN_NOTE);
+  } else if (ok && result) {
     // Two shipped-and-live shapes: a finished build ("built it 🎉") and a PARTIAL —
     // a build that got a real first pass live but ran out of turns before finishing.
     // The partial's whole point is that the work is preserved and CONTINUABLE: the
@@ -268,7 +295,7 @@ async function main() {
   // the outcome so /health and the timeline can flag a build that pushed but never
   // came up (a broken deploy) vs. one verified live.
   const liveVerified = process.env.LIVE_VERIFIED === "true";
-  await reportOutcome({ ok, result, url, text, requeue, posted: !skipReply, liveVerified, liveStatus, partial, assetProblems });
+  await reportOutcome({ ok, result, url, text, requeue, posted: !skipReply, liveVerified, liveStatus, partial, assetProblems, maintenance, isMaintenance });
 }
 
 // Count graphemes, not UTF-16 code units — Bluesky's 300 limit is graphemes, so
@@ -364,7 +391,7 @@ function fitToLimit(head, tail, limit, minHead = 0) {
 // a log line) if the endpoint or secret isn't configured, so an unconfigured or
 // briefly-down log sink never fails the build. Non-2xx and network errors are
 // logged and swallowed for the same reason.
-async function reportOutcome({ ok, result, url, text, requeue = false, posted = true, liveVerified = false, liveStatus = "", partial = false, assetProblems = "" }) {
+async function reportOutcome({ ok, result, url, text, requeue = false, posted = true, liveVerified = false, liveStatus = "", partial = false, assetProblems = "", maintenance = "", isMaintenance = false }) {
   const endpoint = process.env.OUTCOME_URL;
   const secret = process.env.OUTCOME_SECRET;
   const mentionUri = process.env.MENTION_URI;
@@ -376,9 +403,14 @@ async function reportOutcome({ ok, result, url, text, requeue = false, posted = 
     mentionUri,
     // A partial IS a shipped, live outcome (status success), tagged `partial:true`
     // so the timeline/directory can show it as a work-in-progress rather than done.
-    status: ok && result ? "success" : "failure",
-    // The harness's own classification, verbatim: success | partial | usage_limit |
-    // too_big | no_build | incomplete. `status` is a two-way collapse of this and
+    //
+    // A MAINTENANCE pass is also a success: it pushed real work to main, it just
+    // has no `result` site to name. Without this it collapsed to "failure" on the
+    // strength of an empty builtName — the same wrong collapse that made
+    // deliberate no_builds inflate the failure rate on /health (notes/90).
+    status: (ok && result) || isMaintenance ? "success" : "failure",
+    // The harness's own classification, verbatim: success | partial | maintenance |
+    // usage_limit | too_big | no_build | incomplete. `status` is a collapse of this and
     // can't distinguish an overrun that shipped work (success) from a deliberate
     // "nothing to build here" (failure) — so anything counting outcomes should read
     // THIS, not status. See notes/90-infra-and-budget.md.
@@ -400,6 +432,10 @@ async function reportOutcome({ ok, result, url, text, requeue = false, posted = 
     liveStatus: liveStatus || undefined,
     // Unfinished-but-live: a first pass shipped, continuable by re-tagging.
     partial: partial || undefined,
+    // The sweep's own one-line summary ("swept handle-typeahead.js onto 9 sites").
+    // Stands in for builtName on a run that edited many sites and named none, so
+    // the timeline and the digest have something to show.
+    maintenance: maintenance || undefined,
     // What watchtower found wrong when asked about this site right after the
     // deploy — a root fetch can pass while an asset serves as HTML. Absent means
     // either clean or not asked; the check is advisory and never blocks the reply.

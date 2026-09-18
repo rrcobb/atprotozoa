@@ -63,6 +63,16 @@ BUILD_RESULT. If the request is purely to EXPLAIN an existing site (no build or
 change asked for), the note IS the deliverable: write BUILD_NOTE with your answer,
 set BUILD_RESULT to that site's name so the reply links it, and change nothing else.
 
+If your run was MAINTENANCE rather than a build of one thing — you swept a drop-in
+onto N sites, fixed what watchtower flagged as broken, converted a batch of sites to
+a better API — write a repo-root file called BUILD_MAINTENANCE whose first line is a
+short summary of what you did across how many sites ("swept handle-typeahead.js onto
+9 sites", "fixed the 404 on listbot"). Write BUILD_NOTE as usual and DON'T write a
+BUILD_RESULT: a sweep has no single site to link, and naming one arbitrary site you
+touched would get it posted as "built it 🎉 — <that site>". BUILD_MAINTENANCE is
+gitignored like the others, and the reply says "fixed X on N sites" instead. If the
+run really did center on one site, use BUILD_RESULT as normal and skip this.
+
 If the tag ISN'T really a build request at all — banter, a question, a greeting, a
 thread with nothing to make a site from — don't force a bad build: write ONLY a
 BUILD_NOTE (a small, friendly, maybe-cheeky reply) and NO BUILD_RESULT, and the reply

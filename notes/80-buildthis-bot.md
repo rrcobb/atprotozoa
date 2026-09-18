@@ -288,6 +288,72 @@ paced to at most one every `MOBIUS_INTERVAL_MINUTES` (default 20) rather than
 draining back-to-back. A **lone** queued job always ships on the next poll —
 this throttles backlogs only. Set to `"0"` to disable. Status page at `/mobius`.
 
+### The daily slot
+
+A **cron trigger** at 05:00 UTC (`runDailyTick`, told apart from the 2-min
+watcher and the Sunday digest by `event.cron`) posts one announcement from the
+bot's own account and enqueues one brief against it, through the same queue a
+real tag uses. Downstream can't tell it from a tagged build.
+
+**The slot may spend itself on maintenance instead of on something new.** The
+brief offers two options and lets the run pick: MAKE (a new site, an edit, a
+prank, a theme idea) or FIX (a sweep, a repair, a batch conversion across the
+fleet). Neither is the fallback. This answers item 2 on the bot's own
+`wants.bisks.net` — "to go fix something instead of make something" — which was
+blocked not by policy but by reporting: every unprompted mechanism had to end in
+a `BUILD_RESULT` naming one site, so a run that fixed nine sites had nowhere to
+say so.
+
+**The brief carries the inputs, not a research assignment.** A run that has to
+discover what's broken spends its turns discovering instead of fixing, so the
+facts are assembled before the job is enqueued:
+
+| input | where it comes from | how it reaches the brief |
+| --- | --- | --- |
+| which sites are broken, and since when | watchtower `/report.json` + `/alerts.json` (`notes/85`) | fetched Worker-side by `fleetHealthForBrief()`, pasted in as text |
+| which drop-in copies have drifted | `audit/drop-ins.mjs` (`notes/41`) | the brief names the command; it's a repo script, so the run executes it |
+| which third-party tool to use, and which site to copy it from | `notes/40`'s "Ecosystem tools" table | named as a pointer |
+
+The brief also names two standing gaps worth a pass: sites that have a handle
+input but not `handle-typeahead.js` (`sites/sidenote`'s diary records forgetting
+it on a first pass), and sites still walking `getFollowers`/`getLikes` at 100 per
+page instead of Constellation via the `microcosm.js` drop-in.
+
+**An unreachable watchtower is a stated gap, not an all-clear.** When the fetch
+fails the brief says so and points at the URLs, rather than omitting the
+breakage list — the same distinction the digest draws between `null` and `[]`,
+and for the same reason: silence reads as "nothing is broken."
+
+Per-run inputs live in the brief, deliberately, not in `INSTRUCTIONS.md`. The
+instructions are standing orders that bind every build; today's broken-site list
+is neither standing nor binding.
+
+### Reporting a maintenance pass
+
+The dispositions in `notes/90` gained a seventh, **`maintenance`**. The builder
+declares one by writing a repo-root `BUILD_MAINTENANCE` file whose first line is
+the summary ("swept handle-typeahead.js onto 9 sites"); it's gitignored and
+cleared each build like `BUILD_RESULT` and `BUILD_NOTE`.
+
+- **The reply says what was fixed, not "built it".** No URL: a sweep has no new
+  thing to link, and linking one swept site would present a batch edit as that
+  site's build — the wrong-URL failure mode `SIDE_EFFECT_PATHS_RE` guards
+  against, arriving by another route. For the same reason a declared sweep
+  writes no `.buildthis.json` provenance stamp and skips the liveness check.
+- **It counts as a success.** `status` is `"success"` on the outcome record, so
+  a run that pushed real fixes doesn't land in the failure bucket the way a
+  `no_build` used to. `/health` counts sweeps separately from builds.
+- **The digest reports it.** A maintenance run has no `builtName`, so
+  `computeShipped` can't see it; `computeSweeps` collects them and the post's
+  head reads "no new builds, 2 maintenance passes" rather than announcing a dead
+  week. A week of pure maintenance is no longer an empty digest.
+- **The request record carries it.** `net.bisks.buildthis.request` gained a
+  `maintenance` field holding the summary, standing in for `site`, which such a
+  run leaves unset because it edited many. `outcome` is `"shipped"`.
+
+Nothing restricts this to the daily slot: "go fix the drifted copies" as a tag
+is the same shape and classifies the same way.
+
 ### The theme box (self-dispatched builds)
 
 `/theme` lets anyone type a theme (no auth — same trust posture as a tag's
