@@ -107,7 +107,12 @@ if [ -z "$INTENT" ]; then
   # No usable answer. Report the failure rather than staying silent — the worker
   # replies to the user, and silence is the worst outcome for someone who tagged.
   REASON="the agent didn't produce an answer"
-  [ "$AGENT_RC" -eq 124 ] || [ "$AGENT_RC" -eq 137 ] && REASON="timed out"
+  # 124 from timeout, 137 if it needed the KILL. Written as an if rather than
+  # `[ a ] || [ b ] && x`, which bash groups as `([ a ] || [ b ]) && x` — right
+  # by luck here, and wrong the moment someone adds set -e.
+  if [ "$AGENT_RC" -eq 124 ] || [ "$AGENT_RC" -eq 137 ]; then
+    REASON="timed out"
+  fi
   INTENT="$(jq -n --arg r "$REASON" '{action:"failed", reason:$r}')"
 fi
 
