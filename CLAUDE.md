@@ -71,6 +71,7 @@ Read from the notes if you have a question about how things work.
 - `feeds-and-labels.md`
 - `labeler-candidates.md`
 - `labeler-landscape.md`
+- `media-bots.md`
 - `other-bots.md`
 - `pds-and-lexicons.md`
 - `protocol-object-bot.md`

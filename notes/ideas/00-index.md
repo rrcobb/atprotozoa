@@ -162,6 +162,11 @@ per build, a model A/B against Sonnet 5 on cost and quality, and more fluent
 reply text. Each entry there starts from what the code does today. Not
 scheduled.
 
+**7c. Media bots, ranked.** (`media-bots.md`) A YTP hype video bot at the
+top, then animation as its substrate, images, song, feed, explainthis. Nothing
+here posts media today; the note argues for one media path on the box with
+each bot as a template on it.
+
 **8. Physics-sim / fluoddity-flavored builder.** (`bot-ideas-riff.md`)
 A builder with a narrow taste rather than a general one. Mostly a prompt and
 reference-material change, which makes it a cheap real experiment. The repo's
