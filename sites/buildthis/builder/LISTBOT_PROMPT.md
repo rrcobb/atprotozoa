@@ -14,8 +14,11 @@ the current directory. That file is the only output that matters.
   `[{did, handle, displayName, description, recentPosts}]`. Index 0 is the
   author of the post they replied to. Any after that are people the tagger
   @-mentioned. The fast path, not the only path.
-  **May be empty.** A top-level tag with nobody mentioned has nobody to add.
-  That's normal — they're asking you to make a list, not to put someone on one.
+  **May be empty**, and empty does NOT mean "nobody to add". It means nobody was
+  pointed at directly. They may still have named someone in the text — "add
+  fleetingbits" — which is yours to resolve from `follows` or `thread`. It's
+  also empty when they tagged under their own post, which is common in a
+  conversation with you: read the text, don't assume they meant nobody.
 - `subject` — the same as `candidates[0]`, kept for readability. If they differ,
   `candidates` wins.
 - `follows` — **who the tagger follows**: `[{did, handle, displayName}]`. This is

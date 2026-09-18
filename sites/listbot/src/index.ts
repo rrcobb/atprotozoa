@@ -892,21 +892,22 @@ async function handleMention(env: Env, bot: BotSession, m: Mention): Promise<voi
       await reply(bot, m, `i couldn't work out whose post that was — try again?`);
       return;
     }
-    // Your own post is not a subject — "add me to my own list" isn't what
-    // anyone means by tagging their own thread. But it's only a dead end if
-    // they also didn't name anyone: "@listbot add @alice to ceramics" under
-    // your own post is a perfectly sensible way to use this.
-    if (subject.did === m.authorDid) {
-      subject = null;
-      if (!m.mentionedDids?.length) {
-        await reply(
-          bot,
-          m,
-          `that's your own post — reply to someone else's, or tell me who to add.`,
-        );
-        return;
-      }
-    }
+    // Your own post isn't a subject — nobody tagging their own thread means
+    // "add me". Drop it as the default and let the agent work out who they
+    // meant from the text, the thread, and who they follow.
+    //
+    // There is deliberately NO refusal here any more. It used to reply "that's
+    // your own post — reply to someone else's, or tell me who to add" whenever
+    // the tag carried no @-mention facet, which told Rob to do the thing he had
+    // just done: "yea have another go at adding fleetingbits" names the person
+    // in plain text, and since the follows resolution landed the agent can find
+    // them without a facet. Counting facets stopped being a way to answer "did
+    // they name anyone" — only the agent can answer that now.
+    //
+    // Same shape of mistake as the 64-char cap and the mention stripping: the
+    // Worker deciding a tag is unanswerable before the thing that understands
+    // tags has read it.
+    if (subject.did === m.authorDid) subject = null;
   }
 
   // Backpressure. listbot rides on the box's idle time — box-poll.sh claims at
