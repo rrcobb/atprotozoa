@@ -27,18 +27,55 @@ const els = {
 // direction: "r2c" translates rationalist -> cop, "c2r" the reverse.
 let direction = "r2c";
 
+// Five hand-picked examples per side, cycled in order on each click of
+// exampleBtn (not random — a fixed tour so repeat clicks are predictable).
+// Each sentence leans on a different cluster of glossary terms so repeated
+// clicks show off more of the dictionary instead of the same handful of rows.
 const EXAMPLES = {
-  r2c:
+  r2c: [
     "My prior is that Moloch is why my akrasia and the ugh field keep " +
-    "threatening our AGI timelines — a real Vassarite would just do a " +
-    "Bayesian update and get back to unihemispheric sleep training instead " +
-    "of doing a paperclip maximizer about it.",
-  c2r:
+      "threatening our AGI timelines — a real Vassarite would just do a " +
+      "Bayesian update and get back to unihemispheric sleep training instead " +
+      "of doing a paperclip maximizer about it.",
+    "Crocker's rules apply here, so let's try some steelmanning instead of " +
+      "falling into a motte and bailey — my epistemic status is uncertain, " +
+      "but the crux is whether alignment even matters if p(doom) stays low.",
+    "The Sequences taught me to notice a cached thought before it becomes " +
+      "belief in belief, and Chesterton's fence says don't touch the org " +
+      "chart until you understand orthogonality thesis versus instrumental " +
+      "convergence.",
+    "Reading HPMOR made me want to shut up and multiply instead of trusting " +
+      "the typical mind fallacy, but the outside view says my AGI timelines " +
+      "were always a mesa-optimizer for my own anxiety.",
+    "Sinceres don't do current-self negotiation — they just accept " +
+      "decision-theoretic purity, even when the rest of the hemisphere " +
+      "calls it e/acc foom nonsense that violates corrigibility.",
+  ],
+  c2r: [
     "New intel just came in, so the working theory changed — it's quota " +
-    "season, everybody's working a double, no choice, and the rookie who " +
-    "goes off-script won't wait for ETA on backup because he thinks he's " +
-    "the guy who remembers you didn't help.",
+      "season, everybody's working a double, no choice, and the rookie who " +
+      "goes off-script won't wait for ETA on backup because he thinks he's " +
+      "the guy who remembers you didn't help.",
+    "The confidence level on this tip is low, but if we hear the suspect's " +
+      "side before we write it up we might find the piece that breaks the " +
+      "case instead of pulling the old switcheroo on the report.",
+    "Don't cross the tape until forensics clears it — that's the whole " +
+      "point of setting a precedent, going strictly by the book, and " +
+      "keeping the K-9 on a leash even when everybody wants backup and a " +
+      "bigger radio.",
+    "The academy manual says read them their rights whether or not you " +
+      "like the answer, because the report writes itself and boilerplate " +
+      "on the report is just a cached thought with a badge number.",
+    "How bad tonight's shift is gonna get, out of ten, depends on whether " +
+      "the known associate is working the two-way mirror or just assuming " +
+      "the suspect thinks like you do — no need to Mirandize me, I know " +
+      "the drill.",
+  ],
 };
+
+// Independent per-side cursor so switching direction doesn't reset the
+// other side's place in its tour.
+const exampleIndex = { r2c: 0, c2r: 0 };
 
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -136,7 +173,10 @@ els.sideLeft.addEventListener("click", () => setDirection("r2c"));
 els.sideRight.addEventListener("click", () => setDirection("c2r"));
 els.input.addEventListener("input", render);
 els.exampleBtn.addEventListener("click", () => {
-  els.input.value = EXAMPLES[direction];
+  const examples = EXAMPLES[direction];
+  const idx = exampleIndex[direction];
+  els.input.value = examples[idx];
+  exampleIndex[direction] = (idx + 1) % examples.length;
   render();
 });
 els.clearBtn.addEventListener("click", () => {
