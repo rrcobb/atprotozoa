@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>taqsim — a generative maqam drone</title>
+    <meta name="description" content="A generative Eno-style taqsim: overlapping drones in a maqam of your choosing, semi-random ADSR envelopes so no two runs sound the same, and an optional dumbek backing chosen at random each time. Clip the last few seconds and take them with you." />
+    <meta property="og:title" content="taqsim" />
+    <meta property="og:description" content="Overlapping generative drones in a maqam of your choosing, with a randomly-chosen dumbek backing. Synthesized live in your browser — press play and let it wander." />
+    <meta property="og:image" content="https://taqsim.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="taqsim — overlapping amber waveforms over a dark ground, generative maqam drone." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://taqsim.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="taqsim" />
+    <meta name="twitter:description" content="A generative maqam drone — overlapping ambient tones and a randomly-chosen dumbek backing, synthesized live in your browser." />
+    <meta name="twitter:image" content="https://taqsim.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #100b08;
+        --panel: rgba(30, 20, 12, 0.66);
+        --faint: rgba(255, 220, 170, 0.14);
+        --ink: #f6ecdf;
+        --muted: #c9ab86;
+        --accent: #e8a24a;
+        --accent2: #d9663b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        background: var(--bg); color: var(--ink); font-family: var(--sans);
+        -webkit-font-smoothing: antialiased; min-height: 100vh; overflow-x: hidden;
+      }
+      a { color: var(--accent); }
+      canvas#field { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; }
+
+      .wrap { position: relative; z-index: 1; max-width: 640px; margin: 0 auto; padding: 1.6rem 1.05rem 4rem; }
+      .back { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
+      .back:hover { text-decoration: underline; }
+
+      .hero { margin: 2.4rem 0 1.4rem; padding: 1.1rem 1.2rem; background: var(--panel);
+        border: 1px solid var(--faint); border-radius: 16px; backdrop-filter: blur(6px); }
+      h1 { font-size: 2rem; font-weight: 900; letter-spacing: -0.02em; margin: 0 0 0.4rem;
+        background: linear-gradient(100deg, var(--accent), var(--accent2));
+        -webkit-background-clip: text; background-clip: text; color: transparent; }
+      .sub { color: var(--muted); font-size: 0.92rem; margin: 0; max-width: 56ch; line-height: 1.6; }
+
+      .panel { margin: 1.1rem 0; padding: 1rem 1.1rem; background: var(--panel);
+        border: 1px solid var(--faint); border-radius: 14px; backdrop-filter: blur(6px); }
+      .panel h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--muted); margin: 0 0 0.85rem; font-weight: 700; }
+
+      .controls { display: flex; flex-wrap: wrap; gap: 0.9rem 1.4rem; align-items: end; }
+      .ctl { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.78rem; color: var(--muted); }
+      .ctl select, .ctl input[type="range"] { accent-color: var(--accent); }
+      .ctl select { font-family: var(--sans); font-size: 0.85rem; color: var(--ink);
+        background: rgba(255,255,255,0.06); border: 1px solid var(--faint); border-radius: 8px; padding: 0.4rem 0.5rem; }
+      .ctl input[type="range"] { width: 150px; }
+      .ctl.row { flex-direction: row; align-items: center; gap: 0.5rem; }
+
+      button { font-family: var(--mono); font-size: 0.78rem; color: var(--ink);
+        background: rgba(255,255,255,0.06); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.55rem 0.95rem; cursor: pointer; }
+      button:hover { border-color: var(--accent); }
+      button.primary { background: linear-gradient(100deg, var(--accent), var(--accent2));
+        color: #1a0f06; border-color: transparent; font-weight: 700; }
+      button.toggle[aria-pressed="true"] { background: linear-gradient(100deg, var(--accent), var(--accent2));
+        color: #1a0f06; border-color: transparent; font-weight: 700; }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+      .status { font-size: 0.8rem; color: var(--muted); margin-top: 0.9rem; min-height: 1.2em; }
+      .status b { color: var(--accent); }
+
+      .clip-result { margin-top: 0.9rem; display: flex; flex-direction: column; gap: 0.6rem; }
+      .clip-result[hidden] { display: none; }
+      .clip-result audio { width: 100%; }
+      .clip-result a.dl { font-size: 0.78rem; align-self: flex-start; text-decoration: none;
+        background: rgba(255,255,255,0.06); border: 1px solid var(--faint); border-radius: 9px; padding: 0.45rem 0.8rem; }
+      .clip-result a.dl:hover { border-color: var(--accent); }
+
+      .note { color: var(--muted); font-size: 0.8rem; line-height: 1.7; }
+      .note b { color: var(--ink); }
+
+      .share { display: flex; gap: 0.6rem; margin: 0 0 1.6rem; flex-wrap: wrap; }
+      .share a, .share button { font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+        background: rgba(255,255,255,0.04); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.5rem 0.85rem; cursor: pointer; text-decoration: none; }
+      .share a:hover, .share button:hover { color: var(--ink); border-color: var(--accent); }
+
+      footer { margin-top: 1.3rem; color: var(--muted); font-size: 0.76rem; }
+      footer a { color: var(--muted); }
+
+      @media (prefers-reduced-motion: reduce) {
+        canvas#field { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="field" aria-hidden="true"></canvas>
+
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+
+      <div class="hero">
+        <h1>taqsim</h1>
+        <p class="sub">
+          A generative, Eno-sense taqsim: overlapping drone voices wandering
+          through a maqam of your choosing, each one shaped by a semi-random
+          attack/sustain/release so the texture never quite repeats, layered
+          under an optional dumbek backing chosen at random the moment you
+          press play. All synthesized live in your browser — nothing is a
+          recording.
+        </p>
+      </div>
+
+      <div class="panel">
+        <h2>controls</h2>
+        <div class="controls">
+          <label class="ctl">
+            maqam
+            <select id="maqamSelect"></select>
+          </label>
+          <label class="ctl row">
+            <button class="toggle" id="dumbekToggle" type="button" aria-pressed="true">🥁 dumbek</button>
+          </label>
+          <label class="ctl">
+            tempo
+            <input type="range" id="tempo" min="60" max="110" value="84" />
+          </label>
+          <label class="ctl">
+            volume
+            <input type="range" id="volume" min="0" max="100" value="70" />
+          </label>
+          <button class="primary" id="playBtn" type="button">▶ play</button>
+        </div>
+        <p class="status" id="status"></p>
+      </div>
+
+      <div class="panel">
+        <h2>clip the last few seconds</h2>
+        <div class="controls">
+          <label class="ctl">
+            length
+            <input type="range" id="clipSeconds" min="5" max="60" value="20" />
+          </label>
+          <span class="ctl row" id="clipSecondsLabel" style="align-self: center; color: var(--ink);">20s</span>
+          <button id="captureBtn" type="button" disabled>✂ capture clip</button>
+        </div>
+        <div class="clip-result" id="clipResult" hidden>
+          <audio id="clipAudio" controls></audio>
+          <a class="dl" id="clipDownload" download="taqsim-clip.wav">⬇ download .wav</a>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>about the tuning</h2>
+        <p class="note" id="maqamDesc"></p>
+        <p class="note">
+          Maqamat here are approximated in 24-tone equal temperament — real
+          performance tunes neutral seconds and thirds by ear, and they drift
+          by region and by player. This is the standard simplification for
+          computer-generated maqam music, not a claim of one true tuning.
+        </p>
+      </div>
+
+      <div class="share">
+        <a id="shareIntent" target="_blank" rel="noopener">🦋 share this</a>
+        <button id="copyLink">🔗 copy link</button>
+      </div>
+
+      <footer>
+        a <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a> toy, asked for by
+        <a href="https://bsky.app/profile/kitto.nekoweb.org">@kitto.nekoweb.org</a> ·
+        <a href="https://bisks.net">bisks.net</a> ·
+        <a href="https://rateyourbuild.bisks.net/site/taqsim">rate this on rateyourbuild →</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { MAQAMAT, MAQAM_KEYS, IQAAT } from "./lib/theory.js";
+      import { TaqsimEngine, MAX_CLIP_SECONDS } from "./lib/engine.js";
+
+      const maqamSelect = document.getElementById("maqamSelect");
+      const dumbekToggle = document.getElementById("dumbekToggle");
+      const tempoEl = document.getElementById("tempo");
+      const volumeEl = document.getElementById("volume");
+      const playBtn = document.getElementById("playBtn");
+      const statusEl = document.getElementById("status");
+      const maqamDesc = document.getElementById("maqamDesc");
+      const clipSecondsEl = document.getElementById("clipSeconds");
+      const clipSecondsLabel = document.getElementById("clipSecondsLabel");
+      const captureBtn = document.getElementById("captureBtn");
+      const clipResult = document.getElementById("clipResult");
+      const clipAudio = document.getElementById("clipAudio");
+      const clipDownload = document.getElementById("clipDownload");
+
+      clipSecondsEl.max = String(MAX_CLIP_SECONDS);
+
+      for (const key of MAQAM_KEYS) {
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = MAQAMAT[key].name;
+        maqamSelect.appendChild(opt);
+      }
+      maqamSelect.value = "rast";
+
+      function updateMaqamDesc() {
+        maqamDesc.innerHTML = `<b>${MAQAMAT[maqamSelect.value].name}</b> — ${MAQAMAT[maqamSelect.value].desc}.`;
+      }
+      updateMaqamDesc();
+      maqamSelect.addEventListener("change", () => {
+        updateMaqamDesc();
+        if (engine.running) engine.setMaqam(maqamSelect.value);
+      });
+
+      clipSecondsLabel.textContent = clipSecondsEl.value + "s";
+      clipSecondsEl.addEventListener("input", () => {
+        clipSecondsLabel.textContent = clipSecondsEl.value + "s";
+      });
+
+      const engine = new TaqsimEngine();
+      let dumbekOn = true;
+
+      dumbekToggle.addEventListener("click", () => {
+        dumbekOn = !dumbekOn;
+        dumbekToggle.setAttribute("aria-pressed", String(dumbekOn));
+        if (engine.running) engine.setDumbekEnabled(dumbekOn);
+      });
+
+      tempoEl.addEventListener("input", () => {
+        engine.dumbekBpm = Number(tempoEl.value);
+      });
+      volumeEl.addEventListener("input", () => {
+        if (engine.running) engine.setMasterVolume(Number(volumeEl.value) / 100);
+      });
+
+      playBtn.addEventListener("click", async () => {
+        if (!engine.running) {
+          playBtn.disabled = true;
+          playBtn.textContent = "…starting";
+          const { iqaKey } = await engine.start({
+            maqamKey: maqamSelect.value,
+            dumbekOn,
+          });
+          engine.dumbekBpm = Number(tempoEl.value);
+          engine.setMasterVolume(Number(volumeEl.value) / 100);
+          playBtn.disabled = false;
+          playBtn.textContent = "■ stop";
+          captureBtn.disabled = false;
+          statusEl.innerHTML = `playing in <b>${MAQAMAT[maqamSelect.value].name}</b> — dumbek backing: <b>${IQAAT[iqaKey].name}</b> (${IQAAT[iqaKey].desc})`;
+        } else {
+          playBtn.disabled = true;
+          await engine.stop();
+          playBtn.disabled = false;
+          playBtn.textContent = "▶ play";
+          captureBtn.disabled = true;
+          statusEl.textContent = "stopped.";
+        }
+      });
+
+      captureBtn.addEventListener("click", () => {
+        const seconds = Number(clipSecondsEl.value);
+        const clip = engine.captureClip(seconds);
+        if (!clip || clip.seconds < 0.5) {
+          statusEl.textContent = "not enough audio has played yet — let it run a bit longer.";
+          return;
+        }
+        const url = URL.createObjectURL(clip.blob);
+        clipAudio.src = url;
+        clipDownload.href = url;
+        clipResult.hidden = false;
+        statusEl.textContent = `captured the last ${clip.seconds.toFixed(1)}s.`;
+      });
+
+      // ── share ────────────────────────────────────────────────────────
+      const pageUrl = "https://taqsim.bisks.net/";
+      document.getElementById("shareIntent").href =
+        `https://bsky.app/intent/compose?text=${encodeURIComponent(`taqsim 🕯 a generative maqam drone, overlapping voices + a random dumbek backing — ${pageUrl}`)}`;
+      document.getElementById("copyLink").addEventListener("click", async (e) => {
+        try {
+          await navigator.clipboard.writeText(pageUrl);
+          e.target.textContent = "✓ copied!";
+          setTimeout(() => { e.target.textContent = "🔗 copy link"; }, 1800);
+        } catch { e.target.textContent = "copy failed — select the URL"; }
+      });
+
+      // ── faint ambient visualization, driven by the engine's analyser ──
+      const canvas = document.getElementById("field");
+      const ctx2d = canvas.getContext("2d");
+      let W = 0, H = 0, DPR = Math.min(2, window.devicePixelRatio || 1);
+      function resize() {
+        W = window.innerWidth; H = window.innerHeight;
+        canvas.width = W * DPR; canvas.height = H * DPR;
+        canvas.style.width = W + "px"; canvas.style.height = H + "px";
+        ctx2d.setTransform(DPR, 0, 0, DPR, 0, 0);
+      }
+      window.addEventListener("resize", resize);
+      resize();
+
+      const reducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const freqData = new Uint8Array(1024);
+      function draw(t) {
+        ctx2d.fillStyle = "rgba(16,11,8,0.14)";
+        ctx2d.fillRect(0, 0, W, H);
+        if (engine.running && engine.analyser) {
+          engine.analyser.getByteFrequencyData(freqData);
+          ctx2d.globalCompositeOperation = "lighter";
+          const bands = 10;
+          for (let b = 0; b < bands; b++) {
+            const v = freqData[b * 6] / 255;
+            const r = 40 + v * Math.min(W, H) * 0.45 + b * 6;
+            const cx = W / 2 + Math.cos(t * 0.00006 + b) * W * 0.18;
+            const cy = H / 2 + Math.sin(t * 0.00008 + b * 1.3) * H * 0.18;
+            const hue = 28 + b * 4;
+            const grad = ctx2d.createRadialGradient(cx, cy, 0, cx, cy, r);
+            grad.addColorStop(0, `hsla(${hue}, 80%, 60%, ${0.05 + v * 0.09})`);
+            grad.addColorStop(1, `hsla(${hue}, 80%, 40%, 0)`);
+            ctx2d.fillStyle = grad;
+            ctx2d.beginPath();
+            ctx2d.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx2d.fill();
+          }
+          ctx2d.globalCompositeOperation = "source-over";
+        }
+        if (!reducedMotion) requestAnimationFrame(draw);
+      }
+      requestAnimationFrame(draw);
+    </script>
+  </body>
+</html>
