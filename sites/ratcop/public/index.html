@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ratcop — rationalist ⇄ cop speak translator</title>
+<meta name="description" content="Translate between rationalist jargon (yudisms, Sequences terms, zizian dialect) and cop speak. Type a sentence, watch it flip." />
+
+<meta property="og:title" content="ratcop — rationalist ⇄ cop speak translator" />
+<meta property="og:description" content="Translate between rationalist jargon (yudisms, Sequences terms, zizian dialect) and cop speak. Type a sentence, watch it flip." />
+<meta property="og:url" content="https://ratcop.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://ratcop.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="ratcop: 'Bayesian update' translating to 'new intel just came in.'" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="ratcop — rationalist ⇄ cop speak translator" />
+<meta name="twitter:description" content="Translate between rationalist jargon (yudisms, Sequences terms, zizian dialect) and cop speak." />
+<meta name="twitter:image" content="https://ratcop.bisks.net/og.png" />
+
+<link rel="stylesheet" href="/style.css" />
+<style>
+  .translator { display: flex; flex-direction: column; gap: 14px; }
+  .dir-row { display: flex; justify-content: center; align-items: center; gap: 12px; }
+  .dir-row .side { font-weight: 700; padding: 6px 12px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border); }
+  .dir-row .side.active { color: var(--accent); border-color: var(--accent); }
+  #flipBtn { font-size: 1.1rem; padding: 8px 14px; }
+  textarea {
+    font-family: var(--mono);
+    font-size: 0.95rem;
+    background: var(--panel-2);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    width: 100%;
+    min-height: 96px;
+    resize: vertical;
+  }
+  textarea:focus { outline: 1px solid var(--accent); }
+  .field label { font-size: 0.78rem; color: var(--dim); text-transform: uppercase; letter-spacing: 0.04em; display: block; margin-bottom: 6px; }
+  .output {
+    min-height: 96px;
+    padding: 10px 12px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .output mark { background: none; color: var(--accent); font-weight: 700; border-bottom: 1px dashed var(--accent); }
+  .toolbar-row { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+  .toolbar-row button { font-size: 0.8rem; padding: 7px 12px; }
+  .share-row { display: flex; justify-content: center; margin-top: 4px; }
+
+  .glossary-search { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .glossary-search input { flex: 1; min-width: 160px; }
+  .glossary-search select { width: auto; min-width: 140px; }
+  .glossary-table-wrap { overflow-x: auto; }
+  table.glossary { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+  table.glossary th { text-align: left; color: var(--dim); font-weight: 400; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.04em; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  table.glossary td { padding: 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.glossary td.term { font-weight: 700; }
+  table.glossary td .gloss { color: var(--dim); font-weight: 400; font-size: 0.8rem; margin-top: 3px; }
+  .badge { display: inline-block; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 6px; border-radius: 5px; margin-left: 6px; border: 1px solid var(--border); color: var(--dim); }
+  .badge.yud { color: var(--accent); border-color: var(--accent); }
+  .badge.zizian { color: var(--accent-2); border-color: var(--accent-2); }
+  .no-results { text-align: center; color: var(--dim); padding: 16px; }
+  .caveat { font-size: 0.78rem; color: #5a6472; margin-top: 10px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>ratcop</h1>
+    <p>
+      A word-for-word translator between rationalist jargon — Sequences-era
+      yudisms plus documented zizian dialect — and cop speak. Neither side can
+      understand the other without it.
+    </p>
+    <p class="origin">
+      asked for by <a href="https://bsky.app/profile/shimmermathlabs.com" target="_blank" rel="noopener">@shimmermathlabs.com</a>,
+      riffing on <a href="https://bsky.app/profile/segyges.bsky.social" target="_blank" rel="noopener">@segyges.bsky.social</a>'s
+      "i may be literally the only human on the face of the earth fluent in both rat and cop"
+    </p>
+  </header>
+
+  <div class="panel translator">
+    <div class="dir-row">
+      <span class="side" id="sideLeft">rationalist</span>
+      <button id="flipBtn" title="swap direction">⇄</button>
+      <span class="side" id="sideRight">cop</span>
+    </div>
+
+    <div class="field">
+      <label for="input" id="inputLabel">type some rationalist</label>
+      <textarea id="input" autocomplete="off" spellcheck="false"></textarea>
+    </div>
+
+    <div class="field">
+      <label id="outputLabel">translated to cop</label>
+      <div class="output" id="output"></div>
+    </div>
+
+    <div class="toolbar-row">
+      <button id="exampleBtn">try an example</button>
+      <button id="clearBtn">clear</button>
+    </div>
+
+    <div class="share-row">
+      <a id="shareBluesky" class="file-btn" target="_blank" rel="noopener" style="visibility:hidden">share on bluesky</a>
+    </div>
+
+    <p class="caveat">
+      the zizian-tagged rows are terms documented in reporting on that
+      group's split from the wider rationalist scene — included here as
+      vocabulary, not an endorsement of anything they did.
+    </p>
+  </div>
+
+  <div class="panel">
+    <div class="glossary-search">
+      <input type="text" id="glossarySearch" placeholder="search the glossary…" autocomplete="off" />
+      <select id="dialectFilter">
+        <option value="">all dialects</option>
+        <option value="yud">yudisms</option>
+        <option value="rat">rationalist</option>
+        <option value="zizian">zizian</option>
+      </select>
+    </div>
+    <div class="glossary-table-wrap">
+      <table class="glossary" id="glossaryTable">
+        <thead>
+          <tr><th>rationalist</th><th>cop speak</th></tr>
+        </thead>
+        <tbody id="glossaryBody"></tbody>
+      </table>
+      <div class="no-results" id="noResults" style="display:none">no terms match that search</div>
+    </div>
+  </div>
+
+  <footer>
+    part of <a href="https://bisks.net/">bisks.net</a> · <a href="https://rateyourbuild.bisks.net/site/ratcop">rate this on rateyourbuild →</a> — built by
+    <a href="https://bsky.app/profile/buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+    for <a href="https://bsky.app/profile/shimmermathlabs.com" target="_blank" rel="noopener">@shimmermathlabs.com</a>
+  </footer>
+</main>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
