@@ -269,9 +269,18 @@ export function padTopics(topics, seed) {
 }
 
 // ── alliterative clue-writing ────────────────────────────────────────────
-// One bank of plain descriptive words per starting letter. A clue draws
-// three DISTINCT words from the topic's own letter, so every clue actually
-// alliterates on the thing it's describing.
+// Rebuilt per elfprince13's original spec (see the thread that asked for
+// this second pass): a real kenning — a compound noun standing in for the
+// topic, e.g. "whale-road" for the sea — laid out on a real four-stress Old
+// English alliterative line. A long line has two half-lines split by a
+// caesura; of its four stresses, the two in the first half-line alliterate
+// with each other AND with the first stress of the second half-line, while
+// the fourth stress is free. Concretely:
+//   [kenning noun]  [adj2]   //   [adj3]   [free word]
+//    stress 1        stress 2      stress 3   stress 4 (no constraint)
+// stress 1-3 all share the topic's first letter; the kenning's second half
+// and the closing free word don't need to and are drawn from shared,
+// letter-independent pools so the line still reads like English.
 const TRAITS = {
   a: ["audacious", "absurd", "ancient", "abstract", "avid", "awkward", "astute", "arcane"],
   b: ["bizarre", "brazen", "baffling", "breezy", "bold", "blunt", "bashful", "booming"],
@@ -300,6 +309,55 @@ const TRAITS = {
   y: ["yappy", "youthful", "yearning", "yielding", "yawning", "young"],
   z: ["zealous", "zany", "zesty", "zippy", "zonked"],
 };
+
+// The alliterating half of the kenning — a concrete noun per starting
+// letter, standing in for "whale" in "whale-road."
+const NOUNS = {
+  a: ["anchor", "antler", "almanac", "anthem", "aurora"],
+  b: ["banner", "bramble", "beacon", "brook", "bellows"],
+  c: ["cinder", "current", "compass", "cauldron", "chorus"],
+  d: ["drift", "dagger", "dovecote", "drum", "dusk"],
+  e: ["ember", "echo", "elm", "engine", "eclipse"],
+  f: ["forge", "flame", "ferry", "fable", "frost"],
+  g: ["gale", "garden", "gavel", "glacier", "gramophone"],
+  h: ["hearth", "harbor", "hollow", "hymn", "hatchet"],
+  i: ["icicle", "idol", "inkwell", "island", "ivy"],
+  j: ["jetty", "jukebox", "jasper", "journal", "jamboree"],
+  k: ["kiln", "kettle", "kestrel", "kingdom", "knapsack"],
+  l: ["lantern", "ledger", "loom", "lighthouse", "lyre"],
+  m: ["mast", "mirror", "meadow", "millstone", "mist"],
+  n: ["needle", "nest", "nebula", "nightjar", "notebook"],
+  o: ["oracle", "oak", "orchard", "oarlock", "omen"],
+  p: ["pendulum", "pyre", "pier", "prism", "pilgrim"],
+  q: ["quarry", "quill", "quiver", "quay", "quartz"],
+  r: ["raven", "rampart", "reef", "river", "relic"],
+  s: ["spindle", "scepter", "smokestack", "shrine", "satchel"],
+  t: ["tinder", "tower", "talisman", "tide", "totem"],
+  u: ["urn", "undertow", "umbrella", "utopia", "understudy"],
+  v: ["vault", "valley", "vessel", "vine", "volcano"],
+  w: ["warren", "weathervane", "well", "whirlpool", "wick"],
+  x: ["xylophone"],
+  y: ["yardstick", "yurt", "yew"],
+  z: ["ziggurat", "zephyr", "zeppelin"],
+};
+
+// The kenning's non-alliterating second element — any of these can follow
+// any letter's noun ("cauldron-hoard", "banner-hoard", ...).
+const KENNING_TAILS = [
+  "hoard", "road", "song", "flame", "tide", "thread", "shadow", "storm",
+  "bloom", "forge", "chorus", "cinder", "omen", "weave", "echo", "ember",
+  "drift", "bell", "veil", "spark", "crown", "gale", "husk", "loom",
+  "keeper", "bearer",
+];
+
+// The line's fourth stress — deliberately NOT alliteration-constrained, so
+// the line ends on a free stress the way the form calls for.
+const FREEWORDS = [
+  "unbidden", "unasked", "unresting", "unsleeping", "nightly", "daily",
+  "forever", "onward", "untold", "unnamed", "nameless", "endless",
+  "tireless", "restless", "boundless", "ceaseless", "undimmed", "unbroken",
+  "undying", "again",
+];
 
 const CLOSERS = [
   "this is what {h}'s posts keep circling back to.",
@@ -338,17 +396,32 @@ function cap(w) {
   return w.charAt(0).toUpperCase() + w.slice(1);
 }
 
-// Build one alliterative clue for a topic. `handle` fills the closing line;
-// `seed` picks the word draw + closer (change it to re-roll).
+// Build one kenning clue for a topic, laid out on a real four-stress
+// alliterative long line. `handle` fills the closing line; `seed` picks the
+// word draw + closer (change it to re-roll).
 export function clueFor(topic, handle, seed) {
   const letter = (topic.match(/[a-z]/) || ["b"])[0];
-  const bank = TRAITS[letter] || TRAITS.b;
+  const adjBank = TRAITS[letter] || TRAITS.b;
+  const nounBank = NOUNS[letter] || NOUNS.b;
   const rng = mulberry32(hashStr(String(seed)));
-  const draw = shuffled(bank, rng).slice(0, 3);
-  while (draw.length < 3) draw.push(bank[draw.length % bank.length]);
+
+  // stress 1: the kenning's alliterating noun half ("cauldron" in
+  // "cauldron-hoard"). stresses 2 and 3: two more distinct words from the
+  // same letter, drawn from adjectives+nouns pooled so a thin bank (x, y, z)
+  // still has enough to draw three distinct stresses from.
+  const pool = adjBank.concat(nounBank);
+  const draw = shuffled(pool, rng).slice(0, 3);
+  while (draw.length < 3) draw.push(pool[draw.length % pool.length]);
+  const [kenningNoun, adj2, adj3] = draw;
+  const tail = shuffled(KENNING_TAILS, rng)[0];
+  const freeword = shuffled(FREEWORDS, rng)[0];
+
+  const kenning = `${cap(kenningNoun)}-${tail}`;
+  // half-line A (stress 1 + 2, both alliterate) — caesura — half-line B
+  // (stress 3, alliterates with A, + stress 4, free).
+  const line1 = `${kenning}, ${adj2} — ${adj3}, ${freeword}.`;
   const closer = CLOSERS[Math.floor(rng() * CLOSERS.length)].replace(/\{h\}/g, "@" + handle);
-  const line1 = `${cap(draw[0])}, ${draw[1]}, and utterly ${draw[2]} —`;
-  return { line1, line2: closer };
+  return { line1, line2: closer, kenning, stresses: [kenningNoun, adj2, adj3, freeword] };
 }
 
 export { hashStr, mulberry32, shuffled };
