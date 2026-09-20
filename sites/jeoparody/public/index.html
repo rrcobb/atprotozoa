@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>jeoparody — a Jeopardy board built from your own posts — bisks.net</title>
+    <meta
+      name="description"
+      content="Type a Bluesky handle and it builds a one-category Jeopardy board out of what that person actually mentions in their own posts — five clues in alliterative verse, $200 to $1000."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="jeoparody — answer in the form of alliterative verse" />
+    <meta
+      property="og:description"
+      content="A Jeopardy board built entirely from what a poster mentions in their own posts. Five clues, five values, all alliterative — guess the topic before you peek."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="jeoparody" />
+    <meta
+      name="twitter:description"
+      content="A Jeopardy board built entirely from what a poster mentions in their own posts. Five clues, five values, all alliterative."
+    />
+    <!-- bisks.net house style: black on white, one calm blue accent, mono for
+         the chrome. The board itself gets the real Jeopardy blue — it has
+         earned it. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --accent: #1a5fd0;
+        --bad: #c0392b;
+        --jblue: #060ce9;
+        --jblue-dark: #04089c;
+        --jgold: #ffcc00;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+        --serif: Georgia, "Times New Roman", serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 15px; line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      header { margin-bottom: 0.5rem; }
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 a { color: inherit; text-decoration: none; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 1.8rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 62ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+
+      form {
+        display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: stretch;
+        border-top: 1px solid var(--ink); border-bottom: 1px solid var(--faint);
+        padding: 1rem 0; margin-bottom: 1rem;
+      }
+      input[type="text"] {
+        flex: 1 1 14rem; min-width: 0; font-family: var(--mono);
+        font-size: 1rem; padding: 0.6rem 0.7rem; border: 1px solid var(--faint);
+        border-radius: 6px; color: var(--ink); background: #fff;
+      }
+      input[type="text"]:focus { outline: none; border-color: var(--accent); }
+      button {
+        font-family: var(--mono); font-size: 0.9rem; cursor: pointer;
+        padding: 0.6rem 1rem; border: 1px solid var(--ink); border-radius: 6px;
+        background: var(--ink); color: #fff;
+      }
+      button:hover { background: var(--accent); border-color: var(--accent); }
+      button:disabled { opacity: 0.45; cursor: default; }
+      button.ghost { background: #fff; color: var(--ink); }
+      button.ghost:hover { background: #fff; color: var(--accent); border-color: var(--accent); }
+
+      .status { color: var(--muted); font-size: 0.85rem; min-height: 1.4rem; margin: 0 0 1rem; }
+      .status.err { color: var(--bad); }
+
+      .examples { margin: 0 0 1.4rem; color: var(--muted); font-size: 0.82rem; }
+      .examples a { color: var(--accent); text-decoration: none; cursor: pointer; }
+      .examples a:hover { text-decoration: underline; }
+
+      /* the board */
+      .board { display: none; }
+      .board.shown { display: block; }
+      .board .cat {
+        background: var(--jblue); color: var(--jgold); border-radius: 8px 8px 0 0;
+        padding: 1rem 1.1rem; text-align: center; font-family: var(--serif);
+        font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
+        font-size: 1.05rem; line-height: 1.4;
+      }
+      .board .cat a { color: inherit; text-decoration: underline; text-decoration-color: rgba(255,204,0,0.4); }
+      .grid {
+        display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;
+        background: #000; border-radius: 0 0 8px 8px; overflow: hidden;
+      }
+      .cell {
+        background: var(--jblue); color: var(--jgold); min-height: 6.5rem;
+        display: flex; align-items: center; justify-content: center;
+        text-align: center; padding: 0.6rem 0.5rem; cursor: pointer;
+        font-family: var(--serif); border: none; width: 100%;
+      }
+      .cell:hover { background: var(--jblue-dark); }
+      .cell.answered { cursor: default; background: var(--jblue-dark); }
+      .cell .value { font-size: 1.5rem; font-weight: 700; }
+      .cell .clue { font-size: 0.78rem; line-height: 1.45; text-transform: uppercase; }
+      .cell .answer { font-size: 0.9rem; line-height: 1.4; }
+      .cell .answer .q { font-weight: 700; }
+      .cell .meta { display: block; margin-top: 0.35rem; font-size: 0.62rem; color: #cdd3ff; text-transform: none; }
+
+      .board-actions {
+        display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1.1rem 0 0;
+        align-items: center;
+      }
+      .board-actions .note { color: var(--muted); font-size: 0.75rem; }
+
+      footer {
+        margin-top: 3rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.78rem; line-height: 1.7;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>
+          <a href="/">j<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">e</span>oparody</a>
+          <span class="slash">· answer in the form of alliterative verse</span>
+        </h1>
+      </header>
+      <p class="intro">
+        Type a Bluesky handle. It reads that person's <b>entire</b> post history
+        straight off the public firehose, finds the five things they mention
+        most, and builds a real Jeopardy board out of it — one category, five
+        clues, <b>$200 to $1000</b>. Every clue is written in alliterative
+        verse: three words that share the topic's first letter. Guess before
+        you peek at the answer.
+      </p>
+
+      <form id="form">
+        <input
+          id="handle"
+          type="text"
+          placeholder="a handle, e.g. mcint.io"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+        />
+        <button id="go" type="submit">build the board</button>
+      </form>
+      <p class="examples">
+        try:
+        <a data-h="mcint.io">@mcint.io</a> ·
+        <a data-h="elfprince13.mumak.app">@elfprince13</a> ·
+        <a data-h="buildthis.bisks.net">@buildthis</a>
+      </p>
+
+      <p class="status" id="status"></p>
+
+      <div class="board" id="board">
+        <div class="cat" id="cat"></div>
+        <div class="grid" id="grid"></div>
+        <div class="board-actions">
+          <button class="ghost" id="reshuffle" type="button">reshuffle clues</button>
+          <button class="ghost" id="share" type="button">share ↗</button>
+          <span class="note" id="boardnote"></span>
+        </div>
+      </div>
+
+      <footer>
+        built on <a href="https://atproto.com">atproto</a> · reads posts from a
+        person's own repo, anonymously · topics are ranked by raw mention
+        count, hashtags count extra · the wordplay is hand-written, the
+        obsessions are yours · rate this on
+        <a href="https://rateyourbuild.bisks.net/site/jeoparody">rateyourbuild →</a>
+        · one of the <a href="https://bisks.net">bisks.net</a> experiments ·
+        built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis</a>
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script>
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+    </script>
+    <script type="module">
+      import { resolveActorFull, harvestTopics, padTopics, clueFor } from "./lib/jeoparody.js";
+
+      const $ = (id) => document.getElementById(id);
+      const form = $("form"), input = $("handle"), go = $("go"), status = $("status"),
+        board = $("board"), cat = $("cat"), grid = $("grid"),
+        reshuffleBtn = $("reshuffle"), shareBtn = $("share"), boardnote = $("boardnote");
+
+      const VALUES = [1000, 800, 600, 400, 200]; // index i pairs with topics[i] (most-mentioned first)
+
+      let cur = null; // { actor, topics, seed, fake }
+
+      function setStatus(msg, isErr) {
+        status.textContent = msg || "";
+        status.classList.toggle("err", !!isErr);
+      }
+
+      function cellHTML(topic, value, seed) {
+        const { line1, line2 } = clueFor(topic.word, cur.actor.handle, seed);
+        const meta = topic.count > 0
+          ? `mentioned ${topic.count}× in their posts`
+          : "quiet account — this one's a guess";
+        return {
+          value: `<span class="value">$${value}</span>`,
+          clue: `<span class="clue">${line1}<br>${line2}</span>`,
+          answer: `<span class="answer"><span class="q">What is ${topic.word.toUpperCase()}?</span><span class="meta">${meta}</span></span>`,
+        };
+      }
+
+      function render() {
+        const { actor, topics, seed } = cur;
+        cat.innerHTML =
+          `WHAT <a href="https://bsky.app/profile/${actor.handle}" target="_blank" rel="noopener">@${actor.handle}</a> WON'T STOP POSTING ABOUT`;
+
+        // pair by rank (topics[0] = most mentioned -> highest value), then
+        // lay the five cells out left-to-right in ascending value order.
+        const paired = topics.map((t, i) => ({ topic: t, value: VALUES[i] }));
+        paired.sort((a, b) => a.value - b.value);
+
+        grid.innerHTML = "";
+        paired.forEach(({ topic, value }, idx) => {
+          const cellSeed = `${actor.handle}:${topic.word}:${seed}`;
+          const html = cellHTML(topic, value, cellSeed);
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.className = "cell";
+          cell.dataset.state = "value";
+          cell.innerHTML = html.value;
+          cell.addEventListener("click", () => {
+            if (cell.dataset.state === "value") {
+              cell.dataset.state = "clue";
+              cell.innerHTML = html.clue;
+            } else if (cell.dataset.state === "clue") {
+              cell.dataset.state = "answer";
+              cell.classList.add("answered");
+              cell.innerHTML = html.answer;
+            }
+          });
+          grid.appendChild(cell);
+        });
+
+        board.classList.add("shown");
+        boardnote.textContent = cur.fake
+          ? "quiet account — filled out with a few guesses"
+          : `built from ${cur.postCount} posts`;
+      }
+
+      async function build(raw) {
+        const handle = String(raw || "").trim();
+        if (!handle) return;
+        go.disabled = true;
+        board.classList.remove("shown");
+        setStatus("resolving " + handle.replace(/^@/, "") + " …");
+        try {
+          const actor = await resolveActorFull(handle);
+          setStatus("reading @" + actor.handle + "'s posts …");
+          const { posts, topics } = await harvestTopics(actor, {
+            onPage: (n) => setStatus(`reading @${actor.handle} … ${n} posts`),
+          });
+          setStatus("");
+          const fake = topics.length < 5;
+          const full = padTopics(topics, actor.handle);
+          cur = { actor, topics: full, seed: actor.handle, postCount: posts, fake };
+          render();
+          if (posts === 0) {
+            setStatus("no posts found — this board is mostly guesses, sorry");
+          }
+          location.hash = encodeURIComponent(actor.handle);
+        } catch (e) {
+          board.classList.remove("shown");
+          const msg =
+            e && e.status === 400
+              ? `couldn't find "${handle.replace(/^@/, "")}" — check the handle?`
+              : `couldn't build that board: ${(e && e.message) || e}`;
+          setStatus(msg, true);
+        } finally {
+          go.disabled = false;
+        }
+      }
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        build(input.value);
+      });
+
+      document.querySelectorAll(".examples a").forEach((a) =>
+        a.addEventListener("click", (e) => {
+          e.preventDefault();
+          input.value = a.dataset.h;
+          build(a.dataset.h);
+        }),
+      );
+
+      reshuffleBtn.addEventListener("click", () => {
+        if (!cur) return;
+        cur.seed = cur.actor.handle + ":" + Math.floor(performance.now());
+        render();
+      });
+
+      shareBtn.addEventListener("click", () => {
+        if (!cur) return;
+        const link = "https://jeoparody.bisks.net/#" + encodeURIComponent(cur.actor.handle);
+        const text = `jeoparody: @${cur.actor.handle}'s own Jeopardy board, built from what they actually post about. guess before you peek: ${link}`;
+        window.open(
+          "https://bsky.app/intent/compose?text=" + encodeURIComponent(text),
+          "_blank",
+          "noopener",
+        );
+      });
+
+      // deep link: #handle builds on load
+      const initial = decodeURIComponent((location.hash || "").replace(/^#/, ""));
+      if (initial) {
+        input.value = initial;
+        build(initial);
+      } else {
+        input.focus();
+      }
+    </script>
+  </body>
+</html>
