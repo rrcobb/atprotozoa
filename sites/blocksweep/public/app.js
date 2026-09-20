@@ -85,6 +85,7 @@ function renderAuthBar() {
       <button class="btn ghost" id="signInBtn" type="button">sign in with bluesky</button>
     `;
     const handleInput = document.getElementById("signinHandle");
+    if (window.attachHandleTypeahead) window.attachHandleTypeahead(handleInput);
     const goLogin = async () => {
       const h = handleInput.value.trim();
       if (!h) return;

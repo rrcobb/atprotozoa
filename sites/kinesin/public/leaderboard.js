@@ -111,6 +111,7 @@ function renderSessionBar() {
       <button id="signInBtn">sign in</button>
       <span class="lb-hint">(only needed to sign your own runs — the board itself is public)</span>
     `;
+    if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("loginHandle"));
     document.getElementById("signInBtn").onclick = async () => {
       const h = document.getElementById("loginHandle").value.trim();
       if (!h) return;

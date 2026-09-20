@@ -137,6 +137,7 @@ function init() {
         <input type="text" id="loginHandle" placeholder="your.bsky.social" autocomplete="off" spellcheck="false" />
         <button id="signInBtn">sign in to save runs</button>
       `;
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("loginHandle"));
       document.getElementById("signInBtn").onclick = async () => {
         const h = document.getElementById("loginHandle").value.trim();
         if (!h) return;

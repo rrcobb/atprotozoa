@@ -56,6 +56,7 @@ function renderSessionBar() {
       <input type="text" id="loginHandle" placeholder="your.bsky.social" style="width:150px" autocomplete="off" spellcheck="false" />
       <button id="signInBtn">sign in</button>
     `;
+    if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("loginHandle"));
     document.getElementById("signInBtn").onclick = async () => {
       const h = document.getElementById("loginHandle").value.trim();
       if (!h) return;
