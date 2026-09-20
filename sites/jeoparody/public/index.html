@@ -95,22 +95,48 @@
       }
       .board .cat a { color: inherit; text-decoration: underline; text-decoration-color: rgba(255,204,0,0.4); }
       .grid {
-        display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;
+        display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px;
         background: #000; border-radius: 0 0 8px 8px; overflow: hidden;
       }
+      /*
+        A cell has 3 possible contents (value/clue/answer) of very different
+        lengths. All 3 are always in the DOM, stacked on the same grid-area
+        so the cell's auto height is the max of all 3 at once — constant
+        across clicks, instead of resizing (and reflowing every other cell
+        in the row) each time the visible one changes. minmax(0, 1fr) above
+        stops a long clue word from blowing out its column's intrinsic
+        width, which is what was pushing content past `overflow: hidden`
+        and reading as "cut off" instead of wrapped.
+      */
       .cell {
         background: var(--jblue); color: var(--jgold); min-height: 6.5rem;
-        display: flex; align-items: center; justify-content: center;
+        min-width: 0; display: grid; place-items: center;
         text-align: center; padding: 0.6rem 0.5rem; cursor: pointer;
         font-family: var(--serif); border: none; width: 100%;
       }
       .cell:hover { background: var(--jblue-dark); }
       .cell.answered { cursor: default; background: var(--jblue-dark); }
+      .cell .state {
+        grid-area: 1 / 1; visibility: hidden; max-width: 100%;
+        overflow-wrap: anywhere; word-break: break-word;
+      }
+      .cell[data-state="value"] .state.value,
+      .cell[data-state="clue"] .state.clue,
+      .cell[data-state="answer"] .state.answer { visibility: visible; }
       .cell .value { font-size: 1.5rem; font-weight: 700; }
       .cell .clue { font-size: 0.78rem; line-height: 1.45; text-transform: uppercase; }
       .cell .answer { font-size: 0.9rem; line-height: 1.4; }
       .cell .answer .q { font-weight: 700; }
       .cell .meta { display: block; margin-top: 0.35rem; font-size: 0.62rem; color: #cdd3ff; text-transform: none; }
+
+      @media (max-width: 560px) {
+        .cell { padding: 0.4rem 0.3rem; min-height: 5.5rem; }
+        .cell .value { font-size: 1.1rem; }
+        .cell .clue { font-size: 0.64rem; line-height: 1.35; }
+        .cell .answer { font-size: 0.72rem; }
+        .cell .meta { font-size: 0.54rem; }
+        .board .cat { font-size: 0.9rem; padding: 0.8rem 0.6rem; }
+      }
 
       .board-actions {
         display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1.1rem 0 0;
@@ -213,11 +239,14 @@
         const meta = topic.count > 0
           ? `mentioned ${topic.count}× in their posts`
           : "quiet account — this one's a guess";
-        return {
-          value: `<span class="value">$${value}</span>`,
-          clue: `<span class="clue">${line1}<br>${line2}</span>`,
-          answer: `<span class="answer"><span class="q">What is ${topic.word.toUpperCase()}?</span><span class="meta">${meta}</span></span>`,
-        };
+        // all 3 states render at once (stacked via CSS grid-area) so the
+        // cell never resizes when its visible state changes — see the
+        // .cell .state rules in <style>.
+        return (
+          `<span class="state value">$${value}</span>` +
+          `<span class="state clue">${line1}<br>${line2}</span>` +
+          `<span class="state answer"><span class="q">What is ${topic.word.toUpperCase()}?</span><span class="meta">${meta}</span></span>`
+        );
       }
 
       function render() {
@@ -233,20 +262,17 @@
         grid.innerHTML = "";
         paired.forEach(({ topic, value }, idx) => {
           const cellSeed = `${actor.handle}:${topic.word}:${seed}`;
-          const html = cellHTML(topic, value, cellSeed);
           const cell = document.createElement("button");
           cell.type = "button";
           cell.className = "cell";
           cell.dataset.state = "value";
-          cell.innerHTML = html.value;
+          cell.innerHTML = cellHTML(topic, value, cellSeed);
           cell.addEventListener("click", () => {
             if (cell.dataset.state === "value") {
               cell.dataset.state = "clue";
-              cell.innerHTML = html.clue;
             } else if (cell.dataset.state === "clue") {
               cell.dataset.state = "answer";
               cell.classList.add("answered");
-              cell.innerHTML = html.answer;
             }
           });
           grid.appendChild(cell);
