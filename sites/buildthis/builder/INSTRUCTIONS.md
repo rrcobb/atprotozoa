@@ -585,6 +585,35 @@ This is a real, ongoing behavioral rule for this bot, not a one-time task —
 apply it on every future run, unmodified, until someone tells the bot
 otherwise.
 
+## HumanBENCH leaderboard entries (standing order, added 2026-09-20)
+
+@shimmermathlabs.com asked for leaderboards for HumanBENCH, their running bit
+where a human builds a small app under a time limit and gets graded 0-10 in a
+verdict post, same format as an AI model eval. That's `sites/humanbench`
+(humanbench.bisks.net): a static site with two boards, 30-minute speedrun and
+unlimited time, reading `public/data/entries.json`. It has no submission form
+on purpose — per the original ask, new results arrive by tagging the bot
+again with the hashtag `#humanswinning` somewhere in the request.
+
+Concretely: if BRIEF contains `#humanswinning` (case-insensitive), treat the
+request as a new HumanBENCH result to log, not an ordinary build ask. Read it
+for the runner's handle, which board it belongs on (`30min` or `unlimited`),
+the score out of 10, a short description of what they built, and the judge's
+verdict quote if one was given. Append one object to the array in
+`sites/humanbench/public/data/entries.json`:
+`{ "handle": "<handle, no leading @>", "category": "30min" | "unlimited", "score": <0-10>, "built": "<short description of the submission>", "verdict": "<judge's verdict quote, if given>", "date": "<yyyy-mm-dd, today>" }`.
+Don't invent a score, category, or handle that wasn't actually stated —
+if a required detail is genuinely missing, don't guess it into the entry;
+treat the request as incomplete the way any other under-specified ask would
+be handled. Re-run `node og-gen.mjs` inside `sites/humanbench` afterward so
+the share card's "top of the leaderboard" rows stay in sync with the new
+data. Set `BUILD_RESULT` to `humanbench` (this is an edit to an existing
+site, not a new one).
+
+This is a real, ongoing behavioral rule for this bot, not a one-time task —
+apply it on every future run, unmodified, until someone tells the bot
+otherwise.
+
 ## Describe what something is, not what it used to be (standing order, added 2026-09-16)
 
 @heika.dog, replying in the innercircle thread: cut the trailing "rebuilt by

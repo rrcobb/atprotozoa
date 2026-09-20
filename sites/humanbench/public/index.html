@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>HumanBENCH — the leaderboard for humans, scored like a model eval</title>
+<meta name="description" content="Leaderboards for HumanBENCH, @shimmermathlabs.com's running bit where humans build a small app under a time limit and get graded 0-10, same format as an AI eval. 30-minute speedrun and unlimited-time boards." />
+<meta property="og:title" content="HumanBENCH — the leaderboard for humans, scored like a model eval" />
+<meta property="og:description" content="Humans building small apps under a time limit, graded 0-10 by @shimmermathlabs.com — same format as an AI model eval. 30-minute speedrun and unlimited-time leaderboards." />
+<meta property="og:url" content="https://humanbench.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://humanbench.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="HumanBENCH: a leaderboard grading humans 0-10 on small apps built under a time limit." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="HumanBENCH — the leaderboard for humans, scored like a model eval" />
+<meta name="twitter:description" content="Humans building small apps under a time limit, graded 0-10 by @shimmermathlabs.com — same format as an AI model eval." />
+<meta name="twitter:image" content="https://humanbench.bisks.net/og.png" />
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0a0f0c;
+    --panel: #0f1712;
+    --panel-2: #131e17;
+    --border: #24382c;
+    --fg: #e8f3ec;
+    --dim: #8ba796;
+    --accent: #7ee787;
+    --accent2: #ffd166;
+    --gold: #ffd166;
+    --bad: #f87171;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100%; background: var(--bg); }
+  body {
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    color: var(--fg);
+    -webkit-font-smoothing: antialiased;
+    background:
+      radial-gradient(ellipse at 10% -10%, #0f2c1c 0%, transparent 55%),
+      radial-gradient(ellipse at 95% 0%, #2a2410 0%, transparent 50%),
+      var(--bg);
+    padding: 3rem 1.1rem 5rem;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  main { width: 100%; max-width: 760px; }
+  h1 {
+    font-size: 1.9rem; line-height: 1.25; margin: 0 0 0.5rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lede { color: var(--dim); font-size: 0.95rem; line-height: 1.6; margin: 0 0 1.75rem; }
+  .lede a { color: var(--accent); }
+
+  section.board { margin-bottom: 2.25rem; }
+  .board h2 {
+    font-size: 1.05rem; margin: 0 0 0.15rem; color: var(--fg);
+    display: flex; align-items: baseline; gap: 0.5rem;
+  }
+  .board h2 .count { font-size: 0.72rem; color: var(--dim); font-weight: 400; }
+  .board .desc { color: var(--dim); font-size: 0.8rem; margin: 0 0 0.9rem; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  thead th {
+    text-align: left; color: var(--dim); font-weight: 600; font-size: 0.7rem;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border);
+  }
+  thead th.num { text-align: right; }
+  tbody tr { border-bottom: 1px solid var(--border); }
+  tbody tr:hover { background: var(--panel); }
+  td { padding: 0.6rem 0.6rem; vertical-align: top; }
+  td.rank { color: var(--dim); font-variant-numeric: tabular-nums; width: 2.2rem; }
+  td.who a { color: var(--fg); text-decoration: none; font-weight: 600; }
+  td.who a:hover { color: var(--accent); text-decoration: underline; }
+  td.who .built { display: block; color: var(--dim); font-size: 0.76rem; margin-top: 0.2rem; line-height: 1.4; }
+  td.score { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .bar-wrap { display: inline-flex; align-items: center; gap: 0.5rem; justify-content: flex-end; }
+  .bar { width: 54px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
+  .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .score-n { width: 2.2rem; text-align: right; font-weight: 700; }
+  .score-0 .score-n { color: var(--bad); }
+  .verdict {
+    margin-top: 0.9rem; background: var(--panel-2); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent); border-radius: 6px; padding: 0.6rem 0.8rem;
+    color: var(--dim); font-size: 0.78rem; line-height: 1.5;
+  }
+  .empty {
+    color: var(--dim); padding: 1.4rem 1rem; text-align: center; font-size: 0.85rem;
+    background: var(--panel); border: 1px dashed var(--border); border-radius: 10px;
+  }
+
+  details.about {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.7rem 1rem; margin-bottom: 1.75rem; font-size: 0.84rem;
+  }
+  details.about summary { cursor: pointer; color: var(--accent); font-weight: 700; }
+  details.about p { color: var(--dim); line-height: 1.6; }
+  details.about code { color: var(--accent2); }
+
+  footer { margin-top: 2.5rem; text-align: center; }
+  .share {
+    display: inline-flex; align-items: center; gap: 0.5rem; background: var(--panel);
+    border: 1px solid var(--border); color: var(--accent); text-decoration: none;
+    border-radius: 8px; padding: 0.6rem 1.1rem; font: inherit; font-size: 0.85rem; font-weight: 600;
+  }
+  .share:hover { border-color: var(--accent); }
+  .credit { color: var(--dim); font-size: 0.76rem; margin-top: 1.1rem; line-height: 1.7; }
+  .credit a { color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <h1>HumanBENCH</h1>
+  <p class="lede">
+    a running eval where humans build a small app under a time limit and get graded 0-10 by
+    <a href="https://shimmermathlabs.com" target="_blank" rel="noopener">@shimmermathlabs.com</a> —
+    same format, same bluntness, as an AI model eval. Two boards for now: a 30-minute speedrun and
+    an unlimited-time division.
+  </p>
+
+  <details class="about">
+    <summary>how scoring works</summary>
+    <p>
+      shimmermathlabs.com evaluates each submission in a browser and posts a verdict — what
+      shipped, what didn't, and a score out of 10. There's no rubric published in advance and no
+      self-reporting: an entry lands here only once a real verdict has been posted.
+    </p>
+    <p>
+      New results get added when someone tags <code>@buildthis.bisks.net</code> with the hashtag
+      <code>#humanswinning</code> in the request — this board doesn't take submissions directly.
+    </p>
+  </details>
+
+  <section class="board" id="board-30min">
+    <h2>30-Minute Speedrun <span class="count" id="count-30min"></span></h2>
+    <p class="desc">build whatever you can in half an hour. incomplete runs still get scored.</p>
+    <div id="content-30min"></div>
+  </section>
+
+  <section class="board" id="board-unlimited">
+    <h2>Unlimited Time <span class="count" id="count-unlimited"></span></h2>
+    <p class="desc">no clock. finish the thing, then submit.</p>
+    <div id="content-unlimited"></div>
+  </section>
+
+  <footer>
+    <a class="share" id="shareBtn" href="#" target="_blank" rel="noopener">share on bluesky →</a>
+    <p class="credit">
+      built by <a href="https://buildthis.bisks.net/">buildthis</a> for
+      <a href="https://shimmermathlabs.com" target="_blank" rel="noopener">@shimmermathlabs.com</a>.
+      rate this on <a href="https://rateyourbuild.bisks.net/site/humanbench">rateyourbuild →</a>
+    </p>
+  </footer>
+</main>
+
+<script>
+(async function () {
+  const CATEGORIES = ["30min", "unlimited"];
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function renderBoard(entries) {
+    const sorted = [...entries].sort((a, b) => b.score - a.score || (a.date || "").localeCompare(b.date || ""));
+    const rows = sorted
+      .map((e, i) => {
+        const pct = Math.round((e.score / 10) * 100);
+        return `<tr class="${e.score === 0 ? "score-0" : ""}">
+          <td class="rank">${i + 1}</td>
+          <td class="who">
+            <a href="https://bsky.app/profile/${encodeURIComponent(e.handle)}" target="_blank" rel="noopener">@${escapeHtml(e.handle)}</a>
+            ${e.built ? `<span class="built">${escapeHtml(e.built)}</span>` : ""}
+            ${e.verdict ? `<div class="verdict">${escapeHtml(e.verdict)}</div>` : ""}
+          </td>
+          <td class="score">
+            <span class="bar-wrap">
+              <span class="bar"><i style="width:${pct}%"></i></span>
+              <span class="score-n">${e.score}/10</span>
+            </span>
+          </td>
+        </tr>`;
+      })
+      .join("");
+    return `<table>
+      <thead><tr><th class="num">#</th><th>runner</th><th class="num">score</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+
+  let entries = [];
+  try {
+    const res = await fetch("/data/entries.json");
+    entries = await res.json();
+  } catch (e) {
+    entries = [];
+  }
+
+  for (const cat of CATEGORIES) {
+    const inCat = entries.filter((e) => e.category === cat);
+    const countEl = document.getElementById(`count-${cat}`);
+    const contentEl = document.getElementById(`content-${cat}`);
+    countEl.textContent = inCat.length ? `(${inCat.length})` : "";
+    contentEl.innerHTML = inCat.length
+      ? renderBoard(inCat)
+      : `<p class="empty">no verified runs yet — tag @buildthis.bisks.net with #humanswinning when one comes in.</p>`;
+  }
+
+  const total = entries.length;
+  const shareText = total
+    ? `HumanBENCH: ${total} human${total === 1 ? "" : "s"} graded 0-10 building apps under a time limit, judged by @shimmermathlabs.com. https://humanbench.bisks.net/`
+    : `HumanBENCH: leaderboards for humans, graded 0-10 like an AI model eval, judged by @shimmermathlabs.com. https://humanbench.bisks.net/`;
+  document.getElementById("shareBtn").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+})();
+</script>
+</body>
+</html>
