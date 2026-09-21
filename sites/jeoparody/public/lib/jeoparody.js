@@ -1,25 +1,16 @@
-// jeoparody.js — build a one-category Jeopardy board out of a Bluesky
-// handle's own posts: five clues, five dollar values, each clue written in
-// alliterative verse (three words sharing the topic's first letter), and the
-// "answer" is the topic itself — the thing that handle mentions most.
+// jeoparody.js — pick a Bluesky handle, pick a slice of their posts (recent /
+// most-liked / most-reposted), and rephrase one as a "Jen Kenning": a real
+// kenning (a compound noun standing in for the post's topic) laid out on a
+// four-stress Old English alliterative line, per elfprince13's original
+// alliterative-Jeopardy-clue-bot spec — three stresses alliterating, the
+// fourth running free.
 //
-// Runs entirely CLIENT-SIDE against the public AppView + PDS, anonymously
-// (no auth, no worker, no secrets). identity resolution + repo harvesting
-// copied from sites/bardposting/public/lib/sonnet.js and retuned: that site
-// ranks words for sonnet-meter fit, this one ranks them for raw "what do you
-// keep bringing up" frequency, and boosts hashtags as an explicit topic
-// signal a poster chose themselves.
-
-import { fetchRepoRecords } from "./car.js";
+// Runs entirely CLIENT-SIDE against the public AppView, anonymously (no
+// auth, no worker, no secrets). identity resolution copied from
+// sites/bardposting/public/lib/sonnet.js.
 
 const PUB = "https://api.bsky.app/xrpc";
 const PLC_DIR = "https://plc.directory";
-// Fallback pagination backstop — only used when the CAR download below fails
-// (oversized repo, non-CORS PDS, malformed CAR). Pages to exhaustion; this
-// cap just guards against a pathological account, sized to match the
-// FOLLOWERS_PAGES precedent (notes/40-new-site-playbook.md, "no arbitrary
-// caps") rather than an arbitrary "felt safe" number.
-const MAX_FALLBACK_PAGES = 400;
 
 async function jget(url) {
   const r = await fetch(url);
@@ -77,9 +68,9 @@ export async function resolveActorFull(actor) {
   return { did, pdsUrl, handle, displayName };
 }
 
-// Function words carry no topic — a board built from "the / and / with"
-// tells you nothing. Copied from bardposting's STOP list (same internet-chat
-// tuning), which already earns its keep there.
+// ── topic extraction ────────────────────────────────────────────────────
+// Function words carry no topic. Copied from bardposting's STOP list (same
+// internet-chat tuning), which already earns its keep there.
 const STOP = new Set(
   ("a an and are as at be been being but by can cant could did do does doing dont " +
     "for from had has have having he her hers herself him himself his how i if im in " +
@@ -92,16 +83,12 @@ const STOP = new Set(
     "get got go going gonna want wanna know think really thing things one two " +
     "now new dont doesnt didnt isnt arent wasnt werent cant couldnt wouldnt shouldnt " +
     "actually maybe kinda sorta pretty much still even ever never always " +
-    // social-media meta chatter: high-frequency in almost anyone's feed, so
     "post posts posting posted thread threads reply replies replying feed feeds " +
-    // it drowns out a person's actual topics rather than being one itself.
     "timeline account bluesky twitter skeet skeets people person guy guys folks " +
     "feel feels feeling felt good bad great nice cool literally honestly genuinely " +
     "definitely probably basically kind sort stuff way ways lot lots bit part point " +
     "mean means meant said say says saying looks looking look seems seem " +
     "right wrong true false real fake big small little long short great bunch " +
-    // generic high-frequency verbs: near-universal in any corpus of posts,
-    // so they rank high by raw count without ever being a person's "topic."
     "make makes made making see saw seen seeing take takes took taking come " +
     "comes came coming give gives gave giving find finds found finding show " +
     "shows showed showing shown put puts putting keep keeps kept keeping let " +
@@ -115,15 +102,9 @@ const STOP = new Set(
     "learned learning lead leads led leading watch watches watched watching " +
     "follow follows followed following stay stays stayed staying play plays " +
     "played playing run runs ran running hold holds held holding " +
-    // generic time/quantity nouns: "three weeks" is filler, the topic is
-    // whatever the three weeks were spent doing.
     "time times year years day days week weeks month months hour hours " +
     "minute minutes moment moments today tonight tomorrow yesterday " +
-    // contraction leftovers, now that apostrophes are stripped before
-    // splitting: "I've" -> "ive", "they're" -> "theyre", etc.
     "ive weve theyve theyre hes shes thats whats wheres hows whos theres heres aint " +
-    // indefinite pronouns and other generic filler that ranks high by sheer
-    // frequency without ever naming what a post is actually about.
     "someone somebody anyone everyone nobody something anything everything " +
     "nothing many much sure first last next another every back link com www http https")
     .split(/\s+/),
@@ -131,9 +112,8 @@ const STOP = new Set(
 
 const HASHTAG_RE = /#([a-zA-Z][a-zA-Z0-9_]{1,30})/g;
 
-// Tally a post's words into `counts`. Hashtags count extra — a poster who
-// tags #cats is telling you outright that cats are the topic, worth more
-// than an incidental mention.
+// Tally a text's words into `counts`. Hashtags count extra — a poster who
+// tags #cats is telling you outright that cats are the topic.
 function eat(text, counts) {
   const t = String(text || "");
   for (const m of t.matchAll(HASHTAG_RE)) {
@@ -145,17 +125,12 @@ function eat(text, counts) {
     .replace(/https?:\/\/\S+/g, " ")
     .replace(/@[\w.-]+/g, " ")
     .replace(/#\S+/g, " ")
-    // drop apostrophes (straight + curly) BEFORE splitting on non-letters,
-    // so "don't" collapses to "dont" (a token the stopword list already
-    // knows) instead of splitting into the meaningless fragments "don"+"t".
     .replace(/['’]/g, "")
     .split(/[^\p{L}]+/u)
     .filter(Boolean);
   for (const w of words) counts.set(w, (counts.get(w) || 0) + 1);
 }
 
-// Merge simple plurals ("cats" -> "cat") so one habit doesn't split its own
-// count across two board slots.
 function mergePlurals(counts) {
   for (const w of Array.from(counts.keys())) {
     if (w.length < 5 || !w.endsWith("s")) continue;
@@ -174,113 +149,110 @@ export function isTopicWorthy(word) {
   return true;
 }
 
-// Walk the account's own repo via com.atproto.repo.listRecords, page by
-// page, to exhaustion (cursor empty), capped only by MAX_FALLBACK_PAGES as a
-// backstop against a pathological account. Used only when the CAR download
-// below fails.
-async function harvestViaRepo(actor, counts, onPage) {
-  let cursor = "";
-  let pages = 0;
-  let posts = 0;
-  for (; pages < MAX_FALLBACK_PAGES; pages++) {
-    const u = new URL(`${actor.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.listRecords`);
-    u.searchParams.set("repo", actor.did);
-    u.searchParams.set("collection", "app.bsky.feed.post");
-    u.searchParams.set("limit", "100");
-    if (cursor) u.searchParams.set("cursor", cursor);
-    let d;
-    try {
-      d = await jget(u.toString());
-    } catch {
-      break;
-    }
-    const recs = d.records || [];
-    for (const rec of recs) {
-      const text = rec.value && rec.value.text;
-      if (!text) continue;
-      posts++;
-      eat(text, counts);
-    }
-    if (onPage) onPage(posts);
-    cursor = d.cursor;
-    if (!cursor || recs.length === 0) {
-      pages++;
-      break;
-    }
-  }
-  return posts;
-}
-
-// Pull a person's ENTIRE post history and rank their most-mentioned topics.
-// Tries one com.atproto.sync.getRepo CAR download first (this person's whole
-// history in one request, no page cap), falling back to a paginated
-// listRecords walk (to exhaustion) if the CAR path fails.
-export async function harvestTopics(actor, { onPage } = {}) {
+// The single most-mentioned worthy word in one post's text — the "topic" a
+// Jen Kenning gets built around.
+export function topTopicFromText(text) {
   const counts = new Map();
-  eat(actor.displayName, counts);
-
-  let posts = 0;
-  try {
-    const { records } = await fetchRepoRecords(actor.pdsUrl, actor.did, "app.bsky.feed.post");
-    for (const rec of records) {
-      if (!rec.text) continue;
-      posts++;
-      eat(rec.text, counts);
-    }
-    if (onPage) onPage(posts);
-  } catch {
-    posts = await harvestViaRepo(actor, counts, onPage);
-  }
-
+  eat(text, counts);
   mergePlurals(counts);
-
   const ranked = Array.from(counts.entries())
     .filter(([w]) => isTopicWorthy(w))
-    .sort((a, b) => b[1] - a[1]);
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return ranked.length ? ranked[0][0] : null;
+}
 
-  // Skip near-duplicates of a topic already picked (e.g. "photography" after
-  // "photograph") so five slots aren't wasted on one idea said two ways.
-  const topics = [];
-  for (const [w, c] of ranked) {
-    if (topics.length >= 5) break;
-    const dup = topics.some(
-      (t) => t.word.slice(0, 6) === w.slice(0, 6) && Math.min(t.word.length, w.length) >= 6,
-    );
-    if (!dup) topics.push({ word: w, count: c });
+// A handful of posts are topic-free by the above rule (an image with no
+// caption, a single emoji, a link-only post) — this is the fallback bank for
+// exactly that case, not a cap on anything: every post still gets *a*
+// deterministic word to build a kenning around.
+const FALLBACK_WORDS = [
+  "mystery", "silence", "moment", "glimpse", "static", "riddle", "murmur",
+  "notion", "omen", "echo",
+];
+function fallbackTopic(seed) {
+  const rng = mulberry32(hashStr(seed + ":fallback"));
+  return FALLBACK_WORDS[Math.floor(rng() * FALLBACK_WORDS.length)];
+}
+
+// ── fetching candidate posts ────────────────────────────────────────────
+const PAGE_LIMIT = 100;
+const RECENT_LIMIT = 5;
+const TOP_LIMIT = 5;
+
+// Like/repost counts are computed by the AppView, not stored in the raw repo
+// record, so there's no com.atproto.sync.getRepo bulk equivalent here the
+// way there is for raw post text elsewhere in this repo — finding the
+// genuinely most-liked/most-reposted post means walking
+// app.bsky.feed.getAuthorFeed to exhaustion. Page cap matches the
+// GRAPH_PAGES precedent (notes, "no arbitrary caps"): large enough that a
+// real account's full feed never reaches it, not a "felt safe" number.
+const MAX_FEED_PAGES = 400;
+
+async function fetchFeedPage(actor, cursor) {
+  const u = new URL(`${PUB}/app.bsky.feed.getAuthorFeed`);
+  u.searchParams.set("actor", actor.did);
+  u.searchParams.set("limit", String(PAGE_LIMIT));
+  u.searchParams.set("filter", "posts_no_replies");
+  if (cursor) u.searchParams.set("cursor", cursor);
+  return jget(u.toString());
+}
+
+// Keep only posts the actor actually wrote themselves — drop reposts of
+// other people's posts (marked with a `reason`) and anything misattributed.
+function ownPost(item, actor) {
+  return !!(item.post && item.post.author && item.post.author.did === actor.did && !item.reason);
+}
+
+function toCandidate(post) {
+  const rkey = post.uri.split("/").pop();
+  return {
+    uri: post.uri,
+    text: (post.record && post.record.text) || "",
+    likeCount: post.likeCount || 0,
+    repostCount: post.repostCount || 0,
+    indexedAt: post.indexedAt,
+    href: `https://bsky.app/profile/${post.author.handle}/post/${rkey}`,
+  };
+}
+
+// mode: "recent" (just the latest page, already newest-first) or "liked" /
+// "reposted" (walk the whole feed to exhaustion and rank by that count).
+export async function fetchCandidates(actor, mode, { onPage } = {}) {
+  if (mode === "recent") {
+    const d = await fetchFeedPage(actor, "");
+    const items = (d.feed || []).filter((it) => ownPost(it, actor));
+    return {
+      candidates: items.slice(0, RECENT_LIMIT).map((it) => toCandidate(it.post)),
+      scanned: items.length,
+    };
   }
 
-  return { posts, topics };
+  const key = mode === "liked" ? "likeCount" : "repostCount";
+  let cursor = "";
+  let scanned = 0;
+  const all = [];
+  for (let page = 0; page < MAX_FEED_PAGES; page++) {
+    const d = await fetchFeedPage(actor, cursor);
+    const items = (d.feed || []).filter((it) => ownPost(it, actor));
+    for (const it of items) all.push(it.post);
+    scanned += items.length;
+    if (onPage) onPage(scanned);
+    cursor = d.cursor;
+    if (!cursor || !(d.feed || []).length) break;
+  }
+  all.sort((a, b) => (b[key] || 0) - (a[key] || 0));
+  return { candidates: all.slice(0, TOP_LIMIT).map(toCandidate), scanned };
 }
 
-// Filler topics for a quiet account whose real history doesn't fill five
-// slots — better than a half-empty board.
-const FALLBACK_TOPICS = [
-  "bluesky", "mutuals", "screenshots", "reposts", "vibes", "threads",
-  "takes", "feeds", "cassettes", "skeets",
-];
-
-export function padTopics(topics, seed) {
-  const rng = mulberry32(hashStr(seed + ":pad"));
-  const have = new Set(topics.map((t) => t.word));
-  const pool = shuffled(FALLBACK_TOPICS.filter((w) => !have.has(w)), rng);
-  const out = topics.slice();
-  while (out.length < 5 && pool.length) out.push({ word: pool.shift(), count: 0 });
-  return out;
-}
-
-// ── alliterative clue-writing ────────────────────────────────────────────
-// Rebuilt per elfprince13's original spec (see the thread that asked for
-// this second pass): a real kenning — a compound noun standing in for the
-// topic, e.g. "whale-road" for the sea — laid out on a real four-stress Old
-// English alliterative line. A long line has two half-lines split by a
-// caesura; of its four stresses, the two in the first half-line alliterate
-// with each other AND with the first stress of the second half-line, while
-// the fourth stress is free. Concretely:
+// ── alliterative kenning-writing ────────────────────────────────────────
+// Per elfprince13's original spec: a real kenning — a compound noun standing
+// in for the topic, e.g. "whale-road" for the sea — laid out on a real
+// four-stress Old English alliterative line. A long line has two half-lines
+// split by a caesura; of its four stresses, the two in the first half-line
+// alliterate with each other AND with the first stress of the second
+// half-line, while the fourth stress is free:
 //   [kenning noun]  [adj2]   //   [adj3]   [free word]
 //    stress 1        stress 2      stress 3   stress 4 (no constraint)
-// stress 1-3 all share the topic's first letter; the kenning's second half
-// and the closing free word don't need to and are drawn from shared,
-// letter-independent pools so the line still reads like English.
 const TRAITS = {
   a: ["audacious", "absurd", "ancient", "abstract", "avid", "awkward", "astute", "arcane"],
   b: ["bizarre", "brazen", "baffling", "breezy", "bold", "blunt", "bashful", "booming"],
@@ -359,12 +331,15 @@ const FREEWORDS = [
   "undying", "again",
 ];
 
+// Closes out the translation by naming whose post this is — Jen Kenning's
+// persona is a translator, not a quizmaster, so these read as "here's the
+// alliterative version" rather than the old "guess the answer" framing.
 const CLOSERS = [
-  "this is what {h}'s posts keep circling back to.",
-  "this is the thing {h} cannot stop bringing up.",
-  "this is what {h}'s timeline is secretly about.",
-  "this is the through-line running under every post {h} makes.",
-  "this is what {h} would talk about even if no one asked.",
+  "that's @{h}'s post, run through Jen Kenning.",
+  "Jen Kenning's translation of what @{h} just posted.",
+  "@{h} said it in prose; here it is in kenning.",
+  "same post, alliterating now.",
+  "Jen Kenning read @{h}'s post so you don't have to parse the kenning.",
 ];
 
 function hashStr(s) {
@@ -396,19 +371,17 @@ function cap(w) {
   return w.charAt(0).toUpperCase() + w.slice(1);
 }
 
-// Build one kenning clue for a topic, laid out on a real four-stress
-// alliterative long line. `handle` fills the closing line; `seed` picks the
+// Build one Jen Kenning for a post: `topic` is its extracted subject word
+// (falls back to a deterministic filler word for a topic-free post — see
+// fallbackTopic above), `handle` fills the closing line, `seed` picks the
 // word draw + closer (change it to re-roll).
-export function clueFor(topic, handle, seed) {
-  const letter = (topic.match(/[a-z]/) || ["b"])[0];
+export function kenningForPost(topic, handle, seed) {
+  const word = topic || fallbackTopic(String(seed));
+  const letter = (word.match(/[a-z]/) || ["b"])[0];
   const adjBank = TRAITS[letter] || TRAITS.b;
   const nounBank = NOUNS[letter] || NOUNS.b;
   const rng = mulberry32(hashStr(String(seed)));
 
-  // stress 1: the kenning's alliterating noun half ("cauldron" in
-  // "cauldron-hoard"). stresses 2 and 3: two more distinct words from the
-  // same letter, drawn from adjectives+nouns pooled so a thin bank (x, y, z)
-  // still has enough to draw three distinct stresses from.
   const pool = adjBank.concat(nounBank);
   const draw = shuffled(pool, rng).slice(0, 3);
   while (draw.length < 3) draw.push(pool[draw.length % pool.length]);
@@ -417,10 +390,8 @@ export function clueFor(topic, handle, seed) {
   const freeword = shuffled(FREEWORDS, rng)[0];
 
   const kenning = `${cap(kenningNoun)}-${tail}`;
-  // half-line A (stress 1 + 2, both alliterate) — caesura — half-line B
-  // (stress 3, alliterates with A, + stress 4, free).
   const line1 = `${kenning}, ${adj2} — ${adj3}, ${freeword}.`;
-  const closer = CLOSERS[Math.floor(rng() * CLOSERS.length)].replace(/\{h\}/g, "@" + handle);
+  const closer = CLOSERS[Math.floor(rng() * CLOSERS.length)].replace(/\{h\}/g, handle);
   return { line1, line2: closer, kenning, stresses: [kenningNoun, adj2, adj3, freeword] };
 }
 

@@ -3,26 +3,26 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>jeoparody — a Jeopardy board built from your own posts — bisks.net</title>
+    <title>jeoparody — rephrased by Jen Kenning — bisks.net</title>
     <meta
       name="description"
-      content="Type a Bluesky handle and it builds a one-category Jeopardy board out of what that person actually mentions in their own posts — five clues, each a kenning on a four-stress alliterative line, $200 to $1000."
+      content="Type a Bluesky handle, pick recent / most-liked / most-reposted, and get one of their posts rephrased as a Jen Kenning — a real kenning on a four-stress alliterative line."
     />
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="jeoparody — answer in the form of a kenning" />
+    <meta property="og:title" content="jeoparody — rephrased by Jen Kenning" />
     <meta
       property="og:description"
-      content="A Jeopardy board built entirely from what a poster mentions in their own posts. Five clues, five values, each a kenning on a four-stress alliterative line — guess the topic before you peek."
+      content="Pick a handle and a post. Jen Kenning rephrases it: a compound-noun kenning for the topic, set on a real four-stress Old English alliterative line."
     />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="jeoparody" />
     <meta
       name="twitter:description"
-      content="A Jeopardy board built entirely from what a poster mentions in their own posts. Five clues, five values, each a kenning on a four-stress alliterative line."
+      content="Pick a handle and a post — Jen Kenning rephrases it as a real kenning on a four-stress alliterative line."
     />
     <!-- bisks.net house style: black on white, one calm blue accent, mono for
-         the chrome. The board itself gets the real Jeopardy blue — it has
-         earned it. -->
+         the chrome. The old Jeopardy-board blue lives on for the "answer
+         card" — it's the one visual joke worth keeping. -->
     <style>
       :root {
         --bg: #ffffff;
@@ -32,7 +32,6 @@
         --accent: #1a5fd0;
         --bad: #c0392b;
         --jblue: #060ce9;
-        --jblue-dark: #04089c;
         --jgold: #ffcc00;
         --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
           "Roboto Mono", Menlo, Consolas, monospace;
@@ -58,8 +57,7 @@
 
       form {
         display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: stretch;
-        border-top: 1px solid var(--ink); border-bottom: 1px solid var(--faint);
-        padding: 1rem 0; margin-bottom: 1rem;
+        border-top: 1px solid var(--ink); padding-top: 1rem; margin-bottom: 0.75rem;
       }
       input[type="text"] {
         flex: 1 1 14rem; min-width: 0; font-family: var(--mono);
@@ -76,6 +74,21 @@
       button:disabled { opacity: 0.45; cursor: default; }
       button.ghost { background: #fff; color: var(--ink); }
       button.ghost:hover { background: #fff; color: var(--accent); border-color: var(--accent); }
+      button.small { padding: 0.4rem 0.7rem; font-size: 0.8rem; }
+
+      .modes {
+        display: flex; gap: 0.4rem; flex-wrap: wrap;
+        border-bottom: 1px solid var(--faint); padding-bottom: 1rem; margin-bottom: 1rem;
+      }
+      .mode-btn {
+        background: #fff; color: var(--muted); border: 1px solid var(--faint);
+        font-family: var(--mono); font-size: 0.8rem; padding: 0.4rem 0.8rem;
+        border-radius: 999px; cursor: pointer;
+      }
+      .mode-btn:hover { border-color: var(--accent); color: var(--accent); }
+      .mode-btn.active {
+        background: var(--ink); color: #fff; border-color: var(--ink);
+      }
 
       .status { color: var(--muted); font-size: 0.85rem; min-height: 1.4rem; margin: 0 0 1rem; }
       .status.err { color: var(--bad); }
@@ -84,65 +97,35 @@
       .examples a { color: var(--accent); text-decoration: none; cursor: pointer; }
       .examples a:hover { text-decoration: underline; }
 
-      /* the board */
-      .board { display: none; }
-      .board.shown { display: block; }
-      .board .cat {
-        background: var(--jblue); color: var(--jgold); border-radius: 8px 8px 0 0;
-        padding: 1rem 1.1rem; text-align: center; font-family: var(--serif);
-        font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em;
-        font-size: 1.05rem; line-height: 1.4;
+      .results { display: none; }
+      .results.shown { display: block; }
+      .results h2 {
+        font-size: 0.85rem; font-weight: 600; margin: 0 0 0.8rem; color: var(--muted);
+        text-transform: uppercase; letter-spacing: 0.03em;
       }
-      .board .cat a { color: inherit; text-decoration: underline; text-decoration-color: rgba(255,204,0,0.4); }
-      .grid {
-        display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px;
-        background: #000; border-radius: 0 0 8px 8px; overflow: hidden;
-      }
-      /*
-        A cell has 3 possible contents (value/clue/answer) of very different
-        lengths. All 3 are always in the DOM, stacked on the same grid-area
-        so the cell's auto height is the max of all 3 at once — constant
-        across clicks, instead of resizing (and reflowing every other cell
-        in the row) each time the visible one changes. minmax(0, 1fr) above
-        stops a long clue word from blowing out its column's intrinsic
-        width, which is what was pushing content past `overflow: hidden`
-        and reading as "cut off" instead of wrapped.
-      */
-      .cell {
-        background: var(--jblue); color: var(--jgold); min-height: 6.5rem;
-        min-width: 0; display: grid; place-items: center;
-        text-align: center; padding: 0.6rem 0.5rem; cursor: pointer;
-        font-family: var(--serif); border: none; width: 100%;
-      }
-      .cell:hover { background: var(--jblue-dark); }
-      .cell.answered { cursor: default; background: var(--jblue-dark); }
-      .cell .state {
-        grid-area: 1 / 1; visibility: hidden; max-width: 100%;
-        overflow-wrap: anywhere; word-break: break-word;
-      }
-      .cell[data-state="value"] .state.value,
-      .cell[data-state="clue"] .state.clue,
-      .cell[data-state="answer"] .state.answer { visibility: visible; }
-      .cell .value { font-size: 1.5rem; font-weight: 700; }
-      .cell .clue { font-size: 0.78rem; line-height: 1.45; text-transform: uppercase; }
-      .cell .answer { font-size: 0.9rem; line-height: 1.4; }
-      .cell .answer .q { font-weight: 700; }
-      .cell .meta { display: block; margin-top: 0.35rem; font-size: 0.62rem; color: #cdd3ff; text-transform: none; }
+      .results h2 a { color: inherit; }
 
-      @media (max-width: 560px) {
-        .cell { padding: 0.4rem 0.3rem; min-height: 5.5rem; }
-        .cell .value { font-size: 1.1rem; }
-        .cell .clue { font-size: 0.64rem; line-height: 1.35; }
-        .cell .answer { font-size: 0.72rem; }
-        .cell .meta { font-size: 0.54rem; }
-        .board .cat { font-size: 0.9rem; padding: 0.8rem 0.6rem; }
+      .card {
+        border: 1px solid var(--faint); border-radius: 8px; padding: 0.9rem 1rem;
+        margin-bottom: 0.7rem;
       }
+      .card .post-text {
+        font-size: 0.92rem; line-height: 1.5; white-space: pre-wrap;
+        overflow-wrap: anywhere; margin: 0 0 0.5rem;
+      }
+      .card .post-meta {
+        color: var(--muted); font-size: 0.75rem; margin-bottom: 0.6rem;
+      }
+      .card .post-meta a { color: inherit; }
+      .card .translate-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
-      .board-actions {
-        display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1.1rem 0 0;
-        align-items: center;
+      .kenning {
+        margin-top: 0.8rem; padding: 0.9rem 1rem; border-radius: 8px;
+        background: var(--jblue); color: var(--jgold); font-family: var(--serif);
       }
-      .board-actions .note { color: var(--muted); font-size: 0.75rem; }
+      .kenning .line1 { font-size: 1.05rem; font-weight: 700; line-height: 1.5; }
+      .kenning .line2 { font-size: 0.82rem; color: #cdd3ff; margin-top: 0.4rem; font-family: var(--mono); }
+      .kenning-actions { display: flex; gap: 0.5rem; margin-top: 0.7rem; }
 
       footer {
         margin-top: 3rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
@@ -157,19 +140,20 @@
       <header>
         <h1>
           <a href="/">j<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">e</span>oparody</a>
-          <span class="slash">· answer in the form of a kenning</span>
+          <span class="slash">· rephrased by Jen Kenning</span>
         </h1>
       </header>
       <p class="intro">
-        Type a Bluesky handle. It reads that person's <b>entire</b> post history
-        straight off the public firehose, finds the five things they mention
-        most, and builds a real Jeopardy board out of it — one category, five
-        clues, <b>$200 to $1000</b>. Every clue is a <b>kenning</b> — a
-        compound noun standing in for the topic, like "whale-road" for the
-        sea — set on a real four-stress Old English alliterative line: two
-        stresses in the first half-line alliterate with the first stress of
-        the second half-line, and the fourth stress runs free. Guess before
-        you peek at the answer.
+        Type a Bluesky handle and pick a slice of their posts — <b>recent</b>,
+        <b>most-liked</b>, or <b>most-reposted</b>. Pick one, and it gets
+        rephrased as a <b>Jen Kenning</b> — a real <b>kenning</b>, a compound
+        noun standing in for the topic, like "whale-road" for the sea — set on
+        a real four-stress Old English alliterative line: two stresses in the
+        first half-line alliterate with each other and with the first stress
+        of the second half-line, and the fourth stress runs free. Named for
+        <a href="https://bsky.app/profile/elfprince13.mumak.app" target="_blank" rel="noopener">@elfprince13</a>'s
+        alliterative-Jeopardy-clue-bot idea, which is where the form comes
+        from.
       </p>
 
       <form id="form">
@@ -181,8 +165,13 @@
           autocapitalize="off"
           spellcheck="false"
         />
-        <button id="go" type="submit">build the board</button>
+        <button id="go" type="submit">find posts</button>
       </form>
+      <div class="modes" id="modes">
+        <button type="button" class="mode-btn active" data-mode="recent">recent</button>
+        <button type="button" class="mode-btn" data-mode="liked">most-liked</button>
+        <button type="button" class="mode-btn" data-mode="reposted">most-reposted</button>
+      </div>
       <p class="examples">
         try:
         <a data-h="mcint.io">@mcint.io</a> ·
@@ -192,21 +181,17 @@
 
       <p class="status" id="status"></p>
 
-      <div class="board" id="board">
-        <div class="cat" id="cat"></div>
-        <div class="grid" id="grid"></div>
-        <div class="board-actions">
-          <button class="ghost" id="reshuffle" type="button">reshuffle clues</button>
-          <button class="ghost" id="share" type="button">share ↗</button>
-          <span class="note" id="boardnote"></span>
-        </div>
+      <div class="results" id="results">
+        <h2 id="results-head"></h2>
+        <div id="cards"></div>
       </div>
 
       <footer>
-        built on <a href="https://atproto.com">atproto</a> · reads posts from a
-        person's own repo, anonymously · topics are ranked by raw mention
-        count, hashtags count extra · the wordplay is hand-written, the
-        obsessions are yours · rate this on
+        built on <a href="https://atproto.com">atproto</a> · reads posts from
+        the public AppView, anonymously · most-liked / most-reposted walk a
+        person's whole post history to find the real top post, not just a
+        recent page of it · the wordplay is hand-written, the posts are
+        yours · rate this on
         <a href="https://rateyourbuild.bisks.net/site/jeoparody">rateyourbuild →</a>
         · one of the <a href="https://bisks.net">bisks.net</a> experiments ·
         built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis</a>
@@ -218,99 +203,132 @@
       if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
     </script>
     <script type="module">
-      import { resolveActorFull, harvestTopics, padTopics, clueFor } from "./lib/jeoparody.js";
+      import { resolveActorFull, fetchCandidates, topTopicFromText, kenningForPost } from "./lib/jeoparody.js";
 
       const $ = (id) => document.getElementById(id);
       const form = $("form"), input = $("handle"), go = $("go"), status = $("status"),
-        board = $("board"), cat = $("cat"), grid = $("grid"),
-        reshuffleBtn = $("reshuffle"), shareBtn = $("share"), boardnote = $("boardnote");
+        modes = $("modes"), results = $("results"), resultsHead = $("results-head"),
+        cards = $("cards");
 
-      const VALUES = [1000, 800, 600, 400, 200]; // index i pairs with topics[i] (most-mentioned first)
+      const MODE_LABEL = { recent: "recent", liked: "most-liked", reposted: "most-reposted" };
 
-      let cur = null; // { actor, topics, seed, fake }
+      let mode = "recent";
+      let cur = null; // { actor, candidates: [{ ...post, revealed?, seed? }] }
 
       function setStatus(msg, isErr) {
         status.textContent = msg || "";
         status.classList.toggle("err", !!isErr);
       }
 
-      function cellHTML(topic, value, seed) {
-        const { line1, line2 } = clueFor(topic.word, cur.actor.handle, seed);
-        const meta = topic.count > 0
-          ? `mentioned ${topic.count}× in their posts`
-          : "quiet account — this one's a guess";
-        // all 3 states render at once (stacked via CSS grid-area) so the
-        // cell never resizes when its visible state changes — see the
-        // .cell .state rules in <style>.
+      function fmtDate(iso) {
+        try {
+          return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+        } catch {
+          return "";
+        }
+      }
+
+      function renderKenning(candidate) {
+        const topic = topTopicFromText(candidate.text);
+        const k = kenningForPost(topic, cur.actor.handle, candidate.seed);
+        candidate.kenning = k;
         return (
-          `<span class="state value">$${value}</span>` +
-          `<span class="state clue">${line1}<br>${line2}</span>` +
-          `<span class="state answer"><span class="q">What is ${topic.word.toUpperCase()}?</span><span class="meta">${meta}</span></span>`
+          `<div class="kenning">` +
+          `<div class="line1">${k.line1}</div>` +
+          `<div class="line2">${k.line2}</div>` +
+          `</div>` +
+          `<div class="kenning-actions">` +
+          `<button type="button" class="ghost small" data-act="reroll">reroll</button>` +
+          `<button type="button" class="ghost small" data-act="share">share ↗</button>` +
+          `</div>`
+        );
+      }
+
+      function cardHTML(candidate) {
+        const stat = mode === "liked"
+          ? `${candidate.likeCount} like${candidate.likeCount === 1 ? "" : "s"}`
+          : mode === "reposted"
+            ? `${candidate.repostCount} repost${candidate.repostCount === 1 ? "" : "s"}`
+            : "";
+        const meta = [stat, fmtDate(candidate.indexedAt)].filter(Boolean).join(" · ");
+        return (
+          `<p class="post-text"></p>` +
+          `<p class="post-meta"><a href="${candidate.href}" target="_blank" rel="noopener">view post ↗</a>${meta ? " · " + meta : ""}</p>` +
+          `<div class="translate-row"><button type="button" data-act="translate">translate as a Jen Kenning</button></div>` +
+          `<div class="kenning-slot"></div>`
         );
       }
 
       function render() {
-        const { actor, topics, seed } = cur;
-        cat.innerHTML =
-          `WHAT <a href="https://bsky.app/profile/${actor.handle}" target="_blank" rel="noopener">@${actor.handle}</a> WON'T STOP POSTING ABOUT`;
-
-        // pair by rank (topics[0] = most mentioned -> highest value), then
-        // lay the five cells out left-to-right in ascending value order.
-        const paired = topics.map((t, i) => ({ topic: t, value: VALUES[i] }));
-        paired.sort((a, b) => a.value - b.value);
-
-        grid.innerHTML = "";
-        paired.forEach(({ topic, value }, idx) => {
-          const cellSeed = `${actor.handle}:${topic.word}:${seed}`;
-          const cell = document.createElement("button");
-          cell.type = "button";
-          cell.className = "cell";
-          cell.dataset.state = "value";
-          cell.innerHTML = cellHTML(topic, value, cellSeed);
-          cell.addEventListener("click", () => {
-            if (cell.dataset.state === "value") {
-              cell.dataset.state = "clue";
-            } else if (cell.dataset.state === "clue") {
-              cell.dataset.state = "answer";
-              cell.classList.add("answered");
-            }
+        resultsHead.innerHTML =
+          `${MODE_LABEL[mode]} posts from <a href="https://bsky.app/profile/${cur.actor.handle}" target="_blank" rel="noopener">@${cur.actor.handle}</a>`;
+        cards.innerHTML = "";
+        cur.candidates.forEach((candidate, i) => {
+          const card = document.createElement("div");
+          card.className = "card";
+          card.innerHTML = cardHTML(candidate);
+          // post text goes through textContent, not innerHTML — it's someone
+          // else's arbitrary post text, not markup we wrote.
+          card.querySelector(".post-text").textContent = candidate.text || "(no text)";
+          const slot = card.querySelector(".kenning-slot");
+          const translateBtn = card.querySelector('[data-act="translate"]');
+          translateBtn.addEventListener("click", () => {
+            candidate.seed = `${cur.actor.handle}:${candidate.uri}:0`;
+            slot.innerHTML = renderKenning(candidate);
+            translateBtn.textContent = "translated ✓";
+            translateBtn.disabled = true;
+            wireKenningActions(slot, candidate);
           });
-          grid.appendChild(cell);
+          cards.appendChild(card);
         });
+        results.classList.add("shown");
+      }
 
-        board.classList.add("shown");
-        boardnote.textContent = cur.fake
-          ? "quiet account — filled out with a few guesses"
-          : `built from ${cur.postCount} posts`;
+      function wireKenningActions(slot, candidate) {
+        slot.querySelector('[data-act="reroll"]').addEventListener("click", () => {
+          const n = (Number((candidate.seed || "0").split(":").pop()) || 0) + 1;
+          candidate.seed = `${cur.actor.handle}:${candidate.uri}:${n}`;
+          slot.innerHTML = renderKenning(candidate);
+          wireKenningActions(slot, candidate);
+        });
+        slot.querySelector('[data-act="share"]').addEventListener("click", () => {
+          const k = candidate.kenning;
+          const link = "https://jeoparody.bisks.net/#" + encodeURIComponent(cur.actor.handle);
+          const text = `Jen Kenning's translation of @${cur.actor.handle}'s post: "${k.line1}" ${link}`;
+          window.open(
+            "https://bsky.app/intent/compose?text=" + encodeURIComponent(text),
+            "_blank",
+            "noopener",
+          );
+        });
       }
 
       async function build(raw) {
         const handle = String(raw || "").trim();
         if (!handle) return;
         go.disabled = true;
-        board.classList.remove("shown");
+        results.classList.remove("shown");
         setStatus("resolving " + handle.replace(/^@/, "") + " …");
         try {
           const actor = await resolveActorFull(handle);
-          setStatus("reading @" + actor.handle + "'s posts …");
-          const { posts, topics } = await harvestTopics(actor, {
-            onPage: (n) => setStatus(`reading @${actor.handle} … ${n} posts`),
+          setStatus(`reading @${actor.handle}'s ${MODE_LABEL[mode]} posts …`);
+          const { candidates, scanned } = await fetchCandidates(actor, mode, {
+            onPage: (n) => setStatus(`reading @${actor.handle}'s posts … ${n} scanned`),
           });
-          setStatus("");
-          const fake = topics.length < 5;
-          const full = padTopics(topics, actor.handle);
-          cur = { actor, topics: full, seed: actor.handle, postCount: posts, fake };
-          render();
-          if (posts === 0) {
-            setStatus("no posts found — this board is mostly guesses, sorry");
+          cur = { actor, candidates };
+          if (!candidates.length) {
+            setStatus(`no ${MODE_LABEL[mode]} posts found for @${actor.handle}`, true);
+            return;
           }
-          location.hash = encodeURIComponent(actor.handle);
+          setStatus(mode === "recent" ? "" : `scanned ${scanned} posts`);
+          render();
+          location.hash = encodeURIComponent(actor.handle) + ":" + mode;
         } catch (e) {
-          board.classList.remove("shown");
+          results.classList.remove("shown");
           const msg =
             e && e.status === 400
               ? `couldn't find "${handle.replace(/^@/, "")}" — check the handle?`
-              : `couldn't build that board: ${(e && e.message) || e}`;
+              : `couldn't read that account's posts: ${(e && e.message) || e}`;
           setStatus(msg, true);
         } finally {
           go.disabled = false;
@@ -322,6 +340,14 @@
         build(input.value);
       });
 
+      modes.addEventListener("click", (e) => {
+        const btn = e.target.closest(".mode-btn");
+        if (!btn) return;
+        mode = btn.dataset.mode;
+        modes.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b === btn));
+        if (input.value.trim()) build(input.value);
+      });
+
       document.querySelectorAll(".examples a").forEach((a) =>
         a.addEventListener("click", (e) => {
           e.preventDefault();
@@ -330,28 +356,16 @@
         }),
       );
 
-      reshuffleBtn.addEventListener("click", () => {
-        if (!cur) return;
-        cur.seed = cur.actor.handle + ":" + Math.floor(performance.now());
-        render();
-      });
-
-      shareBtn.addEventListener("click", () => {
-        if (!cur) return;
-        const link = "https://jeoparody.bisks.net/#" + encodeURIComponent(cur.actor.handle);
-        const text = `jeoparody: @${cur.actor.handle}'s own Jeopardy board, built from what they actually post about. guess before you peek: ${link}`;
-        window.open(
-          "https://bsky.app/intent/compose?text=" + encodeURIComponent(text),
-          "_blank",
-          "noopener",
-        );
-      });
-
-      // deep link: #handle builds on load
-      const initial = decodeURIComponent((location.hash || "").replace(/^#/, ""));
-      if (initial) {
-        input.value = initial;
-        build(initial);
+      // deep link: #handle:mode builds on load
+      const raw = decodeURIComponent((location.hash || "").replace(/^#/, ""));
+      if (raw) {
+        const [h, m] = raw.split(":");
+        if (m && MODE_LABEL[m]) {
+          mode = m;
+          modes.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === m));
+        }
+        input.value = h;
+        build(h);
       } else {
         input.focus();
       }

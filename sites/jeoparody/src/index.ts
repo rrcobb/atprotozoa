@@ -1,6 +1,6 @@
-// Served at the root of jeoparody.bisks.net. The whole board runs client-side
-// (reads the public AppView + a PDS's repo CAR, anonymously) so there's
-// nothing for the Worker to do but hand back static assets.
+// Served at the root of jeoparody.bisks.net. Everything runs client-side
+// (reads the public AppView, anonymously) so there's nothing for the Worker
+// to do but hand back static assets.
 export interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
 }
