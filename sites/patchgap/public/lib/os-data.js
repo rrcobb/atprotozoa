@@ -19,20 +19,82 @@
 // structurally-guaranteed zero. This asymmetry is exactly the kind of thing
 // the page's "how to read this" note exists to flag.
 //
-// `cpe` is the NVD CPE 2.3 vendor:product string used for the live metrics
-// (recent activity, critical severity, last-24h feed). NVD's virtualMatchString
-// does left-to-right component matching, so a vendor:product string with no
+// `cpes` is the list of NVD CPE 2.3 vendor:product strings summed for the
+// live metrics (recent activity, critical severity, last-24h feed) and, by
+// default, the all-time total too. NVD's virtualMatchString does
+// left-to-right component matching, so a vendor:product string with no
 // version component matches every version under it — e.g.
 // "cpe:2.3:o:microsoft:windows" alone matches windows_10, windows_11,
 // windows_server_2019, etc. in one query, which is what makes a single query
-// per OS possible instead of one per shipped version.
+// per shipped OS possible instead of one per version. Every OS here has a
+// single-entry `cpes` list except Debian — see below.
 //
-// `allTimeCpes` is almost always the same single entry, except macOS: Apple's
+// `allTimeCpes` defaults to `cpes`; the one exception is macOS: Apple's
 // desktop OS is catalogued in NVD's CPE dictionary under two different
 // product strings depending on CVE age ("mac_os_x" pre-rename, "macos"
 // since) that don't share a prefix, so the all-time total sums both. Recent
 // metrics only query "macos" — CVEs published in the last year overwhelmingly
 // use the current name, and the gap this leaves is noted in the page copy.
+//
+// Debian's `cpes` is a rollup, not a single CPE — see DEBIAN_PACKAGE_CPES
+// below for why.
+
+// @fubarchitect.com, follow-up to the original build: "for debian we do
+// probably gotta pick like, a set of mandatory packages (including the
+// linux kernel itself) to roll up into the count, most debian cves wont
+// have debian on the tin." Confirmed by hand against the live API before
+// writing this: querying "debian_linux" alone over the trailing 90 days
+// returns single digits, while "linux_kernel" alone over the same window
+// returns in the thousands — almost every real CVE that ships to a Debian
+// box files under the affected package's own CPE, not a distro-wide one.
+//
+// This list is every package on Debian's own "Priority: required" set (the
+// packages `debootstrap` installs on literally every Debian system, per the
+// Debian Policy Manual) that both (a) has an independent, non-generic CPE
+// vendor:product pair in NVD's dictionary and (b) actually has CVEs filed
+// against it there — plus the kernel, systemd, and OpenSSL. The kernel
+// isn't part of the required-package set (it's the boot component, not an
+// apt package) but is obviously mandatory, and the brief named it
+// explicitly. systemd is Priority: important, not required — Debian's
+// required set names an init system only as "sysvinit-core OR
+// systemd-sysv" — but systemd has been the default init on every Debian
+// release since Jessie (2015), so on the overwhelming majority of live
+// Debian systems it's the one actually installed. OpenSSL is Priority:
+// standard rather than required, but it's pulled in transitively by apt's
+// own HTTPS transport and by most of the required set besides, making it
+// present on Debian installs closely enough to universal to count — and
+// it's the single highest-profile source of Linux userspace CVEs
+// historically (Heartbleed among them), so leaving it out to keep the list
+// purely policy-clean would undercount on purpose. Packages considered and
+// left out: the rest of Priority: required (grep, sed, gzip, hostname,
+// findutils, diffutils, …) either have no independently-tracked NVD CPE or
+// return zero/near-zero results there — adding them would add query load
+// for the live poll (each one is another rate-limited NVD call, serialized
+// through the same 1-req/~7.5s queue every other metric shares) without
+// adding real count.
+//
+// Read the totals from this list as one summed number, not as eight
+// independent counts: summing per-CPE totalResults does NOT dedupe a CVE ID that happens to be
+// filed against more than one of these CPEs (e.g. a Debian Security
+// Advisory covering a kernel CVE could in principle be cross-referenced
+// under both "debian_linux" and "linux_kernel"). That overlap is real but
+// small relative to the totals involved; true ID-level dedup would mean
+// paginating every package's full CVE list instead of reading one
+// totalResults per query, which isn't viable within NVD's unauthenticated
+// rate limit for an all-time total in the tens of thousands. Disclosed here
+// and in the page's "how to read this" copy rather than quietly averaged
+// away.
+const DEBIAN_PACKAGE_CPES = [
+  "cpe:2.3:o:debian:debian_linux",
+  "cpe:2.3:o:linux:linux_kernel",
+  "cpe:2.3:a:gnu:glibc",
+  "cpe:2.3:a:gnu:bash",
+  "cpe:2.3:a:gnu:coreutils",
+  "cpe:2.3:a:debian:dpkg",
+  "cpe:2.3:a:systemd_project:systemd",
+  "cpe:2.3:a:openssl:openssl",
+];
+
 export const OSES = [
   {
     id: "windows",
@@ -41,8 +103,7 @@ export const OSES = [
     axis: "desktop",
     openness: "closed",
     opennessLabel: "closed source",
-    cpe: "cpe:2.3:o:microsoft:windows",
-    allTimeCpes: ["cpe:2.3:o:microsoft:windows"],
+    cpes: ["cpe:2.3:o:microsoft:windows"],
   },
   {
     id: "macos",
@@ -51,7 +112,7 @@ export const OSES = [
     axis: "desktop",
     openness: "closed",
     opennessLabel: "closed source",
-    cpe: "cpe:2.3:o:apple:macos",
+    cpes: ["cpe:2.3:o:apple:macos"],
     allTimeCpes: ["cpe:2.3:o:apple:macos", "cpe:2.3:o:apple:mac_os_x"],
   },
   {
@@ -61,8 +122,7 @@ export const OSES = [
     axis: "desktop",
     openness: "open",
     opennessLabel: "open source",
-    cpe: "cpe:2.3:o:debian:debian_linux",
-    allTimeCpes: ["cpe:2.3:o:debian:debian_linux"],
+    cpes: DEBIAN_PACKAGE_CPES,
   },
   {
     id: "ios",
@@ -71,8 +131,7 @@ export const OSES = [
     axis: "mobile",
     openness: "closed",
     opennessLabel: "closed source",
-    cpe: "cpe:2.3:o:apple:iphone_os",
-    allTimeCpes: ["cpe:2.3:o:apple:iphone_os"],
+    cpes: ["cpe:2.3:o:apple:iphone_os"],
   },
   {
     id: "android",
@@ -81,21 +140,23 @@ export const OSES = [
     axis: "mobile",
     openness: "open-core",
     opennessLabel: "open-source core",
-    cpe: "cpe:2.3:o:google:android",
-    allTimeCpes: ["cpe:2.3:o:google:android"],
+    cpes: ["cpe:2.3:o:google:android"],
   },
 ];
 
 import { nvdQuery, isoDaysAgo, isoNow } from "./nvd.js";
+import { mergeCveBodies } from "./format.js";
 
 const DAY = 86400000;
 
 // All-time total CVEs ever catalogued against this OS. Cached a full day —
 // this number moves slowly and there's no reason to re-earn it every visit.
+// `allTimeCpes` defaults to `cpes` (see OSES above) — macOS is the only OS
+// where the two lists differ.
 export async function fetchAllTime(os) {
   let total = 0;
   let gotAny = false;
-  for (const cpe of os.allTimeCpes) {
+  for (const cpe of os.allTimeCpes || os.cpes) {
     const body = await nvdQuery(
       { virtualMatchString: cpe, resultsPerPage: "1" },
       { ttlMs: 24 * 3600 * 1000, cacheKey: `alltime:${cpe}` }
@@ -114,16 +175,22 @@ export async function fetchAllTime(os) {
 // actual records) since only the aggregate totalResults is needed for the
 // bar charts — NVD returns that count directly, so there's no reason to
 // page through the underlying list just to count it.
+//
+// Most OSes have one CPE, so this is one NVD call. Debian has several (see
+// DEBIAN_PACKAGE_CPES) — mergeCveBodies (format.js) sums their totals and
+// dedupes their live-feed items by CVE ID.
 export async function fetchRecent(os, days, { severity, sample = 0, ttlMs = 3600 * 1000 } = {}) {
-  const params = {
-    virtualMatchString: os.cpe,
-    pubStartDate: isoDaysAgo(days),
-    pubEndDate: isoNow(),
-    resultsPerPage: String(sample || 1),
-  };
-  if (severity) params.cvssV3Severity = severity;
-  const cacheKey = `recent:${os.id}:${days}:${severity || "any"}:${sample}`;
-  const body = await nvdQuery(params, { ttlMs, cacheKey });
-  if (!body) return null;
-  return { total: body.totalResults, items: body.vulnerabilities || [] };
+  const bodies = [];
+  for (const cpe of os.cpes) {
+    const params = {
+      virtualMatchString: cpe,
+      pubStartDate: isoDaysAgo(days),
+      pubEndDate: isoNow(),
+      resultsPerPage: String(sample || 1),
+    };
+    if (severity) params.cvssV3Severity = severity;
+    const cacheKey = `recent:${os.id}:${cpe}:${days}:${severity || "any"}:${sample}`;
+    bodies.push(await nvdQuery(params, { ttlMs, cacheKey }));
+  }
+  return mergeCveBodies(bodies);
 }

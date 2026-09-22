@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmt, barScale, severityClass, truncate, escapeHtml } from "../public/lib/format.js";
+import { fmt, barScale, severityClass, truncate, escapeHtml, mergeCveBodies } from "../public/lib/format.js";
 
 test("fmt", () => {
   assert.equal(fmt(null), "—");
@@ -43,4 +43,32 @@ test("truncate", () => {
 
 test("escapeHtml", () => {
   assert.equal(escapeHtml(`<script>alert("hi")</script>`), "&lt;script&gt;alert(&quot;hi&quot;)&lt;/script&gt;");
+});
+
+test("mergeCveBodies sums totals across a multi-CPE rollup (Debian)", () => {
+  const merged = mergeCveBodies([
+    { totalResults: 2, vulnerabilities: [{ cve: { id: "CVE-1" } }] },
+    { totalResults: 2347, vulnerabilities: [{ cve: { id: "CVE-2" } }] },
+  ]);
+  assert.equal(merged.total, 2349);
+  assert.equal(merged.items.length, 2);
+});
+
+test("mergeCveBodies dedupes the same CVE ID across two CPEs' item lists", () => {
+  const merged = mergeCveBodies([
+    { totalResults: 1, vulnerabilities: [{ cve: { id: "CVE-2024-0001" } }] },
+    { totalResults: 1, vulnerabilities: [{ cve: { id: "CVE-2024-0001" } }] },
+  ]);
+  // totals are NOT deduped (disclosed limitation, see os-data.js) — only the item list is
+  assert.equal(merged.total, 2);
+  assert.equal(merged.items.length, 1);
+});
+
+test("mergeCveBodies skips failed (null) CPE queries but keeps the rest", () => {
+  const merged = mergeCveBodies([null, { totalResults: 5, vulnerabilities: [] }]);
+  assert.equal(merged.total, 5);
+});
+
+test("mergeCveBodies returns null when every CPE query failed", () => {
+  assert.equal(mergeCveBodies([null, null]), null);
 });

@@ -33,3 +33,30 @@ export function truncate(s, n) {
 export function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+
+// Combines NVD query bodies for the same OS's several CPEs (see Debian's
+// rollup in os-data.js) into one total and one item list. Sums totalResults
+// across every body as-is (see os-data.js's DEBIAN_PACKAGE_CPES comment for
+// why that isn't ID-deduped), but the returned *item* list — the one that
+// actually renders as CVE cards in the live feed — is deduped by CVE ID, so
+// a CVE cross-referenced under two of an OS's CPEs doesn't render twice.
+// `bodies` may contain `null` entries for CPEs whose query failed; those are
+// skipped. Returns `null` if every body failed.
+export function mergeCveBodies(bodies) {
+  let total = 0;
+  let gotAny = false;
+  const items = [];
+  const seenIds = new Set();
+  for (const body of bodies) {
+    if (!body) continue;
+    gotAny = true;
+    total += body.totalResults;
+    for (const item of body.vulnerabilities || []) {
+      const id = item.cve?.id;
+      if (id && seenIds.has(id)) continue;
+      if (id) seenIds.add(id);
+      items.push(item);
+    }
+  }
+  return gotAny ? { total, items } : null;
+}
