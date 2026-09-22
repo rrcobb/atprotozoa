@@ -94,3 +94,33 @@ test("scanForPublications returns nothing for a mutual whose only publication ne
   const found = await scanForPublications([{ did: DID, handle: "quiet.bsky.social" }]);
   assert.equal(found.length, 0);
 });
+
+test("scanForPublications drops a mutual with a live opt-out record on their own repo", async (t) => {
+  global.fetch = async (url) => {
+    const u = String(url);
+    if (u === `https://plc.directory/${DID}`) {
+      return jsonRes({
+        service: [{ id: "#atproto_pds", type: "AtprotoPersonalDataServer", serviceEndpoint: PDS }],
+      });
+    }
+    if (u.includes("collection=net.bisks.standard-incite.optout")) {
+      return jsonRes({
+        records: [
+          {
+            uri: `at://${DID}/net.bisks.standard-incite.optout/self`,
+            cid: "opt1",
+            value: { subject: DID, optedOutAt: "2026-09-01T00:00:00.000Z" },
+          },
+        ],
+      });
+    }
+    // A live opt-out should short-circuit before the publication/document
+    // collections are ever fetched — throwing here would fail the test if it
+    // didn't.
+    throw new Error(`unexpected fetch after opt-out check: ${u}`);
+  };
+  t.after(() => { global.fetch = originalFetch; });
+
+  const found = await scanForPublications([{ did: DID, handle: "optedout.bsky.social" }]);
+  assert.equal(found.length, 0);
+});

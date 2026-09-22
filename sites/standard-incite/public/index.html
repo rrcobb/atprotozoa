@@ -157,6 +157,23 @@
     text-align: center;
   }
 
+  .optout {
+    margin: 2.6rem 0 0; padding: 1rem 1.1rem; border: 1px dashed var(--border);
+    border-radius: 10px; font-size: 0.84rem; color: var(--muted);
+  }
+  .optout p { margin: 0 0 0.6rem; }
+  .optout .row {
+    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  }
+  .optout input[type="text"] {
+    font-family: var(--mono); font-size: 0.85rem; padding: 0.4rem 0.6rem;
+    border: 1px solid var(--ink); border-radius: 5px; background: var(--card);
+    color: var(--ink); width: 220px; max-width: 100%;
+  }
+  .optout .status { margin-top: 0.5rem; font-size: 0.8rem; }
+  .optout .status.err { color: #b0392c; }
+  .optout .status.ok { color: var(--good); }
+
   .progresswrap { margin: 0.3rem 0 1.4rem; }
   .progressbar {
     height: 6px; border-radius: 999px; background: var(--faintbg);
@@ -176,9 +193,9 @@
 <body>
 <div class="wrap">
 
-  <h1>standard incite<span class="bang">!</span></h1>
+  <h1>standard <span onclick='var e=document.getElementById("signin-handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">i</span>ncite<span class="bang">!</span></h1>
   <p class="intro">
-    Type a <span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">B</span>luesky handle.
+    Type a Bluesky handle.
     Finds every mutual (follows-back) who's set up a
     <a href="https://standard.site/" target="_blank" rel="noopener">standard.site</a>
     publication — the shared lexicons <code>Leaflet</code>, <code>pckt.blog</code>
@@ -213,6 +230,26 @@
     <div class="mootlist" id="mootlist"></div>
   </section>
 
+  <section class="optout">
+    <p>
+      Don't want to show up in anyone's results here? Sign in with your own
+      Bluesky account and opt out — it writes a
+      <code>net.bisks.standard-incite.optout</code> record to your own PDS,
+      and every future search drops you before your publications are even
+      checked.
+    </p>
+    <div class="row" id="optout-signed-out">
+      <input type="text" id="signin-handle" placeholder="you.bsky.social" spellcheck="false" style="display:none;" />
+      <button class="ghost tiny" id="optout-signin" type="button">sign in to opt out</button>
+    </div>
+    <div class="row" id="optout-signed-in" style="display:none;">
+      <span id="optout-who"></span>
+      <button class="ghost tiny" id="optout-go" type="button">opt me out</button>
+      <button class="ghost tiny" id="optout-signout" type="button">sign out</button>
+    </div>
+    <p class="status" id="optout-status"></p>
+  </section>
+
   <footer>
     "mutuals" = follows ∩ followers, from Bluesky's public graph. staleness is
     the newest <code>site.standard.document</code> across all of someone's
@@ -224,10 +261,13 @@
 <script src="lib/handle-typeahead.js"></script>
 <script>
   if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+  if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("signin-handle"));
 </script>
 <script type="module">
 import { moots, cleanHandle } from "./lib/moots.js";
 import { scanForPublications, daysSince } from "./lib/publications.js";
+import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
+import { resolvePds, listRecords } from "./lib/atproto.js";
 
 const $ = (sel) => document.querySelector(sel);
 const form = $("#form");
@@ -406,6 +446,119 @@ if (initial) {
   input.value = initial;
   form.requestSubmit();
 }
+
+// --- opt out (sign in, write net.bisks.standard-incite.optout to own PDS) ---
+
+const OPTOUT_COLLECTION = "net.bisks.standard-incite.optout";
+const signinHandle = $("#signin-handle");
+const signinBtn = $("#optout-signin");
+const signedOutRow = $("#optout-signed-out");
+const signedInRow = $("#optout-signed-in");
+const optoutWho = $("#optout-who");
+const optoutGoBtn = $("#optout-go");
+const optoutSignoutBtn = $("#optout-signout");
+const optoutStatus = $("#optout-status");
+
+let session = null;
+let awaitingSigninHandle = false;
+let alreadyOptedOut = false;
+
+function renderOptoutUI() {
+  if (session) {
+    signedOutRow.style.display = "none";
+    signedInRow.style.display = "flex";
+    optoutWho.textContent = `signed in as @${session.handle}`;
+    optoutGoBtn.disabled = alreadyOptedOut;
+    optoutGoBtn.textContent = alreadyOptedOut ? "you're opted out" : "opt me out";
+  } else {
+    signedOutRow.style.display = "flex";
+    signedInRow.style.display = "none";
+    signinHandle.style.display = awaitingSigninHandle ? "" : "none";
+    signinBtn.textContent = awaitingSigninHandle ? "continue →" : "sign in to opt out";
+  }
+}
+
+async function refreshOptoutStatus() {
+  if (!session) return;
+  try {
+    const records = await listRecords(session.pdsUrl, session.did, OPTOUT_COLLECTION);
+    alreadyOptedOut = records.some((r) => r.value?.subject === session.did);
+  } catch {
+    alreadyOptedOut = false;
+  }
+  renderOptoutUI();
+}
+
+signinBtn.addEventListener("click", async () => {
+  if (!awaitingSigninHandle) {
+    awaitingSigninHandle = true;
+    renderOptoutUI();
+    signinHandle.focus();
+    return;
+  }
+  const h = cleanHandle(signinHandle.value);
+  if (!h) return;
+  signinBtn.disabled = true;
+  optoutStatus.className = "status";
+  optoutStatus.textContent = "redirecting to your PDS to sign in…";
+  try {
+    await login(h);
+  } catch (e) {
+    optoutStatus.className = "status err";
+    optoutStatus.textContent = `sign-in failed: ${e.message}`;
+    signinBtn.disabled = false;
+  }
+});
+signinHandle.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") signinBtn.click();
+});
+
+optoutSignoutBtn.addEventListener("click", async () => {
+  await clearSession();
+  session = null;
+  awaitingSigninHandle = false;
+  alreadyOptedOut = false;
+  optoutStatus.className = "status";
+  optoutStatus.textContent = "";
+  renderOptoutUI();
+});
+
+optoutGoBtn.addEventListener("click", async () => {
+  if (!session || alreadyOptedOut) return;
+  optoutGoBtn.disabled = true;
+  optoutStatus.className = "status";
+  optoutStatus.textContent = "opting out…";
+  try {
+    const record = { subject: session.did, optedOutAt: new Date().toISOString() };
+    const base = session.pdsUrl.replace(/\/$/, "");
+    const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo: session.did, collection: OPTOUT_COLLECTION, rkey: "self", record }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    alreadyOptedOut = true;
+    optoutStatus.className = "status ok";
+    optoutStatus.textContent = "done — future searches will drop you. this can't be undone from here (the record's on your own PDS).";
+    renderOptoutUI();
+  } catch (e) {
+    optoutStatus.className = "status err";
+    optoutStatus.textContent = `couldn't opt out (${e.message}).`;
+    optoutGoBtn.disabled = false;
+  }
+});
+
+(async function bootOptout() {
+  try {
+    session = await completeLoginIfCallback();
+  } catch (e) {
+    optoutStatus.className = "status err";
+    optoutStatus.textContent = `sign-in failed: ${e.message}`;
+  }
+  if (!session) session = await getSession();
+  renderOptoutUI();
+  if (session) await refreshOptoutStatus();
+})();
 </script>
 </body>
 </html>

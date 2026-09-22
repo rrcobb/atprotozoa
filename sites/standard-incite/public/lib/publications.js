@@ -12,6 +12,12 @@ import { resolvePds, listRecords, pooledEach } from "./atproto.js";
 
 const PUB_COLLECTION = "site.standard.publication";
 const DOC_COLLECTION = "site.standard.document";
+// Self-declared "don't show me here" — see public/lexicons/net.bisks.standard-incite.optout.json
+// and public/lib/oauth.js. Written only by the account itself (subject must
+// equal the record's own repo DID), so this checked-but-never-written-here
+// collection is the mechanism for that guarantee, not a promise this file
+// enforces on its own.
+const OPTOUT_COLLECTION = "net.bisks.standard-incite.optout";
 
 // Politeness/browser-memory limit on how many mutuals' PDSes get hit at once
 // — not a cap on how many mutuals get checked (pooledEach still runs every
@@ -21,7 +27,8 @@ const DOC_COLLECTION = "site.standard.document";
 const CONCURRENCY = 6;
 
 // Checks one mutual for a standard.site presence. Returns null if they have
-// no PDS reachable, no publications at all, or publications that have never
+// no PDS reachable, have opted themselves out (net.bisks.standard-incite.optout
+// on their own repo), no publications at all, or publications that have never
 // had a single document posted to them (nothing to incite — see the site's
 // footer note). When they do have at least one publication with a real
 // post, returns:
@@ -33,6 +40,14 @@ const CONCURRENCY = 6;
 async function checkOne(mutual) {
   const pdsUrl = await resolvePds(mutual.did);
   if (!pdsUrl) return null;
+
+  try {
+    const optOut = await listRecords(pdsUrl, mutual.did, OPTOUT_COLLECTION);
+    if (optOut.some((r) => r.value?.subject === mutual.did)) return null;
+  } catch {
+    // No opt-out collection (or unreachable) reads the same as "not opted
+    // out" — this is the common case for every account that never wrote one.
+  }
 
   let pubRecords;
   try {
