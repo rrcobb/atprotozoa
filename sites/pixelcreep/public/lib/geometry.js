@@ -74,6 +74,19 @@ export function zoomFactor(canvasSize, t, seed = SEED_FLOOR) {
   return Math.pow(maxZoom, t);
 }
 
+// "zoom" mode's dolly target: where the zoomed content's seed point should
+// land on screen. At t=0 that's the seed's own screen position (the camera
+// hasn't moved yet); it slides linearly to the canvas center by t=1, so the
+// final magnified patch — which is centered on the seed in content space —
+// lands centered on the canvas instead of wherever the seed happened to be
+// clicked. Without this, a seed near an edge leaves the 100% frame visibly
+// off-center even though the patch itself fills canvasSize x canvasSize.
+export function zoomPivot(seedX, seedY, canvasSize, t) {
+  const u = Math.max(0, Math.min(1, t));
+  const c = canvasSize / 2;
+  return { x: seedX + (c - seedX) * u, y: seedY + (c - seedY) * u };
+}
+
 // "original size" mode: no camera zoom — the new photo's own square patch
 // grows in place, from a SEED_FLOOR dot centered on the seed at t=0 to a
 // rect that is exactly (0, 0, canvasSize, canvasSize) at t=1, so the patch

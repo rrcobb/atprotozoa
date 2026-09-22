@@ -13,9 +13,11 @@ import {
   cropToNaturalRect as cropToNaturalRectOf,
   growRadius,
   zoomFactor,
+  zoomPivot,
   originalSizeRect,
   SEED_FLOOR,
 } from "./lib/geometry.js";
+import { makeZip } from "./lib/zip.js";
 
 const OUT = 500; // output canvas size, px — also the frame used for downloads
 
@@ -38,6 +40,7 @@ const els = {
   seedSizeVal: document.getElementById("seedSizeVal"),
   modeToggle: document.getElementById("modeToggle"),
   downloadBtn: document.getElementById("downloadBtn"),
+  downloadZipBtn: document.getElementById("downloadZipBtn"),
   shareNative: document.getElementById("shareNative"),
   shareBluesky: document.getElementById("shareBluesky"),
   status: document.getElementById("status"),
@@ -256,67 +259,77 @@ els.cropSize.addEventListener("input", () => {
 
 // --- the actual grow effect ---
 
-function render() {
-  if (!state.imgA || !state.imgB || !state.seed) return;
-
+// draws one frame at slider position t (0..1) onto any size x size canvas
+// context — the live output canvas, or an offscreen one for the zip export.
+function drawFrame(ctx, size, t) {
   // background: image A, "cover" fit, scaled up from the 400px picker to
-  // the OUT-sized output canvas (same coordinate frame, just bigger)
-  const scaleOut = OUT / SEED_SIZE;
-  const bgRect = coverRect(state.imgA, OUT);
+  // the target canvas size (same coordinate frame, just bigger)
+  const scaleOut = size / SEED_SIZE;
+  const bgRect = coverRect(state.imgA, size);
   const seedX = state.seed.x * scaleOut;
   const seedY = state.seed.y * scaleOut;
-  const t = Number(els.growSlider.value) / 100;
   const b = state.imgB;
   const src = cropToNaturalRect(b, state.crop);
 
-  outCtx.clearRect(0, 0, OUT, OUT);
+  ctx.clearRect(0, 0, size, size);
 
   if (state.mode === "zoom") {
     // camera dollies into the seed point: draw both layers inside the same
-    // scale-around-seed transform, with the new photo's patch sized so it's
-    // exactly `patch` px at t=0 and fills the canvas once the transform has
+    // scale transform, with the new photo's patch sized so it's exactly
+    // `patch` px at t=0 and fills the canvas once the transform has
     // magnified it by zoomFactor(1) at t=1. `patch` comes from the seed-size
     // slider (default SEED_FLOOR, "literal 1 pixel") — bigger values start
     // the dolly from a visible chunk of the new photo instead of a dot.
+    // The transform's screen-space pivot slides from the seed's own screen
+    // position (t=0, camera hasn't moved) to the canvas center (t=1) via
+    // zoomPivot, so the final frame is centered regardless of where the
+    // seed was clicked — without this the 100% frame stays off-center
+    // whenever the seed isn't already dead-center on image A.
     const patch = Number(els.seedSizeSlider.value) || SEED_FLOOR;
-    const zoom = zoomFactor(OUT, t, patch);
-    outCtx.save();
-    outCtx.translate(seedX, seedY);
-    outCtx.scale(zoom, zoom);
-    outCtx.translate(-seedX, -seedY);
-    outCtx.drawImage(state.imgA, bgRect.x, bgRect.y, bgRect.w, bgRect.h);
-    outCtx.drawImage(
+    const zoom = zoomFactor(size, t, patch);
+    const pivot = zoomPivot(seedX, seedY, size, t);
+    ctx.save();
+    ctx.translate(pivot.x, pivot.y);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-seedX, -seedY);
+    ctx.drawImage(state.imgA, bgRect.x, bgRect.y, bgRect.w, bgRect.h);
+    ctx.drawImage(
       b,
       src.sx, src.sy, src.ssize, src.ssize,
       seedX - patch / 2, seedY - patch / 2, patch, patch
     );
-    outCtx.restore();
+    ctx.restore();
   } else if (state.mode === "original") {
     // no camera zoom — the new photo's own square just grows in place from
     // a dot at the seed to a rect that exactly covers the canvas at t=1.
-    outCtx.drawImage(state.imgA, bgRect.x, bgRect.y, bgRect.w, bgRect.h);
-    const r = originalSizeRect(OUT, seedX, seedY, t);
-    outCtx.drawImage(
+    ctx.drawImage(state.imgA, bgRect.x, bgRect.y, bgRect.w, bgRect.h);
+    const r = originalSizeRect(size, seedX, seedY, t);
+    ctx.drawImage(
       b,
       src.sx, src.sy, src.ssize, src.ssize,
       r.x, r.y, r.w, r.h
     );
   } else {
     // "grow": a circle mask expands outward from the seed pixel
-    outCtx.drawImage(state.imgA, bgRect.x, bgRect.y, bgRect.w, bgRect.h);
-    const radius = growRadius(seedX, seedY, OUT, t);
-    outCtx.save();
-    outCtx.beginPath();
-    outCtx.arc(seedX, seedY, radius, 0, Math.PI * 2);
-    outCtx.clip();
-    outCtx.drawImage(
+    ctx.drawImage(state.imgA, bgRect.x, bgRect.y, bgRect.w, bgRect.h);
+    const radius = growRadius(seedX, seedY, size, t);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(seedX, seedY, radius, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(
       b,
       src.sx, src.sy, src.ssize, src.ssize,
-      0, 0, OUT, OUT
+      0, 0, size, size
     );
-    outCtx.restore();
+    ctx.restore();
   }
+}
 
+function render() {
+  if (!state.imgA || !state.imgB || !state.seed) return;
+  const t = Number(els.growSlider.value) / 100;
+  drawFrame(outCtx, OUT, t);
   els.pctVal.textContent = Math.round(t * 100) + "%";
 }
 
@@ -341,6 +354,52 @@ els.downloadBtn.addEventListener("click", () => {
     els.status.textContent = "saved " + frameFilename();
     els.status.classList.add("ready");
   }, "image/png");
+});
+
+// 10 frames spread evenly across the full 0-100% sweep, endpoints included —
+// exactly what was asked for ("maybe 10 of them spaced from 0-100%").
+const ZIP_FRAME_COUNT = 10;
+
+function canvasToBlob(canvas) {
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+}
+
+els.downloadZipBtn.addEventListener("click", async () => {
+  if (!state.imgA || !state.imgB || !state.seed) return;
+  els.downloadZipBtn.disabled = true;
+  els.status.classList.remove("ready");
+  els.status.textContent = "rendering " + ZIP_FRAME_COUNT + " frames…";
+  try {
+    // an off-DOM canvas, so building the zip never disturbs the visible
+    // output or the live slider position
+    const temp = document.createElement("canvas");
+    temp.width = OUT;
+    temp.height = OUT;
+    const tempCtx = temp.getContext("2d");
+
+    const entries = [];
+    for (let i = 0; i < ZIP_FRAME_COUNT; i++) {
+      const t = i / (ZIP_FRAME_COUNT - 1);
+      drawFrame(tempCtx, OUT, t);
+      const blob = await canvasToBlob(temp);
+      if (!blob) continue;
+      const data = new Uint8Array(await blob.arrayBuffer());
+      const pct = String(Math.round(t * 100)).padStart(3, "0");
+      entries.push({ name: `pixelcreep-${state.mode}-${pct}pct.png`, data });
+    }
+
+    const zipBlob = makeZip(entries);
+    const filename = `pixelcreep-${state.mode}-frames.zip`;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(zipBlob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    els.status.textContent = "saved " + filename;
+    els.status.classList.add("ready");
+  } finally {
+    els.downloadZipBtn.disabled = false;
+  }
 });
 
 els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);

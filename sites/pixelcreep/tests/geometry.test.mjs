@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { coverRect, containRect, cropToNaturalRect, growRadius, zoomFactor, originalSizeRect } from "../public/lib/geometry.js";
+import { coverRect, containRect, cropToNaturalRect, growRadius, zoomFactor, zoomPivot, originalSizeRect } from "../public/lib/geometry.js";
 
 test("coverRect fills a square box with no gaps, centering the overflow axis", () => {
   // 800x400 image (2:1) into a 400x400 box: cover scales to height (400/400=1
@@ -134,6 +134,35 @@ test("zoomFactor ramps by a constant ratio per equal step of t (perceptually eve
   for (let i = 1; i < ratios.length; i++) {
     assert.ok(Math.abs(ratios[i] - ratios[0]) < 1e-6, `step ratio ${ratios[i]} should match ${ratios[0]}`);
   }
+});
+
+test("zoomPivot(0) is the seed's own screen position (camera hasn't moved)", () => {
+  const p = zoomPivot(120, 340, 500, 0);
+  assert.equal(p.x, 120);
+  assert.equal(p.y, 340);
+});
+
+test("zoomPivot(1) is exactly the canvas center, regardless of seed position", () => {
+  for (const [seedX, seedY] of [[0, 0], [500, 500], [10, 480], [250, 250]]) {
+    const p = zoomPivot(seedX, seedY, 500, 1);
+    assert.equal(p.x, 250);
+    assert.equal(p.y, 250);
+  }
+});
+
+test("zoomPivot is a plain lerp between seed and center", () => {
+  const p = zoomPivot(100, 400, 500, 0.5);
+  assert.equal(p.x, (100 + 250) / 2);
+  assert.equal(p.y, (400 + 250) / 2);
+});
+
+test("zoomPivot clamps t outside [0,1]", () => {
+  const over = zoomPivot(100, 400, 500, 1.5);
+  assert.equal(over.x, 250);
+  assert.equal(over.y, 250);
+  const under = zoomPivot(100, 400, 500, -0.5);
+  assert.equal(under.x, 100);
+  assert.equal(under.y, 400);
 });
 
 test("originalSizeRect(0) is a small dot centered on the seed", () => {
