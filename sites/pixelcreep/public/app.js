@@ -14,6 +14,7 @@ import {
   growRadius,
   zoomFactor,
   originalSizeRect,
+  SEED_FLOOR,
 } from "./lib/geometry.js";
 
 const OUT = 500; // output canvas size, px — also the frame used for downloads
@@ -32,6 +33,9 @@ const els = {
   outputCanvas: document.getElementById("outputCanvas"),
   growSlider: document.getElementById("growSlider"),
   pctVal: document.getElementById("pctVal"),
+  seedSizeRow: document.getElementById("seedSizeRow"),
+  seedSizeSlider: document.getElementById("seedSizeSlider"),
+  seedSizeVal: document.getElementById("seedSizeVal"),
   modeToggle: document.getElementById("modeToggle"),
   downloadBtn: document.getElementById("downloadBtn"),
   shareNative: document.getElementById("shareNative"),
@@ -59,6 +63,12 @@ els.modeToggle.addEventListener("click", (e) => {
   for (const b of els.modeToggle.querySelectorAll(".mode-btn")) {
     b.classList.toggle("active", b === btn);
   }
+  els.seedSizeRow.hidden = state.mode !== "zoom";
+  render();
+});
+
+els.seedSizeSlider.addEventListener("input", () => {
+  els.seedSizeVal.textContent = els.seedSizeSlider.value + "px";
   render();
 });
 
@@ -264,15 +274,17 @@ function render() {
   if (state.mode === "zoom") {
     // camera dollies into the seed point: draw both layers inside the same
     // scale-around-seed transform, with the new photo's patch sized so it's
-    // exactly SEED_FLOOR px at t=0 (invisible) and fills the canvas once
-    // the transform has magnified it by zoomFactor(1) at t=1.
-    const zoom = zoomFactor(OUT, t);
+    // exactly `patch` px at t=0 and fills the canvas once the transform has
+    // magnified it by zoomFactor(1) at t=1. `patch` comes from the seed-size
+    // slider (default SEED_FLOOR, "literal 1 pixel") — bigger values start
+    // the dolly from a visible chunk of the new photo instead of a dot.
+    const patch = Number(els.seedSizeSlider.value) || SEED_FLOOR;
+    const zoom = zoomFactor(OUT, t, patch);
     outCtx.save();
     outCtx.translate(seedX, seedY);
     outCtx.scale(zoom, zoom);
     outCtx.translate(-seedX, -seedY);
     outCtx.drawImage(state.imgA, bgRect.x, bgRect.y, bgRect.w, bgRect.h);
-    const patch = 0.9; // matches geometry.js's SEED_FLOOR
     outCtx.drawImage(
       b,
       src.sx, src.sy, src.ssize, src.ssize,

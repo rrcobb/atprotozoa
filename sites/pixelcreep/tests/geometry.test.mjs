@@ -112,6 +112,30 @@ test("zoomFactor grows monotonically with t", () => {
   }
 });
 
+test("zoomFactor accepts a custom seed size and still hits the exact endpoints", () => {
+  const size = 500;
+  assert.equal(zoomFactor(size, 0, 40), 1);
+  const z = zoomFactor(size, 1, 40);
+  assert.ok(Math.abs(z - size / 40) < 1e-9);
+});
+
+test("zoomFactor ramps by a constant ratio per equal step of t (perceptually even)", () => {
+  // log(zoom) should be linear in t, so equal steps of t produce equal
+  // *ratios* of magnification rather than a fast-then-slow feel
+  const size = 500;
+  const steps = [0.2, 0.4, 0.6, 0.8, 1];
+  const ratios = [];
+  let prev = zoomFactor(size, 0);
+  for (const t of steps) {
+    const z = zoomFactor(size, t);
+    ratios.push(z / prev);
+    prev = z;
+  }
+  for (let i = 1; i < ratios.length; i++) {
+    assert.ok(Math.abs(ratios[i] - ratios[0]) < 1e-6, `step ratio ${ratios[i]} should match ${ratios[0]}`);
+  }
+});
+
 test("originalSizeRect(0) is a small dot centered on the seed", () => {
   const r = originalSizeRect(500, 120, 340, 0);
   assert.ok(Math.abs(r.w - 0.9) < 1e-9);

@@ -48,18 +48,30 @@ export function growRadius(seedX, seedY, canvasSize, t) {
 
 // Same 0.9px floor as growRadius, shared by the two effects below: a patch
 // this small at t=0 reads as "one pixel" without vanishing entirely.
-const SEED_FLOOR = 0.9;
+export const SEED_FLOOR = 0.9;
 
 // "zoom" mode: instead of masking a static image, the camera itself zooms
-// in on the seed point. zoomFactor(t) is the scale applied around the seed
-// (1 = untouched photo at t=0); at t=1 it's exactly canvasSize/SEED_FLOOR,
-// meaning a SEED_FLOOR-px patch centered on the seed — drawn at native size
-// in the same transformed context as the background — has been magnified to
-// fill the whole canvas. sqrt(t) mirrors growRadius's area-linear feel.
-export function zoomFactor(canvasSize, t) {
-  const maxZoom = canvasSize / SEED_FLOOR;
+// in on the seed point. `seed` is the on-screen size (px) of the new photo's
+// patch at t=0 — the "seed size" slider, defaulting to SEED_FLOOR so a
+// caller that doesn't pass it gets the original sub-pixel dot. zoomFactor(t)
+// is the scale applied around the seed (1 = untouched photo at t=0); at t=1
+// it's exactly canvasSize/seed, meaning a seed-px patch centered on the seed
+// — drawn at native size in the same transformed context as the background —
+// has been magnified to fill the whole canvas.
+//
+// The ramp is exponential in t (maxZoom**t), not sqrt(t). Zoom is a
+// multiplicative quantity: what reads as a constant rate to the eye is a
+// constant *ratio* of magnification per unit of slider, not a constant
+// absolute increment. sqrt(t) (or plain t) front-loads the motion — the
+// zoom factor is still near 1 for most of the early slider, so the same
+// step there is a huge relative jump, then a tiny one by the time zoom is
+// already large near t=1. That's exactly the "fast then slow" complaint.
+// Interpolating the exponent keeps d(log zoom)/dt constant across the
+// whole slide instead.
+export function zoomFactor(canvasSize, t, seed = SEED_FLOOR) {
+  const maxZoom = canvasSize / seed;
   if (t <= 0) return 1;
-  return 1 + (maxZoom - 1) * Math.sqrt(t);
+  return Math.pow(maxZoom, t);
 }
 
 // "original size" mode: no camera zoom — the new photo's own square patch
