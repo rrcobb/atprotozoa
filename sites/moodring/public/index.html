@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>moodring — a bluesky mood ring</title>
+<meta name="description" content="Enter a Bluesky handle. moodring reads the tone of their last 10 posts and replies and wraps their avatar in a color that shifts with it, like the novelty ring." />
+<meta property="og:title" content="moodring — a bluesky mood ring" />
+<meta property="og:description" content="Enter a Bluesky handle. moodring reads the tone of their last 10 posts and replies and wraps their avatar in a color that shifts with it, like the novelty ring." />
+<meta property="og:url" content="https://moodring.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://moodring.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="moodring: a profile picture wrapped in a shifting colored ring." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="moodring — a bluesky mood ring" />
+<meta name="twitter:description" content="Enter a Bluesky handle. moodring reads the tone of their last 10 posts and replies and wraps their avatar in a color that shifts with it, like the novelty ring." />
+<meta name="twitter:image" content="https://moodring.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --fg: #f0eef7;
+    --dim: #8d89a3;
+    --card: #131320;
+    --border: #26243a;
+    --c1: #7dd8ff;
+    --c2: #c77dff;
+    --c3: #7dd8ff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background:
+      radial-gradient(ellipse at 20% -10%, #241a3a 0%, transparent 55%),
+      radial-gradient(ellipse at 90% 0%, #1a2b3a 0%, transparent 50%),
+      var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3.5rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 620px; }
+  .brand { display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.35rem; }
+  h1 {
+    font-size: 1.85rem; margin: 0;
+    background: linear-gradient(90deg, var(--c2), var(--c1));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .brand .blip { color: var(--c2); animation: blink 1.4s step-start infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2rem; line-height: 1.55; }
+  .tag code { color: var(--c1); }
+
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0;
+    background: var(--card); border: 1px solid var(--border); color: var(--fg);
+    border-radius: 8px; padding: 0.75rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--c1); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--c1), var(--c2)); color: #0a0a0f;
+    border: none; border-radius: 8px; padding: 0.75rem 1.15rem;
+    font: inherit; font-weight: 700; font-size: 0.88rem; cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.76rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.88rem; min-height: 1.4em; margin-bottom: 1rem; white-space: pre-wrap; }
+  .status.err { color: #ff8080; }
+
+  .card {
+    display: none;
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 1.8rem; text-align: center;
+  }
+  .card.show { display: block; animation: rise 0.35s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .ring-wrap { position: relative; width: 148px; height: 148px; margin: 0 auto 1.1rem; }
+  .ring-wrap::before {
+    content: ""; position: absolute; inset: -12px; border-radius: 50%;
+    background: conic-gradient(from 0deg, var(--c1), var(--c2), var(--c3), var(--c1));
+    filter: blur(3px);
+    animation: spin 7s linear infinite;
+  }
+  .ring-wrap::after {
+    content: ""; position: absolute; inset: -12px; border-radius: 50%;
+    background: conic-gradient(from 0deg, var(--c1), var(--c2), var(--c3), var(--c1));
+    opacity: 0.55; filter: blur(9px);
+    animation: spin 7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .ring-wrap img {
+    position: relative; z-index: 1;
+    width: 148px; height: 148px; border-radius: 50%;
+    border: 5px solid var(--bg); display: block;
+  }
+
+  .handle { font-weight: 700; margin-bottom: 0.15rem; }
+  .did { color: var(--dim); font-size: 0.66rem; word-break: break-all; margin-bottom: 1rem; }
+
+  .moodlabel { font-size: 1.7rem; font-weight: 800; text-transform: capitalize; margin-bottom: 0.15rem; }
+  .swatchname { font-size: 0.82rem; color: var(--dim); margin-bottom: 0.7rem; }
+  .moodblurb { font-size: 0.94rem; line-height: 1.55; margin-bottom: 1.3rem; }
+
+  .section-label {
+    font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--c1); margin-bottom: 0.55rem; text-align: left;
+  }
+  .swatchrow { display: flex; gap: 0.4rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1.4rem; }
+  .swatch {
+    width: 26px; height: 26px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.15); cursor: default;
+  }
+
+  .axes { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 1.4rem; text-align: left; }
+  .axis { flex: 1; }
+  .axis .lbl { font-size: 0.68rem; color: var(--dim); margin-bottom: 0.3rem; display: flex; justify-content: space-between; }
+  .axisbar { height: 6px; border-radius: 3px; background: #1c1a2a; overflow: hidden; position: relative; }
+  .axisbar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--c1), var(--c2)); }
+
+  .sharebar { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; }
+  .sharebar a, .sharebar button {
+    text-decoration: none; font: inherit; font-size: 0.82rem; font-weight: 700;
+    padding: 0.55rem 0.85rem; border-radius: 8px; border: 1px solid var(--border);
+    background: transparent; color: var(--fg); cursor: pointer;
+  }
+  .sharebar a.primary { background: linear-gradient(90deg, var(--c1), var(--c2)); color: #0a0a0f; border: none; }
+  #shareNative { display: none; }
+  #shareCanvas { display: none; }
+
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.72rem; text-align: center; }
+  footer a { color: var(--c1); }
+  footer .sep { margin: 0 0.4rem; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand"><h1>mood<span onclick='var e=document.getElementById("handleInput");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">r</span>ing</h1><span class="blip">_</span></div>
+    <p class="tag">
+      Point it at a Bluesky handle. It reads the tone of their last
+      <code>10</code> <code>app.bsky.feed.post</code> records — posts and
+      replies, newest first — and wraps their avatar in the color that tone
+      lands on, the same idea as the novelty ring.
+    </p>
+
+    <form id="ringForm">
+      <input id="handleInput" type="text" placeholder="handle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="ringBtn" type="submit">read &gt;</button>
+    </form>
+    <p class="hint">reads public posts only — no login, nothing written anywhere. no AI model call: a word-list tone reader running in your browser (see the comment in lib/mood.js for why).</p>
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <div class="ring-wrap"><img id="avatar" alt="" /></div>
+      <div class="handle" id="handleOut">@handle</div>
+      <div class="did" id="didOut">did:...</div>
+
+      <div class="moodlabel" id="moodLabel">mood</div>
+      <div class="swatchname" id="swatchName">color</div>
+      <p class="moodblurb" id="moodBlurb"></p>
+
+      <div class="axes">
+        <div class="axis">
+          <div class="lbl"><span>negative</span><span>positive</span></div>
+          <div class="axisbar"><i id="valenceFill" style="width:50%"></i></div>
+        </div>
+        <div class="axis">
+          <div class="lbl"><span>quiet</span><span>loud</span></div>
+          <div class="axisbar"><i id="intensityFill" style="width:0%"></i></div>
+        </div>
+      </div>
+
+      <div class="section-label">last 10, oldest → newest</div>
+      <div class="swatchrow" id="swatchRow"></div>
+
+      <div class="sharebar">
+        <a id="shareBluesky" class="primary" target="_blank" rel="noopener">🦋 share the ring</a>
+        <button id="shareDownload" type="button">save card</button>
+        <button id="shareNative" type="button">share…</button>
+      </div>
+    </div>
+
+    <canvas id="shareCanvas" width="1200" height="630"></canvas>
+
+    <footer>
+      a small, unserious mood reader by <a href="https://buildthis.bisks.net" target="_blank" rel="noopener">@buildthis.bisks.net</a>
+      <span class="sep">·</span>
+      <a href="https://rateyourbuild.bisks.net/site/moodring" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+    </footer>
+  </div>
+
+  <script type="module" src="/app.js"></script>
+<script src="lib/handle-typeahead.js"></script>
+<script>if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handleInput"));</script>
+</body>
+</html>
