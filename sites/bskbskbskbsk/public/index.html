@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>bskbskbskbsk — a bot that attracts cats</title>
+    <meta
+      name="description"
+      content="A real cat-attracting rig: synthesized tongue-clicks, a bird chirp and a mouse squeak from Web Audio, plus a wandering laser-style dot to hold up to a nearby cat. Turn your speaker up and your screen toward the cat."
+    />
+    <meta property="og:title" content="bskbskbskbsk" />
+    <meta property="og:description" content="Synthesized cat lures — clicks, a chirp, a squeak — plus a wandering laser dot. Point your screen at a cat and see what happens." />
+    <meta property="og:image" content="https://bskbskbskbsk.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The word bskbskbskbsk next to a small red dot and three sound-wave icons for click, chirp and squeak." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://bskbskbskbsk.bisks.net/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="bskbskbskbsk" />
+    <meta name="twitter:description" content="A bot that attracts cats: synthesized lures plus a wandering laser dot." />
+    <meta name="twitter:image" content="https://bskbskbskbsk.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #0d1210;
+        --panel: #151d1a;
+        --ink: #eef6f1;
+        --muted: #8fa89c;
+        --faint: #26332e;
+        --dot: #ff4d4d;
+        --accent: #ffce54;
+        --mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; background: var(--bg); color: var(--ink);
+        font-family: var(--mono); font-size: 14px; line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        background-image: radial-gradient(ellipse at 15% -10%, rgba(255,77,77,0.08), transparent 55%);
+      }
+      a { color: var(--accent); }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+
+      header .kicker {
+        color: var(--dot); font-size: 0.72rem; letter-spacing: 0.2em;
+        text-transform: uppercase; margin: 0 0 0.5rem;
+      }
+      header h1 { font-size: 1.9rem; margin: 0 0 0.6rem; font-weight: 800; letter-spacing: 0.02em; }
+      header p { color: var(--muted); margin: 0 0 1.75rem; font-size: 0.87rem; max-width: 60ch; }
+      header p code { color: var(--accent); font-size: 0.85em; }
+
+      #stage {
+        position: relative; overflow: hidden;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 10px;
+        height: 220px; margin-bottom: 1rem;
+      }
+      #dot {
+        position: absolute; width: 16px; height: 16px; border-radius: 50%;
+        background: var(--dot); box-shadow: 0 0 14px 4px rgba(255,77,77,0.55);
+        top: 50%; left: 50%; transform: translate(-50%, -50%);
+        display: none;
+      }
+      #stage.active #dot { display: block; }
+      #stage-hint {
+        position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        color: var(--muted); font-size: 0.78rem; text-align: center; padding: 1rem;
+      }
+      #stage.active #stage-hint { display: none; }
+
+      .transport {
+        display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; justify-content: center;
+        padding: 1.1rem 1rem; margin-bottom: 1rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+      }
+      #main-btn {
+        font-family: var(--mono); font-size: 1rem; font-weight: 800;
+        color: var(--bg); background: var(--dot); border: none;
+        border-radius: 8px; padding: 0.85rem 1.6rem; cursor: pointer;
+        letter-spacing: 0.03em;
+      }
+      #main-btn:hover { filter: brightness(1.08); }
+      #main-btn:active { transform: scale(0.98); }
+      .transport label { display: inline-flex; align-items: center; gap: 0.4rem; color: var(--muted); font-size: 0.8rem; }
+
+      .modes {
+        display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center;
+        padding: 0 1rem 1.1rem;
+        background: var(--panel); border: 1px solid var(--faint); border-top: none;
+        border-radius: 0 0 8px 8px; margin-top: -1rem; margin-bottom: 1rem;
+      }
+      .mode-btn {
+        font-family: var(--mono); font-size: 0.76rem; color: var(--muted);
+        background: rgba(255,255,255,0.03); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.4rem 0.8rem; cursor: pointer;
+      }
+      .mode-btn.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+
+      #readout {
+        text-align: center; color: var(--muted); font-size: 0.76rem; margin: -0.4rem 0 1.4rem;
+      }
+
+      .report {
+        display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap;
+        padding: 0.9rem 1rem; margin-bottom: 1rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+      }
+      .report button {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+        background: rgba(255,255,255,0.03); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.5rem 0.85rem; cursor: pointer;
+      }
+      .report button:hover { color: var(--ink); border-color: var(--accent); }
+      #cat-count { color: var(--ink); font-weight: 700; }
+
+      .share { display: flex; gap: 0.6rem; margin: 0 0 1.75rem; flex-wrap: wrap; }
+      .share a, .share button {
+        font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+        background: rgba(255,255,255,0.03); border: 1px solid var(--faint); border-radius: 9px;
+        padding: 0.5rem 0.85rem; cursor: pointer; text-decoration: none;
+      }
+      .share a:hover, .share button:hover { color: var(--ink); border-color: var(--accent); }
+
+      .about {
+        padding: 1rem 1.2rem; margin-bottom: 1.5rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 8px;
+        color: var(--muted); font-size: 0.8rem; line-height: 1.7;
+      }
+      .about b { color: var(--ink); }
+
+      footer {
+        margin-top: 2rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.75rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <p class="kicker">clicks · chirp · squeak · wandering dot</p>
+        <h1>bskbskbskbsk</h1>
+        <p>
+          Real cats key off a handful of sounds and one kind of motion: a
+          sharp tongue-click ("<code>bsk bsk bsk</code>"), a bird's chirp, a
+          rodent's squeak, and a small bright thing darting around
+          unpredictably. This page synthesizes all four, live, with Web
+          Audio and a canvas dot — no recordings. Turn the volume up, hold
+          your screen toward the cat, and see what happens.
+        </p>
+      </header>
+
+      <div id="stage">
+        <div id="stage-hint">press start — the dot and sound only run while active</div>
+        <div id="dot"></div>
+      </div>
+
+      <div class="transport">
+        <button id="main-btn">▶ start attracting</button>
+        <label>volume <input type="range" id="master-vol" min="0" max="1" step="0.01" value="0.85" /></label>
+      </div>
+      <div class="modes">
+        <button class="mode-btn" data-mode="all">all lures</button>
+        <button class="mode-btn" data-mode="clicks">clicks only</button>
+        <button class="mode-btn" data-mode="chirp">chirp only</button>
+        <button class="mode-btn" data-mode="squeak">squeak only</button>
+      </div>
+      <div id="readout">mode: <b id="mode-val">all lures</b></div>
+
+      <div class="report">
+        <button id="cat-came-btn">🐈 a cat actually came</button>
+        <span>your reports, this browser: <span id="cat-count">0</span></span>
+      </div>
+
+      <div class="share">
+        <a id="share-intent" target="_blank" rel="noopener">🦋 share this</a>
+      </div>
+
+      <div class="about">
+        <p>
+          <b>Clicks</b> are a short burst of noise through a narrow bandpass
+          around 3-4.5kHz, four in a row — the same cadence as saying
+          "bsk bsk bsk bsk" out loud. <b>Chirp</b> sweeps a sine tone up then
+          down like a tweet. <b>Squeak</b> is a fast descending triangle
+          tone, pitched above the chirp so the two stay distinguishable.
+          <b>All lures</b> interleaves every sound into one longer cycle
+          instead of stacking them at once.
+        </p>
+        <p>
+          The dot in the stage above wanders to a new random point every
+          couple of seconds and eases toward it, the way an actual laser
+          pointer jitters rather than glides — some cats track it right off
+          a screen. Effectiveness on any given cat is, scientifically
+          speaking, not guaranteed.
+        </p>
+      </div>
+
+      <footer>
+        built on <a href="https://atproto.com">atproto</a>'s house style of
+        small self-contained sites · synthesized live with plain Web Audio
+        and a canvas-free wandering dot, no samples, no server · a
+        <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>
+        build for <a href="https://bsky.app/profile/zzstoatzz.io">@zzstoatzz.io</a>,
+        mid "bsk bsk bsk" in the bsk38.com thread ·
+        <a href="https://rateyourbuild.bisks.net/site/bskbskbskbsk">rate this on rateyourbuild →</a>
+        · <a href="https://bisks.net">bisks.net</a>
+      </footer>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
