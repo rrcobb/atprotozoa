@@ -1,10 +1,20 @@
 // pixelcreep — two photos in, a slider out. 0% shows the current pfp with
 // exactly one pixel of the new photo showing at a chosen seed point; 100%
-// shows the new photo (cropped to a square) filling the whole frame. In
-// between, a circle grows outward from the seed pixel. Everything is local
-// canvas compositing — no upload, no server round-trip.
+// shows the new photo (cropped to a square) filling the whole frame. Three
+// effects get there differently: "grow" masks a circle that expands outward
+// from the seed pixel; "zoom" dollies the camera into the seed point until
+// it fills the frame; "original size" grows the new photo's own patch in
+// place with no camera zoom. Everything is local canvas compositing — no
+// upload, no server round-trip.
 
-import { coverRect as coverRectOf, containRect as containRectOf, cropToNaturalRect as cropToNaturalRectOf, growRadius } from "./lib/geometry.js";
+import {
+  coverRect as coverRectOf,
+  containRect as containRectOf,
+  cropToNaturalRect as cropToNaturalRectOf,
+  growRadius,
+  zoomFactor,
+  originalSizeRect,
+} from "./lib/geometry.js";
 
 const OUT = 500; // output canvas size, px — also the frame used for downloads
 
@@ -22,6 +32,7 @@ const els = {
   outputCanvas: document.getElementById("outputCanvas"),
   growSlider: document.getElementById("growSlider"),
   pctVal: document.getElementById("pctVal"),
+  modeToggle: document.getElementById("modeToggle"),
   downloadBtn: document.getElementById("downloadBtn"),
   shareNative: document.getElementById("shareNative"),
   shareBluesky: document.getElementById("shareBluesky"),
@@ -38,7 +49,18 @@ const state = {
   seed: null, // { x, y } in seedCanvas pixel space (0..400)
   crop: { x: 0, y: 0, size: 0 }, // in cropCanvas pixel space
   cropDrag: null,
+  mode: "grow", // "grow" | "zoom" | "original"
 };
+
+els.modeToggle.addEventListener("click", (e) => {
+  const btn = e.target.closest(".mode-btn");
+  if (!btn) return;
+  state.mode = btn.dataset.mode;
+  for (const b of els.modeToggle.querySelectorAll(".mode-btn")) {
+    b.classList.toggle("active", b === btn);
+  }
+  render();
+});
 
 const SEED_SIZE = 400; // matches seedCanvas/cropCanvas width/height attrs
 
@@ -231,26 +253,57 @@ function render() {
   // the OUT-sized output canvas (same coordinate frame, just bigger)
   const scaleOut = OUT / SEED_SIZE;
   const bgRect = coverRect(state.imgA, OUT);
-  outCtx.clearRect(0, 0, OUT, OUT);
-  outCtx.drawImage(state.imgA, bgRect.x, bgRect.y, bgRect.w, bgRect.h);
-
   const seedX = state.seed.x * scaleOut;
   const seedY = state.seed.y * scaleOut;
   const t = Number(els.growSlider.value) / 100;
-  const radius = growRadius(seedX, seedY, OUT, t);
-
   const b = state.imgB;
   const src = cropToNaturalRect(b, state.crop);
-  outCtx.save();
-  outCtx.beginPath();
-  outCtx.arc(seedX, seedY, radius, 0, Math.PI * 2);
-  outCtx.clip();
-  outCtx.drawImage(
-    b,
-    src.sx, src.sy, src.ssize, src.ssize,
-    0, 0, OUT, OUT
-  );
-  outCtx.restore();
+
+  outCtx.clearRect(0, 0, OUT, OUT);
+
+  if (state.mode === "zoom") {
+    // camera dollies into the seed point: draw both layers inside the same
+    // scale-around-seed transform, with the new photo's patch sized so it's
+    // exactly SEED_FLOOR px at t=0 (invisible) and fills the canvas once
+    // the transform has magnified it by zoomFactor(1) at t=1.
+    const zoom = zoomFactor(OUT, t);
+    outCtx.save();
+    outCtx.translate(seedX, seedY);
+    outCtx.scale(zoom, zoom);
+    outCtx.translate(-seedX, -seedY);
+    outCtx.drawImage(state.imgA, bgRect.x, bgRect.y, bgRect.w, bgRect.h);
+    const patch = 0.9; // matches geometry.js's SEED_FLOOR
+    outCtx.drawImage(
+      b,
+      src.sx, src.sy, src.ssize, src.ssize,
+      seedX - patch / 2, seedY - patch / 2, patch, patch
+    );
+    outCtx.restore();
+  } else if (state.mode === "original") {
+    // no camera zoom — the new photo's own square just grows in place from
+    // a dot at the seed to a rect that exactly covers the canvas at t=1.
+    outCtx.drawImage(state.imgA, bgRect.x, bgRect.y, bgRect.w, bgRect.h);
+    const r = originalSizeRect(OUT, seedX, seedY, t);
+    outCtx.drawImage(
+      b,
+      src.sx, src.sy, src.ssize, src.ssize,
+      r.x, r.y, r.w, r.h
+    );
+  } else {
+    // "grow": a circle mask expands outward from the seed pixel
+    outCtx.drawImage(state.imgA, bgRect.x, bgRect.y, bgRect.w, bgRect.h);
+    const radius = growRadius(seedX, seedY, OUT, t);
+    outCtx.save();
+    outCtx.beginPath();
+    outCtx.arc(seedX, seedY, radius, 0, Math.PI * 2);
+    outCtx.clip();
+    outCtx.drawImage(
+      b,
+      src.sx, src.sy, src.ssize, src.ssize,
+      0, 0, OUT, OUT
+    );
+    outCtx.restore();
+  }
 
   els.pctVal.textContent = Math.round(t * 100) + "%";
 }
@@ -260,7 +313,7 @@ els.growSlider.addEventListener("input", render);
 // --- save / share the current frame ---
 
 function frameFilename() {
-  return "pixelcreep-" + Math.round(Number(els.growSlider.value)) + "pct.png";
+  return "pixelcreep-" + state.mode + "-" + Math.round(Number(els.growSlider.value)) + "pct.png";
 }
 
 const shareText = "grew my pfp from a single pixel with pixelcreep 🌱 https://pixelcreep.bisks.net/";

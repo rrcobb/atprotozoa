@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { coverRect, containRect, cropToNaturalRect, growRadius } from "../public/lib/geometry.js";
+import { coverRect, containRect, cropToNaturalRect, growRadius, zoomFactor, originalSizeRect } from "../public/lib/geometry.js";
 
 test("coverRect fills a square box with no gaps, centering the overflow axis", () => {
   // 800x400 image (2:1) into a 400x400 box: cover scales to height (400/400=1
@@ -89,5 +89,51 @@ test("growRadius covers ~t of the canvas area at slider position t (the point of
     const r = growRadius(seedX, seedY, size, t);
     const areaFrac = (r * r) / (maxRadius * maxRadius);
     assert.ok(Math.abs(areaFrac - t) < 0.03, `t=${t} gave area fraction ${areaFrac}`);
+  }
+});
+
+test("zoomFactor(0) is untouched (no zoom)", () => {
+  assert.equal(zoomFactor(500, 0), 1);
+});
+
+test("zoomFactor(1) magnifies a 0.9px patch to exactly fill the canvas", () => {
+  const size = 500;
+  const z = zoomFactor(size, 1);
+  assert.ok(Math.abs(z - size / 0.9) < 1e-9);
+});
+
+test("zoomFactor grows monotonically with t", () => {
+  const size = 500;
+  let prev = 0;
+  for (const t of [0, 0.1, 0.25, 0.5, 0.75, 1]) {
+    const z = zoomFactor(size, t);
+    assert.ok(z >= prev, `zoom should not shrink as t increases (t=${t})`);
+    prev = z;
+  }
+});
+
+test("originalSizeRect(0) is a small dot centered on the seed", () => {
+  const r = originalSizeRect(500, 120, 340, 0);
+  assert.ok(Math.abs(r.w - 0.9) < 1e-9);
+  assert.ok(Math.abs(r.x - (120 - 0.45)) < 1e-9);
+  assert.ok(Math.abs(r.y - (340 - 0.45)) < 1e-9);
+});
+
+test("originalSizeRect(1) exactly covers the canvas regardless of seed position", () => {
+  for (const [seedX, seedY] of [[0, 0], [500, 500], [10, 480], [250, 250]]) {
+    const r = originalSizeRect(500, seedX, seedY, 1);
+    assert.equal(r.x, 0);
+    assert.equal(r.y, 0);
+    assert.equal(r.w, 500);
+    assert.equal(r.h, 500);
+  }
+});
+
+test("originalSizeRect grows monotonically (width) with t", () => {
+  let prev = 0;
+  for (const t of [0, 0.1, 0.25, 0.5, 0.75, 1]) {
+    const r = originalSizeRect(500, 250, 250, t);
+    assert.ok(r.w >= prev, `width should not shrink as t increases (t=${t})`);
+    prev = r.w;
   }
 });

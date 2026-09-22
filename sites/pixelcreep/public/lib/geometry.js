@@ -45,3 +45,36 @@ export function growRadius(seedX, seedY, canvasSize, t) {
   if (t <= 0) return 0.9;
   return Math.max(0.9, maxRadius * Math.sqrt(t));
 }
+
+// Same 0.9px floor as growRadius, shared by the two effects below: a patch
+// this small at t=0 reads as "one pixel" without vanishing entirely.
+const SEED_FLOOR = 0.9;
+
+// "zoom" mode: instead of masking a static image, the camera itself zooms
+// in on the seed point. zoomFactor(t) is the scale applied around the seed
+// (1 = untouched photo at t=0); at t=1 it's exactly canvasSize/SEED_FLOOR,
+// meaning a SEED_FLOOR-px patch centered on the seed — drawn at native size
+// in the same transformed context as the background — has been magnified to
+// fill the whole canvas. sqrt(t) mirrors growRadius's area-linear feel.
+export function zoomFactor(canvasSize, t) {
+  const maxZoom = canvasSize / SEED_FLOOR;
+  if (t <= 0) return 1;
+  return 1 + (maxZoom - 1) * Math.sqrt(t);
+}
+
+// "original size" mode: no camera zoom — the new photo's own square patch
+// grows in place, from a SEED_FLOOR dot centered on the seed at t=0 to a
+// rect that is exactly (0, 0, canvasSize, canvasSize) at t=1, so the patch
+// itself ends up covering the whole frame regardless of where the seed is.
+// Lerping all four rect fields (not just a side length centered on the
+// seed) is what guarantees exact full coverage at t=1 even when the seed
+// sits near an edge or corner.
+export function originalSizeRect(canvasSize, seedX, seedY, t) {
+  const u = t <= 0 ? 0 : Math.sqrt(t);
+  const x0 = seedX - SEED_FLOOR / 2;
+  const y0 = seedY - SEED_FLOOR / 2;
+  const x = x0 + (0 - x0) * u;
+  const y = y0 + (0 - y0) * u;
+  const w = SEED_FLOOR + (canvasSize - SEED_FLOOR) * u;
+  return { x, y, w, h: w };
+}
