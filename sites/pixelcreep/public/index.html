@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>pixelcreep — the pfp that grows from one pixel</title>
+<meta name="description" content="Upload your current pfp and a new one, pick the pixel it grows from, crop the new one to a square, then drag a slider from 0% (one pixel) to 100% (the whole thing)." />
+<meta property="og:title" content="pixelcreep — the pfp that grows from one pixel" />
+<meta property="og:description" content="Pick a seed pixel on your current pfp, crop a new one, drag the slider from 0% to 100% and watch it take over." />
+<meta property="og:url" content="https://pixelcreep.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://pixelcreep.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="pixelcreep: a growing circle of a new photo taking over a profile picture, from one pixel to the whole frame." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="pixelcreep — the pfp that grows from one pixel" />
+<meta name="twitter:description" content="Pick a seed pixel on your current pfp, crop a new one, drag the slider from 0% to 100% and watch it take over." />
+<meta name="twitter:image" content="https://pixelcreep.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #16171a;
+    --panel: #202226;
+    --panel2: #26282d;
+    --border: #3a3d44;
+    --fg: #eceef0;
+    --dim: #9a9ea6;
+    --accent: #7ad3ff;
+    --accent2: #ffb454;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 1.5rem 1rem 3rem; }
+  .wrap { width: 100%; max-width: 900px; }
+  h1 { font-size: 1.6rem; margin: 0 0 0.2rem; letter-spacing: -0.01em; }
+  h1 .pixel { color: var(--accent2); }
+  h1 .creep { color: var(--accent); }
+  .tag { color: var(--dim); font-size: 0.88rem; margin: 0 0 1.3rem; line-height: 1.55; max-width: 640px; }
+  .tag a { color: var(--accent); }
+
+  .uploads {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.8rem;
+    margin-bottom: 1.1rem;
+  }
+  .upload-box {
+    background: var(--panel);
+    border: 1.5px dashed var(--border);
+    border-radius: 12px;
+    padding: 1.1rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .upload-box:hover, .upload-box.drag { border-color: var(--accent); }
+  .upload-box input { display: none; }
+  .upload-box .icon { font-size: 1.6rem; margin-bottom: 0.3rem; }
+  .upload-box .label { font-weight: 600; font-size: 0.92rem; }
+  .upload-box .sub { color: var(--dim); font-size: 0.76rem; margin-top: 0.2rem; }
+  .upload-box.loaded { border-style: solid; border-color: var(--accent); padding: 0; overflow: hidden; }
+  .upload-box .thumb { display: block; width: 100%; height: 140px; object-fit: cover; }
+  .upload-box.loaded .icon, .upload-box.loaded .label, .upload-box.loaded .sub { display: none; }
+  .upload-box .rechoose {
+    background: var(--panel2);
+    color: var(--dim);
+    font-size: 0.72rem;
+    padding: 0.35rem;
+    text-align: center;
+    border-top: 1px solid var(--border);
+  }
+
+  .step-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--dim); margin: 0 0 0.35rem; }
+
+  .stage { display: none; }
+  .stage.active { display: block; }
+
+  .canvases {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.9rem;
+    margin-bottom: 1.1rem;
+  }
+  .canvas-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.7rem;
+  }
+  .canvas-panel canvas {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border-radius: 8px;
+    display: block;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  .canvas-panel .hint { font-size: 0.74rem; color: var(--dim); margin-top: 0.45rem; line-height: 1.4; }
+  .canvas-panel .hint b { color: var(--fg); }
+
+  .crop-controls { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
+  .crop-controls label { font-size: 0.72rem; color: var(--dim); white-space: nowrap; }
+  .crop-controls input[type="range"] { flex: 1; }
+
+  .result-panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.8rem;
+  }
+  #outputCanvas {
+    width: 100%;
+    max-width: 380px;
+    aspect-ratio: 1 / 1;
+    border-radius: 999px;
+    background: #000;
+    box-shadow: 0 0 0 1px var(--border);
+  }
+
+  .slider-row { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 0.3rem; }
+  .slider-row .pct-label { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--dim); }
+  .slider-row .pct-label span:last-child { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .slider-row input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+  .actions { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: center; }
+  button, .btn {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.55rem 1rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  button:hover, .btn:hover { border-color: var(--accent); }
+  button.primary, .btn.primary { background: var(--accent); border-color: var(--accent); color: #101317; font-weight: 700; }
+  #shareNative { display: none; }
+
+  .status { font-size: 0.8rem; color: var(--dim); min-height: 1.1em; margin-top: 0.3rem; }
+  .status.ready { color: var(--accent); }
+
+  footer { margin-top: 2rem; color: var(--dim); font-size: 0.78rem; text-align: center; }
+  footer a { color: var(--dim); }
+
+  @media (max-width: 560px) {
+    .uploads, .canvases { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="pixel">pixel</span><span class="creep">creep</span></h1>
+  <p class="tag">
+    Nobody notices a pfp change if it happens one pixel at a time. Upload your
+    <b>current</b> pfp and the <b>new</b> one, pick the exact pixel it starts
+    growing from, crop the new photo to a square, then drag the slider — 0%
+    is a single pixel replaced, 100% is the new photo filling the whole
+    frame. Save any frame in between and set it as your pfp for a few days
+    before anyone clocks it.
+  </p>
+
+  <div class="step-label">1. upload two pictures</div>
+  <div class="uploads">
+    <label class="upload-box" id="boxA">
+      <input type="file" id="fileA" accept="image/*" />
+      <img class="thumb" id="thumbA" style="display:none" />
+      <div class="icon">📷</div>
+      <div class="label">current pfp</div>
+      <div class="sub">what it starts as</div>
+      <div class="rechoose" style="display:none">tap to change</div>
+    </label>
+    <label class="upload-box" id="boxB">
+      <input type="file" id="fileB" accept="image/*" />
+      <img class="thumb" id="thumbB" style="display:none" />
+      <div class="icon">✨</div>
+      <div class="label">new pfp</div>
+      <div class="sub">what it grows into</div>
+      <div class="rechoose" style="display:none">tap to change</div>
+    </label>
+  </div>
+
+  <div class="stage" id="stage2">
+    <div class="step-label">2. pick the seed pixel &amp; the crop</div>
+    <div class="canvases">
+      <div class="canvas-panel">
+        <canvas id="seedCanvas" width="400" height="400"></canvas>
+        <div class="hint">Click anywhere on your <b>current</b> pfp — that's the one pixel it starts growing from.</div>
+      </div>
+      <div class="canvas-panel">
+        <canvas id="cropCanvas" width="400" height="400"></canvas>
+        <div class="hint">Drag the square to reposition it — this crop becomes the <b>new</b> pfp at 100%.</div>
+        <div class="crop-controls">
+          <label for="cropSize">crop size</label>
+          <input type="range" id="cropSize" min="10" max="100" value="100" />
+        </div>
+      </div>
+    </div>
+
+    <div class="step-label">3. slide it</div>
+    <div class="result-panel">
+      <canvas id="outputCanvas" width="500" height="500"></canvas>
+      <div class="slider-row">
+        <div class="pct-label"><span>1 pixel</span><span id="pctVal">0%</span><span>the whole thing</span></div>
+        <input type="range" id="growSlider" min="0" max="100" value="0" step="0.5" />
+      </div>
+      <div class="actions">
+        <button class="primary" id="downloadBtn">⬇ save this frame</button>
+        <button id="shareNative">📤 share</button>
+        <a class="btn" id="shareBluesky" target="_blank" rel="noopener">🦋 share on bluesky</a>
+      </div>
+      <div class="status" id="status"></div>
+    </div>
+  </div>
+
+  <footer>
+    <a href="https://rateyourbuild.bisks.net/site/pixelcreep">rate this on rateyourbuild →</a>
+    · <a href="https://bisks.net/">more atprotozoa experiments</a>
+  </footer>
+</div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
