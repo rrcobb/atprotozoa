@@ -1,4 +1,5 @@
 import { OSES, fetchAllTime, fetchRecent } from "./lib/os-data.js";
+import { fmt, barScale, severityClass, truncate, escapeHtml } from "./lib/format.js";
 
 const RECENT_WINDOW_DAYS = 90;
 const LIVE_WINDOW_DAYS = 1;
@@ -18,25 +19,13 @@ function $(sel) {
   return document.querySelector(sel);
 }
 
-function fmt(n) {
-  if (n === null) return "—";
-  if (n === undefined) return "";
-  return n.toLocaleString("en-US");
-}
-
 // Horizontal bar chart, redrawn from current `state` each time a value
 // arrives — simpler than patching individual bars, and cheap at 2-3 rows.
 function renderBarGroup(containerEl, axis, valuesById, { log = false, suffix = "" } = {}) {
   const rows = OSES.filter((os) => os.axis === axis);
   const known = rows.map((os) => valuesById[os.id]).filter((v) => typeof v === "number");
   const max = known.length ? Math.max(...known, 1) : 1;
-  const scale = (v) => {
-    if (typeof v !== "number") return 0;
-    if (!log) return Math.max((v / max) * 100, v > 0 ? 2 : 0);
-    const lv = Math.log10(v + 1);
-    const lmax = Math.log10(max + 1) || 1;
-    return Math.max((lv / lmax) * 100, v > 0 ? 2 : 0);
-  };
+  const scale = (v) => barScale(v, max, log);
 
   containerEl.innerHTML = rows
     .map((os) => {
@@ -71,13 +60,6 @@ function renderAll() {
   renderShareLink();
 }
 
-function severityClass(cve) {
-  const metrics = cve?.metrics || {};
-  const list = metrics.cvssMetricV31 || metrics.cvssMetricV30 || metrics.cvssMetricV2 || [];
-  const sev = list[0]?.cvssData?.baseSeverity || list[0]?.baseSeverity;
-  return sev ? sev.toLowerCase() : "unknown";
-}
-
 function renderLiveFeed() {
   const list = $("#live-feed-list");
   const checkedEl = $("#live-checked");
@@ -107,15 +89,6 @@ function renderLiveFeed() {
       </li>`;
     })
     .join("");
-}
-
-function truncate(s, n) {
-  if (s.length <= n) return s;
-  return s.slice(0, n - 1).trimEnd() + "…";
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 function renderShareLink() {
