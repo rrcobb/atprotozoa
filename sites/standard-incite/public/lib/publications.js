@@ -3,7 +3,10 @@
 // long it's been since their last site.standard.document. standard.site is
 // the shared publishing lexicon Leaflet, pckt.blog and Offprint all speak —
 // see sites/commonplace, the composer this site's collections are borrowed
-// from readonly.
+// from readonly. A site.standard.document record's `site` field is the
+// AT-URI of the publication it was posted to (see commonplace's publish
+// step), which is how "last post" gets attributed to the right publication
+// when a mutual runs more than one.
 
 import { resolvePds, listRecords, pooledEach } from "./atproto.js";
 
@@ -18,11 +21,15 @@ const DOC_COLLECTION = "site.standard.document";
 const CONCURRENCY = 6;
 
 // Checks one mutual for a standard.site presence. Returns null if they have
-// no PDS reachable or no publications at all (nothing to report on). When
-// they do have publications, returns:
-//   { publications: [{name,url}], lastPublishedAt: ISOstring|null }
-// `lastPublishedAt` is null when they have publications but have never
-// actually published a document to any of them.
+// no PDS reachable, no publications at all, or publications that have never
+// had a single document posted to them (nothing to incite — see the site's
+// footer note). When they do have at least one publication with a real
+// post, returns:
+//   { publications: [{name,url,lastPublishedAt}], lastPublishedAt }
+// `publications` only includes ones that have actually published something,
+// each with its OWN last-post date. The top-level `lastPublishedAt` is the
+// most recent of those, across all of the mutual's publications — used for
+// overall freshness sorting/filtering, not shown as a single per-pub fact.
 async function checkOne(mutual) {
   const pdsUrl = await resolvePds(mutual.did);
   if (!pdsUrl) return null;
@@ -35,28 +42,49 @@ async function checkOne(mutual) {
   }
   if (!pubRecords.length) return null;
 
-  const publications = pubRecords.map((r) => ({
-    name: r.value?.name || "(untitled publication)",
-    url: r.value?.url || "",
-  }));
-
-  let lastPublishedAt = null;
+  let docRecords = [];
   try {
-    const docs = await listRecords(pdsUrl, mutual.did, DOC_COLLECTION, { latestOnly: true });
-    lastPublishedAt = docs[0]?.value?.publishedAt || null;
+    docRecords = await listRecords(pdsUrl, mutual.did, DOC_COLLECTION);
   } catch {
-    // couldn't read their documents — still report the publication(s) with
-    // an unknown last-post date rather than dropping them entirely
+    // couldn't read their documents — treat every publication as never
+    // having posted rather than guessing; they'll be dropped below
   }
+
+  const lastByPubUri = new Map();
+  for (const d of docRecords) {
+    const site = d.value?.site;
+    const publishedAt = d.value?.publishedAt;
+    if (!site || !publishedAt) continue;
+    const t = new Date(publishedAt).getTime();
+    if (Number.isNaN(t)) continue;
+    const prev = lastByPubUri.get(site);
+    if (!prev || t > new Date(prev).getTime()) lastByPubUri.set(site, publishedAt);
+  }
+
+  const publications = pubRecords
+    .map((r) => ({
+      name: r.value?.name || "(untitled publication)",
+      url: r.value?.url || "",
+      lastPublishedAt: lastByPubUri.get(r.uri) || null,
+    }))
+    .filter((p) => p.lastPublishedAt);
+
+  if (!publications.length) return null;
+
+  const lastPublishedAt = publications.reduce(
+    (max, p) => (!max || new Date(p.lastPublishedAt) > new Date(max) ? p.lastPublishedAt : max),
+    null,
+  );
 
   return { publications, lastPublishedAt };
 }
 
 // Scans every mutual for a standard.site presence, in bounded-concurrency
 // parallel. `onProgress(done, total)` fires after each mutual finishes.
-// Returns every mutual who has at least one publication, tagged with
-// `publications` and `lastPublishedAt` — filtering to "stale" (> 1 month) is
-// the caller's job, since the UI also wants to show fresh publishers.
+// Returns every mutual who has at least one publication with a real post on
+// it, tagged with `publications` and `lastPublishedAt` — filtering to
+// "stale" (> 1 month) is the caller's job, since the UI also wants to show
+// fresh publishers.
 export async function scanForPublications(pool, { onProgress } = {}) {
   const found = [];
   let done = 0;

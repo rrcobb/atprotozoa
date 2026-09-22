@@ -2,11 +2,20 @@
 // PDS. Trimmed from commonplace/public/lib/atproto.js (copy, don't abstract)
 // — dropped resolveHandle/cleanHandle (moots.js already has its own, and
 // this file only ever gets DIDs from moots.js's pool, never a raw handle),
-// kept a `latestOnly` mode for listRecords (reverse + limit=1) so checking
-// "when did they last post" is one request instead of a full
-// page-to-exhaustion walk, plus a pooledEach helper (copied from
-// sites/listcheck/public/lib/identity.js) for the bounded-concurrency
-// fan-out over many mutuals' PDSes.
+// plus a pooledEach helper (copied from sites/listcheck/public/lib/identity.js)
+// for the bounded-concurrency fan-out over many mutuals' PDSes.
+//
+// listRecords always walks to exhaustion rather than fetching just the
+// newest record: a site.standard.document doesn't say which publication it
+// belongs to except via its own `site` field, so finding "last post per
+// publication" needs every document, grouped client-side — see
+// publications.js's checkOne. (An earlier version tried a single
+// limit=1&reverse=true request as a shortcut for "the newest record" — that
+// was backwards: com.atproto.repo.listRecords defaults to newest-first
+// (rkeys are timestamp-ordered TIDs), and `reverse` walks the other way,
+// oldest first. See sites/areyoumad/public/lib/atproto.js and
+// sites/firstlikes/public/lib/climb.js for the same default documented from
+// two other angles.)
 
 const PLC_DIR = "https://plc.directory";
 
@@ -45,22 +54,15 @@ export async function resolvePds(did) {
   }
 }
 
-// Paginated com.atproto.repo.listRecords walk, exhaustive by default — reads
-// every record in the collection (no-arbitrary-caps: `notes/00-vision.md`'s
-// hard rule 4). CAP is a backstop against a pathological repo, not a budget;
-// it's set far above anything a real site.standard.publication list will
-// ever reach. Pass `latestOnly: true` to fetch just the single newest record
-// (limit=1, reverse=true) — used for "when did they last publish", which
-// only ever needs the most recent one, not the whole history.
+// Paginated com.atproto.repo.listRecords walk, exhaustive — reads every
+// record in the collection (no-arbitrary-caps: `notes/00-vision.md`'s hard
+// rule 4). CAP is a backstop against a pathological repo, not a budget; it's
+// set far above anything a real site.standard.publication/.document list
+// will ever reach.
 const CAP_PAGES = 400;
 
-export async function listRecords(pdsUrl, repo, collection, { latestOnly = false } = {}) {
+export async function listRecords(pdsUrl, repo, collection) {
   const base = pdsUrl.replace(/\/$/, "");
-  if (latestOnly) {
-    const params = new URLSearchParams({ repo, collection, limit: "1", reverse: "true" });
-    const d = await jget(`${base}/xrpc/com.atproto.repo.listRecords?${params}`);
-    return d.records || [];
-  }
   const out = [];
   let cursor;
   for (let p = 0; p < CAP_PAGES; p++) {

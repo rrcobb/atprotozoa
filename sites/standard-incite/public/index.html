@@ -138,11 +138,12 @@
   }
   .mootcard .staleness.stale { color: var(--stale); border-color: var(--stale); }
   .mootcard .staleness.fresh { color: var(--good); border-color: var(--good); }
-  .mootcard .staleness.never { color: var(--stale); border-color: var(--stale); }
-  .mootcard .pubs { margin-top: 0.4rem; font-size: 0.84rem; color: var(--muted); }
-  .mootcard .pubs a { color: inherit; }
-  .mootcard .pubname { color: var(--ink); }
-  .mootcard .foot { margin-top: 0.55rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
+  .mootcard .pubs { margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.4rem; }
+  .mootcard .pubrow {
+    display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+    font-size: 0.84rem; color: var(--muted);
+  }
+  .mootcard .pubname { color: var(--ink); font-weight: 500; }
   a.nudge {
     font-family: var(--sans); font-size: 0.78rem; padding: 0.32rem 0.6rem;
     border: 1px solid var(--accent); color: var(--accent); text-decoration: none;
@@ -264,35 +265,33 @@ function fmtDate(iso) {
   return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-function staleBadge(m) {
-  if (!m.lastPublishedAt) {
-    return `<span class="staleness never">never published</span>`;
-  }
-  const days = daysSince(m.lastPublishedAt);
-  const dateStr = fmtDate(m.lastPublishedAt);
-  if (days > STALE_DAYS) {
-    return `<span class="staleness stale">last post ${dateStr} · ${days}d ago</span>`;
-  }
-  return `<span class="staleness fresh">last post ${dateStr} · ${days}d ago</span>`;
+// One publication's own last-post text is what "incite them" nudges about,
+// and the link the nudge post ends with is that publication's own URL (not
+// this tool's URL) — the point is to send a reader to the actual pub, not
+// back to standard incite.
+function nudgeText(m, p) {
+  const who = "@" + m.handle;
+  const target = p.url || "https://standard-incite.bisks.net/";
+  return `${who} your "${p.name}" has been quiet since ${fmtDate(p.lastPublishedAt)} — go write something! ${target}`;
 }
 
-function nudgeText(m) {
-  const url = "https://standard-incite.bisks.net/";
-  const who = "@" + m.handle;
-  const line = m.lastPublishedAt
-    ? `${who} your standard.site publication has been quiet since ${fmtDate(m.lastPublishedAt)} — go write something! `
-    : `${who} you set up a standard.site publication and never posted to it — go write something! `;
-  return line + url;
+function renderPubRow(m, p) {
+  const days = daysSince(p.lastPublishedAt);
+  const dateStr = fmtDate(p.lastPublishedAt);
+  const stale = days > STALE_DAYS;
+  const nameHtml = p.url
+    ? `<a class="pubname" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`
+    : `<span class="pubname">${esc(p.name)}</span>`;
+  const badge = `<span class="staleness ${stale ? "stale" : "fresh"}">${dateStr} · ${days}d ago</span>`;
+  const nudgeUrl = "https://bsky.app/intent/compose?text=" + encodeURIComponent(nudgeText(m, p));
+  const incite = stale
+    ? `<a class="nudge" href="${nudgeUrl}" target="_blank" rel="noopener">incite them →</a>`
+    : "";
+  return `<div class="pubrow">${nameHtml}${badge}${incite}</div>`;
 }
 
 function renderCard(m) {
-  const stale = !m.lastPublishedAt || daysSince(m.lastPublishedAt) > STALE_DAYS;
-  const pubsHtml = m.publications
-    .map((p) => p.url
-      ? `<a class="pubname" href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>`
-      : `<span class="pubname">${esc(p.name)}</span>`)
-    .join(", ");
-  const nudgeUrl = "https://bsky.app/intent/compose?text=" + encodeURIComponent(nudgeText(m));
+  const pubsHtml = m.publications.map((p) => renderPubRow(m, p)).join("");
 
   const el = document.createElement("div");
   el.className = "mootcard";
@@ -304,10 +303,8 @@ function renderCard(m) {
           <div class="dn">${esc(m.displayName)}</div>
           <div class="hn"><a href="https://bsky.app/profile/${esc(m.handle)}" target="_blank" rel="noopener">@${esc(m.handle)}</a></div>
         </div>
-        ${staleBadge(m)}
       </div>
-      <div class="pubs">publishes ${pubsHtml}</div>
-      ${stale ? `<div class="foot"><a class="nudge" href="${nudgeUrl}" target="_blank" rel="noopener">incite them →</a></div>` : ""}
+      <div class="pubs">${pubsHtml}</div>
     </div>
   `;
   return el;
@@ -315,8 +312,11 @@ function renderCard(m) {
 
 function renderResults() {
   const showFresh = showFreshCb.checked;
-  const shown = lastFound.filter((m) => showFresh || !m.lastPublishedAt || daysSince(m.lastPublishedAt) > STALE_DAYS);
-  const staleCount = lastFound.filter((m) => !m.lastPublishedAt || daysSince(m.lastPublishedAt) > STALE_DAYS).length;
+  // m.lastPublishedAt is the freshest of a mutual's publications (see
+  // publications.js), so a mutual only counts as stale here when every one
+  // of their publications is over STALE_DAYS old.
+  const shown = lastFound.filter((m) => showFresh || daysSince(m.lastPublishedAt) > STALE_DAYS);
+  const staleCount = lastFound.filter((m) => daysSince(m.lastPublishedAt) > STALE_DAYS).length;
 
   mootlist.innerHTML = "";
   if (!shown.length) {
@@ -325,7 +325,7 @@ function renderResults() {
       : "no mutuals with a standard.site publication found.";
     mootlist.innerHTML = `<div class="empty">${esc(note)}</div>`;
   } else {
-    // stale first, longest-idle first; never-published sorts as "oldest"
+    // stale first, longest-idle first
     shown
       .slice()
       .sort((a, b) => daysSince(b.lastPublishedAt) - daysSince(a.lastPublishedAt))
