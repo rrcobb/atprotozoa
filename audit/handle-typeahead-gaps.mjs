@@ -27,19 +27,33 @@
 //     low-confidence for a human/agent to glance at rather than auto-listed
 //     as a gap.
 //
-// One false-positive shape this does NOT catch mechanically: an in-page
+// The "mixed link-or-handle" bucket used to require a fresh by-hand read of
+// every candidate every single day (2026-09-20, -21, -22 all did the exact
+// same read and reached the exact same verdicts) — this mechanizes that read
+// instead of repeating it. Every one of ashcan/claimstamp/nothoney/postcid/
+// recordscope/skeetracker/snubbed's post-link fields throws a "that doesn't
+// look like a link" (or recordscope's "couldn't parse that") error when the
+// pasted text isn't URL/AT-URI-shaped, with no bare-handle fallback branch —
+// contrast coliseum/orrery/simcluster-atlas, whose resolvers fall through to
+// treating unrecognized text as a bare handle/DID instead of throwing. A
+// candidate whose site JS contains that throw phrasing is downgraded from
+// "needs a human read" to "confirmed link-only" (LINK_ONLY_SIGNAL below). A
+// genuinely new link-or-handle field wouldn't trip this signal (it has no
+// such throw to find), so it still surfaces in mixedLinkOrHandle for a read.
+//
+// One false-positive shape doesn't reduce to that signal at all: an in-page
 // filter over handles already loaded into the DOM (threadriver's
 // `#search-input`, placeholder "find a handle in this thread…") looks
 // exactly like a live-search field by markup alone but isn't one — wiring
 // network typeahead to it would suggest accounts that were never part of
-// the thread. Telling the two apart needs reading the input's own JS
-// handler, not just its HTML, so it still surfaces as a "gap" here; rule it
-// out by hand the way every candidate below still gets a one-line read.
+// the thread. Confirmed by hand 2026-09-21 and again 2026-09-22; recorded in
+// KNOWN_FALSE_POSITIVES below by site+id so it stops re-surfacing as a
+// "likely gap" every day. If threadriver's search box changes, drop the
+// entry and let it be re-evaluated.
 //
-// This is a finder, not a fixer — no file is a site's own oracle for what
-// its input means, so the output still wants a one-line human read per
-// candidate before adding the drop-in. It just cuts that read from "grep
-// 680 sites by hand" to "read a short list."
+// This is a finder, not a fixer — a human/agent should still skim anything
+// that lands in `gaps` or `mixedLinkOrHandle` before wiring the drop-in in.
+// It just stops re-asking about candidates already worked out by hand.
 //
 // Usage, from the repo root:
 //   node audit/handle-typeahead-gaps.mjs         # human-readable report
@@ -54,6 +68,18 @@ const json = process.argv.includes("--json");
 const HANDLE_SIGNAL = /handle|bsky\.social|did.?or.?handle/i;
 const URI_SHAPE = /at:\/\/|bsky\.app\/profile|\/post\/|\.did$/i;
 const HANDLE_SHAPED_PLACEHOLDER = /handle|bsky\.social|@[a-z0-9-]+\.[a-z]/i;
+// A resolver that throws this on non-link text and never falls back to
+// treating the raw text as a bare handle — see the header comment above.
+const LINK_ONLY_SIGNAL = /doesn't look like|couldn't (?:parse|find (?:a|the)\b.*\bin) that|isn't a valid|not a valid link|invalid (?:link|url|uri)/i;
+
+// site name -> input id -> reason. Confirmed by hand, not by markup; see the
+// header comment for why each one needs a human read instead of a regex.
+const KNOWN_FALSE_POSITIVES = new Map([
+  [
+    "threadriver:search-input",
+    "in-page filter over handles already loaded into the DOM, not a live network search (confirmed 2026-09-21/22)",
+  ],
+]);
 
 function walkFiles(dir, out = []) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -89,7 +115,14 @@ function attr(tag, name) {
   return m ? m[1] : "";
 }
 
-const results = { gaps: [], lowConfidence: [], alreadyCovered: [], mixedLinkOrHandle: [] };
+const results = {
+  gaps: [],
+  lowConfidence: [],
+  alreadyCovered: [],
+  mixedLinkOrHandle: [],
+  confirmedLinkOnly: [],
+  confirmedFalsePositive: [],
+};
 
 for (const site of siteDirs()) {
   const publicDir = path.join(REPO_ROOT, "sites", site, "public");
@@ -102,6 +135,13 @@ for (const site of siteDirs()) {
   );
 
   if (hasDropIn) continue; // already carries the drop-in, nothing to find here
+
+  // Whether ANY js/html file in this site's public/ throws the "not a link"
+  // error — computed once per site since the resolver usually lives in a
+  // lib file separate from the html the input tag is in.
+  const siteHasLinkOnlySignal = files
+    .filter((f) => f.endsWith(".js") || f.endsWith(".html"))
+    .some((f) => LINK_ONLY_SIGNAL.test(readFileSync(f, "utf8")));
 
   const htmlFiles = files.filter((f) => f.endsWith(".html"));
   for (const file of htmlFiles) {
@@ -119,6 +159,11 @@ for (const site of siteDirs()) {
 
       const hit = { site, file: rel, line, tag };
 
+      const fp = KNOWN_FALSE_POSITIVES.get(`${site}:${id}`);
+      if (fp) {
+        results.confirmedFalsePositive.push({ ...hit, note: fp });
+        continue;
+      }
       if (bespoke) {
         results.alreadyCovered.push({ ...hit, note: `bespoke typeahead already present: ${path.relative(REPO_ROOT, bespoke)}` });
         continue;
@@ -128,7 +173,11 @@ for (const site of siteDirs()) {
         continue;
       }
       if (URI_SHAPE.test(placeholder)) {
-        results.mixedLinkOrHandle.push({ ...hit, note: "placeholder looks URL/AT-URI-shaped — check whether it's link-only (skip) or link-or-handle like orrery/coliseum (wire it up)" });
+        if (siteHasLinkOnlySignal) {
+          results.confirmedLinkOnly.push({ ...hit, note: "resolver throws on non-link text with no bare-handle fallback — link-only, not a gap" });
+        } else {
+          results.mixedLinkOrHandle.push({ ...hit, note: "placeholder looks URL/AT-URI-shaped — check whether it's link-only (skip) or link-or-handle like orrery/coliseum (wire it up)" });
+        }
         continue;
       }
       if (!HANDLE_SHAPED_PLACEHOLDER.test(placeholder)) {
@@ -159,6 +208,14 @@ if (json) {
   }
   console.log(`\nAlready covered by local autocomplete/bespoke typeahead: ${results.alreadyCovered.length}`);
   for (const r of results.alreadyCovered) {
+    console.log(`  ${r.site}  ${r.file}:${r.line} — ${r.note}`);
+  }
+  console.log(`\nConfirmed link-only (skip, no action needed): ${results.confirmedLinkOnly.length}`);
+  for (const r of results.confirmedLinkOnly) {
+    console.log(`  ${r.site}  ${r.file}:${r.line} — ${r.note}`);
+  }
+  console.log(`\nConfirmed false positive (skip, verified by hand previously): ${results.confirmedFalsePositive.length}`);
+  for (const r of results.confirmedFalsePositive) {
     console.log(`  ${r.site}  ${r.file}:${r.line} — ${r.note}`);
   }
 }
