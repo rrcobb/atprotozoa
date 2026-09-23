@@ -315,7 +315,7 @@ async function loadMutuals() {
     for (const m of withTeams) {
       const item = document.createElement("a");
       item.className = "roster-item" + (m.team === yourTeam ? " you" : "");
-      item.href = `/team/${m.team}`;
+      item.href = `/user/${encodeURIComponent(m.handle)}`;
       item.style.borderLeftColor = m.color;
       item.title = m.team === yourTeam ? "same team as you" : "";
       item.textContent = `@${m.handle} · #${m.team}`;
@@ -420,9 +420,7 @@ function renderRoster() {
     const el = document.createElement(handle ? "a" : "span");
     el.className = "roster-item" + (session && session.did === m.did ? " you" : "");
     if (handle) {
-      el.href = `https://bsky.app/profile/${handle}`;
-      el.target = "_blank";
-      el.rel = "noopener";
+      el.href = `/user/${encodeURIComponent(handle)}`;
       el.textContent = "@" + handle;
     } else {
       el.textContent = m.did.slice(0, 20) + "…";
