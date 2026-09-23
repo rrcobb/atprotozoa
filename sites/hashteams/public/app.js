@@ -17,6 +17,13 @@ const SITE = "https://hashteams.bisks.net";
 // A real browser-render cap (DOM nodes in the roster list), not a network or
 // count cap — rosterMeta always reports the true member count, uncapped.
 const ROSTER_RENDER_CAP = 500;
+// The leaderboard groups the exact same fully-backfilled entries the roster
+// uses (see MAX_ENTRIES in global-index.js for the real data cap) — this
+// only bounds how many rows a "most populated teams" homepage widget shows.
+// leaderboardMeta always reports the true number of distinct teams
+// represented, uncapped; a list of up to 65536 rows wouldn't read as a
+// leaderboard anymore.
+const LEADERBOARD_SIZE = 10;
 
 function esc(s) {
   return String(s || "").replace(/[&<>"']/g, (c) => ({
@@ -77,6 +84,9 @@ const els = {
   rosterMeta: document.getElementById("rosterMeta"),
   rosterEmpty: document.getElementById("rosterEmpty"),
   rosterList: document.getElementById("rosterList"),
+  leaderboardEmpty: document.getElementById("leaderboardEmpty"),
+  leaderboardList: document.getElementById("leaderboardList"),
+  leaderboardMeta: document.getElementById("leaderboardMeta"),
 };
 
 function setLookupStatus(msg, kindClass) {
@@ -100,6 +110,7 @@ function scheduleRerender() {
   rerenderTimer = setTimeout(() => {
     rerenderTimer = null;
     renderRoster();
+    renderLeaderboard();
   }, 150);
 }
 async function teamFor(did) {
@@ -137,6 +148,7 @@ const index = new GlobalIndex(COLLECTION, {
     lastSnapshot = snap;
     ensureTeamsCached(snap.entries);
     renderRoster();
+    renderLeaderboard();
   },
 });
 
@@ -345,6 +357,67 @@ function renderRoster() {
     frag.appendChild(el);
   }
   els.rosterList.appendChild(frag);
+}
+
+// Groups the same roster entries by team number instead of filtering to one
+// team — a homepage-visible "which teams have the most opted-in accounts"
+// view, independent of whatever's in the lookup box.
+function renderLeaderboard() {
+  const counts = new Map();
+  for (const e of lastSnapshot.entries) {
+    const info = teamCache.get(e.did);
+    if (!info) continue; // team not resolved yet; ensureTeamsCached() will trigger a re-render once it lands
+    counts.set(info.team, (counts.get(info.team) || 0) + 1);
+  }
+
+  if (!counts.size) {
+    els.leaderboardEmpty.hidden = false;
+    els.leaderboardEmpty.textContent = lastSnapshot.backfillDone
+      ? "nobody's opted into the roster yet — be the first, below."
+      : "scanning the network for who's opted in…";
+    els.leaderboardList.innerHTML = "";
+    els.leaderboardMeta.textContent = "";
+    return;
+  }
+
+  const ranked = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, LEADERBOARD_SIZE);
+  const maxCount = ranked[0][1];
+
+  els.leaderboardEmpty.hidden = true;
+  els.leaderboardMeta.textContent = lastSnapshot.backfillDone
+    ? `top ${ranked.length} of ${counts.size} teams with at least one member`
+    : `top ${ranked.length} of ${counts.size} so far — still scanning the network…`;
+
+  els.leaderboardList.innerHTML = "";
+  const frag = document.createDocumentFragment();
+  ranked.forEach(([team, count], i) => {
+    const li = document.createElement("li");
+    li.className = "leaderboard-item";
+
+    const rank = document.createElement("span");
+    rank.className = "leaderboard-rank";
+    rank.textContent = String(i + 1);
+
+    const link = document.createElement("a");
+    link.className = "leaderboard-team";
+    link.href = `/team/${team}`;
+    link.textContent = `#${team}`;
+
+    const bar = document.createElement("span");
+    bar.className = "leaderboard-bar";
+    const fill = document.createElement("span");
+    fill.className = "leaderboard-fill";
+    fill.style.width = Math.max(6, Math.round((count / maxCount) * 100)) + "%";
+    bar.appendChild(fill);
+
+    const countEl = document.createElement("span");
+    countEl.className = "leaderboard-count";
+    countEl.textContent = String(count);
+
+    li.append(rank, link, bar, countEl);
+    frag.appendChild(li);
+  });
+  els.leaderboardList.appendChild(frag);
 }
 
 // --- routing: /team/<n> is a real, shareable permalink to one team's roster
