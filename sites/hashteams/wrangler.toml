@@ -1,0 +1,41 @@
+name = "atprotozoa-hashteams"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# hashteams (hashteams.bisks.net): computes which of 65536 teams an atproto
+# account belongs to. Methodology given by @mfzx.net, off a thread riffing on
+# a feed that sorts accounts into 256 teams by DID hash for hourly-rotating
+# space access: UTF-8 encode the DID, SHA-256 it, take the first two bytes,
+# read them as a big-endian uint16 (0-65535). Pure function of the DID —
+# anyone's team is one fetch + one digest away, no signing in required.
+#
+# The "index" half of the ask (what other accounts share your team) can't be
+# built by crawling every DID on the network — that would mean seeding real
+# accounts into a public roster they never agreed to be in, which the consent
+# rule in sites/buildthis/builder/INSTRUCTIONS.md rules out. So the roster is
+# opt-in only: signing in and clicking "join the roster" writes one
+# net.bisks.hashteams.member record (no fields beyond createdAt — the team
+# itself is always recomputed from the record's own repo DID, never stored,
+# so it can't drift from the algorithm above) to the *poster's own* PDS.
+# public/lib/global-index.js replays every repo holding that collection
+# (com.atproto.sync.listReposByCollection backfill + live Jetstream) to build
+# the roster entirely client-side. No KV, no Durable Object, no server-side
+# state: if this Worker disappeared tomorrow every membership would still sit
+# intact on its author's own PDS.
+#
+# /team/<n> is a per-team permalink (notes/45-sharing-and-virality.md, tier
+# 4): the Worker stamps that team's number into the static shell's OG tags
+# server-side so every team gets its own link-unfurl card, same recipe as
+# sites/didscope/src/index.ts's renderShare. Everything else falls through to
+# ASSETS.
+#
+# Brand-new site — served at the root of its own hostname, no
+# bisks.net/<name> path route and no prefix-stripping needed.
+routes = [
+  { pattern = "hashteams.bisks.net/*", zone_name = "bisks.net" },
+]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
