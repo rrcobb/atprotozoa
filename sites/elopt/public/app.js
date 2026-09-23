@@ -43,6 +43,9 @@ const els = {
   voteStatus: document.getElementById("voteStatus"),
   voteShare: document.getElementById("voteShare"),
   shareVote: document.getElementById("shareVote"),
+  shareCanvas: document.getElementById("shareCanvas"),
+  shareDownload: document.getElementById("shareDownload"),
+  shareNative: document.getElementById("shareNative"),
   secretMark: document.getElementById("secretMark"),
 };
 
@@ -291,6 +294,129 @@ function renderMatchup(snapshot) {
   document.getElementById("voteB").addEventListener("click", () => vote(aDid, bDid, bDid));
 }
 
+// --- share card: a 1200x630 canvas snapshot of the battle just called ---------
+
+function loadImg(url) {
+  return new Promise((resolve) => {
+    if (!url) return resolve(null);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+let lastShareText = "";
+
+async function buildShareCard({ winnerP, loserP, winnerElo, loserElo }) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  const [winnerImg, loserImg] = await Promise.all([loadImg(winnerP.avatar), loadImg(loserP.avatar)]);
+
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0a0c10";
+  ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W * 0.5, -H * 0.15, 0, W * 0.5, -H * 0.15, W * 0.6);
+  glow.addColorStop(0, "#173327");
+  glow.addColorStop(1, "rgba(10,12,16,0)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#6ee7b7";
+  ctx.font = `800 46px ${mono}`;
+  ctx.fillText("elopt", 60, 92);
+  ctx.fillStyle = "#8b93a1";
+  ctx.font = `400 20px ${mono}`;
+  ctx.fillText("elo, but only for people who consent", 60, 124);
+
+  const drawFighter = (cx, p, elo, delta, won) => {
+    const avatarR = 96;
+    const img = won ? winnerImg : loserImg;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, 300, avatarR, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.fillStyle = "#171b22";
+    ctx.fill();
+    if (img) {
+      ctx.clip();
+      ctx.drawImage(img, cx - avatarR, 300 - avatarR, avatarR * 2, avatarR * 2);
+    }
+    ctx.restore();
+    ctx.strokeStyle = won ? "#6ee7b7" : "#262c36";
+    ctx.lineWidth = won ? 5 : 2;
+    ctx.beginPath();
+    ctx.arc(cx, 300, avatarR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#eef1f5";
+    ctx.font = `700 30px ${mono}`;
+    ctx.fillText("@" + p.handle, cx, 430);
+    ctx.fillStyle = won ? "#6ee7b7" : "#fca5a5";
+    ctx.font = `800 34px ${mono}`;
+    ctx.fillText(String(elo), cx, 474);
+    ctx.fillStyle = "#8b93a1";
+    ctx.font = `400 16px ${mono}`;
+    ctx.fillText((delta >= 0 ? "+" : "") + delta, cx, 498);
+    if (won) {
+      ctx.fillStyle = "#6ee7b7";
+      ctx.font = `800 18px ${mono}`;
+      ctx.fillText("WON", cx, 190);
+    }
+  };
+  drawFighter(W * 0.28, winnerP, winnerElo.after, winnerElo.after - winnerElo.before, true);
+  drawFighter(W * 0.72, loserP, loserElo.after, loserElo.after - loserElo.before, false);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#8b93a1";
+  ctx.font = `400 22px ${mono}`;
+  ctx.fillText("vs", W / 2, 310);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#6ee7b7";
+  ctx.font = `700 22px ${mono}`;
+  ctx.fillText("elopt.bisks.net", 60, H - 40);
+}
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch (_) {
+    return false;
+  }
+}
+if (canShareFiles()) els.shareNative.style.display = "";
+
+els.shareDownload.addEventListener("click", () => {
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "elopt-battle.png";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+});
+
+els.shareNative.addEventListener("click", () => {
+  els.shareCanvas.toBlob(async (blob) => {
+    if (!blob) return;
+    const file = new File([blob], "elopt-battle.png", { type: "image/png" });
+    try {
+      await navigator.share({ files: [file], text: lastShareText, title: "elopt" });
+    } catch (_) {
+      // user cancelled the share sheet, or it failed silently — no-op
+    }
+  }, "image/png");
+});
+
 async function vote(subjectA, subjectB, winner) {
   els.voteStatus.className = "status";
   els.voteShare.hidden = true;
@@ -300,18 +426,28 @@ async function vote(subjectA, subjectB, winner) {
   }
   els.voteStatus.textContent = "casting vote…";
   try {
+    const before = index.snapshot().elo;
+    const beforeWinnerElo = before.get(winner)?.elo ?? 1000;
+    const beforeLoserElo = before.get(winner === subjectA ? subjectB : subjectA)?.elo ?? 1000;
     await castVote(session, subjectA, subjectB, winner, currentThread.rootUri);
     index.applyOwnVote(session.did, voteRkey(subjectA, subjectB, currentThread.rootUri), {
       subjectA, subjectB, winner, thread: currentThread.rootUri, createdAt: new Date().toISOString(),
     });
     els.voteStatus.textContent = "vote cast — the board just moved.";
     els.voteStatus.className = "status ok";
+    const after = index.snapshot().elo;
     const loserDid = winner === subjectA ? subjectB : subjectA;
     const winnerP = currentThread.participants.find((p) => p.did === winner);
     const loserP = currentThread.participants.find((p) => p.did === loserDid);
-    const shareText = `I just called @${winnerP.handle} the winner over @${loserP.handle} on elopt — elo, but only for people who consent. https://elopt.bisks.net/`;
-    els.shareVote.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+    lastShareText = `I just called @${winnerP.handle} the winner over @${loserP.handle} on elopt — elo, but only for people who consent. https://elopt.bisks.net/`;
+    els.shareVote.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
     els.voteShare.hidden = false;
+    buildShareCard({
+      winnerP,
+      loserP,
+      winnerElo: { before: beforeWinnerElo, after: after.get(winner)?.elo ?? beforeWinnerElo },
+      loserElo: { before: beforeLoserElo, after: after.get(loserDid)?.elo ?? beforeLoserElo },
+    });
   } catch (e) {
     els.voteStatus.textContent = e.message;
   }
