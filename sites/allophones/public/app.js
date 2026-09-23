@@ -9,6 +9,23 @@ import {
 
 const SITE_URL = "https://allophones.bisks.net/";
 
+// ---- audio pronunciation ----
+// The IPA symbols themselves aren't reliably speakable (most engines don't
+// know what to do with ʈ or ɰ), so we hand the browser the same ASCII
+// respelling ROMAN/romanOf() already generate for on-screen reading — it was
+// built to be "pronounceable" per data.js, which is exactly what speech
+// synthesis needs too.
+const SPEECH_SUPPORTED = typeof window !== "undefined" && "speechSynthesis" in window;
+
+function speak(text) {
+  if (!SPEECH_SUPPORTED || !text) return;
+  window.speechSynthesis.cancel(); // stop anything mid-utterance before starting the next
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = "en-US";
+  utter.rate = 0.8;
+  window.speechSynthesis.speak(utter);
+}
+
 const state = {
   slot: "onset", // "onset" | "nucleus" | "coda"
   onset: null, // { place, manner, voiced }
@@ -170,11 +187,13 @@ function render() {
     els["roman-display"].textContent = "";
     els["gloss-display"].textContent = "";
     els["add-syllable"].disabled = true;
+    els["speak-syllable"].disabled = true;
   } else {
     els["ipa-display"].textContent = "[" + ipaOf(syl) + "]";
     els["roman-display"].textContent = romanOf(syl);
     els["gloss-display"].textContent = meaning(syl);
     els["add-syllable"].disabled = false;
+    els["speak-syllable"].disabled = false;
   }
 
   syncChartHighlights();
@@ -187,9 +206,11 @@ function renderWord() {
     els["word-display"].textContent = "(nothing yet — build a syllable above and add it)";
     els["word-gloss"].replaceChildren();
     els["share-bar"].hidden = true;
+    els["speak-word"].disabled = true;
     return;
   }
   els["share-bar"].hidden = false;
+  els["speak-word"].disabled = false;
   els["word-display"].textContent = state.word.map(romanOf).join("") + " [" + state.word.map(ipaOf).join(".") + "]";
   els["word-gloss"].replaceChildren(
     ...state.word.map((syl, i) => {
@@ -276,6 +297,13 @@ function wireEvents() {
     render();
   });
   els["random-syllable"].addEventListener("click", randomize);
+  els["speak-syllable"].addEventListener("click", () => {
+    const syl = currentSyllable();
+    if (syl) speak(romanOf(syl));
+  });
+  els["speak-word"].addEventListener("click", () => {
+    if (state.word.length) speak(state.word.map(romanOf).join(", "));
+  });
   els["clear-word"].addEventListener("click", () => { state.word = []; render(); });
   els["copy-link"].addEventListener("click", async () => {
     try {
@@ -294,6 +322,11 @@ function init() {
   buildVowelChart();
   wireEvents();
   loadFromPermalink();
+
+  if (SPEECH_SUPPORTED) {
+    els["speak-syllable"].hidden = false;
+    els["speak-word"].hidden = false;
+  }
 
   const { total, consonants, vowelQualities } = countSpace();
   els["combo-count"].textContent = total.toLocaleString("en-US");
