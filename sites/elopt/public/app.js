@@ -429,8 +429,9 @@ async function vote(subjectA, subjectB, winner) {
     const before = index.snapshot().elo;
     const beforeWinnerElo = before.get(winner)?.elo ?? 1000;
     const beforeLoserElo = before.get(winner === subjectA ? subjectB : subjectA)?.elo ?? 1000;
+    const rkey = voteRkey(subjectA, subjectB, currentThread.rootUri);
     await castVote(session, subjectA, subjectB, winner, currentThread.rootUri);
-    index.applyOwnVote(session.did, voteRkey(subjectA, subjectB, currentThread.rootUri), {
+    index.applyOwnVote(session.did, rkey, {
       subjectA, subjectB, winner, thread: currentThread.rootUri, createdAt: new Date().toISOString(),
     });
     els.voteStatus.textContent = "vote cast — the board just moved.";
@@ -439,7 +440,11 @@ async function vote(subjectA, subjectB, winner) {
     const loserDid = winner === subjectA ? subjectB : subjectA;
     const winnerP = currentThread.participants.find((p) => p.did === winner);
     const loserP = currentThread.participants.find((p) => p.did === loserDid);
-    lastShareText = `I just called @${winnerP.handle} the winner over @${loserP.handle} on elopt — elo, but only for people who consent. https://elopt.bisks.net/`;
+    // A real per-vote URL (see src/index.ts's renderVoteShare), not the bare
+    // homepage — so this specific result gets its own unfurl card instead of
+    // the generic one, per notes/45-sharing-and-virality.md tier 4.
+    const shareUrl = `https://elopt.bisks.net/v/${encodeURIComponent(session.did)}/${encodeURIComponent(rkey)}`;
+    lastShareText = `I just called @${winnerP.handle} the winner over @${loserP.handle} on elopt — elo, but only for people who consent. ${shareUrl}`;
     els.shareVote.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
     els.voteShare.hidden = false;
     buildShareCard({
