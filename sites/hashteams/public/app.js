@@ -75,6 +75,7 @@ const els = {
   resultDid: document.getElementById("resultDid"),
   resultBytes: document.getElementById("resultBytes"),
   viewTeamPage: document.getElementById("viewTeamPage"),
+  viewUserPage: document.getElementById("viewUserPage"),
   shareBluesky: document.getElementById("shareBluesky"),
   signinBar: document.getElementById("signinBar"),
   joinRow: document.getElementById("joinRow"),
@@ -349,7 +350,7 @@ async function doLookup(rawInput) {
     const handle = raw.startsWith("did:") ? (await resolveDisplayHandle(did)) || did : raw;
 
     currentTeam = team;
-    renderResult(did, handle, team, color, digest);
+    renderResult(did, handle, team, color, digest, raw);
     setLookupStatus("");
     renderRoster();
   } catch (err) {
@@ -359,7 +360,11 @@ async function doLookup(rawInput) {
   }
 }
 
-function renderResult(did, handle, team, color, digest) {
+// identifier is whatever the lookup box actually resolved (a handle or a
+// DID, cleaned) — the same string /user/<identifier> expects, so the
+// permalink round-trips through src/index.ts's renderUserPage without
+// needing a second resolution step.
+function renderResult(did, handle, team, color, digest, identifier) {
   els.result.hidden = false;
   els.swatch.style.background = color;
   els.teamNumber.textContent = team;
@@ -369,6 +374,7 @@ function renderResult(did, handle, team, color, digest) {
   const b1 = "0x" + digest[1].toString(16).padStart(2, "0");
   els.resultBytes.textContent = `${b0} ${b1} → ${team}`;
   els.viewTeamPage.href = `/team/${team}`;
+  els.viewUserPage.href = `/user/${encodeURIComponent(identifier)}`;
   const shareText = `@${handle} is on team #${team} of 65536, computed from SHA-256(their DID) — ${SITE}/team/${team}`;
   els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
 }
@@ -487,19 +493,22 @@ function renderLeaderboard() {
   els.leaderboardList.appendChild(frag);
 }
 
-// --- routing: /team/<n> is a real, shareable permalink to one team's roster
-// (notes/45-sharing-and-virality.md tier 4) — src/index.ts stamps that
-// team's number into the OG tags for link unfurlers before this script ever
-// runs; here it just means starting straight on that team's roster instead
-// of the empty "look up a handle" state.
+// --- routing: /team/<n> is a real, shareable permalink to one team's roster,
+// and /user/<handle-or-did> is the same idea for one account (notes/45-
+// sharing-and-virality.md tier 4) — src/index.ts stamps the relevant OG tags
+// for link unfurlers before this script ever runs; here it just means
+// starting straight on that team's roster, or that account's computed
+// result, instead of the empty "look up a handle" state.
 function parseRoute() {
-  if (/^\/mutuals\/?$/.test(location.pathname)) return { team: null, mutuals: true };
+  if (/^\/mutuals\/?$/.test(location.pathname)) return { team: null, user: null, mutuals: true };
   const m = location.pathname.match(/^\/team\/(\d{1,5})\/?$/);
   if (m) {
     const n = Number(m[1]);
-    if (Number.isInteger(n) && n >= 1 && n <= 65536) return { team: n, mutuals: false };
+    if (Number.isInteger(n) && n >= 1 && n <= 65536) return { team: n, user: null, mutuals: false };
   }
-  return { team: null, mutuals: false };
+  const um = location.pathname.match(/^\/user\/([^/]+)\/?$/);
+  if (um) return { team: null, user: decodeURIComponent(um[1]), mutuals: false };
+  return { team: null, user: null, mutuals: false };
 }
 
 async function init() {
@@ -521,6 +530,11 @@ async function init() {
     // above three cards that a permalink visitor doesn't care about — the
     // roster they came for is otherwise the last thing on the page.
     document.getElementById("rosterSection")?.scrollIntoView({ block: "start" });
+  }
+  if (route.user) {
+    els.handleInput.value = route.user;
+    await doLookup(route.user);
+    els.result?.scrollIntoView({ block: "start" });
   }
   if (route.mutuals) {
     document.getElementById("mutualsCard")?.scrollIntoView({ block: "start" });

@@ -2,22 +2,32 @@
 //
 // Everything real happens client-side (public/app.js): resolving a handle,
 // computing the SHA-256 of its DID, and replaying the roster off the
-// network. The one thing that needs a server: /team/<n> is a shareable
-// permalink to one team's roster, and a plain static site serves the same
-// og:title/og:description no matter which team is in the URL — so every
-// share collapses into one generic link-unfurl card. Fix, same recipe as
-// sites/didscope/src/index.ts's renderShare: stamp the team number into the
-// static shell's OG tags server-side before handing it back. The number is
-// entirely self-contained (1-65536), so no network call is needed to render
-// it — the roster itself still loads client-side same as any other visit.
+// network. Two things need a server, both the same fix: a plain static site
+// serves the same og:title/og:description regardless of what's in the URL,
+// so every share collapses into one generic link-unfurl card. Same recipe as
+// sites/didscope/src/index.ts's renderShare in both cases: stamp the
+// specific title/description into the static shell's OG tags server-side
+// before handing it back.
 //
-// /mutuals is a second client-rendered view (a signed-in user's mutuals and
-// their teams) with no per-user OG stamping to do — it just needs the same
+// - /team/<n> is a shareable permalink to one team's roster. The number is
+//   entirely self-contained (1-65536), so no network call is needed to
+//   render it — the roster itself still loads client-side same as any other
+//   visit.
+// - /user/<handle-or-did> is a shareable permalink to one account's computed
+//   team (requested by @mfzx.net: /team/<n> existed but there was no
+//   equivalent route for an individual account). Unlike /team/<n> this needs
+//   a handle resolution and a hash, so it's wrapped in a try/catch: a typo'd
+//   or deleted handle still serves the live page rather than a dead link,
+//   and the client script surfaces its own "couldn't compute that" error the
+//   same way a bad handle typed into the lookup box would.
+//
+// /mutuals is a third client-rendered view (a signed-in user's mutuals and
+// their teams) with no per-visit OG stamping to do — it just needs the same
 // index.html shell served at a path with no matching file on disk, since
 // this site doesn't set not_found_handling = "single-page-application" in
-// wrangler.toml. Serving it explicitly here, same as /team/<n>, keeps that
-// global fallback (and its wider blast radius on unrelated 404s) off the
-// table for one route.
+// wrangler.toml. Serving it explicitly here, same as /team/<n> and
+// /user/<...>, keeps that global fallback (and its wider blast radius on
+// unrelated 404s) off the table for one route.
 //
 // Falls through to ASSETS for everything else (/, /og.png, /fonts/*).
 
@@ -42,6 +52,56 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+// --- the methodology, server-side copy of public/lib/team.js -----------------
+// (kept as a local copy per sites/logs/src/index.ts's precedent — server-side
+// duplication of client logic within ONE site, not a shared package across
+// sites; the two must stay in lockstep, which is why both are pinned by
+// tests/team.test.mjs against the same worked example.)
+
+async function digestForDid(did: string): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(did)));
+}
+function teamFromDigest(digest: Uint8Array): number {
+  return ((digest[0] << 8) | digest[1]) + 1;
+}
+
+function cleanHandle(raw: string): string {
+  let h = decodeURIComponent(raw).trim().replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+async function resolveDisplayHandle(did: string): Promise<string | null> {
+  try {
+    let doc: any = null;
+    if (did.startsWith("did:plc:")) {
+      const r = await fetch(`https://plc.directory/${did}`);
+      if (r.ok) doc = await r.json();
+    } else if (did.startsWith("did:web:")) {
+      const domain = did.replace("did:web:", "").replace(/:/g, "/");
+      const r = await fetch(`https://${domain}/.well-known/did.json`);
+      if (r.ok) doc = await r.json();
+    }
+    const aka = (doc?.alsoKnownAs || []).find((a: string) => a.startsWith("at://"));
+    return aka ? aka.slice("at://".length) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function resolveToDidAndHandle(input: string): Promise<{ did: string; handle: string } | null> {
+  if (input.startsWith("did:")) {
+    return { did: input, handle: (await resolveDisplayHandle(input)) || input };
+  }
+  const r = await fetch(
+    `https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(input)}`,
+  );
+  if (!r.ok) return null;
+  const data: any = await r.json();
+  return typeof data.did === "string" ? { did: data.did, handle: input } : null;
+}
+
 async function renderTeamPage(env: Env, request: Request, team: number): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
   let html = await base.text();
@@ -60,6 +120,41 @@ async function renderTeamPage(env: Env, request: Request, team: number): Promise
   });
 }
 
+async function renderUserPage(env: Env, request: Request, rawInput: string): Promise<Response> {
+  const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
+  let html = await base.text();
+
+  const input = cleanHandle(rawInput);
+  if (!input) return new Response(html, { headers: base.headers });
+
+  try {
+    const resolved = await resolveToDidAndHandle(input);
+    if (!resolved) throw new Error("couldn't resolve that handle");
+    const team = teamFromDigest(await digestForDid(resolved.did));
+
+    const title = `@${resolved.handle} is on team #${team} · hashteams`;
+    const desc = `@${resolved.handle}'s DID hashes to team #${team} of 65536 — UTF-8(did) → SHA-256 → first two bytes, big-endian, +1. Compute your own at hashteams.bisks.net.`;
+    const ogUrl = `https://hashteams.bisks.net/user/${encodeURIComponent(input)}`;
+
+    html = html
+      .split(GENERIC_TITLE).join(esc(title))
+      .split(GENERIC_DESC).join(esc(desc))
+      .split(GENERIC_OG_URL_ATTR).join(`content="${ogUrl}"`);
+
+    return new Response(html, {
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=300" },
+    });
+  } catch (_) {
+    // Couldn't resolve the handle server-side (typo, deleted account, rate
+    // limit) — still serve the live page so the link isn't dead; the client
+    // script surfaces its own "couldn't compute that" error, same as a bad
+    // handle typed into the lookup box.
+    return new Response(html, {
+      headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" },
+    });
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -71,6 +166,9 @@ export default {
         return renderTeamPage(env, request, team);
       }
     }
+
+    const um = url.pathname.match(/^\/user\/([^/]+)\/?$/);
+    if (um) return renderUserPage(env, request, um[1]);
 
     if (/^\/mutuals\/?$/.test(url.pathname)) {
       return env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
