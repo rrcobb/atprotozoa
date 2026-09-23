@@ -4,9 +4,10 @@
 // it proxy any website through the algo." Pikiwedia points the spoonerize
 // swap at Wikipedia specifically; spoonternet points it at whatever URL you
 // paste — /go?u=<url> fetches that page server-side and streams it back
-// through HTMLRewriter with every content word swapped, a <base> tag so
-// relative assets still resolve, and links rewritten to keep browsing inside
-// the proxy.
+// through HTMLRewriter with every content word swapped and a <base> tag so
+// relative assets still resolve. Links on a proxied page point straight at
+// the real target site, not back through the proxy — paste the URL bar
+// again if you want to keep spoonerizing where you land.
 //
 // The swap algorithm (splitOnset / spoonerizePair / selfSpoonerize /
 // spoonerizeText) is the same deliberate copy carried by sites/spoonerism and
@@ -249,6 +250,14 @@ class EventAttrStripper {
   }
 }
 
+// Resolves relative links against the proxied page's real URL and leaves them
+// pointing at the real site, rather than routing back through /go. Previously
+// every link stayed inside the proxy, which let crawlers walk the entire
+// target site (e.g. ~all of Wikipedia) through this Worker one HTMLRewriter
+// pass at a time — see the crawler-gate comment on looksLikeCrawler below for
+// the traffic numbers that came from that. Clicking out now leaves
+// spoonternet like clicking any other link; paste the new URL back in to keep
+// spoonerizing.
 class LinkHandler {
   constructor(private base: URL) {}
   element(el: { getAttribute(n: string): string | null; setAttribute(n: string, v: string): void }) {
@@ -263,7 +272,7 @@ class LinkHandler {
       return;
     }
     if (resolved.protocol !== "http:" && resolved.protocol !== "https:") return;
-    el.setAttribute("href", proxyUrlFor(resolved.toString()));
+    el.setAttribute("href", resolved.toString());
   }
 }
 
@@ -388,9 +397,8 @@ async function handleProxy(raw: string, ctx: ExecutionContext): Promise<Response
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": `public, max-age=${CACHE_TTL}`,
-      // Every link on a proxied page routes back through /go, so an indexer
-      // that follows them crawls the whole web through this Worker. Tell them
-      // not to, in the header and the <head> both.
+      // Keep proxied pages out of search indexes in the header and the <head>
+      // both — they're a live-rendered copy of someone else's content.
       "x-robots-tag": "noindex, nofollow",
       "x-frame-options": "SAMEORIGIN",
       "referrer-policy": "no-referrer",
