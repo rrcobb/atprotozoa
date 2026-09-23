@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>elopt — elo, but only for people who consent</title>
+<meta name="description" content="a public elo board for bsky posters, but nobody's on it unless they opted themselves in. paste a real thread, vote on who won, only between two consenting accounts." />
+<meta property="og:title" content="elopt — elo, but only for people who consent" />
+<meta property="og:description" content="a public elo board for bsky posters, but nobody's on it unless they opted themselves in. paste a real thread, vote on who won, only between two consenting accounts." />
+<meta property="og:url" content="https://elopt.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://elopt.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="elopt: two consenting accounts squared off, an elo number climbing between them." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="elopt — elo, but only for people who consent" />
+<meta name="twitter:description" content="a public elo board for bsky posters, but nobody's on it unless they opted themselves in." />
+<meta name="twitter:image" content="https://elopt.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0a0c10;
+    --panel: #12151b;
+    --panel2: #171b22;
+    --border: #262c36;
+    --fg: #eef1f5;
+    --dim: #8b93a1;
+    --accent: #6ee7b7;
+    --accent2: #93c5fd;
+    --lose: #fca5a5;
+    --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2.5rem 1.25rem 4rem;
+  }
+  .wrap { width: 100%; max-width: 640px; }
+  a { color: var(--accent2); }
+  h1 { font-size: 1.7rem; margin: 0 0 0.4rem; letter-spacing: -0.02em; }
+  h2 { font-size: 1.05rem; margin: 0 0 0.6rem; color: var(--fg); }
+  .home-link { color: var(--dim); font-size: 0.8rem; text-decoration: none; }
+  .tag { color: var(--dim); font-size: 0.85rem; line-height: 1.6; margin: 0.6rem 0 1.6rem; }
+  .tag code { color: var(--accent2); }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.1rem 1.2rem;
+    margin-bottom: 1.1rem;
+  }
+  .sub { color: var(--dim); font-size: 0.8rem; line-height: 1.5; margin: 0 0 0.8rem; }
+
+  .signin { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.9rem; font-size: 0.85rem; }
+  .signin input {
+    flex: 1; min-width: 160px;
+    background: var(--panel2); border: 1px solid var(--border); color: var(--fg);
+    padding: 0.5rem 0.6rem; border-radius: 8px; font: inherit;
+  }
+  button {
+    font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel2); color: var(--fg); padding: 0.5rem 0.9rem;
+  }
+  button.primary { background: var(--accent); color: #06251b; border-color: var(--accent); font-weight: 700; }
+  button.danger { background: transparent; color: var(--lose); border-color: var(--lose); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .signin-err, .status { color: var(--lose); font-size: 0.78rem; min-height: 1em; margin-top: 0.4rem; }
+  .status.ok { color: var(--accent); }
+
+  .optin-row { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; }
+  .optin-state { font-size: 0.85rem; }
+  .optin-state b { color: var(--accent); }
+  .optin-state.out b { color: var(--dim); }
+
+  .roster-count { color: var(--dim); font-size: 0.78rem; margin-bottom: 0.6rem; }
+  table.board { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  table.board th, table.board td { text-align: left; padding: 0.4rem 0.3rem; border-bottom: 1px solid var(--border); }
+  table.board th { color: var(--dim); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  table.board tr:last-child td { border-bottom: none; }
+  .rank { color: var(--dim); width: 1.6em; }
+  .who { display: flex; align-items: center; gap: 0.5rem; }
+  .who img { width: 22px; height: 22px; border-radius: 50%; background: var(--panel2); }
+  .elo-num { font-weight: 700; color: var(--accent2); }
+  .record { color: var(--dim); font-size: 0.75rem; }
+  .empty { color: var(--dim); font-size: 0.85rem; padding: 0.4rem 0; }
+
+  .battle-input { display: flex; gap: 0.5rem; margin-bottom: 0.7rem; }
+  .battle-input input {
+    flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--fg);
+    padding: 0.55rem 0.7rem; border-radius: 8px; font: inherit; font-size: 0.85rem;
+  }
+
+  .participants { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.6rem 0; }
+  .pchip {
+    display: flex; align-items: center; gap: 0.4rem;
+    border: 1px solid var(--border); border-radius: 999px; padding: 0.3rem 0.7rem 0.3rem 0.3rem;
+    font-size: 0.8rem; background: var(--panel2);
+  }
+  .pchip img { width: 20px; height: 20px; border-radius: 50%; }
+  .pchip.eligible { border-color: var(--accent); }
+  .pchip.ineligible { opacity: 0.45; }
+
+  .matchup { display: flex; align-items: center; gap: 0.8rem; justify-content: center; margin: 1rem 0; }
+  .fighter { flex: 1; text-align: center; border: 1px solid var(--border); border-radius: 10px; padding: 0.9rem 0.6rem; background: var(--panel2); cursor: pointer; }
+  .fighter.picked { border-color: var(--accent); background: rgba(110,231,183,0.08); }
+  .fighter img { width: 44px; height: 44px; border-radius: 50%; margin-bottom: 0.4rem; }
+  .fighter .name { font-size: 0.82rem; font-weight: 700; }
+  .fighter .elo { font-size: 0.72rem; color: var(--dim); }
+  .vs { color: var(--dim); font-size: 0.8rem; }
+
+  .share { display: flex; gap: 0.6rem; margin-top: 0.8rem; flex-wrap: wrap; }
+  .share[hidden] { display: none; }
+  .share a, .share button { font-size: 0.8rem; }
+
+  footer {
+    margin-top: 2.5rem;
+    color: var(--dim);
+    font-size: 0.75rem;
+    text-align: center;
+    line-height: 1.7;
+  }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="home-link" href="https://bisks.net/">← bisks.net</a>
+    <h1>elopt<span id="secretMark" style="cursor:pointer">.</span></h1>
+    <p class="tag">
+      a public elo board for bsky posters — but nobody is ever named, battled, or ranked here
+      unless they signed in themselves and opted in with <code>net.bisks.elopt.optin</code>.
+      paste a real thread, and if two people in it have opted in, you vote on who won. no AI
+      judge, no gambling — just people who agreed to be on the board, and visitors calling the
+      fights. asked for by @nequals001.bsky.social, after two declines for the version that
+      ranked people who never agreed to it.
+      <a href="https://rateyourbuild.bisks.net/site/elopt">rate elopt on rateyourbuild →</a>
+    </p>
+
+    <div class="card">
+      <div id="signinBar" class="signin"></div>
+      <div class="optin-row">
+        <span id="optinState" class="optin-state out">sign in to opt in.</span>
+        <button id="optinBtn" type="button" disabled>opt in</button>
+      </div>
+      <p id="optinStatus" class="status"></p>
+    </div>
+
+    <div class="card">
+      <h2>leaderboard</h2>
+      <p class="roster-count" id="rosterCount">loading roster…</p>
+      <table class="board" id="board" hidden>
+        <thead><tr><th></th><th>who</th><th>elo</th><th>record</th></tr></thead>
+        <tbody id="boardBody"></tbody>
+      </table>
+      <p class="empty" id="boardEmpty" hidden>nobody's opted in yet. be the first.</p>
+    </div>
+
+    <div class="card">
+      <h2>call a battle</h2>
+      <p class="sub">
+        paste a bsky.app link to a thread (or the AT-URI). elopt reads the whole thread and
+        shows who in it has opted in — you can only battle two of <em>those</em> people, never
+        anyone else in the thread.
+      </p>
+      <div class="battle-input">
+        <input id="threadInput" type="text" placeholder="https://bsky.app/profile/.../post/..." autocomplete="off" spellcheck="false" />
+        <button id="threadGo" type="button">read thread</button>
+      </div>
+      <p id="threadStatus" class="status"></p>
+      <div id="threadResult" hidden>
+        <p class="sub" id="participantsLabel"></p>
+        <div class="participants" id="participantsList"></div>
+        <div id="matchupBox" hidden>
+          <div class="matchup">
+            <div class="fighter" id="fighterA"></div>
+            <div class="vs">vs</div>
+            <div class="fighter" id="fighterB"></div>
+          </div>
+          <div class="optin-row">
+            <span class="sub" id="voteHint">pick who won this exchange:</span>
+          </div>
+          <div class="battle-input" id="voteButtons"></div>
+          <p id="voteStatus" class="status"></p>
+          <div class="share" id="voteShare" hidden>
+            <a id="shareVote" target="_blank" rel="noopener">🦋 share this result</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <footer id="footer">
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+      requested by <a href="https://bsky.app/profile/nequals001.bsky.social">@nequals001.bsky.social</a> ·
+      <a href="lexicons/net.bisks.elopt.optin.json">optin lexicon</a> ·
+      <a href="lexicons/net.bisks.elopt.vote.json">vote lexicon</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script src="lib/visits.js" data-site="elopt" data-into="footer"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

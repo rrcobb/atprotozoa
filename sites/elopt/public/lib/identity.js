@@ -1,0 +1,122 @@
+// identity.js — batch DID -> handle resolution for the public review list on
+// a site's detail page. Trimmed from sites/kevinmoot/public/lib/identity.js
+// (copy, don't abstract) down to just the getProfiles batching + a small
+// localStorage cache; this site has no follow-graph walking to do.
+
+const PUB = "https://api.bsky.app/xrpc";
+const LS_PREFIX = "elopt:identity:v1:";
+const HANDLE_TTL_MS = 24 * 60 * 60 * 1000; // handle rarely changes day-to-day
+
+function lsGet(key) {
+  try {
+    const raw = localStorage.getItem(LS_PREFIX + key);
+    if (!raw) return undefined;
+    const { ts, v } = JSON.parse(raw);
+    if (Date.now() - ts > HANDLE_TTL_MS) return undefined;
+    return v;
+  } catch {
+    return undefined;
+  }
+}
+
+function lsSet(key, v) {
+  try {
+    localStorage.setItem(LS_PREFIX + key, JSON.stringify({ ts: Date.now(), v }));
+  } catch {
+    // private browsing / full storage — caching is an optimization only
+  }
+}
+
+// Batch-fetch profiles, 25 actors per request (AppView's cap). Returns a
+// Map of did -> {did, handle, displayName, avatar}; a DID that couldn't be
+// resolved (deleted account, rate limit) is simply absent from the map.
+export async function getProfiles(dids) {
+  const out = new Map();
+  const uncached = [];
+  for (const did of dids) {
+    const cached = lsGet(did);
+    if (cached) out.set(did, cached);
+    else uncached.push(did);
+  }
+  for (let i = 0; i < uncached.length; i += 25) {
+    const batch = uncached.slice(i, i + 25);
+    const u = new URL(`${PUB}/app.bsky.actor.getProfiles`);
+    for (const d of batch) u.searchParams.append("actors", d);
+    try {
+      const r = await fetch(u.toString());
+      if (!r.ok) continue;
+      const d = await r.json();
+      for (const p of d.profiles || []) {
+        const entry = { did: p.did, handle: p.handle, displayName: p.displayName || p.handle, avatar: p.avatar || null };
+        out.set(p.did, entry);
+        lsSet(p.did, entry);
+      }
+    } catch {
+      // partial data is fine — unresolved DIDs just render shortened
+    }
+  }
+  return out;
+}
+
+// Same batch endpoint, but keyed by handle instead of DID — for referring to
+// a person we only know by handle (e.g. a site's `by` prompter field), where
+// looking them up by DID first would be an extra round trip. getProfiles's
+// actors param accepts either shape, so this is the same call with a
+// lowercased-handle cache key and result map instead of a did one. Returns a
+// Map of lowercased-handle -> {did, handle, displayName, avatar}.
+export async function getProfilesForHandles(handles) {
+  const out = new Map();
+  const uncached = [];
+  for (const h of handles) {
+    const key = h.toLowerCase();
+    const cached = lsGet("h:" + key);
+    if (cached) out.set(key, cached);
+    else uncached.push(key);
+  }
+  const unique = [...new Set(uncached)];
+  for (let i = 0; i < unique.length; i += 25) {
+    const batch = unique.slice(i, i + 25);
+    const u = new URL(`${PUB}/app.bsky.actor.getProfiles`);
+    for (const h of batch) u.searchParams.append("actors", h);
+    try {
+      const r = await fetch(u.toString());
+      if (!r.ok) continue;
+      const d = await r.json();
+      for (const p of d.profiles || []) {
+        const entry = { did: p.did, handle: p.handle, displayName: p.displayName || p.handle, avatar: p.avatar || null };
+        const lower = p.handle.toLowerCase();
+        out.set(lower, entry);
+        lsSet("h:" + lower, entry);
+        lsSet(p.did, entry);
+      }
+    } catch {
+      // partial data is fine — unresolved handles just render as plain text
+    }
+  }
+  return out;
+}
+
+// Resolves one handle *or* DID to a full profile — getProfile accepts
+// either, so the reviewer page (see index.html) can turn whatever a person
+// typed or whatever's in a review row into a canonical {did, handle}
+// without a separate resolveHandle round trip. Cached under its own key
+// (not the by-did cache above) since the input string itself is the lookup.
+export async function resolveActor(actor) {
+  const key = "actor:" + actor.toLowerCase();
+  const cached = lsGet(key);
+  if (cached !== undefined) return cached;
+  try {
+    const r = await fetch(`${PUB}/app.bsky.actor.getProfile?actor=${encodeURIComponent(actor)}`);
+    if (!r.ok) {
+      lsSet(key, null);
+      return null;
+    }
+    const p = await r.json();
+    const entry = { did: p.did, handle: p.handle, displayName: p.displayName || p.handle, avatar: p.avatar || null };
+    lsSet(key, entry);
+    lsSet(entry.did, entry);
+    return entry;
+  } catch {
+    return null;
+  }
+}
