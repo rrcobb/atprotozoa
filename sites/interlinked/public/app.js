@@ -8,6 +8,8 @@ const statusText = document.getElementById("status-text");
 const resultBox = document.getElementById("result");
 const resultText = document.getElementById("result-text");
 const shareLink = document.getElementById("share-link");
+const subjectForm = document.getElementById("subject-form");
+const subjectInput = document.getElementById("subject-input");
 
 const SITE_URL = "https://interlinked.bisks.net/";
 const TYPE_MS = 16; // per character
@@ -47,6 +49,37 @@ async function typeLine(speaker, text, opts = {}) {
   await sleep(LINE_PAUSE_MS);
 }
 
+function addInstantLine(speaker, text, opts = {}) {
+  const { body, cursor } = addLine(speaker, "", opts);
+  body.textContent = text;
+  cursor.remove();
+}
+
+// Opens the subject's input, waits for a submit, and resolves with the
+// trimmed text the user typed. Blank submits are allowed (silence is a
+// valid answer, same as the film) unless `required` is set.
+function waitForSubjectLine({ placeholder = "", required = false } = {}) {
+  return new Promise((resolve) => {
+    subjectInput.value = "";
+    subjectInput.placeholder = placeholder;
+    subjectForm.hidden = false;
+    subjectInput.focus();
+
+    function onSubmit(event) {
+      event.preventDefault();
+      const value = subjectInput.value.trim();
+      if (required && !value) {
+        subjectInput.focus();
+        return;
+      }
+      subjectForm.removeEventListener("submit", onSubmit);
+      subjectForm.hidden = true;
+      resolve(value);
+    }
+    subjectForm.addEventListener("submit", onSubmit);
+  });
+}
+
 function clearTranscript() {
   transcript.innerHTML = "";
 }
@@ -71,6 +104,7 @@ async function runTest() {
   beginBtn.disabled = true;
   againBtn.style.display = "none";
   resultBox.style.display = "none";
+  subjectForm.hidden = true;
   clearTranscript();
   setStatus(true, "test in progress");
 
@@ -80,21 +114,42 @@ async function runTest() {
 
   for (let i = 0; i < test.recitation.length; i++) {
     const line = test.recitation[i];
+    const last = i === test.recitation.length - 1;
     await typeLine("examiner", line);
-    if (i < test.recitation.length - 1) {
-      await typeLine("subject", line, { echo: true });
-    } else {
-      await typeLine("subject", line + " ...", { echo: true });
-    }
-    await sleep(TURN_PAUSE_MS - LINE_PAUSE_MS > 0 ? TURN_PAUSE_MS - LINE_PAUSE_MS : 0);
+    setStatus(true, "your turn — echo it back");
+    const typed = await waitForSubjectLine({
+      placeholder: "echo it back…",
+      required: true,
+    });
+    setStatus(true, "test in progress");
+    addInstantLine("subject", last ? typed + " ..." : typed, { echo: true });
+    await sleep(TURN_PAUSE_MS);
   }
 
   await typeLine("examiner", test.interjection);
-  await typeLine("subject", "...", { silence: true });
+  setStatus(true, "your turn — answer, or leave it blank");
+  const interjectionReply = await waitForSubjectLine({
+    placeholder: "say something… or leave it blank",
+  });
+  setStatus(true, "test in progress");
+  if (interjectionReply) {
+    addInstantLine("subject", interjectionReply);
+  } else {
+    addInstantLine("subject", "...", { silence: true });
+  }
   await sleep(TURN_PAUSE_MS);
 
   await typeLine("examiner", test.climax);
-  await typeLine("subject", "(interlinked.)", { silence: true });
+  setStatus(true, "your turn — close it out, or leave it blank");
+  const closingReply = await waitForSubjectLine({
+    placeholder: "(interlinked.) … or leave it blank",
+  });
+  setStatus(true, "test in progress");
+  if (closingReply) {
+    addInstantLine("subject", closingReply);
+  } else {
+    addInstantLine("subject", "(interlinked.)", { silence: true });
+  }
 
   setStatus(false, "test complete");
   resultText.textContent = test.climax;
