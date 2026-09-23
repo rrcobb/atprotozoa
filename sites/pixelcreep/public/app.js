@@ -1,6 +1,6 @@
 // pixelcreep — two photos in, a slider out. 0% shows the current pfp with
 // exactly one pixel of the new photo showing at a chosen seed point; 100%
-// shows the new photo (cropped to a square) filling the whole frame. Three
+// shows the new photo (cropped to a circle) filling the whole frame. Three
 // effects get there differently: "grow" masks a circle that expands outward
 // from the seed pixel; "zoom" dollies the camera into the seed point until
 // it fills the frame; "original size" grows the new photo's own patch in
@@ -180,7 +180,7 @@ function containRect(img, size) {
   return containRectOf(img.naturalWidth, img.naturalHeight, size);
 }
 
-// maps a crop-square (in cropCanvas display coordinates) to the matching
+// maps a crop-circle's bounding square (in cropCanvas display coordinates) to the matching
 // rect in the image's own natural pixel coordinates, for drawImage's source
 function cropToNaturalRect(img, crop) {
   return cropToNaturalRectOf(img.naturalWidth, img.naturalHeight, SEED_SIZE, crop);
@@ -191,23 +191,39 @@ function drawCropCanvas() {
   const r = containRect(state.imgB, SEED_SIZE);
   cropCtx.drawImage(state.imgB, r.x, r.y, r.w, r.h);
 
-  // dim everything outside the crop square
+  // dim everything outside the crop circle — the picker is circular so it
+  // previews exactly what "zoom" mode reveals (a circular patch, not a
+  // square one), rather than promising a square crop and delivering a circle
   const c = state.crop;
+  const cx = c.x + c.size / 2;
+  const cy = c.y + c.size / 2;
+  const cr = c.size / 2;
   const src = cropToNaturalRect(state.imgB, c);
   cropCtx.save();
   cropCtx.fillStyle = "rgba(0,0,0,0.55)";
   cropCtx.fillRect(0, 0, SEED_SIZE, SEED_SIZE);
-  cropCtx.clearRect(c.x, c.y, c.size, c.size);
+  cropCtx.globalCompositeOperation = "destination-out";
+  cropCtx.beginPath();
+  cropCtx.arc(cx, cy, cr, 0, Math.PI * 2);
+  cropCtx.fill();
+  cropCtx.globalCompositeOperation = "source-over";
+  cropCtx.save();
+  cropCtx.beginPath();
+  cropCtx.arc(cx, cy, cr, 0, Math.PI * 2);
+  cropCtx.clip();
   cropCtx.drawImage(
     state.imgB,
     src.sx, src.sy, src.ssize, src.ssize,
     c.x, c.y, c.size, c.size
   );
   cropCtx.restore();
+  cropCtx.restore();
 
   cropCtx.strokeStyle = "#7ad3ff";
   cropCtx.lineWidth = 2;
-  cropCtx.strokeRect(c.x, c.y, c.size, c.size);
+  cropCtx.beginPath();
+  cropCtx.arc(cx, cy, cr, 0, Math.PI * 2);
+  cropCtx.stroke();
 }
 
 function clampCrop() {
@@ -293,11 +309,24 @@ function drawFrame(ctx, size, t) {
     ctx.scale(zoom, zoom);
     ctx.translate(-seedX, -seedY);
     ctx.drawImage(state.imgA, bgRect.x, bgRect.y, bgRect.w, bgRect.h);
+    // the patch is clipped to a circle, not drawn as a square: the output
+    // canvas is displayed circularly (border-radius: 999px, since it's a
+    // square canvas), and zoomFactor(size, 1, patch) == size/patch means a
+    // patch-px circle magnifies to exactly radius size/2 at t=1 — precisely
+    // the inscribed circle of the canvas. So a circular patch lands flush
+    // with the circular viewport at 100%, and reads as a circle growing
+    // outward at every t in between, instead of a square with corners that
+    // the circular frame was already clipping off anyway.
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(seedX, seedY, patch / 2, 0, Math.PI * 2);
+    ctx.clip();
     ctx.drawImage(
       b,
       src.sx, src.sy, src.ssize, src.ssize,
       seedX - patch / 2, seedY - patch / 2, patch, patch
     );
+    ctx.restore();
     ctx.restore();
   } else if (state.mode === "original") {
     // no camera zoom — the new photo's own square just grows in place from
