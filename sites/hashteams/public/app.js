@@ -356,7 +356,7 @@ function parseRoute() {
   const m = location.pathname.match(/^\/team\/(\d{1,5})\/?$/);
   if (m) {
     const n = Number(m[1]);
-    if (Number.isInteger(n) && n >= 0 && n <= 65535) return { team: n };
+    if (Number.isInteger(n) && n >= 1 && n <= 65536) return { team: n };
   }
   return { team: null };
 }

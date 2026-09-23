@@ -6,7 +6,8 @@
 //   npm install @resvg/resvg-js --no-save   # one-time, not a project dependency
 //   node og-gen.mjs                         # writes ./public/og.png
 //
-// A generic sample (mfzx.net's own worked example, #29811) — the static
+// A generic sample (mfzx.net's own worked example, #29812 — raw hash 29811
+// plus the methodology's final +1 step) — the static
 // fallback card for the bare link. /team/<n> gets its own personalized
 // og:title/description (src/index.ts), but not a distinct image; regenerating
 // per team would mean rendering an SVG at request time for every share,
@@ -63,13 +64,13 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   ${byteBlock(cardX + 176, cardY + 90, "0x73", "BYTE 1")}
   <text x="${cardX + cardW / 2}" y="${cardY + 230}" text-anchor="middle" font-family="JetBrains Mono" font-size="22" fill="${INK_SOFT}">→</text>
 
-  <text x="${cardX + cardW / 2}" y="${cardY + 300}" text-anchor="middle" font-family="JetBrains Mono" font-weight="800" font-size="56" fill="${ACCENT}">#29811</text>
+  <text x="${cardX + cardW / 2}" y="${cardY + 300}" text-anchor="middle" font-family="JetBrains Mono" font-weight="800" font-size="56" fill="${ACCENT}">#29812</text>
   <text x="${cardX + cardW / 2}" y="${cardY + 336}" text-anchor="middle" font-family="JetBrains Mono" font-size="14" fill="${INK_SOFT}">team of @mfzx.net</text>
 
   <rect x="${cardX + 60}" y="${cardY + 380}" width="${cardW - 120}" height="8" rx="4" fill="${BG}"/>
-  <rect x="${cardX + 60 + (cardW - 120) * (29811 / 65535)}" y="${cardY + 372}" width="6" height="24" rx="3" fill="${ACCENT}"/>
-  <text x="${cardX + 60}" y="${cardY + 414}" font-family="JetBrains Mono" font-size="12" fill="${INK_SOFT}">0</text>
-  <text x="${cardX + cardW - 60}" y="${cardY + 414}" text-anchor="end" font-family="JetBrains Mono" font-size="12" fill="${INK_SOFT}">65535</text>
+  <rect x="${cardX + 60 + (cardW - 120) * ((29812 - 1) / 65535)}" y="${cardY + 372}" width="6" height="24" rx="3" fill="${ACCENT}"/>
+  <text x="${cardX + 60}" y="${cardY + 414}" font-family="JetBrains Mono" font-size="12" fill="${INK_SOFT}">1</text>
+  <text x="${cardX + cardW - 60}" y="${cardY + 414}" text-anchor="end" font-family="JetBrains Mono" font-size="12" fill="${INK_SOFT}">65536</text>
 </svg>`;
 
 const fontPath = fileURLToPath(new URL("./fonts/JetBrainsMono.ttf", import.meta.url));

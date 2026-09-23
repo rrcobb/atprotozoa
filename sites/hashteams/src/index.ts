@@ -8,7 +8,7 @@
 // share collapses into one generic link-unfurl card. Fix, same recipe as
 // sites/didscope/src/index.ts's renderShare: stamp the team number into the
 // static shell's OG tags server-side before handing it back. The number is
-// entirely self-contained (0-65535), so no network call is needed to render
+// entirely self-contained (1-65536), so no network call is needed to render
 // it — the roster itself still loads client-side same as any other visit.
 // Falls through to ASSETS for everything else (/, /og.png, /fonts/*).
 
@@ -18,10 +18,10 @@ export interface Env {
 
 const GENERIC_TITLE = "hashteams — which of 65536 teams is your DID on?";
 const GENERIC_DESC =
-  "UTF-8 encode your DID, SHA-256 it, take the first two bytes as a big-endian integer — that's your team, one of 65536. Enter a handle to compute it and see who else opted into the same team.";
+  "UTF-8 encode your DID, SHA-256 it, take the first two bytes as a big-endian integer, then add one — that's your team, one of 65536. Enter a handle to compute it and see who else opted into the same team.";
 // Matched as a full quoted attribute, not the bare URL — the bare URL is
 // also a prefix of the og:image/twitter:image URLs ("…/og.png"), so a naive
-// split/join on it would corrupt those into "…/team/29811og.png" too (the
+// split/join on it would corrupt those into "…/team/29812og.png" too (the
 // exact bug didscope's comment on this same line warns about).
 const GENERIC_OG_URL_ATTR = 'content="https://hashteams.bisks.net/"';
 
@@ -58,7 +58,7 @@ export default {
     const m = url.pathname.match(/^\/team\/(\d{1,5})\/?$/);
     if (m) {
       const team = Number(m[1]);
-      if (Number.isInteger(team) && team >= 0 && team <= 65535) {
+      if (Number.isInteger(team) && team >= 1 && team <= 65536) {
         return renderTeamPage(env, request, team);
       }
     }
