@@ -11,6 +11,8 @@
 // habitual-caution leftover. No page cap: a real mutuals list shouldn't be
 // silently truncated.
 
+import { followerDids as constellationFollowerDids } from "./microcosm.js";
+
 const PUB = "https://api.bsky.app/xrpc";
 
 async function jget(url) {
@@ -78,9 +80,21 @@ export async function moots(actor, { onStep } = {}) {
   if (onStep) onStep("mapping who you follow…");
   const follows = await graphAll("app.bsky.graph.getFollows", "follows", did);
   if (onStep) onStep("mapping who follows you back…");
-  const followers = await graphAll("app.bsky.graph.getFollowers", "followers", did);
+  // Constellation indexes app.bsky.graph.follow's .subject directly (up to
+  // 1000/page vs the AppView's 100/page), so it's tried first; the AppView
+  // walk is the fallback if Constellation itself errors. Only DIDs are
+  // needed here (membership test against follows), so no profile hydration
+  // either way.
+  let followerIds;
+  try {
+    followerIds = await constellationFollowerDids(did);
+  } catch {
+    followerIds = (await graphAll("app.bsky.graph.getFollowers", "followers", did)).map(
+      (f) => f.did,
+    );
+  }
 
-  const followerDids = new Set(followers.map((f) => f.did));
+  const followerDids = new Set(followerIds);
   const seen = new Set([did]);
   const mutuals = [];
   for (const f of follows) {
@@ -108,7 +122,7 @@ export async function moots(actor, { onStep } = {}) {
     kind,
     counts: {
       follows: follows.length,
-      followers: followers.length,
+      followers: followerIds.length,
       mutuals: mutualCount,
       pool: pool.length,
     },

@@ -5,6 +5,8 @@
 //
 // Reads Bluesky's PUBLIC AppView anonymously (api.bsky.app, CORS *, no auth).
 
+import { followerDids as constellationFollowerDids } from "./microcosm.js";
+
 const PUB = "https://api.bsky.app/xrpc";
 
 const GRAPH_PAGES = 400; // backstop, not a budget — raised 2026-08-28 across the moot-family sites (same treatment as kevinmoot's bfs.js FOLLOWERS_PAGES; a fixed page count on getFollows/getFollowers was a speed knob dressed as a data cap, not a correctness bound)
@@ -79,14 +81,26 @@ export async function moots(actor, { onStep, minPool = 12 } = {}) {
   if (onStep) onStep("finding who they follow…");
   const follows = await graphAll("app.bsky.graph.getFollows", "follows", did);
   if (onStep) onStep("finding who follows them back…");
-  const followers = await graphAll("app.bsky.graph.getFollowers", "followers", did);
+  // Constellation indexes app.bsky.graph.follow's .subject directly (up to
+  // 1000/page vs the AppView's 100/page), so it's tried first; the AppView
+  // walk is the fallback if Constellation itself errors. Only DIDs are
+  // needed here (membership test against follows), so no profile hydration
+  // either way.
+  let followerIds;
+  try {
+    followerIds = await constellationFollowerDids(did);
+  } catch {
+    followerIds = (await graphAll("app.bsky.graph.getFollowers", "followers", did)).map(
+      (f) => f.did,
+    );
+  }
 
   let self = { did, handle: actor.replace(/^@/, "") };
   try {
     self = profileOf(await getProfile(did));
   } catch {}
 
-  const followerDids = new Set(followers.map((f) => f.did));
+  const followerDids = new Set(followerIds);
   const seen = new Set([did]);
   const mutuals = [];
   for (const f of follows) {

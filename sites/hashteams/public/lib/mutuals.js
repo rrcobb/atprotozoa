@@ -8,6 +8,8 @@
 // with the signed-in session's own DID (already resolved, so resolveDid()
 // below is a no-op for it) and pairs each mutual with its team number.
 
+import { followerDids as constellationFollowerDids } from "./microcosm.js";
+
 const PUB = "https://api.bsky.app/xrpc";
 
 const GRAPH_PAGES = 400; // backstop, not a budget — same treatment as the rest of the moot family (see notes/40-new-site-playbook.md, 2026-08-28 cap order): getFollows/getFollowers have no bulk-download equivalent, so this still paginates, but the page count it's willing to spend is not a correctness limit.
@@ -75,11 +77,19 @@ export async function mutualsOf(actor, { onStep } = {}) {
   if (onStep) onStep("mapping who they follow…");
   const follows = await graphAll("app.bsky.graph.getFollows", "follows", did);
   if (onStep) onStep("mapping who follows them back…");
-  const followers = await graphAll(
-    "app.bsky.graph.getFollowers",
-    "followers",
-    did,
-  );
+  // Constellation indexes app.bsky.graph.follow's .subject directly (up to
+  // 1000/page vs the AppView's 100/page), so it's tried first; the AppView
+  // walk is the fallback if Constellation itself errors. Only DIDs are
+  // needed here (membership test against follows), so no profile hydration
+  // either way.
+  let followerIds;
+  try {
+    followerIds = await constellationFollowerDids(did);
+  } catch {
+    followerIds = (await graphAll("app.bsky.graph.getFollowers", "followers", did)).map(
+      (f) => f.did,
+    );
+  }
 
   let self = {
     did,
@@ -94,7 +104,7 @@ export async function mutualsOf(actor, { onStep } = {}) {
     self = profileOf(prof);
   } catch {}
 
-  const followerDids = new Set(followers.map((f) => f.did));
+  const followerDids = new Set(followerIds);
   const seen = new Set([did]);
   const mutuals = [];
   for (const f of follows) {
@@ -108,6 +118,6 @@ export async function mutualsOf(actor, { onStep } = {}) {
     handle: self.handle,
     self,
     mutuals,
-    counts: { follows: follows.length, followers: followers.length, mutuals: mutuals.length },
+    counts: { follows: follows.length, followers: followerIds.length, mutuals: mutuals.length },
   };
 }
