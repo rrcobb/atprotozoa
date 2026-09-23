@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>subatomic — reddit but atproto</title>
+<meta name="description" content="post a link or text to a board, upvote or downvote, comment. every post, vote, and comment is a real record on your own PDS — subatomic just reads them back and folds them into a shared feed." />
+<meta property="og:title" content="subatomic — reddit but atproto" />
+<meta property="og:description" content="post a link or text to a board, upvote or downvote, comment. every post, vote, and comment is a real record on your own PDS." />
+<meta property="og:url" content="https://subatomic.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://subatomic.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="subatomic: a stack of vote-arrow post cards on a dark board, reddit but atproto." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="subatomic — reddit but atproto" />
+<meta name="twitter:description" content="post a link or text to a board, upvote or downvote, comment. every post, vote, and comment is a real record on your own PDS." />
+<meta name="twitter:image" content="https://subatomic.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0b0d10;
+    --void: #101318;
+    --fg: #eef1f4;
+    --dim: #8a92a0;
+    --accent: #ff5f2e;
+    --accent2: #ffb199;
+    --up: #ff5f2e;
+    --down: #6f8dff;
+    --card: #14171d;
+    --card2: #181c23;
+    --border: #262b34;
+    --danger: #ff8a8a;
+    --ok: #7ee0c3;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem 5rem;
+    overflow-x: hidden;
+    background-image: radial-gradient(circle at 50% -10%, rgba(255, 95, 46, 0.12), transparent 55%);
+  }
+  a { color: var(--accent2); }
+  .wrap { width: 100%; max-width: 720px; }
+
+  header { text-align: center; margin-bottom: 1.5rem; }
+  h1 {
+    margin: 0 0 0.35rem;
+    font-size: 2rem;
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.88rem; max-width: 46ch; margin: 0 auto; line-height: 1.5; }
+  .tag b { color: var(--fg); }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.1rem 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .card h2 { margin: 0 0 0.3rem; font-size: 0.95rem; color: var(--fg); }
+  .card .sub { color: var(--dim); font-size: 0.78rem; margin: 0 0 0.85rem; line-height: 1.5; }
+
+  .signin {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    background: var(--void);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.55rem 0.7rem;
+    margin-bottom: 0.9rem;
+    font-size: 0.8rem;
+  }
+  .signin input[type="text"] { flex: 1; min-width: 140px; padding: 0.5rem 0.65rem; font-size: 0.85rem; }
+  .signin .who { color: var(--fg); flex: 1; }
+  .signin .who b { color: var(--accent2); }
+  .signin button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--accent2);
+    border-radius: 7px;
+    padding: 0.5rem 0.75rem;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.78rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .signin-err { color: var(--danger); font-size: 0.74rem; width: 100%; }
+
+  form { display: flex; flex-direction: column; gap: 0.5rem; }
+  textarea, input[type="text"], input[type="url"] {
+    background: var(--void);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    border-radius: 8px;
+    padding: 0.65rem 0.8rem;
+    font: inherit;
+    font-size: 0.88rem;
+    width: 100%;
+    resize: vertical;
+  }
+  textarea { min-height: 4rem; }
+  textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row2 { display: flex; gap: 0.5rem; }
+  .row2 .board { flex: 0 0 34%; }
+  .row2 .title { flex: 1; }
+  .kindrow { display: flex; gap: 0.5rem; }
+  .kindbtn {
+    flex: 1;
+    background: var(--void);
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 8px;
+    padding: 0.5rem 0.6rem;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .kindbtn.active { color: var(--accent2); border-color: var(--accent); background: rgba(255, 95, 46, 0.08); }
+  .hint { color: var(--dim); font-size: 0.7rem; margin: -0.2rem 0 0; }
+  button[type="submit"], .primary {
+    background: linear-gradient(90deg, var(--accent), #ff8a5c);
+    color: #240900;
+    border: none;
+    border-radius: 8px;
+    padding: 0.68rem 1.1rem;
+    font: inherit;
+    font-weight: 800;
+    font-size: 0.86rem;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  .status { color: var(--dim); font-size: 0.82rem; min-height: 1.3em; margin: 0.5rem 0 0; }
+  .status.err { color: var(--danger); }
+  .status.ok { color: var(--ok); }
+
+  .boardbar { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+  .boardchip {
+    background: var(--void);
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 999px;
+    padding: 0.28rem 0.7rem;
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .boardchip.active { color: var(--accent2); border-color: var(--accent); }
+  .boardchip .n { color: var(--dim); margin-left: 0.3rem; }
+
+  .sectionhead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.6rem;
+    margin: 0 0 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px dashed var(--border);
+  }
+  .sectionhead h2 { margin: 0; font-size: 0.85rem; color: var(--dim); }
+  .tabs { display: flex; gap: 0.4rem; }
+  .tabs button {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--dim);
+    border-radius: 999px;
+    padding: 0.28rem 0.7rem;
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .tabs button.active { color: var(--accent2); border-color: var(--accent); }
+
+  .empty { color: var(--dim); font-size: 0.86rem; padding: 1.2rem 0; text-align: center; }
+
+  .post {
+    display: flex;
+    gap: 0.7rem;
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.7rem 0.85rem;
+    margin-bottom: 0.55rem;
+  }
+  .votecol { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; flex: none; width: 2.2rem; }
+  .votebtn {
+    background: transparent;
+    border: none;
+    color: var(--dim);
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    padding: 0.2rem;
+  }
+  .votebtn.up.active { color: var(--up); }
+  .votebtn.down.active { color: var(--down); }
+  .score { font-size: 0.8rem; font-weight: 800; color: var(--fg); }
+
+  .postmeta { min-width: 0; flex: 1; }
+  .postmeta .top { display: flex; align-items: baseline; gap: 0.4rem; flex-wrap: wrap; font-size: 0.7rem; color: var(--dim); }
+  .postmeta .board { color: var(--accent2); font-weight: 700; text-decoration: none; }
+  .postmeta .title { display: block; font-size: 0.94rem; font-weight: 700; color: var(--fg); margin: 0.2rem 0; text-decoration: none; line-height: 1.35; word-break: break-word; }
+  .postmeta .title:hover { color: var(--accent2); }
+  .postmeta .domain { color: var(--dim); font-size: 0.72rem; }
+  .postmeta .text { color: var(--dim); font-size: 0.82rem; line-height: 1.5; margin: 0.15rem 0 0.3rem; white-space: pre-wrap; word-break: break-word; max-height: 4.5em; overflow: hidden; }
+  .postmeta .bottom { display: flex; gap: 0.7rem; font-size: 0.72rem; }
+  .postmeta .bottom a, .postmeta .bottom span { color: var(--dim); text-decoration: none; cursor: pointer; }
+  .postmeta .bottom a:hover { color: var(--accent2); }
+
+  .threadhead { margin-bottom: 1rem; }
+  .backlink { font-size: 0.78rem; color: var(--dim); text-decoration: none; display: inline-block; margin-bottom: 0.6rem; }
+  .backlink:hover { color: var(--accent2); }
+  .fullpost .postmeta .title { font-size: 1.1rem; }
+  .fullpost .postmeta .text { max-height: none; }
+
+  .comment {
+    background: var(--card2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.6rem 0.8rem;
+    margin-bottom: 0.5rem;
+  }
+  .comment .top { display: flex; gap: 0.4rem; align-items: baseline; font-size: 0.72rem; color: var(--dim); margin-bottom: 0.25rem; }
+  .comment .top b { color: var(--fg); }
+  .comment .text { font-size: 0.85rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+
+  .share {
+    margin-top: 1.5rem;
+    padding-top: 1.1rem;
+    border-top: 1px dashed var(--border);
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .share a, .share button {
+    flex: 1;
+    min-width: 140px;
+    text-align: center;
+    border-radius: 8px;
+    padding: 0.6rem 0.9rem;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .share a { background: linear-gradient(90deg, var(--accent), #ff8a5c); color: #240900; }
+  .share button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+
+  footer { margin-top: 2.5rem; color: var(--dim); font-size: 0.74rem; text-align: center; line-height: 1.7; }
+  footer a { color: var(--accent2); }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>subat<span id="secretspan" onclick='var e=document.getElementById("loginHandle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">o</span>mic</h1>
+      <p class="tag">reddit but <b>atproto</b>. post a link or text to a board, upvote or downvote, comment — every post, vote, and comment is a real record on <b>your own PDS</b>.</p>
+    </header>
+
+    <!-- FEED VIEW -->
+    <div id="feedView">
+      <div class="card">
+        <h2>post something</h2>
+        <p class="sub" id="composeSub">Sign in with Bluesky (or any atproto PDS) to post.</p>
+        <div id="signinBar" class="signin"></div>
+
+        <form id="postForm">
+          <div class="row2">
+            <input class="board" id="postBoard" type="text" maxlength="30" placeholder="board (e.g. atproto)" autocomplete="off" />
+            <input class="title" id="postTitle" type="text" maxlength="300" placeholder="title" autocomplete="off" />
+          </div>
+          <div class="kindrow">
+            <button type="button" class="kindbtn active" data-kind="link">link</button>
+            <button type="button" class="kindbtn" data-kind="text">text</button>
+          </div>
+          <input id="postUrl" type="url" maxlength="2000" placeholder="https://..." autocomplete="off" />
+          <textarea id="postText" maxlength="10000" placeholder="say something..." hidden></textarea>
+          <button id="postGo" type="submit">post it</button>
+        </form>
+        <p id="postStatus" class="status"></p>
+      </div>
+
+      <div id="boardBar" class="boardbar"></div>
+
+      <div class="sectionhead">
+        <h2 id="feedTitle">all boards</h2>
+        <div class="tabs" id="sortTabs">
+          <button type="button" class="active" data-sort="hot">hot</button>
+          <button type="button" data-sort="new">new</button>
+          <button type="button" data-sort="top">top</button>
+        </div>
+      </div>
+      <div id="feedEmpty" class="empty" hidden>nothing posted here yet. be the first.</div>
+      <div id="feedList"></div>
+    </div>
+
+    <!-- THREAD VIEW -->
+    <div id="threadView" hidden>
+      <a href="#/" class="backlink">&larr; back</a>
+      <div id="threadPost"></div>
+
+      <div class="card">
+        <h2>comment</h2>
+        <div id="commentSigninBar" class="signin"></div>
+        <form id="commentForm">
+          <textarea id="commentText" maxlength="5000" placeholder="say something..."></textarea>
+          <button id="commentGo" type="submit">comment</button>
+        </form>
+        <p id="commentStatus" class="status"></p>
+      </div>
+
+      <div class="sectionhead"><h2 id="commentCount">comments</h2></div>
+      <div id="commentEmpty" class="empty" hidden>no comments yet.</div>
+      <div id="commentList"></div>
+    </div>
+
+    <div class="share">
+      <a id="shareBluesky" target="_blank" rel="noopener">🦋 share subatomic</a>
+      <button id="shareCopy" type="button">🔗 copy link</button>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+      requested by <a href="https://bsky.app/profile/isaaccorbrey.com">@isaaccorbrey.com</a> ·
+      <a href="https://rateyourbuild.bisks.net/site/subatomic">rate this on rateyourbuild →</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script type="module">
+import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch, voteRkey } from "./lib/oauth.js";
+
+const POST_COLLECTION = "net.bisks.subatomic.post";
+const COMMENT_COLLECTION = "net.bisks.subatomic.comment";
+const VOTE_COLLECTION = "net.bisks.subatomic.vote";
+
+function esc(s) {
+  return String(s || "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+function timeAgo(ts) {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + "m ago";
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + "h ago";
+  return Math.floor(h / 24) + "d ago";
+}
+function cleanHandle(raw) {
+  let h = (raw || "").trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+function normalizeBoard(s) {
+  return String(s || "")
+    .trim().toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 30);
+}
+function domainOf(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; }
+}
+
+const els = {
+  feedView: document.getElementById("feedView"),
+  threadView: document.getElementById("threadView"),
+  signinBar: document.getElementById("signinBar"),
+  commentSigninBar: document.getElementById("commentSigninBar"),
+  composeSub: document.getElementById("composeSub"),
+  postForm: document.getElementById("postForm"),
+  postBoard: document.getElementById("postBoard"),
+  postTitle: document.getElementById("postTitle"),
+  postUrl: document.getElementById("postUrl"),
+  postText: document.getElementById("postText"),
+  postGo: document.getElementById("postGo"),
+  postStatus: document.getElementById("postStatus"),
+  kindBtns: [...document.querySelectorAll(".kindbtn")],
+  boardBar: document.getElementById("boardBar"),
+  feedTitle: document.getElementById("feedTitle"),
+  sortTabs: document.getElementById("sortTabs"),
+  feedEmpty: document.getElementById("feedEmpty"),
+  feedList: document.getElementById("feedList"),
+  threadPost: document.getElementById("threadPost"),
+  commentForm: document.getElementById("commentForm"),
+  commentText: document.getElementById("commentText"),
+  commentGo: document.getElementById("commentGo"),
+  commentStatus: document.getElementById("commentStatus"),
+  commentCount: document.getElementById("commentCount"),
+  commentEmpty: document.getElementById("commentEmpty"),
+  commentList: document.getElementById("commentList"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareCopy: document.getElementById("shareCopy"),
+};
+
+let session = null;
+let kind = "link";
+let sort = "hot";
+let board = null;
+let myVotes = {}; // uri -> 1 | -1
+let currentThreadUri = null;
+
+// --- sign in (shared by both the compose card and the comment box) ---
+
+function signinHtml(idPrefix, inputId) {
+  if (session) {
+    return `<span class="who">signed in as <b>@${esc(session.handle)}</b></span><button id="${idPrefix}Out" type="button">sign out</button>`;
+  }
+  return `<input id="${inputId}" type="text" placeholder="your handle to sign in" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <button id="${idPrefix}In" type="button">sign in</button>
+    <span class="signin-err" id="${idPrefix}Err"></span>`;
+}
+
+function wireSignin(bar, idPrefix, inputId) {
+  if (session) {
+    document.getElementById(`${idPrefix}Out`).addEventListener("click", async () => {
+      await clearSession();
+      session = null;
+      renderAllSignin();
+    });
+    return;
+  }
+  if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById(inputId));
+  document.getElementById(`${idPrefix}In`).addEventListener("click", async () => {
+    const h = cleanHandle(document.getElementById(inputId).value);
+    const err = document.getElementById(`${idPrefix}Err`);
+    if (!h) { err.textContent = "enter your handle first."; return; }
+    err.textContent = "";
+    try { await login(h); } catch (e) { err.textContent = e.message; }
+  });
+}
+
+function renderAllSignin() {
+  els.signinBar.innerHTML = signinHtml("signIn", "loginHandle");
+  wireSignin(els.signinBar, "signIn", "loginHandle");
+  els.commentSigninBar.innerHTML = signinHtml("commentSignIn", "loginHandle2");
+  wireSignin(els.commentSigninBar, "commentSignIn", "loginHandle2");
+  els.composeSub.textContent = session
+    ? "Every post writes a record to your own PDS, then this site verifies and shares it below."
+    : "Sign in with Bluesky (or any atproto PDS) to post.";
+  els.commentSigninBar.hidden = !!session;
+}
+
+// --- routing ---
+
+function parseHash() {
+  const h = location.hash.replace(/^#\/?/, "");
+  if (h.startsWith("post/")) return { view: "thread", uri: decodeURIComponent(h.slice(5)) };
+  if (h.startsWith("b/")) return { view: "feed", board: normalizeBoard(decodeURIComponent(h.slice(2))) };
+  return { view: "feed", board: null };
+}
+
+function route() {
+  const r = parseHash();
+  if (r.view === "thread") {
+    board = null;
+    els.feedView.hidden = true;
+    els.threadView.hidden = false;
+    loadThread(r.uri);
+  } else {
+    board = r.board;
+    els.threadView.hidden = true;
+    els.feedView.hidden = false;
+    els.feedTitle.textContent = board ? `b/${board}` : "all boards";
+    els.postBoard.value = board || els.postBoard.value;
+    loadFeed();
+    loadBoards();
+  }
+}
+window.addEventListener("hashchange", route);
+
+// --- compose: link vs text ---
+
+els.kindBtns.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    kind = btn.dataset.kind;
+    els.kindBtns.forEach((b) => b.classList.toggle("active", b === btn));
+    els.postUrl.hidden = kind !== "link";
+    els.postText.hidden = kind !== "text";
+  });
+});
+
+els.sortTabs.querySelectorAll("button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    sort = btn.dataset.sort;
+    els.sortTabs.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
+    loadFeed();
+  });
+});
+
+function setStatus(el, msg, kindClass) {
+  el.textContent = msg || "";
+  el.className = "status" + (kindClass ? " " + kindClass : "");
+}
+
+// --- sharing ---
+
+function shareText() {
+  return "subatomic: reddit but atproto. post a link or text to a board, upvote or downvote, comment — real records on your own PDS.\n\nhttps://subatomic.bisks.net/";
+}
+els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText());
+els.shareCopy.addEventListener("click", () => {
+  navigator.clipboard?.writeText(location.href)
+    .then(() => setStatus(els.postStatus, "link copied.", "ok"))
+    .catch(() => {});
+});
+
+// --- feed ---
+
+function renderPostCard(entry) {
+  const div = document.createElement("div");
+  div.className = "post";
+  const my = myVotes[entry.uri] || 0;
+  const permalink = "#/post/" + encodeURIComponent(entry.uri);
+  const titleHref = entry.url || permalink;
+  const titleTarget = entry.url ? ' target="_blank" rel="noopener"' : "";
+  div.innerHTML = `
+    <div class="votecol">
+      <button class="votebtn up${my === 1 ? " active" : ""}" title="upvote">▲</button>
+      <span class="score">${entry.score}</span>
+      <button class="votebtn down${my === -1 ? " active" : ""}" title="downvote">▼</button>
+    </div>
+    <div class="postmeta">
+      <div class="top">
+        <a class="board" href="#/b/${encodeURIComponent(entry.board)}">b/${esc(entry.board)}</a>
+        <span>by @${esc(entry.handle)}</span>
+        <span>${timeAgo(entry.createdAt)}</span>
+      </div>
+      <a class="title" href="${esc(titleHref)}"${titleTarget}>${esc(entry.title)}</a>
+      ${entry.url ? `<span class="domain">${esc(domainOf(entry.url))}</span>` : ""}
+      ${entry.text ? `<div class="text">${esc(entry.text)}</div>` : ""}
+      <div class="bottom">
+        <a href="${permalink}">${entry.commentCount || 0} comments</a>
+      </div>
+    </div>
+  `;
+  div.querySelector(".up").addEventListener("click", () => castVote(entry, 1, div));
+  div.querySelector(".down").addEventListener("click", () => castVote(entry, -1, div));
+  return div;
+}
+
+async function loadFeed() {
+  try {
+    const qs = new URLSearchParams({ sort });
+    if (board) qs.set("board", board);
+    const res = await fetch("/api/feed?" + qs.toString());
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    const entries = data.entries || [];
+    await loadMyVotes(entries.map((e) => e.uri));
+    els.feedList.innerHTML = "";
+    els.feedEmpty.hidden = !!entries.length;
+    for (const entry of entries) els.feedList.appendChild(renderPostCard(entry));
+  } catch (_) {
+    els.feedList.innerHTML = '<div class="empty">couldn\'t reach subatomic. try again in a moment.</div>';
+  }
+}
+
+async function loadMyVotes(uris) {
+  myVotes = {};
+  if (!session || !uris.length) return;
+  try {
+    const res = await fetch("/api/my-votes", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ did: session.did, uris }),
+    });
+    const data = await res.json();
+    myVotes = data.votes || {};
+  } catch (_) {}
+}
+
+async function loadBoards() {
+  try {
+    const res = await fetch("/api/boards");
+    const data = await res.json();
+    const boards = data.boards || [];
+    els.boardBar.innerHTML = `<a class="boardchip${!board ? " active" : ""}" href="#/">all</a>` + boards
+      .map((b) => `<a class="boardchip${board === b.board ? " active" : ""}" href="#/b/${encodeURIComponent(b.board)}">b/${esc(b.board)}<span class="n">${b.count}</span></a>`)
+      .join("");
+  } catch (_) {}
+}
+
+// --- voting ---
+
+async function castVote(entry, dir, cardEl) {
+  if (!session) { setStatus(els.postStatus, "sign in above to vote.", "err"); return; }
+  const subject = entry.uri;
+  const rkey = await voteRkey(subject);
+  const already = myVotes[subject] === dir;
+  try {
+    if (already) {
+      const delRes = await dpopFetch(session, `${session.pdsUrl}/xrpc/com.atproto.repo.deleteRecord`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: session.did, collection: VOTE_COLLECTION, rkey }),
+      });
+      if (!delRes.ok) throw new Error("couldn't withdraw that vote");
+      const applyRes = await fetch("/api/unvote", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ did: session.did, subject }),
+      });
+      const applied = await applyRes.json().catch(() => ({}));
+      if (!applyRes.ok) throw new Error(applied.error || "couldn't apply that");
+      delete myVotes[subject];
+      updateVoteUi(cardEl, applied.post, 0);
+    } else {
+      const record = { $type: VOTE_COLLECTION, subject, value: dir, createdAt: new Date().toISOString() };
+      const putRes = await dpopFetch(session, `${session.pdsUrl}/xrpc/com.atproto.repo.putRecord`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ repo: session.did, collection: VOTE_COLLECTION, rkey, record }),
+      });
+      const written = await putRes.json().catch(() => ({}));
+      if (!putRes.ok) throw new Error(written.message || "couldn't write that vote");
+      const applyRes = await fetch("/api/vote", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ uri: written.uri }),
+      });
+      const applied = await applyRes.json().catch(() => ({}));
+      if (!applyRes.ok) throw new Error(applied.error || "couldn't apply that");
+      myVotes[subject] = dir;
+      updateVoteUi(cardEl, applied.post, dir);
+    }
+  } catch (err) {
+    setStatus(els.postStatus, "vote failed: " + err.message, "err");
+  }
+}
+
+function updateVoteUi(cardEl, post, myVote) {
+  if (!cardEl || !post) return;
+  cardEl.querySelector(".score").textContent = post.score;
+  cardEl.querySelector(".up").classList.toggle("active", myVote === 1);
+  cardEl.querySelector(".down").classList.toggle("active", myVote === -1);
+}
+
+// --- posting ---
+
+async function submitPost() {
+  const boardVal = normalizeBoard(els.postBoard.value);
+  const title = els.postTitle.value.trim();
+  if (!boardVal) { setStatus(els.postStatus, "give it a board name.", "err"); return; }
+  if (!title) { setStatus(els.postStatus, "give it a title.", "err"); return; }
+  if (!session) { setStatus(els.postStatus, "sign in above first.", "err"); return; }
+
+  const url = kind === "link" ? els.postUrl.value.trim() : "";
+  const text = kind === "text" ? els.postText.value.trim() : "";
+  if (kind === "link" && !url) { setStatus(els.postStatus, "give it a url, or switch to text.", "err"); return; }
+
+  els.postGo.disabled = true;
+  setStatus(els.postStatus, "posting...");
+  try {
+    const record = { $type: POST_COLLECTION, board: boardVal, title, createdAt: new Date().toISOString() };
+    if (url) record.url = url;
+    if (text) record.text = text;
+
+    const writeRes = await dpopFetch(session, `${session.pdsUrl}/xrpc/com.atproto.repo.createRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: session.did, collection: POST_COLLECTION, record }),
+    });
+    const written = await writeRes.json().catch(() => ({}));
+    if (!writeRes.ok) throw new Error(written.message || "couldn't write that record to your PDS");
+
+    const applyRes = await fetch("/api/submit-post", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ uri: written.uri }),
+    });
+    const applied = await applyRes.json().catch(() => ({}));
+    if (!applyRes.ok) throw new Error(applied.error || "couldn't apply that record");
+
+    setStatus(els.postStatus, "posted.", "ok");
+    els.postTitle.value = "";
+    els.postUrl.value = "";
+    els.postText.value = "";
+    if (!board) await loadFeed();
+    await loadBoards();
+  } catch (err) {
+    setStatus(els.postStatus, "couldn't post that: " + err.message, "err");
+  } finally {
+    els.postGo.disabled = false;
+  }
+}
+els.postForm.addEventListener("submit", (e) => { e.preventDefault(); submitPost(); });
+
+// --- thread view ---
+
+function renderComment(c) {
+  const div = document.createElement("div");
+  div.className = "comment";
+  div.innerHTML = `
+    <div class="top"><b>@${esc(c.handle)}</b><span>${timeAgo(c.createdAt)}</span></div>
+    <div class="text">${esc(c.text)}</div>
+  `;
+  return div;
+}
+
+async function loadThread(uri) {
+  currentThreadUri = uri;
+  els.threadPost.innerHTML = '<p class="empty">loading...</p>';
+  try {
+    const res = await fetch("/api/post?uri=" + encodeURIComponent(uri));
+    const data = await res.json();
+    if (!data.post) {
+      els.threadPost.innerHTML = '<p class="empty">that post isn\'t here (yet — indexing can lag a few seconds after posting).</p>';
+      els.commentList.innerHTML = "";
+      els.commentCount.textContent = "comments";
+      els.commentEmpty.hidden = true;
+      return;
+    }
+    await loadMyVotes([uri]);
+    const card = renderPostCard(data.post);
+    card.classList.add("fullpost");
+    els.threadPost.innerHTML = "";
+    els.threadPost.appendChild(card);
+
+    const comments = data.comments || [];
+    els.commentCount.textContent = comments.length + " comment" + (comments.length === 1 ? "" : "s");
+    els.commentEmpty.hidden = !!comments.length;
+    els.commentList.innerHTML = "";
+    for (const c of comments) els.commentList.appendChild(renderComment(c));
+  } catch (_) {
+    els.threadPost.innerHTML = '<p class="empty">couldn\'t reach subatomic. try again in a moment.</p>';
+  }
+}
+
+async function submitComment() {
+  const text = els.commentText.value.trim();
+  if (!text) { setStatus(els.commentStatus, "write something first.", "err"); return; }
+  if (!session) { setStatus(els.commentStatus, "sign in above first.", "err"); return; }
+  if (!currentThreadUri) return;
+
+  els.commentGo.disabled = true;
+  setStatus(els.commentStatus, "commenting...");
+  try {
+    const record = { $type: COMMENT_COLLECTION, post: currentThreadUri, text, createdAt: new Date().toISOString() };
+    const writeRes = await dpopFetch(session, `${session.pdsUrl}/xrpc/com.atproto.repo.createRecord`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: session.did, collection: COMMENT_COLLECTION, record }),
+    });
+    const written = await writeRes.json().catch(() => ({}));
+    if (!writeRes.ok) throw new Error(written.message || "couldn't write that record to your PDS");
+
+    const applyRes = await fetch("/api/submit-comment", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ uri: written.uri }),
+    });
+    const applied = await applyRes.json().catch(() => ({}));
+    if (!applyRes.ok) throw new Error(applied.error || "couldn't apply that record");
+
+    setStatus(els.commentStatus, "commented.", "ok");
+    els.commentText.value = "";
+    await loadThread(currentThreadUri);
+  } catch (err) {
+    setStatus(els.commentStatus, "couldn't comment: " + err.message, "err");
+  } finally {
+    els.commentGo.disabled = false;
+  }
+}
+els.commentForm.addEventListener("submit", (e) => { e.preventDefault(); submitComment(); });
+
+// --- boot ---
+
+async function initSession() {
+  try {
+    session = (await completeLoginIfCallback()) || (await getSession());
+  } catch (e) {
+    setStatus(els.postStatus, "sign-in failed: " + e.message, "err");
+  }
+  renderAllSignin();
+  route();
+}
+initSession();
+</script>
+</body>
+</html>
