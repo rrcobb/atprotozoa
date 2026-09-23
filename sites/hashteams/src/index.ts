@@ -10,6 +10,15 @@
 // static shell's OG tags server-side before handing it back. The number is
 // entirely self-contained (1-65536), so no network call is needed to render
 // it — the roster itself still loads client-side same as any other visit.
+//
+// /mutuals is a second client-rendered view (a signed-in user's mutuals and
+// their teams) with no per-user OG stamping to do — it just needs the same
+// index.html shell served at a path with no matching file on disk, since
+// this site doesn't set not_found_handling = "single-page-application" in
+// wrangler.toml. Serving it explicitly here, same as /team/<n>, keeps that
+// global fallback (and its wider blast radius on unrelated 404s) off the
+// table for one route.
+//
 // Falls through to ASSETS for everything else (/, /og.png, /fonts/*).
 
 export interface Env {
@@ -61,6 +70,10 @@ export default {
       if (Number.isInteger(team) && team >= 1 && team <= 65536) {
         return renderTeamPage(env, request, team);
       }
+    }
+
+    if (/^\/mutuals\/?$/.test(url.pathname)) {
+      return env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
     }
 
     return env.ASSETS.fetch(request);

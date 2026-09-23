@@ -11,6 +11,7 @@
 import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch, resolveHandle } from "./lib/oauth.js";
 import { GlobalIndex } from "./lib/global-index.js";
 import { digestForDid, teamFromDigest, colorFromDigest } from "./lib/team.js";
+import { mutualsOf } from "./lib/mutuals.js";
 
 const COLLECTION = "net.bisks.hashteams.member";
 const SITE = "https://hashteams.bisks.net";
@@ -87,6 +88,13 @@ const els = {
   leaderboardEmpty: document.getElementById("leaderboardEmpty"),
   leaderboardList: document.getElementById("leaderboardList"),
   leaderboardMeta: document.getElementById("leaderboardMeta"),
+  mutualsSignedOut: document.getElementById("mutualsSignedOut"),
+  mutualsSignedIn: document.getElementById("mutualsSignedIn"),
+  loadMutualsBtn: document.getElementById("loadMutualsBtn"),
+  mutualsStatus: document.getElementById("mutualsStatus"),
+  mutualsMeta: document.getElementById("mutualsMeta"),
+  mutualsEmpty: document.getElementById("mutualsEmpty"),
+  mutualsListEl: document.getElementById("mutualsListEl"),
 };
 
 function setLookupStatus(msg, kindClass) {
@@ -96,6 +104,10 @@ function setLookupStatus(msg, kindClass) {
 function setJoinStatus(msg, kindClass) {
   els.joinStatus.textContent = msg || "";
   els.joinStatus.className = "status" + (kindClass ? " " + kindClass : "");
+}
+function setMutualsStatus(msg, kindClass) {
+  els.mutualsStatus.textContent = msg || "";
+  els.mutualsStatus.className = "status" + (kindClass ? " " + kindClass : "");
 }
 
 if (window.attachHandleTypeahead) window.attachHandleTypeahead(els.handleInput);
@@ -181,6 +193,7 @@ function renderSignin() {
       membership = null;
       renderSignin();
       renderJoin();
+      renderMutualsGate();
     });
     return;
   }
@@ -208,6 +221,11 @@ function renderJoin() {
   if (!session) return;
   els.joinBtn.hidden = membership === true;
   els.leaveBtn.hidden = membership !== true;
+}
+
+function renderMutualsGate() {
+  els.mutualsSignedOut.hidden = !!session;
+  els.mutualsSignedIn.hidden = !session;
 }
 
 async function join() {
@@ -261,6 +279,55 @@ async function leave() {
 }
 els.joinBtn.addEventListener("click", join);
 els.leaveBtn.addEventListener("click", leave);
+
+// --- mutuals + their teams --------------------------------------------------
+
+async function loadMutuals() {
+  if (!session) return;
+  els.loadMutualsBtn.disabled = true;
+  els.mutualsEmpty.hidden = true;
+  els.mutualsMeta.textContent = "";
+  els.mutualsListEl.innerHTML = "";
+  setMutualsStatus("loading your mutuals…");
+  try {
+    const yourTeam = teamFromDigest(await digestForDid(session.did));
+    const res = await mutualsOf(session.did, { onStep: (s) => setMutualsStatus(s) });
+
+    if (!res.mutuals.length) {
+      setMutualsStatus("");
+      els.mutualsEmpty.hidden = false;
+      els.mutualsEmpty.textContent = "no mutuals found — nobody you follow follows you back yet.";
+      return;
+    }
+
+    const withTeams = await Promise.all(
+      res.mutuals.map(async (m) => {
+        const digest = await digestForDid(m.did);
+        return { ...m, team: teamFromDigest(digest), color: colorFromDigest(digest) };
+      }),
+    );
+    withTeams.sort((a, b) => a.team - b.team);
+
+    setMutualsStatus("");
+    els.mutualsMeta.textContent = `${withTeams.length} mutuals · you're on team #${yourTeam}`;
+    const frag = document.createDocumentFragment();
+    for (const m of withTeams) {
+      const item = document.createElement("a");
+      item.className = "roster-item" + (m.team === yourTeam ? " you" : "");
+      item.href = `/team/${m.team}`;
+      item.style.borderLeftColor = m.color;
+      item.title = m.team === yourTeam ? "same team as you" : "";
+      item.textContent = `@${m.handle} · #${m.team}`;
+      frag.appendChild(item);
+    }
+    els.mutualsListEl.appendChild(frag);
+  } catch (err) {
+    setMutualsStatus("couldn't load your mutuals: " + err.message, "err");
+  } finally {
+    els.loadMutualsBtn.disabled = false;
+  }
+}
+els.loadMutualsBtn.addEventListener("click", loadMutuals);
 
 // --- lookup / compute ---------------------------------------------------------
 
@@ -426,12 +493,13 @@ function renderLeaderboard() {
 // runs; here it just means starting straight on that team's roster instead
 // of the empty "look up a handle" state.
 function parseRoute() {
+  if (/^\/mutuals\/?$/.test(location.pathname)) return { team: null, mutuals: true };
   const m = location.pathname.match(/^\/team\/(\d{1,5})\/?$/);
   if (m) {
     const n = Number(m[1]);
-    if (Number.isInteger(n) && n >= 1 && n <= 65536) return { team: n };
+    if (Number.isInteger(n) && n >= 1 && n <= 65536) return { team: n, mutuals: false };
   }
-  return { team: null };
+  return { team: null, mutuals: false };
 }
 
 async function init() {
@@ -442,6 +510,7 @@ async function init() {
   }
   renderSignin();
   renderJoin();
+  renderMutualsGate();
   checkMembership();
 
   const route = parseRoute();
@@ -452,6 +521,10 @@ async function init() {
     // above three cards that a permalink visitor doesn't care about — the
     // roster they came for is otherwise the last thing on the page.
     document.getElementById("rosterSection")?.scrollIntoView({ block: "start" });
+  }
+  if (route.mutuals) {
+    document.getElementById("mutualsCard")?.scrollIntoView({ block: "start" });
+    if (session) loadMutuals();
   }
 
   index.start();
