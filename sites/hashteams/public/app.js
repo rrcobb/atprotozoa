@@ -448,6 +448,10 @@ async function init() {
   if (route.team !== null) {
     currentTeam = route.team;
     renderRoster();
+    // A direct /team/<n> visit (a shared link, a leaderboard click) lands
+    // above three cards that a permalink visitor doesn't care about — the
+    // roster they came for is otherwise the last thing on the page.
+    document.getElementById("rosterSection")?.scrollIntoView({ block: "start" });
   }
 
   index.start();
