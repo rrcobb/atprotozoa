@@ -9,6 +9,12 @@
 // explicitly). Copied from sites/dial-a-mutual/og-gen.mjs (copy, don't
 // abstract), swapped for the mootcard-list artwork.
 //
+// The row data below is entirely made up — no real handle or publication
+// name, so the card never states or implies anything about a specific
+// account. It also only depicts states the app can actually produce: every
+// row has a publication with a real last-post date, since a pub with zero
+// posts is dropped before it ever reaches the results list.
+//
 //   npm install @resvg/resvg-js --no-save   # one-time, not a project dependency
 //   node og-gen.mjs                         # writes ./public/og.png
 //
@@ -37,9 +43,9 @@ function avatarCircle(x, y, r, fill, label) {
 }
 
 const ROWS = [
-  { name: "moll.dev", badge: "last post 62d ago", stale: true },
-  { name: "kittokatto405.bsky.social", badge: "never published", stale: true },
-  { name: "cee.wtf", badge: "last post 5d ago", stale: false },
+  { name: "some.mutual", badge: "last post 54d ago", stale: true },
+  { name: "another.mutual", badge: "last post 41d ago", stale: true },
+  { name: "a.third.mutual", badge: "last post 6d ago", stale: false },
 ];
 
 const cardX = 64, cardW = W - 128, cardY0 = 280, cardH = 82, cardGap = 16;
