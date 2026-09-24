@@ -547,11 +547,6 @@ async function runWatcher(env: Env): Promise<void> {
   // comment for why this is a cheap no-op after the first success.
   await ensureFeedGeneratorPublished(env, session);
 
-  // Also unconditional, and also a cheap no-op once done — see "Queued-ack
-  // cleanup" near postQueuedAck. Clears the backlog of queued-ack replies
-  // that were already live and already finished before this existed.
-  await sweepLegacyQueuedAcks(env, session);
-
   // Pull recent mentions. We page a little in case a burst arrived, but the
   // seen-cursor + per-id dedup below is what actually prevents double-handling.
   const mentions = await recentMentions(session);
@@ -3232,17 +3227,12 @@ async function postQueuedAck(
 //
 // heika.dog, 2026-09-24: the queued ack above is a fine thing to say WHILE a
 // build waits, but leaving it sitting in the thread once the real reply has
-// landed next to it is just clutter. Two halves: handleOutcomePost deletes a
-// build's own ack the moment its outcome lands (the ack's uri rides on the
-// event record via ackReplyUri, set above); sweepLegacyQueuedAcks below is a
-// one-time pass to clear out every ack that was already posted, and already
-// done, before ackReplyUri existed to track it.
-
-// Matches all three ackReply variants in postQueuedAck (no queue ahead, one,
-// or N others).
-const ACK_TEXT_RE =
-  /^got it — queued(?: behind (?:one other build|\d+ other builds))?, i'll reply here when it's live\.$/;
-const LEGACY_ACK_SWEEP_DONE_KEY = "sweep:legacy-acks-done";
+// landed next to it is just clutter. handleOutcomePost deletes a build's own
+// ack the moment its outcome lands (the ack's uri rides on the event record
+// via ackReplyUri, set above). A one-time backlog sweep for acks that
+// predated ackReplyUri also lived here; heika.dog asked (2026-09-24, same
+// thread) to keep this per-build delete but drop that whole-profile sweep,
+// so it's gone.
 
 // Delete `uri` from the bot's OWN repo. Silently refuses (rather than throws)
 // on anything that isn't a post uri or isn't owned by this session's did —
@@ -3263,83 +3253,6 @@ async function deleteOwnPost(session: Session, uri: string): Promise<void> {
   });
   if (!res.ok) {
     console.error(`deleteOwnPost failed for ${uri}: ${res.status} ${await res.text()}`);
-  }
-}
-
-// One-time backlog sweep for acks that predate ackReplyUri, so the ask to
-// "delete all those exact replies that are currently live" is actually
-// carried out, not just applied going forward. Pages through the bot's own
-// app.bsky.feed.post records to exhaustion (no arbitrary cap — this is a
-// one-off walk of the whole repo, not a recurring cost), matches the ack
-// text, and deletes each one whose build has already finished (its mention
-// has a recorded outcome in the event log). An ack whose event is missing
-// entirely has outlived the 30-day event TTL, which itself means the build
-// resolved long ago, so it's treated as finished too. An ack still genuinely
-// mid-build is left alone — deleting THAT would contradict the "fine to say
-// while it waits" half of the ask.
-//
-// Guarded by LEGACY_ACK_SWEEP_DONE_KEY so the full repo walk only happens
-// until one pass finds nothing left mid-build to wait on; after that it's a
-// single KV read per tick instead of paging the whole repo every 2 minutes
-// forever.
-async function sweepLegacyQueuedAcks(env: Env, session: Session): Promise<void> {
-  try {
-    if (await env.STATE.get(LEGACY_ACK_SWEEP_DONE_KEY)) return;
-
-    let cursor: string | undefined;
-    let deleted = 0;
-    let sawUnfinished = false;
-    do {
-      const u = new URL(`${PDS}/xrpc/com.atproto.repo.listRecords`);
-      u.searchParams.set("repo", session.did);
-      u.searchParams.set("collection", "app.bsky.feed.post");
-      u.searchParams.set("limit", "100");
-      if (cursor) u.searchParams.set("cursor", cursor);
-      const res = await fetch(u);
-      if (!res.ok) {
-        console.error(`sweepLegacyQueuedAcks listRecords failed: ${res.status} ${await res.text()}`);
-        return; // retry on the next tick rather than mark done on a partial walk
-      }
-      const page = (await res.json()) as {
-        records: { uri: string; value?: { text?: string; reply?: { parent?: { uri?: string } } } }[];
-        cursor?: string;
-      };
-
-      for (const rec of page.records) {
-        const text = rec.value?.text;
-        if (!text || !ACK_TEXT_RE.test(text)) continue;
-
-        const parentUri = rec.value?.reply?.parent?.uri;
-        let finished = true;
-        if (parentUri) {
-          const raw = await env.STATE.get(`${EVENT_PREFIX}${parentUri}`);
-          if (raw) {
-            try {
-              finished = Boolean((JSON.parse(raw) as LogEvent).outcome);
-            } catch {
-              finished = true; // unparseable record is as good as gone
-            }
-          }
-        }
-        if (!finished) {
-          sawUnfinished = true;
-          continue;
-        }
-        await deleteOwnPost(session, rec.uri);
-        deleted++;
-      }
-
-      cursor = page.records.length > 0 ? page.cursor : undefined;
-    } while (cursor);
-
-    console.log(`sweepLegacyQueuedAcks: deleted ${deleted} finished ack(s)`);
-    // Only retire the sweep once a full pass left nothing mid-build behind —
-    // otherwise the next tick needs to check that one again once it finishes.
-    if (!sawUnfinished) {
-      await env.STATE.put(LEGACY_ACK_SWEEP_DONE_KEY, new Date().toISOString());
-    }
-  } catch (err) {
-    console.error(`sweepLegacyQueuedAcks failed: ${err}`);
   }
 }
 
