@@ -141,13 +141,14 @@ async function renderTimeline(env: Env): Promise<Response> {
 // outcome (dispatched -> built/failed -> reply). Each fact is a small labelled
 // chip so the row reads as a status line, not prose.
 function renderEvent(e: LogEvent): string {
-  const handle = e.authorHandle ? `@${esc(e.authorHandle)}` : "someone";
-  const profile = e.authorHandle
-    ? `https://bsky.app/profile/${esc(e.authorHandle)}`
-    : null;
+  const handle = authorDisplay(e.authorHandle);
+  const profile = authorProfileUrl(e.authorHandle);
   const who = profile ? `<a href="${profile}">${handle}</a>` : handle;
 
-  const postLink = bskyPostUrl(e.mentionUri, e.authorHandle);
+  // "daily-slot" isn't a real handle (see authorDisplay) — pass undefined so
+  // bskyPostUrl falls back to the real DID embedded in the mention uri
+  // instead of building a link to a profile named "daily-slot".
+  const postLink = bskyPostUrl(e.mentionUri, e.authorHandle === "daily-slot" ? undefined : e.authorHandle);
   const when = fmtTime(e.firstSeen);
   const whenEl = postLink
     ? `<a class="when" href="${postLink}">${when}</a>`
@@ -213,7 +214,7 @@ async function renderTagPage(env: Env, rkey: string): Promise<Response> {
     return html(pageShell("tag not found — bisks.net", "tag", "not found", body), 404);
   }
 
-  const handle = e.authorHandle ? `@${esc(e.authorHandle)}` : "someone";
+  const handle = authorDisplay(e.authorHandle);
   const built = e.outcome?.status === "success" && e.outcome.url;
   const sub = built
     ? `${handle}'s tag → a website`
@@ -407,6 +408,20 @@ function confettiScript(): string {
 }
 
 // --- rendering helpers -----------------------------------------------------
+
+// "daily-slot" is the synthetic authorHandle the bot's own daily tick writes
+// (sites/buildthis/src/index.ts's runDailyTick) — it stands in for the bot
+// posting to itself, not a real Bluesky account, so there's no profile to
+// link to. Every other handle is a real one and gets the usual @handle link.
+function authorDisplay(authorHandle: string | undefined): string {
+  if (authorHandle === "daily-slot") return "daily slot";
+  return authorHandle ? `@${esc(authorHandle)}` : "someone";
+}
+
+function authorProfileUrl(authorHandle: string | undefined): string | null {
+  if (!authorHandle || authorHandle === "daily-slot") return null;
+  return `https://bsky.app/profile/${esc(authorHandle)}`;
+}
 
 function page(body: string, count: number): string {
   const sub =
