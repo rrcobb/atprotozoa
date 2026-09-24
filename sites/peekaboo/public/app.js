@@ -95,7 +95,12 @@ async function xrpc(method, params) {
   return res.json();
 }
 
-const MUTUALS_PAGE_CAP = 20; // 20 * 100 = up to 2000 follows/followers per side
+// Backstop, not a budget — getFollows/getFollowers have no bulk-download
+// equivalent, so this still paginates, but the page count isn't a
+// correctness bound. Matches the moot-family fix (2026-08-28, see
+// notes/40-new-site-playbook.md): the prior 20-page cap silently truncated
+// mutuals for any account past ~2000 connections.
+const MUTUALS_PAGE_CAP = 400;
 
 async function collectActorDids(method, actor) {
   const dids = new Set();

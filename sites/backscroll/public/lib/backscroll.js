@@ -107,10 +107,17 @@ const profileOf = (p) => ({
   avatar: p.avatar || "",
 });
 
+// GRAPH_PAGE_CAP is a backstop, not a budget — getFollows/getFollowers have
+// no bulk-download equivalent, so this still paginates, but the page count
+// isn't a correctness bound. Matches the moot-family fix (2026-08-28): this
+// inline `12` was an uncaught straggler from the same GRAPH_PAGES=12 bug,
+// missed by that sweep because it wasn't a named constant.
+const GRAPH_PAGE_CAP = 400;
+
 async function graphAll(endpoint, key, did) {
   const out = [];
   let cursor = "";
-  for (let p = 0; p < 12; p++) {
+  for (let p = 0; p < GRAPH_PAGE_CAP; p++) {
     const u = new URL(`${PUB}/${endpoint}`);
     u.searchParams.set("actor", did);
     u.searchParams.set("limit", "100");

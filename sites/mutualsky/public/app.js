@@ -1108,10 +1108,12 @@ async function HomeView(main, params) {
 // re-walk your whole social graph every time.
 const mutualsCache = new Map(); // did -> Promise<Set<did>>
 
-// Safety cap on pagination for accounts with huge follow/follower counts —
-// 20 pages * 100 = up to 2000 each side, plenty for a personal account, but
-// bounded so a celebrity DID can't make this loop forever.
-const MUTUALS_PAGE_CAP = 20;
+// Backstop, not a budget — getFollows/getFollowers have no bulk-download
+// equivalent, so this still paginates, but the page count isn't a
+// correctness bound. Matches the moot-family fix (2026-08-28, see
+// notes/40-new-site-playbook.md): the prior 20-page cap silently truncated
+// mutuals for any account past ~2000 connections.
+const MUTUALS_PAGE_CAP = 400;
 
 async function collectActorDids(method, actor) {
   const dids = new Set();

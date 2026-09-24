@@ -14,10 +14,16 @@
     return r.ok ? r.json() : null;
   }
 
-  // paginate app.bsky.graph.getFollows for the target's whole follow list
+  // paginate app.bsky.graph.getFollows for the target's whole follow list.
+  // GRAPH_PAGE_CAP is a backstop, not a budget — getFollows has no
+  // bulk-download equivalent, so this still paginates, but the page count
+  // isn't a correctness bound. Matches the moot-family fix (2026-08-28, see
+  // notes/40-new-site-playbook.md): the prior uncommented 25-page cap
+  // silently truncated follow lists for any account past ~2500 follows.
+  const GRAPH_PAGE_CAP = 400;
   async function allFollows(actor) {
     let out = [], cursor = "";
-    for (let i = 0; i < 25; i++) {
+    for (let i = 0; i < GRAPH_PAGE_CAP; i++) {
       const d = await get("app.bsky.graph.getFollows", { actor, limit: "100", ...(cursor ? { cursor } : {}) });
       if (!d) break;
       out = out.concat(d.follows || []);
