@@ -171,10 +171,13 @@ function renderEvent(e: LogEvent): string {
   if (e.isReply) chips.push(chip("reply-tag", "muted"));
 
   // Outcome (from the builder). Success shows the live link; failure is honest.
+  // A success with neither a url nor a builtName is a maintenance/fix pass (see
+  // isFixOutcome) — it pushed real work but named no site, so "built" would be
+  // wrong; call it what it is.
   let outcomeEl = "";
   if (e.outcome) {
     if (e.outcome.status === "success") {
-      chips.push(chip("built", "ok"));
+      chips.push(chip(isFixOutcome(e.outcome) ? "fixed" : "built", "ok"));
       if (e.outcome.url) {
         outcomeEl = `<div class="outcome"><span class="arrow">→</span> <a href="${esc(e.outcome.url)}">${esc(e.outcome.url)}</a></div>`;
       } else if (e.outcome.builtName) {
@@ -207,6 +210,16 @@ function chip(label: string, kind: "ok" | "bad" | "muted"): string {
   return `<span class="chip ${kind}">${esc(label)}</span>`;
 }
 
+// A maintenance/fix pass (see BUILD_PROMPT.md's "spend the whole run on
+// maintenance") is a real success — the builder pushed real work — but names no
+// single site: no builtName, no url. siteUrl() in the builder's reply.mjs always
+// resolves a url whenever BUILD_RESULT/builtName is set, so "success with neither"
+// only happens on that path. Distinguishing it from "still pending" (no outcome
+// at all) and from "built a site" (has url) is the whole fix here.
+function isFixOutcome(outcome: LogEvent["outcome"]): boolean {
+  return !!outcome && outcome.status === "success" && !outcome.url && !outcome.builtName;
+}
+
 // One tag, its own page: /tag/<rkey>. Realizes "every tag deserves a website" —
 // every request has a permanent URL here whether or not it ever became a site.
 async function renderTagPage(env: Env, rkey: string): Promise<Response> {
@@ -223,11 +236,14 @@ async function renderTagPage(env: Env, rkey: string): Promise<Response> {
 
   const handle = authorDisplay(e.authorHandle);
   const built = e.outcome?.status === "success" && e.outcome.url;
+  const fixed = isFixOutcome(e.outcome);
   const sub = built
     ? `${handle}'s tag → a website`
-    : e.outcome?.status === "failure"
-      ? `${handle}'s tag · didn't get built`
-      : `${handle}'s tag`;
+    : fixed
+      ? `${handle}'s tag → a fix`
+      : e.outcome?.status === "failure"
+        ? `${handle}'s tag · didn't get built`
+        : `${handle}'s tag`;
 
   // Reuse the timeline row as the detail body, plus a bigger call-out for the
   // built site (or an honest "no site yet" line) so the page stands on its own.
@@ -235,6 +251,8 @@ async function renderTagPage(env: Env, rkey: string): Promise<Response> {
   let banner = "";
   if (built) {
     banner = `<p class="tagbanner ok">this one became a site: <a href="${esc(e.outcome!.url!)}">${esc(e.outcome!.url!)}</a></p>`;
+  } else if (fixed) {
+    banner = `<p class="tagbanner ok">this one became a fix${e.outcome!.replyText ? ` — the bot said: <em>${esc(e.outcome!.replyText)}</em>` : "."}</p>`;
   } else if (e.outcome?.status === "failure") {
     banner = `<p class="tagbanner">this tag didn't become a site${e.outcome.replyText ? ` — the bot said: <em>${esc(e.outcome.replyText)}</em>` : "."}</p>`;
   } else {
