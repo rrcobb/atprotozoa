@@ -3724,10 +3724,12 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
       }
     } else if (e.outcome?.status === "failure") {
       // "Nothing to build here" is a deliberate, correct outcome — the bot looked
-      // and chose not to build. Counting it as a failure inflated the failure rate
-      // and made a healthy bot look broken. Older records have no disposition, so
-      // they still land in `failures`; the split is right going forward.
-      if (e.outcome.disposition === "no_build") declined++;
+      // and chose not to build (a decline) or had nothing to build in the first
+      // place (a pure reaction — banter, not a request). Counting either as a
+      // failure inflated the failure rate and made a healthy bot look broken.
+      // Older records have no disposition, so they still land in `failures`; the
+      // split is right going forward.
+      if (e.outcome.disposition === "no_build" || e.outcome.disposition === "reaction") declined++;
       else failures++;
     }
   }
@@ -4425,6 +4427,8 @@ function requestStatusLabel(r: RequestRecord): { text: string; cls: string } {
       return { text: "maintenance pass", cls: "shipped" };
     case "no_build":
       return { text: "answered, nothing built", cls: "none" };
+    case "reaction":
+      return { text: "just a reply — not a build ask", cls: "none" };
     case "too_big":
       return { text: "too big for one pass", cls: "none" };
     case "usage_limit":

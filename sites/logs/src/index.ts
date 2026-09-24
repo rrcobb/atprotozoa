@@ -39,6 +39,12 @@ interface LogEvent {
     builtName?: string;
     url?: string;
     replyText?: string;
+    // The box's own classification (box-build.sh): success | partial | maintenance |
+    // usage_limit | too_big | no_build | reaction | incomplete. `status` collapses
+    // this to two states, which is exactly what reads a "reaction" (a note-only
+    // reply to banter, nothing to build or deny) as a failed build — see
+    // isReactionOutcome.
+    disposition?: string;
     at: string;
   };
 }
@@ -183,6 +189,10 @@ function renderEvent(e: LogEvent): string {
       } else if (e.outcome.builtName) {
         outcomeEl = `<div class="outcome"><span class="arrow">→</span> ${esc(e.outcome.builtName)}</div>`;
       }
+    } else if (isReactionOutcome(e.outcome)) {
+      // Not a failure: the tag wasn't a build request at all (banter, a question,
+      // a greeting), so there was nothing to grant or deny. See isReactionOutcome.
+      chips.push(chip("bot reply", "ok"));
     } else {
       chips.push(chip("build failed", "bad"));
     }
@@ -220,6 +230,17 @@ function isFixOutcome(outcome: LogEvent["outcome"]): boolean {
   return !!outcome && outcome.status === "success" && !outcome.url && !outcome.builtName;
 }
 
+// A "reaction": the tag wasn't a build request at all — banter, a question, a
+// greeting — so the run's outcome (status: "failure", nothing built) isn't a
+// refusal of anything. heika.dog, 2026-09-24: this used to read identically to
+// an actual decline ("build failed"); box-build.sh now tags it with its own
+// disposition (see LogEvent.outcome's comment) so the timeline can tell the two
+// apart. A real decline (a request that was turned down) still reads as
+// "build failed" — this only covers the case with nothing to turn down.
+function isReactionOutcome(outcome: LogEvent["outcome"]): boolean {
+  return !!outcome && outcome.status === "failure" && outcome.disposition === "reaction";
+}
+
 // One tag, its own page: /tag/<rkey>. Realizes "every tag deserves a website" —
 // every request has a permanent URL here whether or not it ever became a site.
 async function renderTagPage(env: Env, rkey: string): Promise<Response> {
@@ -237,13 +258,16 @@ async function renderTagPage(env: Env, rkey: string): Promise<Response> {
   const handle = authorDisplay(e.authorHandle);
   const built = e.outcome?.status === "success" && e.outcome.url;
   const fixed = isFixOutcome(e.outcome);
+  const reaction = isReactionOutcome(e.outcome);
   const sub = built
     ? `${handle}'s tag → a website`
     : fixed
       ? `${handle}'s tag → a fix`
-      : e.outcome?.status === "failure"
-        ? `${handle}'s tag · didn't get built`
-        : `${handle}'s tag`;
+      : reaction
+        ? `${handle}'s tag → a reply`
+        : e.outcome?.status === "failure"
+          ? `${handle}'s tag · didn't get built`
+          : `${handle}'s tag`;
 
   // Reuse the timeline row as the detail body, plus a bigger call-out for the
   // built site (or an honest "no site yet" line) so the page stands on its own.
@@ -253,6 +277,9 @@ async function renderTagPage(env: Env, rkey: string): Promise<Response> {
     banner = `<p class="tagbanner ok">this one became a site: <a href="${esc(e.outcome!.url!)}">${esc(e.outcome!.url!)}</a></p>`;
   } else if (fixed) {
     banner = `<p class="tagbanner ok">this one became a fix${e.outcome!.replyText ? ` — the bot said: <em>${esc(e.outcome!.replyText)}</em>` : "."}</p>`;
+  } else if (reaction) {
+    // Not a decline — there was no build to grant or deny, just something to say.
+    banner = `<p class="tagbanner ok">this tag wasn't a build ask, so the bot just replied${e.outcome!.replyText ? `: <em>${esc(e.outcome!.replyText)}</em>` : "."}</p>`;
   } else if (e.outcome?.status === "failure") {
     banner = `<p class="tagbanner">this tag didn't become a site${e.outcome.replyText ? ` — the bot said: <em>${esc(e.outcome.replyText)}</em>` : "."}</p>`;
   } else {

@@ -219,6 +219,10 @@ fresh decision unless you write the first one down.
   a site you didn't build. Write a `BUILD_NOTE` explaining the decline plainly.
   Name the problem with the request, not the person — say what you won't build
   and why, without diagnosing the asker's motives in public.
+- **Don't write `BUILD_REACTION` here.** That flag means "there was no request
+  to grant or deny" (see "When the tag isn't really a build request" below) — a
+  decline is the opposite of that, a real ask you turned down, so it stays
+  plain `BUILD_NOTE` and reads as "didn't get built" on the logs timeline.
 
 **Apply the consent test on the first pass, not the second.** If a site would
 name, rank, score, or expose real people who didn't ask to be in it, that's the
@@ -242,6 +246,16 @@ reply. Keep it brief (~200 chars); it's a reaction, not a build. Use judgment: i
 there IS a plausible little site in the post's context, build it — the bot builds from
 context, not just explicit instructions. Only take the react-don't-build path when
 there's genuinely nothing to make.
+
+**Also write an empty `BUILD_REACTION` file (presence-only, content doesn't
+matter) whenever you take this path.** This is what distinguishes "just saying
+a thing" from a decline: a decline is a real ask you turned down, and it's
+still worth reading as "didn't get built" on the logs timeline
+(logs.bisks.net); a reaction never had a request behind it, so
+`logs.bisks.net` shows it as a plain green "bot reply" instead of "build
+failed" — see `sites/logs`. Write `BUILD_NOTE` and `BUILD_REACTION` together
+here; write `BUILD_NOTE` alone (no `BUILD_REACTION`) for an actual decline (see
+"Declines" above).
 
 ## House style (see notes/00-vision.md, notes/40-new-site-playbook.md)
 

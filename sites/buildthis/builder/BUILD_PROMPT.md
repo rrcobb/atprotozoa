@@ -74,8 +74,14 @@ gitignored like the others, and the reply says "fixed X on N sites" instead. If 
 run really did center on one site, use BUILD_RESULT as normal and skip this.
 
 If the tag ISN'T really a build request at all — banter, a question, a greeting, a
-thread with nothing to make a site from — don't force a bad build: write ONLY a
-BUILD_NOTE (a small, friendly, maybe-cheeky reply) and NO BUILD_RESULT, and the reply
-step will post your note instead of an "couldn't build that" failure. See the "When
-the tag isn't really a build request" section in INSTRUCTIONS.md — and remember the
-bot builds from CONTEXT, so only take this path when there's genuinely nothing to make.
+thread with nothing to make a site from — don't force a bad build: write a BUILD_NOTE
+(a small, friendly, maybe-cheeky reply), NO BUILD_RESULT, and ALSO an empty
+BUILD_REACTION file (presence-only — content doesn't matter). The reply step posts
+your note instead of a "couldn't build that" failure, and BUILD_REACTION is what
+tells logs.bisks.net this wasn't a request that got turned down (a decline), just a
+reply with nothing behind it to grant or deny — it shows a green "bot reply" there
+instead of "build failed". See the "When the tag isn't really a build request"
+section in INSTRUCTIONS.md — and remember the bot builds from CONTEXT, so only take
+this path when there's genuinely nothing to make. Don't write BUILD_REACTION for an
+actual decline (see INSTRUCTIONS.md's "Declines") — that's a real ask you turned
+down, not a non-request.

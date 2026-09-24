@@ -234,17 +234,25 @@ reply + queue act on it:
   feature). ~20% of builds.
 - **too_big** — ran out of turns or clock and got *nothing* coherent onto disk.
   Terminal, no retry: an identical rerun overruns identically.
-- **no_build** — the agent cleanly chose not to build: a note-only reaction to
-  banter/a question, an explain-only answer (which still sets `BUILD_RESULT` to
-  link the site being explained, without the "built it" framing), or a run where
-  only the receipts-archive housekeeping touched the tree. Post the note (with
-  the link, if any), retire — retrying would just re-react.
+- **no_build** — the agent cleanly chose not to build: a decline of a real ask, an
+  explain-only answer (which still sets `BUILD_RESULT` to link the site being
+  explained, without the "built it" framing), or a run where only the
+  receipts-archive housekeeping touched the tree. Post the note (with the link,
+  if any), retire — retrying would just re-decide the same thing.
+- **reaction** — same shape as `no_build` (clean exit, nothing real changed), but
+  the agent wrote `BUILD_REACTION` to flag that the tag wasn't a build request at
+  all: banter, a question, a greeting — nothing to grant or deny. Post the note,
+  retire, same as `no_build`. Split out 2026-09-24 (heika.dog) because `no_build`
+  collapsed this into the same bucket as an actual decline, and the outcome's
+  `status: "failure"` then made `logs.bisks.net` read a non-refusal as "build
+  failed" — the timeline now chips a `reaction` outcome as a plain "bot reply"
+  instead. See `sites/logs`.
 
 The box caps retries on the job's `attempts` field; the worker enforces the same
 ceiling as a backstop, so a buggy box can't loop a job forever.
 
 **Count outcomes on `disposition`, not `status`.** The outcome record carries
-both. `status` is only success/failure, and it collapses the seven dispositions in
+both. `status` is only success/failure, and it collapses the eight dispositions in
 a way that misleads in both directions: a `partial` reads as success (work did
 ship) and a `no_build` reads as failure (nothing did). So neither field alone
 answers "how many partials" or "how often does the bot decline". `disposition` is

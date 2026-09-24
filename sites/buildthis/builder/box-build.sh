@@ -102,7 +102,7 @@ fi
 # would leak into the next build — a stale note once posted under a later, unrelated
 # request. Clear the scratch files explicitly, every build, before anything runs.
 git clean -fd
-rm -f BUILD_RESULT BUILD_NOTE BUILD_MAINTENANCE
+rm -f BUILD_RESULT BUILD_NOTE BUILD_MAINTENANCE BUILD_REACTION
 
 # The commit the build STARTS from, captured before the agent touches anything.
 # Two uses below, both for the net.bisks.buildthis.request record: it tells a new
@@ -284,6 +284,15 @@ BUILD_NOTE=""
 # no_build and got replied to as "nothing built" despite pushing real work.
 BUILD_MAINTENANCE=""
 [ -f BUILD_MAINTENANCE ] && BUILD_MAINTENANCE="$(head -n1 BUILD_MAINTENANCE)"
+# BUILD_REACTION: presence-only flag the agent writes alongside BUILD_NOTE when
+# the tag wasn't a build request at all — banter, a question, a greeting — per
+# INSTRUCTIONS.md's "When the tag isn't really a build request." Nothing to grant
+# or deny, so this is NOT the same outcome as a decline (a real ask, turned down):
+# a decline still has no BUILD_REACTION and stays disposition=no_build. Lets the
+# logs timeline (logs.bisks.net) show a plain "bot reply" instead of reading a
+# non-refusal as a failed build (heika.dog, 2026-09-24).
+BUILD_REACTION=""
+[ -f BUILD_REACTION ] && BUILD_REACTION="1"
 
 # Distinguish "out of budget" from "build flopped". The box hits the subscription's
 # usage ceiling; the CLI prints a usage/rate-limit message ("usage limit reached",
@@ -535,10 +544,16 @@ fi
 #                 retire. Ranks ABOVE success so a sweep isn't announced as "built
 #                 it \xf0\x9f\x8e\x89 \u2014 <one arbitrary site it touched>"; the daily slot is
 #                 explicitly allowed to spend its whole run this way (notes/80).
-#   no_build   -> clean exit, nothing REAL changed (a note-only reaction, an
-#                 explain-only answer, or a receipts-only resync). Reply the note;
+#   no_build   -> clean exit, nothing REAL changed: a decline of a real ask, an
+#                 explain-only answer, or a receipts-only resync. Reply the note;
 #                 reply.mjs links BUILD_RESULT if the agent set one without the
 #                 "built it" framing, since nothing was actually (re)built.
+#   reaction   -> clean exit, nothing REAL changed, AND the agent flagged
+#                 BUILD_REACTION: the tag wasn't a build request at all (banter, a
+#                 question, a greeting) — there was nothing to grant or deny, which
+#                 is what separates it from no_build's decline case. Reply the
+#                 note, same as no_build; the only difference is how the logs
+#                 timeline chips it (a green "bot reply", not "build failed").
 #   incomplete -> nothing landed for a TRANSIENT reason (crash/blip — not max-turns,
 #                 not usage-limit). REQUEUE up to MAX_ATTEMPTS; a retry might get through.
 ATTEMPT="${ATTEMPT:-1}"
@@ -580,10 +595,17 @@ elif [ -n "$USAGE_LIMIT" ]; then
   DISPOSITION="usage_limit"
 elif [ -n "$MAX_TURNS_HIT" ] || [ -n "$BUILD_TIMED_OUT" ]; then
   DISPOSITION="too_big"
+elif [ "$BUILD_RC" -eq 0 ] && [ -z "$REAL_CHANGED" ] && [ -n "$BUILD_REACTION" ]; then
+  # Same "nothing real changed" shape as no_build below, but the agent flagged
+  # this as a pure reaction — banter/a question/a greeting with no request behind
+  # it to grant or deny. Checked first so a run that (mistakenly) writes both
+  # BUILD_REACTION and a real decline still reads as the more specific case.
+  DISPOSITION="reaction"
 elif [ "$BUILD_RC" -eq 0 ] && [ -z "$REAL_CHANGED" ]; then
-  # Clean exit, nothing REAL changed: the agent looked and chose not to build (or
-  # only the receipts housekeeping touched the tree). If it left a note that's the
-  # deliberate reaction; either way it's done, not retryable.
+  # Clean exit, nothing REAL changed: the agent declined a real ask, gave an
+  # explain-only answer, or only the receipts housekeeping touched the tree.
+  # If it left a note that's the deliberate reply; either way it's done, not
+  # retryable.
   DISPOSITION="no_build"
 else
   DISPOSITION="incomplete"
