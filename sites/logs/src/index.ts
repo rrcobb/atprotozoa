@@ -143,7 +143,9 @@ async function renderTimeline(env: Env): Promise<Response> {
 function renderEvent(e: LogEvent): string {
   const handle = authorDisplay(e.authorHandle);
   const profile = authorProfileUrl(e.authorHandle);
-  const who = profile ? `<a href="${profile}">${handle}</a>` : handle;
+  // Same weight as a real handle link even when there's no profile to link to
+  // (daily-slot) — .head a and .head .who share the font-weight rule below.
+  const who = profile ? `<a href="${profile}">${handle}</a>` : `<span class="who">${handle}</span>`;
 
   // "daily-slot" isn't a real handle (see authorDisplay) — pass undefined so
   // bskyPostUrl falls back to the real DID embedded in the mention uri
@@ -186,7 +188,12 @@ function renderEvent(e: LogEvent): string {
     chips.push(chip("pending", "muted"));
   }
 
-  const ask = e.text ? `<div class="ask">${esc(e.text)}</div>` : "";
+  // For the daily slot, e.text is just the static "daily autonomous slot"
+  // placeholder written when the tick fires — once the run finishes, its own
+  // self-reply (what it actually did that day) is a far more useful "ask"
+  // line than that placeholder, so prefer it when it's there.
+  const askText = e.authorHandle === "daily-slot" && e.outcome?.replyText ? e.outcome.replyText : e.text;
+  const ask = askText ? `<div class="ask">${esc(askText)}</div>` : "";
 
   return `<article class="event">
   <div class="head">${who} ${whenEl} ${tagLink}</div>
@@ -457,7 +464,7 @@ function pageShell(title: string, h1: string, sub: string, body: string): string
   .event { padding:1.1rem 0; border-top:1px solid var(--faint); }
   .event:first-of-type { border-top:1px solid var(--ink); }
   .head { display:flex; align-items:baseline; gap:.6rem; flex-wrap:wrap; }
-  .head a { font-weight:600; }
+  .head a, .head .who { font-weight:600; }
   .when { color:var(--muted); font-size:.8rem; }
   .ask { margin:.4rem 0 .55rem; color:var(--ink); white-space:pre-wrap; word-break:break-word; }
   .chips { display:flex; gap:.4rem; flex-wrap:wrap; }
