@@ -165,10 +165,21 @@ async function main() {
     // The tail is honest about whether the URL actually serves the new build.
     // box-build.sh polls for ~90s and reports LIVE_STATUS: "verified" (serving,
     // and for an edit serving genuinely new bytes), "stale" (2xx but byte-identical
-    // to before the push — the deploy didn't land), or "dead" (never served).
+    // to before the push), or "dead" (never served).
     // Previously every one of these got "(give the deploy a minute to go live)",
     // which reads as reassurance and was wrong exactly when the user most needed
     // the truth: 90 of 361 successes in the 30-day log were never verified live.
+    //
+    // "stale" is NOT proof the deploy failed — it only means this one url's bytes
+    // didn't change, which also happens on a successful deploy whose change isn't
+    // visible at that url (a data-driven page where no row in the polled window
+    // exercises the changed code, say). Caught 2026-09-24: a logs.bisks.net fix to
+    // per-row rendering read "stale" twice in a row on TWO deploys that both
+    // landed fine (heika.dog confirmed both), because the timeline's most recent
+    // rows didn't happen to hit the changed branch. The caveat below hedges
+    // instead of asserting "the deploy didn't land" — that phrasing was flatly
+    // wrong both times it fired here, and the honest claim the evidence supports
+    // is "couldn't confirm," not "confirmed broken."
     //
     // Neither caveat tells the user to just wait. A failed deploy on this repo is
     // SILENT AND PERMANENT — there is no retry, the site goes on serving its last
@@ -192,7 +203,7 @@ async function main() {
           ? `\nheads up: it's up but not serving right — looks like its assets are broken. tag me and i'll push a fix.`
           : ""
         : liveStatus === "stale"
-          ? `\nheads up: the deploy didn't land — that link is still the old version. tag me and i'll push it again.`
+          ? `\nheads up: that link still looks byte-identical to before i pushed — might mean the deploy didn't land, might just mean this change doesn't show up on that exact page. tag me if it looks off and i'll dig in.`
           : `\nheads up: i couldn't get that url to load after building it. tag me and i'll take another run at it.`;
     // "built it 🎉" next to "the deploy didn't land" reads as the bot not knowing
     // what happened. When the url isn't confirmed, state what was done without the

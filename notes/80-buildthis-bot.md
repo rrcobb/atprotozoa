@@ -128,11 +128,22 @@ disposition is decided and when a job requeues instead of replying.
 The celebration is earned, not assumed. "built it 🎉" and "(it's live)" only go
 out when the box confirmed the URL serves (and, on an edit, serves new bytes)
 AND watchtower's `/check?name=` came back without problems. Anything else drops
-the emoji and adds a one-line caveat saying what's actually wrong — the deploy
-didn't land, the URL never came up, or it's up but its assets aren't serving —
-each ending in the same ask, since the fix is another push and the user's way to
-trigger one is a re-tag. The asset case is the one a root fetch can't see; see
-`notes/85`.
+the emoji and adds a one-line caveat: the URL never came up, it's up but its
+assets aren't serving, or the url's bytes just didn't change — each ending in
+the same ask, since the fix (if there is one) is another push and the user's way
+to trigger one is a re-tag. The asset case is the one a root fetch can't see;
+see `notes/85`.
+
+The byte-identical case is phrased as a hedge, not a diagnosis — it is not proof
+the deploy failed. A url whose output depends on live data (not just the
+deployed code) can read byte-identical on a perfectly good deploy, if nothing in
+the polled window happens to exercise the changed code path. Caught 2026-09-24:
+a logs.bisks.net fix to per-row rendering came back "byte-identical" on two
+separate deploys that had both landed (heika.dog confirmed both), because the
+timeline's most recent rows didn't happen to hit the changed branch. The reply
+used to assert "the deploy didn't land" here, which was simply wrong both times
+it fired — see `builder/reply.mjs` and `builder/box-build.sh` for the corrected
+wording.
 
 ### 5. The request record
 

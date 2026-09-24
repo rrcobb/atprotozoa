@@ -639,8 +639,18 @@ fi
 # LIVE_STATUS records WHICH of those happened, so the reply can be honest rather
 # than always saying "give the deploy a minute":
 #   verified  -> serving, and (for an edit) serving something new.
-#   stale     -> serving, but byte-identical to before the push. The deploy didn't
-#                land, or it landed and changed nothing the URL renders.
+#   stale     -> serving, byte-identical to before the push. INCONCLUSIVE, not a
+#                confirmed failure: it's equally consistent with a deploy that
+#                didn't land and with one that landed fine but whose change isn't
+#                visible on THIS url. Caught 2026-09-24 on logs.bisks.net: a fix to
+#                renderTagPage()/isFixOutcome() only renders differently for a
+#                /tag/<rkey> page (or a root row) whose event happens to hit the
+#                changed branch — with no such event in the polled window, root
+#                stayed byte-identical on two separate successful deploys, and the
+#                reply told heika.dog "the deploy didn't land" both times when it
+#                had. Any URL whose bytes depend on live data (not just the
+#                deployed code) can go stale-looking on a perfectly good deploy, so
+#                the reply hedges instead of asserting failure.
 #   dead      -> never returned a 2xx/3xx inside the budget.
 LIVE_VERIFIED=""
 LIVE_STATUS=""
@@ -675,7 +685,7 @@ if { [ "$DISPOSITION" = "success" ] || [ "$DISPOSITION" = "partial" ]; } && [ -n
   if [ "$LIVE_VERIFIED" != "true" ]; then
     [ "$LIVE_STATUS" = "stale" ] || LIVE_STATUS="dead"
     if [ "$LIVE_STATUS" = "stale" ]; then
-      echo "  serving ($CODE) but byte-identical to pre-deploy — the edit is NOT live yet"
+      echo "  serving ($CODE) but byte-identical to pre-deploy — inconclusive: could be a deploy that didn't land, or a change this url's bytes don't reflect either way"
     else
       echo "  NOT serving within ~90s (last=$CODE) — recorded, reply still sent"
     fi
