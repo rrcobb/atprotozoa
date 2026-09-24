@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>sayitlike — say it in any language, any voice</title>
+<meta name="description" content="Type anything, say how you want it to come out — a language, a slang, a register — and get it translated. Your own OpenAI or OpenRouter key, entirely in your browser." />
+<meta property="og:title" content="sayitlike — say it in any language, any voice" />
+<meta property="og:description" content="Free-text translation: 'French', 'pirate', '1990s skater slang', whatever. Runs on your own API key, in your browser only." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://sayitlike.bisks.net/" />
+<meta property="og:image" content="https://sayitlike.bisks.net/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<style>
+  :root { --ink: #1f1c18; --line: #d4cfc4; --paper: #f4f1ea; --byok-bg: #faf8f4; --accent: #7a4a2e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 32px 20px 64px; background: var(--paper); color: var(--ink);
+    font: 16px/1.5 Georgia, "Times New Roman", serif; }
+  main { max-width: 680px; margin: 0 auto; }
+  h1 { font-size: 30px; margin: 0 0 4px; letter-spacing: -.01em; }
+  .sub { margin: 0 0 24px; opacity: .72; }
+  #panel { margin-bottom: 18px; }
+
+  .langs { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .langs input { flex: 1 1 220px; min-width: 0; padding: 9px 11px; font: inherit;
+    border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  .langs button { padding: 8px 10px; font: inherit; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: #fff; line-height: 1; }
+
+  details.custom { margin-bottom: 18px; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 14px; background: #fff; }
+  details.custom summary { cursor: pointer; font-size: 14px; opacity: .8; }
+  .custom-body { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .custom-body label { font-size: 13px; opacity: .75; display: block; margin-bottom: 4px; }
+  .custom-body textarea { width: 100%; min-height: 110px; padding: 9px 11px; font: 14px/1.5 ui-monospace, Menlo, monospace;
+    border: 1px solid var(--line); border-radius: 6px; background: #fff; resize: vertical; }
+  .custom-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .custom-row > div { flex: 1 1 160px; }
+  .custom-body input[type="text"], .custom-body input[type="number"] { width: 100%; padding: 8px 10px; font: inherit;
+    border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  .custom-reset { align-self: flex-start; background: none; border: none; text-decoration: underline;
+    cursor: pointer; font: inherit; opacity: .65; padding: 0; }
+
+  textarea#source { width: 100%; min-height: 130px; padding: 12px 14px; font: inherit;
+    border: 1px solid var(--line); border-radius: 8px; background: #fff; resize: vertical; }
+  .ask { display: flex; justify-content: flex-end; margin-top: 10px; }
+  .ask button { padding: 9px 18px; font: inherit; border-radius: 6px; cursor: pointer;
+    background: var(--ink); color: #fff; border: 1px solid var(--ink); }
+  .ask button[disabled] { opacity: .4; cursor: not-allowed; }
+
+  #out-wrap { margin-top: 22px; }
+  #out { white-space: pre-wrap; line-height: 1.6; border-left: 3px solid var(--line);
+    padding: 4px 0 4px 16px; font-size: 18px; min-height: 24px; }
+  #out.err { color: #8a2f2f; border-left-color: #8a2f2f; font-size: 16px; }
+  .out-actions { display: flex; gap: 10px; margin-top: 12px; }
+  .out-actions[hidden] { display: none; }
+  .out-actions button, .out-actions a { padding: 6px 12px; font: 14px inherit; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: #fff; color: inherit; text-decoration: none; }
+
+  footer { margin-top: 48px; font-size: 13px; opacity: .6; line-height: 1.6; }
+  footer a { color: inherit; }
+  code { font-family: ui-monospace, Menlo, monospace; font-size: .9em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>sayitlike</h1>
+  <p class="sub">Type what you wrote, say how you want it to come out — a language,
+    a dialect, a register, a bit — and get it translated. Runs on your own key,
+    kept in this tab.</p>
+
+  <div id="panel"></div>
+
+  <div class="langs">
+    <input id="from" type="text" placeholder="from (blank = auto-detect)" autocomplete="off" />
+    <button type="button" id="swap" title="swap from/to">⇄</button>
+    <input id="to" type="text" placeholder="into: French, pirate, 1990s skater slang…" autocomplete="off" />
+  </div>
+
+  <details class="custom" id="custom">
+    <summary>Customize the prompt, model, and everything else</summary>
+    <div class="custom-body">
+      <div>
+        <label for="systemPrompt">System prompt (<code>{from}</code> and <code>{to}</code> get filled in)</label>
+        <textarea id="systemPrompt" spellcheck="false"></textarea>
+      </div>
+      <div class="custom-row">
+        <div>
+          <label for="model">Model (blank = provider default)</label>
+          <input id="model" type="text" placeholder="e.g. gpt-4o, openai/gpt-4.1" autocomplete="off" spellcheck="false" />
+        </div>
+        <div>
+          <label for="temperature">Temperature (blank = provider default)</label>
+          <input id="temperature" type="number" min="0" max="2" step="0.1" placeholder="0–2" />
+        </div>
+        <div>
+          <label for="maxTokens">Max output tokens</label>
+          <input id="maxTokens" type="number" min="16" max="8000" step="1" />
+        </div>
+      </div>
+      <button type="button" class="custom-reset" id="resetPrompt">Reset to defaults</button>
+    </div>
+  </details>
+
+  <textarea id="source" placeholder="Type or paste whatever you want said differently."></textarea>
+  <div class="ask"><button id="go" disabled>Translate</button></div>
+
+  <div id="out-wrap">
+    <div id="out"></div>
+    <div class="out-actions" id="outActions" hidden>
+      <button type="button" id="copyOut">Copy</button>
+      <a id="shareOut" href="#" target="_blank" rel="noopener">Share to Bluesky</a>
+    </div>
+  </div>
+
+  <footer>
+    Your key is kept in this browser's localStorage and sent only to the provider
+    you picked above — this site is a static page on a Cloudflare Worker that
+    never sees it, so there's no server-side key and nothing billed to anyone
+    but you. Source: <code>public/lib/byok.js</code>.
+    <br />
+    <a href="https://rateyourbuild.bisks.net/site/sayitlike" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+  </footer>
+</main>
+
+<script type="module">
+import { mountKeyPanel, chat } from "./lib/byok.js";
+
+const DEFAULT_SYSTEM = "You are the world's best translator, fluent in every language, "
+  + "dialect, slang, and register that exists. Translate whatever the user gives you "
+  + "from {from} into {to}, matching tone and idiom naturally in the target -- reach "
+  + "for the phrasing or slang a native speaker would actually use, not a stiff "
+  + "literal rendering. Output only the translation itself: no notes, no quotation "
+  + "marks, no \"here's the translation\".";
+const DEFAULT_MAX_TOKENS = 1024;
+const SETTINGS_KEY = "sayitlike:settings";
+
+const els = {
+  from: document.getElementById("from"),
+  to: document.getElementById("to"),
+  swap: document.getElementById("swap"),
+  systemPrompt: document.getElementById("systemPrompt"),
+  model: document.getElementById("model"),
+  temperature: document.getElementById("temperature"),
+  maxTokens: document.getElementById("maxTokens"),
+  resetPrompt: document.getElementById("resetPrompt"),
+  source: document.getElementById("source"),
+  go: document.getElementById("go"),
+  out: document.getElementById("out"),
+  outActions: document.getElementById("outActions"),
+  copyOut: document.getElementById("copyOut"),
+  shareOut: document.getElementById("shareOut"),
+};
+
+function loadSettings() {
+  try {
+    return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSettings() {
+  const settings = {
+    from: els.from.value,
+    to: els.to.value,
+    systemPrompt: els.systemPrompt.value,
+    model: els.model.value,
+    temperature: els.temperature.value,
+    maxTokens: els.maxTokens.value,
+  };
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    /* private mode / storage disabled — customization just won't persist */
+  }
+}
+
+const saved = loadSettings();
+els.from.value = saved.from || "";
+els.to.value = saved.to || "";
+els.systemPrompt.value = saved.systemPrompt || DEFAULT_SYSTEM;
+els.model.value = saved.model || "";
+els.temperature.value = saved.temperature || "";
+els.maxTokens.value = saved.maxTokens || DEFAULT_MAX_TOKENS;
+
+for (const el of [els.from, els.to, els.systemPrompt, els.model, els.temperature, els.maxTokens]) {
+  el.addEventListener("input", saveSettings);
+}
+
+els.swap.addEventListener("click", () => {
+  [els.from.value, els.to.value] = [els.to.value, els.from.value];
+  saveSettings();
+});
+
+els.resetPrompt.addEventListener("click", () => {
+  els.systemPrompt.value = DEFAULT_SYSTEM;
+  els.model.value = "";
+  els.temperature.value = "";
+  els.maxTokens.value = DEFAULT_MAX_TOKENS;
+  saveSettings();
+});
+
+let who = "openai";
+let keyReady = false;
+mountKeyPanel("#panel", {
+  title: "Which key you're using",
+  blurb: "This page sends your text straight to the provider you pick.",
+  onChange: (ready, provider) => {
+    who = provider;
+    keyReady = ready;
+    els.go.disabled = !keyReady || !els.source.value.trim();
+  },
+});
+
+els.source.addEventListener("input", () => {
+  els.go.disabled = !keyReady || !els.source.value.trim();
+});
+
+function fillTemplate(tpl, from, to) {
+  const fromText = from.trim() || "whatever language or style it's already written in";
+  const toText = to.trim() || "the same language, but clearer";
+  return tpl.split("{from}").join(fromText).split("{to}").join(toText);
+}
+
+function say(text, isError = false) {
+  els.out.className = isError ? "err" : "";
+  els.out.textContent = text;
+  els.outActions.hidden = true;
+}
+
+function buildShareText(output, toLabel) {
+  const url = "https://sayitlike.bisks.net/";
+  const tail = ` — sayitlike ${url}`;
+  let snippet = output.trim();
+  const budget = 300 - tail.length - 2;
+  if (snippet.length > budget) snippet = snippet.slice(0, Math.max(0, budget - 1)).trimEnd() + "…";
+  return `"${snippet}"${tail}`;
+}
+
+async function run() {
+  const text = els.source.value.trim();
+  if (!text) return els.source.focus();
+
+  els.go.disabled = true;
+  say("Translating…");
+
+  try {
+    const system = fillTemplate(els.systemPrompt.value || DEFAULT_SYSTEM, els.from.value, els.to.value);
+    const output = await chat(text, {
+      provider: who,
+      system,
+      model: els.model.value.trim() || undefined,
+      temperature: els.temperature.value === "" ? undefined : els.temperature.value,
+      maxTokens: Number(els.maxTokens.value) || DEFAULT_MAX_TOKENS,
+    });
+
+    if (!output) throw new Error("Came back empty — try again or check the model name.");
+
+    els.out.className = "";
+    els.out.textContent = output;
+    els.outActions.hidden = false;
+    els.shareOut.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(buildShareText(output, els.to.value));
+  } catch (err) {
+    say(err.message || "Something went wrong.", true);
+  } finally {
+    els.go.disabled = !keyReady || !els.source.value.trim();
+  }
+}
+
+els.copyOut.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(els.out.textContent);
+    els.copyOut.textContent = "Copied!";
+    setTimeout(() => (els.copyOut.textContent = "Copy"), 1200);
+  } catch {
+    /* clipboard permission denied — nothing to fall back to worth building */
+  }
+});
+
+els.go.addEventListener("click", run);
+els.source.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) run();
+});
+</script>
+</body>
+</html>
