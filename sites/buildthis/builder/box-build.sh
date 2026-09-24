@@ -444,10 +444,97 @@ if [ -n "$BUILT_NAME" ] && { [ -z "$BUILD_MAINTENANCE" ] || [ -n "$BUILD_RESULT"
   SITE_PATH=""
   [ "$BUILT_NAME" != "$SITE_HOST" ] && SITE_PATH="/${BUILT_NAME#*/}"
   if [ "$SITE_HOST" = "apex" ]; then
-    LIVE_URL="https://bisks.net${SITE_PATH}"
+    ROOT_URL="https://bisks.net${SITE_PATH}"
   else
-    LIVE_URL="https://${SITE_HOST}.bisks.net${SITE_PATH}"
+    ROOT_URL="https://${SITE_HOST}.bisks.net${SITE_PATH}"
   fi
+  LIVE_URL="$ROOT_URL"
+
+  # Route-aware target (heika.dog, 2026-09-24): a root-only hash check can't see
+  # a change that landed on a page whose bytes root doesn't share. The exact miss:
+  # renderTagPage() on logs.bisks.net changed, root didn't, and the check called
+  # two good deploys "stale" — see the LIVE_STATUS comment below, which is the
+  # same-day fix that only softened the wording. This tries to point the check at
+  # the page the diff actually touched instead, in order of confidence, and
+  # leaves LIVE_URL at root when neither resolves — a shared-component change
+  # (a style tweak in a file every page includes) has no single page to point
+  # at, and root is the honest default for that case:
+  #   1. A changed sites/<site>/public/**/*.html file names its own URL directly.
+  #   2. A changed sites/<site>/src/*.ts handler: find which top-level function
+  #      the diff's hunks fall inside, from git's own hunk-header context (it
+  #      picks up unindented `function foo(...) {` lines with no language-
+  #      specific diff driver needed — confirmed against this repo's own
+  #      renderTagPage/renderMilestones), then look up THAT function's route in
+  #      its dispatch site (`if (...) return fn(...)`, this codebase's house
+  #      style). An exact route ("/milestones") is fetchable as-is; a dynamic
+  #      one ("/tag/<rkey>") isn't a URL by itself — scrape the root page for a
+  #      real link into that prefix (the listing page that links to its own
+  #      permalinks, same shape /tag/<rkey> was built for) and use that.
+  # Best-effort throughout, same spirit as the asset check below: a resolution
+  # miss just leaves LIVE_URL at root, exactly where it already was.
+  # Only worth trying on an EDIT — a brand-new site has nothing live yet to
+  # diff a route against, and "any 2xx is proof" (below) already covers it.
+  if git cat-file -e "$PRE_BUILD_SHA:sites/${SITE_HOST}" 2>/dev/null; then
+    SITE_DIFF_PATHS="$(printf '%s\n' "$CHANGED_PATHS" | grep -E "^sites/${SITE_HOST}/" || true)"
+    ROUTE_URL=""
+
+    STATIC_FILE="$(printf '%s\n' "$SITE_DIFF_PATHS" \
+      | grep -E "^sites/${SITE_HOST}/public/.+\.html$" \
+      | grep -vE "^sites/${SITE_HOST}/public/index\.html$" \
+      | grep -vE "/(lib|partials|components|includes)/" \
+      | head -n1 || true)"
+    if [ -n "$STATIC_FILE" ]; then
+      STATIC_PATH="${STATIC_FILE#sites/${SITE_HOST}/public}"
+      STATIC_PATH="${STATIC_PATH%index.html}"
+      STATIC_PATH="${STATIC_PATH%.html}"
+      ROUTE_URL="${ROOT_URL}${STATIC_PATH}"
+      echo "  route-aware target: diff touched a static page -> $ROUTE_URL"
+    else
+      SRC_DIFF_PATHS="$(printf '%s\n' "$SITE_DIFF_PATHS" | grep -E "^sites/${SITE_HOST}/src/.*\.ts$" || true)"
+      if [ -n "$SRC_DIFF_PATHS" ]; then
+        SRC_FILE="sites/${SITE_HOST}/src/index.ts"
+        FUNC_NAMES="$(git diff origin/main -- $SRC_DIFF_PATHS 2>/dev/null \
+          | grep -E '^@@' \
+          | sed -n 's/^@@ [^@]*@@ //p' \
+          | grep -oE 'function [a-zA-Z0-9_]+' \
+          | sed 's/^function //' \
+          | sort -u || true)"
+        for FN in $FUNC_NAMES; do
+          [ -f "$SRC_FILE" ] || break
+          CONTEXT="$(grep -B4 "return ${FN}(" "$SRC_FILE" 2>/dev/null | head -n5 || true)"
+          [ -z "$CONTEXT" ] && continue
+          EXACT="$(printf '%s\n' "$CONTEXT" \
+            | grep -oE 'pathname *=== *"/[a-zA-Z0-9_/-]*"' | head -n1 \
+            | grep -oE '"/[a-zA-Z0-9_/-]*"' | tr -d '"' || true)"
+          if [ -n "$EXACT" ]; then
+            ROUTE_URL="${ROOT_URL}${EXACT}"
+            echo "  route-aware target: diff touched ${FN}() (exact route) -> $ROUTE_URL"
+            break
+          fi
+          PREFIX="$(printf '%s\n' "$CONTEXT" \
+            | grep -oE 'pathname\.match\(/\^\\/[a-zA-Z0-9_-]+\\/' | head -n1 \
+            | grep -oE '\\/[a-zA-Z0-9_-]+\\/' | tr -d '\\' || true)"
+          if [ -n "$PREFIX" ]; then
+            ROOT_BODY_PEEK="$(curl -s --max-time 8 "$ROOT_URL" 2>/dev/null || true)"
+            EXAMPLE_HREF="$(printf '%s' "$ROOT_BODY_PEEK" \
+              | grep -oE "href=\"${PREFIX}[a-zA-Z0-9_-]+/?\"" | head -n1 \
+              | sed -E 's/^href="//; s/"$//' || true)"
+            unset ROOT_BODY_PEEK
+            if [ -n "$EXAMPLE_HREF" ]; then
+              ROUTE_URL="${ROOT_URL}${EXAMPLE_HREF}"
+              echo "  route-aware target: diff touched ${FN}() (dynamic route ${PREFIX}<id>) -> example $ROUTE_URL"
+              break
+            fi
+          fi
+        done
+        if [ -z "$ROUTE_URL" ] && [ -n "$FUNC_NAMES" ]; then
+          echo "  diff touched $(printf '%s' "$FUNC_NAMES" | tr '\n' ' ') but no route/example resolved -- falling back to root"
+        fi
+      fi
+    fi
+    [ -n "$ROUTE_URL" ] && LIVE_URL="$ROUTE_URL"
+  fi
+
   # sha256sum (coreutils), not shasum — the box is Debian, where shasum's perl
   # package isn't guaranteed. Hash the body only if we actually got one: an empty
   # body means the site isn't serving yet (a new site), which is "no baseline to
