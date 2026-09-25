@@ -15,6 +15,8 @@
 // returns is now shown for transparency/flavor only (see app.js and the
 // about page) and no longer gates anything.
 
+import { followerDids as constellationFollowerDids } from "./microcosm.js";
+
 const PUB = "https://api.bsky.app/xrpc";
 
 const GRAPH_PAGES = 400; // backstop, not a budget — see notes/40-new-site-playbook.md history; a fixed page count on getFollows/getFollowers is a speed knob, not a correctness bound
@@ -77,7 +79,17 @@ export async function clusterScore(actor, { onStep } = {}) {
   if (onStep) onStep("mapping who they follow…");
   const follows = await graphAll("app.bsky.graph.getFollows", "follows", did);
   if (onStep) onStep("mapping who follows them back…");
-  const followers = await graphAll("app.bsky.graph.getFollowers", "followers", did);
+  // Constellation indexes app.bsky.graph.follow's .subject directly (up to
+  // 1000/page vs the AppView's 100/page), so it's tried first; the AppView
+  // walk is the fallback if Constellation itself errors. Only DIDs are
+  // needed here (membership test against follows), so no profile hydration
+  // either way.
+  let followers;
+  try {
+    followers = await constellationFollowerDids(did);
+  } catch {
+    followers = await graphAll("app.bsky.graph.getFollowers", "followers", did);
+  }
 
   const followerDids = new Set(followers);
   const mutualCount = follows.filter((d) => d !== did && followerDids.has(d)).length;
