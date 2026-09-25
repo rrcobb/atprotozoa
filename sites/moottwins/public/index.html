@@ -102,12 +102,13 @@ footer a { color: var(--accent); }
       avatar photos — a 64-bit difference-hash per pfp, the same trick reverse
       image search uses to spot near-duplicates, skipping solid-color and
       stock icon-on-color pfps since those match everyone for no real reason —
-      then pair up whoever came out closest. Each pair gets a mnemonic built
-      from whatever's actually different: pfp color, brightness, which corner
-      is lit, and — since a photo isn't the whole person — their bio, how long
-      they've been on Bluesky, or their handle domain when the pfps run out of
-      differences. Mutuals whose <b>display names</b> alone are easy to
-      confuse get flagged separately, pfp aside.
+      then pair up whoever came out closest. Each pair gets a rhyming mnemonic
+      built from whichever one of them actually has something to say: a line
+      pulled from their bio or recent posts that the other person never wrote
+      or posted, rephrased as a fact about them, falling back to pfp color,
+      brightness, or which corner is lit when neither has distinctive text to
+      draw from. Mutuals whose <b>display names</b> alone are easy to confuse
+      get flagged separately, pfp aside.
     </p>
 
     <form id="f">
@@ -148,7 +149,7 @@ footer a { color: var(--accent); }
 if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
 </script>
 <script type="module">
-import { moots, getProfileDetails } from "./lib/moots.js";
+import { moots, getPersonContext } from "./lib/moots.js";
 import { loadAvatar, analyzeAvatar, hammingDistance } from "./lib/vision.js";
 import { describePair } from "./lib/mnemonic.js";
 import { findNameTwins } from "./lib/namesim.js";
@@ -362,16 +363,17 @@ async function run(rawHandle) {
     }
     setMsg(`found ${twins.length} conflatable pfp pair(s).`, "ok");
 
-    // Bios/account-age are only fetched for mutuals who actually made it
-    // into a pfp pair — enough context for the mnemonic to say something
-    // about the person, without a getProfile call per mutual.
+    // Bio/account-age/recent-posts are only fetched for mutuals who actually
+    // made it into a pfp pair — enough context for the mnemonic to say
+    // something about the person (not just their photo), without a
+    // getProfile + getAuthorFeed call per mutual.
     const enrichDids = new Set();
     for (const t of twins) {
       enrichDids.add(comparable[t.i].did);
       enrichDids.add(comparable[t.j].did);
     }
     const enrichList = [...enrichDids];
-    const enrichDetails = await mapPool(enrichList, (did) => getProfileDetails(did), CONCURRENCY);
+    const enrichDetails = await mapPool(enrichList, (did) => getPersonContext(did), CONCURRENCY);
     const byDid = new Map(enrichList.map((did, i) => [did, enrichDetails[i]]));
 
     let topPair = null;

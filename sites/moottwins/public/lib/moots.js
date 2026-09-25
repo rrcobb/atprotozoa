@@ -58,13 +58,46 @@ const profileOf = (p) => ({
 // data, there's no bulk endpoint for them). Callers fetch this only for the
 // handful of mutuals who end up in a displayed twin pair, to give the
 // mnemonic something about the person beyond their pfp.
-export async function getProfileDetails(did) {
+async function getProfileDetails(did) {
   try {
     const p = await jget(`${PUB}/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`);
     return { description: p.description || "", createdAt: p.createdAt || null };
   } catch {
     return { description: "", createdAt: null };
   }
+}
+
+// A sample of one mutual's own recent post text, for mnemonic.js to read
+// for a fact that actually distinguishes the two people, not just their
+// pfps. One getAuthorFeed page (100 posts, no replies, no pagination) —
+// same treatment as sites/slate38's feed-analysis.js: this is "read some
+// of their posts" per the ask that prompted it, not a claim to their whole
+// history, so it doesn't need the getRepo-over-pagination or page-to-
+// exhaustion treatment the no-arbitrary-caps rule requires for a "read all
+// of X's posts" feature. Skips reposts (keeps only posts this DID actually
+// authored) so a reshared stranger's words don't get attributed to them.
+async function getRecentPosts(did) {
+  try {
+    const u = new URL(`${PUB}/app.bsky.feed.getAuthorFeed`);
+    u.searchParams.set("actor", did);
+    u.searchParams.set("limit", "100");
+    u.searchParams.set("filter", "posts_no_replies");
+    const d = await jget(u.toString());
+    return (d.feed || [])
+      .filter((it) => !it.reason && it.post?.author?.did === did)
+      .map((it) => it.post?.record?.text || "")
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+// Bio + account age + a sample of recent posts for one mutual — everything
+// mnemonic.js's content-based disambiguation needs. Same "only for mutuals
+// who made it into a displayed pair" scoping as getProfileDetails above.
+export async function getPersonContext(did) {
+  const [details, posts] = await Promise.all([getProfileDetails(did), getRecentPosts(did)]);
+  return { ...details, posts };
 }
 
 // Page through a graph endpoint (getFollows / getFollowers), collecting the
