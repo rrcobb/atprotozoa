@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>moottwins — find the mutuals whose pfps you keep mixing up — bisks.net</title>
+<meta name="description" content="Enter a Bluesky handle. We hash every mutual's avatar, pair up the ones that actually look alike, and write a short mnemonic for each pair so you can finally tell them apart." />
+
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://moottwins.bisks.net/" />
+<meta property="og:title" content="moottwins — the mutuals whose pfps you keep mixing up" />
+<meta property="og:description" content="Hashes every one of your mutuals' avatars, pairs up the ones that actually look alike, and writes a mnemonic for each pair so you stop mixing them up." />
+<meta property="og:image" content="https://moottwins.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="Two near-identical avatar silhouettes side by side with a magnifying glass between them, labeled 'moottwins'." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="moottwins — the mutuals whose pfps you keep mixing up" />
+<meta name="twitter:description" content="Hashes every mutual's avatar and pairs up the ones that actually look alike, with a mnemonic for each pair." />
+<meta name="twitter:image" content="https://moottwins.bisks.net/og.png" />
+
+<style>
+:root {
+  --bg: #ffffff;
+  --ink: #111111;
+  --muted: #6b6b6b;
+  --faint: #e4e4e4;
+  --faintbg: #f6f6f6;
+  --accent: #1a5fd0;
+  --good: #1f8a4c;
+  --bad: #c0392b;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--mono); font-size: 15px; line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 780px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 0.6rem; }
+p.tag { color: var(--muted); margin: 0 0 2rem; font-size: 0.92rem; line-height: 1.7; max-width: 62ch; }
+p.tag code { background: var(--faintbg); padding: 0.1em 0.35em; border-radius: 3px; }
+
+form#f { display: flex; gap: 0.5rem; max-width: 520px; margin-bottom: 0.6rem; }
+input#handle {
+  flex: 1; font-family: inherit; font-size: 0.95rem; padding: 0.6rem 0.7rem;
+  border: 1px solid var(--ink); border-radius: 3px; background: var(--bg); color: var(--ink);
+}
+input#handle:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+button#go {
+  font-family: inherit; font-size: 0.9rem; padding: 0.6rem 0.9rem;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--bg);
+  border-radius: 3px; cursor: pointer;
+}
+button#go:hover:not(:disabled) { background: #000; }
+button#go:disabled { opacity: 0.4; cursor: default; }
+
+.msg { min-height: 1.2rem; font-size: 0.82rem; margin: 0.5rem 0 1.8rem; }
+.msg.err { color: var(--bad); }
+.msg.ok { color: var(--good); }
+
+.counts { color: var(--muted); font-size: 0.82rem; margin: -0.6rem 0 1.6rem; }
+
+.pair {
+  border: 1px solid var(--faint); border-radius: 8px; padding: 1rem 1.1rem;
+  margin-bottom: 1rem; background: var(--faintbg);
+}
+.pair .avatars { display: flex; align-items: center; gap: 0.9rem; margin-bottom: 0.7rem; }
+.pair img.av { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; border: 1px solid var(--faint); background: #fff; }
+.pair .vs { color: var(--muted); font-size: 0.8rem; }
+.pair .who { font-size: 0.9rem; }
+.pair .who b { font-weight: 600; }
+.pair .pct { color: var(--accent); font-weight: 700; font-size: 0.82rem; margin-left: auto; white-space: nowrap; }
+.pair .lines { color: var(--muted); font-size: 0.85rem; margin: 0.5rem 0; }
+.pair .lines div { margin: 0.15rem 0; }
+.pair .mnemonic { font-size: 0.9rem; margin-top: 0.5rem; }
+.pair .mnemonic b { color: var(--ink); }
+
+.share { margin-top: 2rem; display: none; gap: 0.6rem; flex-wrap: wrap; }
+.share.on { display: flex; }
+.share a, .share button {
+  font-family: inherit; font-size: 0.85rem; padding: 0.5rem 0.8rem;
+  border: 1px solid var(--ink); border-radius: 3px; background: var(--bg); color: var(--ink);
+  text-decoration: none; cursor: pointer;
+}
+.share a:hover, .share button:hover { background: var(--faintbg); }
+
+footer { margin-top: 3.5rem; color: var(--muted); font-size: 0.82rem; border-top: 1px solid var(--faint); padding-top: 1.2rem; }
+footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>moot<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">t</span>wins</h1>
+    <p class="tag">
+      Type a Bluesky handle. We hash every one of that handle's <b>mutuals'</b>
+      avatar photos — a 64-bit difference-hash per pfp, the same trick reverse
+      image search uses to spot near-duplicates — then pair up whoever came
+      out closest. Each pair gets a one-line mnemonic worked out from what's
+      actually different between the two photos (color, brightness, which
+      corner is lit), so you have something to hang onto next time you see
+      one of them in your timeline.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">find my twins</button>
+    </form>
+    <div class="msg" id="msg"></div>
+    <div class="counts" id="counts"></div>
+
+    <div id="results"></div>
+
+    <div class="share" id="share">
+      <a id="shareBluesky" target="_blank" rel="noopener">share on Bluesky</a>
+      <a id="shareDownload" download="moottwins.png">download share card</a>
+      <button id="shareNative" type="button" style="display:none">share image</button>
+    </div>
+    <canvas id="shareCanvas" width="1200" height="630" style="display:none"></canvas>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      <a href="https://rateyourbuild.bisks.net/site/moottwins">rate this on rateyourbuild →</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+</script>
+<script type="module">
+import { moots } from "./lib/moots.js";
+import { loadAvatar, analyzeAvatar, hammingDistance } from "./lib/vision.js";
+import { describePair } from "./lib/mnemonic.js";
+
+const els = {
+  form: document.getElementById("f"),
+  input: document.getElementById("handle"),
+  go: document.getElementById("go"),
+  msg: document.getElementById("msg"),
+  counts: document.getElementById("counts"),
+  results: document.getElementById("results"),
+  share: document.getElementById("share"),
+  shareBluesky: document.getElementById("shareBluesky"),
+  shareDownload: document.getElementById("shareDownload"),
+  shareNative: document.getElementById("shareNative"),
+  shareCanvas: document.getElementById("shareCanvas"),
+};
+
+// Avatar fetches in flight at once — a rate limit on the proxy, not a data
+// cap: every mutual with an avatar still gets fetched and hashed, just not
+// all in one burst.
+const CONCURRENCY = 8;
+
+// dHash Hamming distance (out of 64 bits) below which two avatars read as
+// visually near-identical thumbnails in spot checks — same background/pose/
+// color grading, the kind that actually gets mixed up at timeline-thumbnail
+// size. Above this they're just "two photos of people." A display/ranking
+// threshold, not a cap on what gets read: every mutual is hashed and every
+// pair is compared; this only decides which pairs are worth showing.
+const SIMILARITY_THRESHOLD = 10;
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function setMsg(text, cls) {
+  els.msg.textContent = text || "";
+  els.msg.className = "msg" + (cls ? " " + cls : "");
+}
+
+async function mapPool(items, worker, concurrency) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function runner() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await worker(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) || 1 }, runner));
+  return results;
+}
+
+function findTwins(people, feats) {
+  const candidates = [];
+  for (let i = 0; i < people.length; i++) {
+    if (!feats[i]) continue;
+    for (let j = i + 1; j < people.length; j++) {
+      if (!feats[j]) continue;
+      const d = hammingDistance(feats[i].hash, feats[j].hash);
+      if (d <= SIMILARITY_THRESHOLD) candidates.push({ i, j, d });
+    }
+  }
+  candidates.sort((a, b) => a.d - b.d);
+  // Greedy matching: once someone's been paired off with their closest
+  // match, don't also list them against their second-closest — otherwise
+  // one generic-looking avatar (plain background, common pose) would eat
+  // the whole results list.
+  const used = new Set();
+  const twins = [];
+  for (const c of candidates) {
+    if (used.has(c.i) || used.has(c.j)) continue;
+    used.add(c.i);
+    used.add(c.j);
+    twins.push(c);
+  }
+  return twins;
+}
+
+function renderPair(a, b, featA, featB, d) {
+  const { pct, lineA, lineB, mnemonic } = describePair(a, b, featA, featB, d);
+  const div = document.createElement("div");
+  div.className = "pair";
+  const srcA = a.avatar ? "/img?u=" + encodeURIComponent(a.avatar) : "";
+  const srcB = b.avatar ? "/img?u=" + encodeURIComponent(b.avatar) : "";
+  div.innerHTML = `
+    <div class="avatars">
+      <img class="av" src="${srcA}" alt="" />
+      <div class="who"><b>@${esc(a.handle)}</b></div>
+      <span class="vs">↔</span>
+      <img class="av" src="${srcB}" alt="" />
+      <div class="who"><b>@${esc(b.handle)}</b></div>
+      <div class="pct">${pct}% alike</div>
+    </div>
+    <div class="lines"><div>${esc(lineA)}</div><div>${esc(lineB)}</div></div>
+    <div class="mnemonic">🧠 <b>${esc(mnemonic)}</b></div>
+  `;
+  return div;
+}
+
+let lastShareText = "";
+
+async function run(rawHandle) {
+  els.go.disabled = true;
+  els.results.innerHTML = "";
+  els.counts.textContent = "";
+  els.share.classList.remove("on");
+  setMsg("resolving handle…");
+
+  try {
+    const { handle, mutuals, counts } = await moots(rawHandle, {
+      onStep: (s) => setMsg(s),
+    });
+
+    const withAvatar = mutuals.filter((m) => m.avatar);
+    if (withAvatar.length < 2) {
+      setMsg(`@${handle} has ${mutuals.length} mutual(s) with a usable avatar — not enough to compare.`, "err");
+      return;
+    }
+
+    let loaded = 0;
+    setMsg(`hashing ${withAvatar.length} mutuals' avatars… (0/${withAvatar.length})`);
+    const feats = await mapPool(
+      withAvatar,
+      async (m) => {
+        const img = await loadAvatar(m.avatar);
+        const f = analyzeAvatar(img);
+        loaded++;
+        setMsg(`hashing ${withAvatar.length} mutuals' avatars… (${loaded}/${withAvatar.length})`);
+        return f;
+      },
+      CONCURRENCY,
+    );
+
+    const twins = findTwins(withAvatar, feats);
+    els.counts.textContent =
+      `@${handle}: ${counts.mutuals} mutual(s), ${withAvatar.length} with a usable avatar, ` +
+      `${twins.length} pair(s) worth double-checking.`;
+
+    if (!twins.length) {
+      setMsg("no two pfps came back close enough to worry about — nice, distinct avatars all around.", "ok");
+      return;
+    }
+    setMsg(`found ${twins.length} conflatable pair(s).`, "ok");
+
+    let topPair = null;
+    for (const t of twins) {
+      const a = withAvatar[t.i], b = withAvatar[t.j];
+      const featA = feats[t.i], featB = feats[t.j];
+      els.results.appendChild(renderPair(a, b, featA, featB, t.d));
+      if (!topPair) topPair = { a, b, featA, featB, d: t.d };
+    }
+
+    setupShare(handle, twins.length, topPair);
+  } catch (err) {
+    setMsg("couldn't do that: " + (err?.message || err), "err");
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+function setupShare(handle, twinCount, top) {
+  const url = "https://moottwins.bisks.net/";
+  const { mnemonic } = describePair(top.a, top.b, top.featA, top.featB, top.d);
+  lastShareText =
+    `Turns out I have ${twinCount} pair(s) of mutuals whose pfps I keep mixing up. ` +
+    `Closest: @${top.a.handle} vs @${top.b.handle}. ${mnemonic}\n\n${url}`;
+  els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+  buildShareCard(handle, twinCount, top).then(() => els.share.classList.add("on"));
+}
+
+function loadForCanvas(url) {
+  return new Promise((resolve) => {
+    if (!url) return resolve(null);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = "/img?u=" + encodeURIComponent(url);
+  });
+}
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    const probe = new File([""], "probe.png", { type: "image/png" });
+    return navigator.canShare({ files: [probe] });
+  } catch {
+    return false;
+  }
+}
+
+async function buildShareCard(handle, twinCount, top) {
+  const ctx = els.shareCanvas.getContext("2d");
+  const W = els.shareCanvas.width, H = els.shareCanvas.height;
+  const mono = "ui-monospace, monospace";
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#111111";
+  ctx.font = `700 46px ${mono}`;
+  ctx.fillText("moottwins", 60, 96);
+  ctx.fillStyle = "#6b6b6b";
+  ctx.font = `400 24px ${mono}`;
+  ctx.fillText(`@${handle}'s most conflatable mutuals`, 60, 136);
+
+  const [imgA, imgB] = await Promise.all([loadForCanvas(top.a.avatar), loadForCanvas(top.b.avatar)]);
+  const r = 130, cy = 320;
+  const cxA = W / 2 - 160, cxB = W / 2 + 160;
+  for (const [img, cx] of [[imgA, cxA], [imgB, cxB]]) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    if (img) ctx.drawImage(img, cx - r, cy - r, r * 2, r * 2);
+    else {
+      ctx.fillStyle = "#f6f6f6";
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    }
+    ctx.restore();
+    ctx.strokeStyle = "#e4e4e4";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.fillStyle = "#1a5fd0";
+  ctx.font = `700 40px ${mono}`;
+  ctx.textAlign = "center";
+  ctx.fillText("↔", W / 2, cy + 12);
+
+  ctx.fillStyle = "#111111";
+  ctx.font = `700 26px ${mono}`;
+  ctx.fillText(`@${top.a.handle}`, cxA, cy + r + 44);
+  ctx.fillText(`@${top.b.handle}`, cxB, cy + r + 44);
+
+  ctx.fillStyle = "#1a5fd0";
+  ctx.font = `700 30px ${mono}`;
+  ctx.fillText(`${twinCount} conflatable pair(s) found`, W / 2, cy + r + 100);
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#6b6b6b";
+  ctx.font = `400 20px ${mono}`;
+  ctx.fillText("moottwins.bisks.net", 60, H - 40);
+
+  els.shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const shareUrl = URL.createObjectURL(blob);
+    els.shareDownload.href = shareUrl;
+    if (canShareFiles()) {
+      els.shareNative.style.display = "";
+      els.shareNative.onclick = async () => {
+        try {
+          const file = new File([blob], "moottwins.png", { type: "image/png" });
+          await navigator.share({ files: [file], text: lastShareText, title: "moottwins" });
+        } catch {}
+      };
+    }
+  });
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const h = els.input.value.trim().replace(/^@/, "");
+  if (!h) {
+    setMsg("enter a handle first.", "err");
+    return;
+  }
+  run(h);
+});
+</script>
+</body>
+</html>
