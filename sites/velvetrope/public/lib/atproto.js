@@ -112,10 +112,17 @@ export function getFollowers(did, cap = 150) {
 // All of an actor's lists whose purpose is app.bsky.graph.defs#modlist
 // (moderation lists) — curation lists are left out, this site is only about
 // the block/mute-style lists the brief asked for.
+//
+// MODLIST_PAGE_CAP is a backstop, not a budget — getLists has no
+// bulk-download equivalent, so this still paginates, but the page count
+// isn't a correctness bound. Matches the moot-family fix (2026-08-28, see
+// notes/40-new-site-playbook.md): the prior 10-page cap contradicted "all of
+// an actor's lists" above it, silently dropping anything past 1000 lists.
+const MODLIST_PAGE_CAP = 400;
 export async function getModLists(actorDid) {
   const out = [];
   let cursor;
-  for (let p = 0; p < 10; p++) {
+  for (let p = 0; p < MODLIST_PAGE_CAP; p++) {
     const u = new URL(`${PUB}/app.bsky.graph.getLists`);
     u.searchParams.set("actor", actorDid);
     u.searchParams.set("limit", "100");

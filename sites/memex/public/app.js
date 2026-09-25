@@ -92,11 +92,18 @@ function entryFromRecord(rkey, rec) {
   };
 }
 
+// PDS_PAGE_CAP is a backstop, not a budget — listRecords has no bulk-download
+// equivalent here, so this still paginates, but the page count isn't a
+// correctness bound. Matches the moot-family fix (2026-08-28, see
+// notes/40-new-site-playbook.md): the prior 5-page cap silently truncated a
+// user's own phrasebook at 500 entries.
+const PDS_PAGE_CAP = 400;
+
 async function pdsListRecords(sess) {
   const base = sess.pdsUrl.replace(/\/$/, "");
   const out = [];
   let cursor;
-  for (let page = 0; page < 5; page++) {
+  for (let page = 0; page < PDS_PAGE_CAP; page++) {
     const qs = new URLSearchParams({ repo: sess.did, collection: COLLECTION, limit: "100" });
     if (cursor) qs.set("cursor", cursor);
     let data;

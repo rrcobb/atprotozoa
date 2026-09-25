@@ -65,11 +65,18 @@ async function getProfile(did) {
 
 // Every net.bisks.prestige.link record an account currently holds, merged
 // last-write-wins per field (mirrors index.html's mergeLinks).
+//
+// PAGE_CAP is a backstop, not a budget — listRecords has no bulk-download
+// equivalent here, so this still paginates, but the page count isn't a
+// correctness bound. Matches the moot-family fix (2026-08-28, see
+// notes/40-new-site-playbook.md): the prior 5-page cap contradicted "every
+// record" above it, silently dropping anything past 500.
+const PAGE_CAP = 400;
 async function fetchOwnLinks(pdsUrl, did) {
   if (!pdsUrl) return [];
   const out = [];
   let cursor;
-  for (let p = 0; p < 5; p++) {
+  for (let p = 0; p < PAGE_CAP; p++) {
     const params = new URLSearchParams({ repo: did, collection: COLLECTION, limit: "100" });
     if (cursor) params.set("cursor", cursor);
     let d;
