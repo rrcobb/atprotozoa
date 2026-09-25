@@ -4,6 +4,12 @@
 //     actually look" as a single number (Hamming distance between hashes)
 //   - average hue/saturation/lightness and a 2×2 quadrant brightness map,
 //     for describing WHY two hashes are close, in words a human can use
+//   - a dominant-color share, for recognizing "this isn't really a photo" —
+//     a flat solid-color swatch or one of the generic icon-on-flat-background
+//     pfps some clients offer as a no-photo default. Two of those hash as
+//     near-identical "twins" for a reason that has nothing to do with the
+//     people behind them, so callers use this to drop them from comparison
+//     rather than report a meaningless pair.
 //   No AI/model inference anywhere — every feature here is a deterministic
 //   pixel average or a pixel-vs-neighbour comparison.
 //
@@ -88,6 +94,31 @@ function rgbToHsl(r, g, b) {
   return { h, s: s * 100, l: l * 100 };
 }
 
+// Quantizes every sampled pixel to a coarse RGB bucket (8 levels per
+// channel) and returns the share held by the single most common bucket.
+// A real candid photo spreads across many buckets even against a plain
+// background, because hair/skin/lighting/JPEG noise all vary pixel to
+// pixel; a flat-color swatch is one bucket at ~100%, and a small icon
+// centered on a flat field still leaves that field as one dominant bucket
+// covering most of the grid. Exported standalone (plain pixel array in,
+// number out) so it's testable without a canvas.
+const BUCKET_STEP = 32; // 256 / 32 = 8 levels per channel
+export function dominantColorShare(data, n) {
+  const counts = new Map();
+  const total = n * n;
+  for (let i = 0; i < total; i++) {
+    const o = i * 4;
+    const key =
+      (Math.round(data[o] / BUCKET_STEP) << 16) |
+      (Math.round(data[o + 1] / BUCKET_STEP) << 8) |
+      Math.round(data[o + 2] / BUCKET_STEP);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  let max = 0;
+  for (const c of counts.values()) if (c > max) max = c;
+  return max / total;
+}
+
 // [TL, TR, BL, BR] average brightness of a COLOR_GRID x COLOR_GRID sample.
 function colorFeatures(img) {
   const n = COLOR_GRID;
@@ -112,7 +143,8 @@ function colorFeatures(img) {
   const total = n * n;
   const hsl = rgbToHsl(rSum / total, gSum / total, bSum / total);
   const quadrants = quadSum.map((v, i) => v / quadCount[i]); // [TL, TR, BL, BR]
-  return { hsl, quadrants };
+  const flatShare = dominantColorShare(data, n);
+  return { hsl, quadrants, flatShare };
 }
 
 // Returns null for an avatar that failed to load — callers should drop it

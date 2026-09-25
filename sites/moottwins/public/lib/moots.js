@@ -51,6 +51,22 @@ const profileOf = (p) => ({
   avatar: p.avatar || "",
 });
 
+// Bio + account-creation date for one mutual. getFollows only returns a
+// basic profileView (handle/displayName/avatar), so this is a second fetch
+// — deliberately NOT done for every mutual (that's what pushed the old
+// GRAPH_PAGES cap up to 400 when it was for graph edges; bios aren't repo
+// data, there's no bulk endpoint for them). Callers fetch this only for the
+// handful of mutuals who end up in a displayed twin pair, to give the
+// mnemonic something about the person beyond their pfp.
+export async function getProfileDetails(did) {
+  try {
+    const p = await jget(`${PUB}/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`);
+    return { description: p.description || "", createdAt: p.createdAt || null };
+  } catch {
+    return { description: "", createdAt: null };
+  }
+}
+
 // Page through a graph endpoint (getFollows / getFollowers), collecting the
 // actor array under `key`. Stops at GRAPH_PAGES so a mega-account stays fast.
 async function graphAll(endpoint, key, did) {

@@ -8,6 +8,12 @@
 // back to a name-based hook (alphabetical order) on the rare pair that's
 // identical on all of those too. Every step is explainable from the numbers
 // vision.js already computed.
+//
+// The pfp is only half the mixup, though — describePair also attaches a
+// posterHint() when the caller supplies it: a fact about the *people*, not
+// their photos (a differing bio, when each joined Bluesky, which handle
+// domain they're on), so there's something to remember about the poster
+// even once the pixels are exhausted.
 
 const QUAD_NAMES = ["top-left", "top-right", "bottom-left", "bottom-right"];
 
@@ -47,10 +53,55 @@ function brightestQuadrant(quadrants) {
   return best;
 }
 
-// Returns { pct, lineA, lineB, mnemonic }. `pct` is similarity 0-100
-// (64 - hammingDistance, scaled) purely for display, not used in the text.
+function truncate(s, max) {
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+function yearOf(iso) {
+  const m = /^(\d{4})-/.exec(iso || "");
+  return m ? m[1] : null;
+}
+
+function handleDomain(handle) {
+  return (handle || "").toLowerCase().endsWith(".bsky.social") ? "bsky.social" : "a custom domain";
+}
+
+// A fact about the two PEOPLE, not their pfps — only fires when the caller
+// passed enriched profile data (a.description/a.createdAt), which
+// describePair's callers only bother fetching for pairs that actually made
+// it into the results, not every mutual. Checked in order of how useful a
+// memory hook it makes: differing bios, then who's been around longer, then
+// handle domain. Returns null (nothing to add) when none of that data is
+// present or none of it differs.
+export function posterHint(a, b) {
+  const bioA = (a.description || "").trim();
+  const bioB = (b.description || "").trim();
+  if (bioA && bioB && bioA !== bioB) {
+    return `their bios don't match either — @${a.handle}: "${truncate(bioA, 70)}" vs @${b.handle}: "${truncate(bioB, 70)}".`;
+  }
+  if (bioA && !bioB) return `only @${a.handle} has written a bio ("${truncate(bioA, 70)}") — @${b.handle}'s is blank.`;
+  if (bioB && !bioA) return `only @${b.handle} has written a bio ("${truncate(bioB, 70)}") — @${a.handle}'s is blank.`;
+
+  const yearA = yearOf(a.createdAt), yearB = yearOf(b.createdAt);
+  if (yearA && yearB && yearA !== yearB) {
+    return `@${a.handle} has been on Bluesky since ${yearA}, @${b.handle} since ${yearB}.`;
+  }
+
+  const domA = handleDomain(a.handle), domB = handleDomain(b.handle);
+  if (domA !== domB) {
+    return `@${a.handle}'s handle is on ${domA}, @${b.handle}'s is on ${domB}.`;
+  }
+
+  return null;
+}
+
+// Returns { pct, lineA, lineB, mnemonic, posterNote }. `pct` is similarity
+// 0-100 (64 - hammingDistance, scaled) purely for display, not used in the
+// text. `posterNote` is a fact about the people rather than the photos —
+// null unless the caller passed enriched `a`/`b` (see posterHint above).
 export function describePair(a, b, featA, featB, hammingDist) {
   const pct = Math.round(((64 - hammingDist) / 64) * 100);
+  const posterNote = posterHint(a, b);
   const nameA = a.displayName || a.handle;
   const nameB = b.displayName || b.handle;
 
@@ -68,6 +119,7 @@ export function describePair(a, b, featA, featB, hammingDist) {
   if (colorA !== colorB && colorA !== "gray" && colorB !== "gray") {
     return {
       pct,
+      posterNote,
       lineA: `@${a.handle}'s pfp reads ${colorA}${brightA ? ` and ${brightA}` : ""}.`,
       lineB: `@${b.handle}'s pfp reads ${colorB}${brightB ? ` and ${brightB}` : ""}.`,
       mnemonic: `${anchorFor(colorA, nameA)}; ${nameB} is the ${colorB} one.`,
@@ -77,6 +129,7 @@ export function describePair(a, b, featA, featB, hammingDist) {
   if (brightA && brightB && brightA !== brightB) {
     return {
       pct,
+      posterNote,
       lineA: `@${a.handle}'s pfp is the ${brightA} one.`,
       lineB: `@${b.handle}'s pfp is the ${brightB} one.`,
       mnemonic: `${anchorFor(brightA, nameA)}; ${nameB} is the ${brightB} one.`,
@@ -86,6 +139,7 @@ export function describePair(a, b, featA, featB, hammingDist) {
   if (satA && satB && satA !== satB) {
     return {
       pct,
+      posterNote,
       lineA: `@${a.handle}'s pfp is the ${satA} one.`,
       lineB: `@${b.handle}'s pfp is the ${satB} one.`,
       mnemonic: `${anchorFor(satA, nameA)}; ${nameB} is the ${satA === "vivid" ? "muted" : "vivid"} one.`,
@@ -96,6 +150,7 @@ export function describePair(a, b, featA, featB, hammingDist) {
   if (quadA !== quadB) {
     return {
       pct,
+      posterNote,
       lineA: `@${a.handle}'s brightest spot sits ${QUAD_NAMES[quadA]}.`,
       lineB: `@${b.handle}'s brightest spot sits ${QUAD_NAMES[quadB]}.`,
       mnemonic: `${nameA} is bright ${QUAD_NAMES[quadA]}; ${nameB} is bright ${QUAD_NAMES[quadB]}.`,
@@ -108,6 +163,7 @@ export function describePair(a, b, featA, featB, hammingDist) {
   const order = nameA.localeCompare(nameB) <= 0 ? [nameA, nameB] : [nameB, nameA];
   return {
     pct,
+    posterNote,
     lineA: `@${a.handle}'s pfp is about as close a match to @${b.handle}'s as pfps get.`,
     lineB: `same tone, same brightness, same layout — no visual anchor left.`,
     mnemonic: `no pfp trick works here — go alphabetical: “${order[0]} before ${order[1]}.”`,

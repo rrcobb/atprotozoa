@@ -76,6 +76,10 @@ button#go:disabled { opacity: 0.4; cursor: default; }
 .pair .lines div { margin: 0.15rem 0; }
 .pair .mnemonic { font-size: 0.9rem; margin-top: 0.5rem; }
 .pair .mnemonic b { color: var(--ink); }
+.pair .poster { font-size: 0.85rem; margin-top: 0.4rem; color: var(--muted); }
+
+h2.section { font-size: 1rem; font-weight: 700; margin: 2.4rem 0 0.4rem; }
+p.sectiontag { color: var(--muted); font-size: 0.85rem; margin: 0 0 1rem; max-width: 62ch; }
 
 .share { margin-top: 2rem; display: none; gap: 0.6rem; flex-wrap: wrap; }
 .share.on { display: flex; }
@@ -96,11 +100,14 @@ footer a { color: var(--accent); }
     <p class="tag">
       Type a Bluesky handle. We hash every one of that handle's <b>mutuals'</b>
       avatar photos — a 64-bit difference-hash per pfp, the same trick reverse
-      image search uses to spot near-duplicates — then pair up whoever came
-      out closest. Each pair gets a one-line mnemonic worked out from what's
-      actually different between the two photos (color, brightness, which
-      corner is lit), so you have something to hang onto next time you see
-      one of them in your timeline.
+      image search uses to spot near-duplicates, skipping solid-color and
+      stock icon-on-color pfps since those match everyone for no real reason —
+      then pair up whoever came out closest. Each pair gets a mnemonic built
+      from whatever's actually different: pfp color, brightness, which corner
+      is lit, and — since a photo isn't the whole person — their bio, how long
+      they've been on Bluesky, or their handle domain when the pfps run out of
+      differences. Mutuals whose <b>display names</b> alone are easy to
+      confuse get flagged separately, pfp aside.
     </p>
 
     <form id="f">
@@ -111,6 +118,16 @@ footer a { color: var(--accent); }
     <div class="counts" id="counts"></div>
 
     <div id="results"></div>
+
+    <div id="nameSection" style="display:none">
+      <h2 class="section">names, not just pfps</h2>
+      <p class="sectiontag">
+        These mutuals' <b>display names</b> are close enough to mix up even when
+        their pfps aren't — a nickname sitting inside a full name, or two names a
+        letter or two apart. Independent of the pairs above.
+      </p>
+      <div id="nameResults"></div>
+    </div>
 
     <div class="share" id="share">
       <a id="shareBluesky" target="_blank" rel="noopener">share on Bluesky</a>
@@ -131,9 +148,10 @@ footer a { color: var(--accent); }
 if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
 </script>
 <script type="module">
-import { moots } from "./lib/moots.js";
+import { moots, getProfileDetails } from "./lib/moots.js";
 import { loadAvatar, analyzeAvatar, hammingDistance } from "./lib/vision.js";
 import { describePair } from "./lib/mnemonic.js";
+import { findNameTwins } from "./lib/namesim.js";
 
 const els = {
   form: document.getElementById("f"),
@@ -142,6 +160,8 @@ const els = {
   msg: document.getElementById("msg"),
   counts: document.getElementById("counts"),
   results: document.getElementById("results"),
+  nameSection: document.getElementById("nameSection"),
+  nameResults: document.getElementById("nameResults"),
   share: document.getElementById("share"),
   shareBluesky: document.getElementById("shareBluesky"),
   shareDownload: document.getElementById("shareDownload"),
@@ -161,6 +181,19 @@ const CONCURRENCY = 8;
 // threshold, not a cap on what gets read: every mutual is hashed and every
 // pair is compared; this only decides which pairs are worth showing.
 const SIMILARITY_THRESHOLD = 10;
+
+// Share of an avatar's sampled pixels held by one dominant color (see
+// vision.js's dominantColorShare) above which it reads as "not really a
+// photo" — a flat solid-color swatch, or one of the generic icon-on-color
+// pfps some clients hand out as a no-photo default. A real candid photo
+// spreads across many color buckets even against a plain background
+// (hair/skin/lighting/compression noise all vary); a flat field with a
+// small centered icon still leaves that field as one dominant bucket
+// covering most of the sampled grid. Two people who both happen to have a
+// flat pfp — or the same stock default — would otherwise hash as perfect
+// "twins" for a reason that has nothing to do with them, so these are
+// dropped from pfp comparison rather than reported as a pair.
+const FLAT_SHARE_THRESHOLD = 0.85;
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -211,7 +244,7 @@ function findTwins(people, feats) {
 }
 
 function renderPair(a, b, featA, featB, d) {
-  const { pct, lineA, lineB, mnemonic } = describePair(a, b, featA, featB, d);
+  const { pct, lineA, lineB, mnemonic, posterNote } = describePair(a, b, featA, featB, d);
   const div = document.createElement("div");
   div.className = "pair";
   const srcA = a.avatar ? "/img?u=" + encodeURIComponent(a.avatar) : "";
@@ -227,6 +260,28 @@ function renderPair(a, b, featA, featB, d) {
     </div>
     <div class="lines"><div>${esc(lineA)}</div><div>${esc(lineB)}</div></div>
     <div class="mnemonic">🧠 <b>${esc(mnemonic)}</b></div>
+    ${posterNote ? `<div class="poster">👤 ${esc(posterNote)}</div>` : ""}
+  `;
+  return div;
+}
+
+function renderNamePair(a, b, reason) {
+  const div = document.createElement("div");
+  div.className = "pair";
+  const srcA = a.avatar ? "/img?u=" + encodeURIComponent(a.avatar) : "";
+  const srcB = b.avatar ? "/img?u=" + encodeURIComponent(b.avatar) : "";
+  const line = reason === "contains"
+    ? "one display name sits right inside the other — easy to read one as a nickname for the other."
+    : "their display names differ by only a letter or two.";
+  div.innerHTML = `
+    <div class="avatars">
+      <img class="av" src="${srcA}" alt="" />
+      <div class="who"><b>${esc(a.displayName || a.handle)}</b><br /><span style="color:var(--muted)">@${esc(a.handle)}</span></div>
+      <span class="vs">↔</span>
+      <img class="av" src="${srcB}" alt="" />
+      <div class="who"><b>${esc(b.displayName || b.handle)}</b><br /><span style="color:var(--muted)">@${esc(b.handle)}</span></div>
+    </div>
+    <div class="mnemonic">🧠 <b>${esc(line)}</b></div>
   `;
   return div;
 }
@@ -236,6 +291,8 @@ let lastShareText = "";
 async function run(rawHandle) {
   els.go.disabled = true;
   els.results.innerHTML = "";
+  els.nameResults.innerHTML = "";
+  els.nameSection.style.display = "none";
   els.counts.textContent = "";
   els.share.classList.remove("on");
   setMsg("resolving handle…");
@@ -265,21 +322,63 @@ async function run(rawHandle) {
       CONCURRENCY,
     );
 
-    const twins = findTwins(withAvatar, feats);
+    // Drop solid-color and stock icon-on-color pfps from comparison — see
+    // FLAT_SHARE_THRESHOLD above. Every avatar is still fetched and hashed;
+    // this only decides which are worth pairing up.
+    let flatSkipped = 0;
+    const compareIdx = [];
+    for (let i = 0; i < feats.length; i++) {
+      if (!feats[i]) continue;
+      if (feats[i].flatShare >= FLAT_SHARE_THRESHOLD) flatSkipped++;
+      else compareIdx.push(i);
+    }
+    const comparable = compareIdx.map((i) => withAvatar[i]);
+    const comparableFeats = compareIdx.map((i) => feats[i]);
+
+    const twins = findTwins(comparable, comparableFeats);
+    const nameTwins = findNameTwins(mutuals); // names, independent of avatar/pfp at all
+
     els.counts.textContent =
-      `@${handle}: ${counts.mutuals} mutual(s), ${withAvatar.length} with a usable avatar, ` +
-      `${twins.length} pair(s) worth double-checking.`;
+      `@${handle}: ${counts.mutuals} mutual(s), ${withAvatar.length} with a usable avatar` +
+      (flatSkipped ? ` (${flatSkipped} skipped as solid-color/stock pfps)` : "") +
+      `, ${twins.length} pfp pair(s) and ${nameTwins.length} name pair(s) worth double-checking.`;
+
+    els.nameResults.innerHTML = "";
+    if (nameTwins.length) {
+      for (const t of nameTwins) els.nameResults.appendChild(renderNamePair(mutuals[t.i], mutuals[t.j], t.reason));
+      els.nameSection.style.display = "";
+    } else {
+      els.nameSection.style.display = "none";
+    }
 
     if (!twins.length) {
-      setMsg("no two pfps came back close enough to worry about — nice, distinct avatars all around.", "ok");
+      setMsg(
+        nameTwins.length
+          ? "no two pfps came back close enough to worry about, but a couple of names are worth a look below."
+          : "no two pfps (or names) came back close enough to worry about — nice, distinct mutuals all around.",
+        "ok",
+      );
       return;
     }
-    setMsg(`found ${twins.length} conflatable pair(s).`, "ok");
+    setMsg(`found ${twins.length} conflatable pfp pair(s).`, "ok");
+
+    // Bios/account-age are only fetched for mutuals who actually made it
+    // into a pfp pair — enough context for the mnemonic to say something
+    // about the person, without a getProfile call per mutual.
+    const enrichDids = new Set();
+    for (const t of twins) {
+      enrichDids.add(comparable[t.i].did);
+      enrichDids.add(comparable[t.j].did);
+    }
+    const enrichList = [...enrichDids];
+    const enrichDetails = await mapPool(enrichList, (did) => getProfileDetails(did), CONCURRENCY);
+    const byDid = new Map(enrichList.map((did, i) => [did, enrichDetails[i]]));
 
     let topPair = null;
     for (const t of twins) {
-      const a = withAvatar[t.i], b = withAvatar[t.j];
-      const featA = feats[t.i], featB = feats[t.j];
+      const a = { ...comparable[t.i], ...byDid.get(comparable[t.i].did) };
+      const b = { ...comparable[t.j], ...byDid.get(comparable[t.j].did) };
+      const featA = comparableFeats[t.i], featB = comparableFeats[t.j];
       els.results.appendChild(renderPair(a, b, featA, featB, t.d));
       if (!topPair) topPair = { a, b, featA, featB, d: t.d };
     }
