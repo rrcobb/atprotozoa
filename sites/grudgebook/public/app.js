@@ -347,6 +347,7 @@ function renderAuthBar() {
       <button id="signInBtn" class="btn primary">sign in with bluesky</button>
     `;
     const handleInput = document.getElementById("signinHandle");
+    if (window.attachHandleTypeahead) window.attachHandleTypeahead(handleInput);
     const go = async () => {
       const h = handleInput.value.trim().replace(/^@/, "");
       if (!h) return;
