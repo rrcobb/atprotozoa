@@ -16,12 +16,22 @@ main = "src/index.ts"
 # the wrangler deploy step itself did, specifically for this dir (other dirs
 # in the same chunks, incl. sidenote, deployed fine before and after). Local
 # `wrangler deploy --dry-run` is clean and the config has no duplicate name
-# or route elsewhere in the repo, so this reads as Cloudflare-side stuck
-# state on the "atprotozoa-chatcontrol" script after two broken create
-# attempts, not a bug in this file. Renamed the script (name only — route
+# or route elsewhere in the repo. Renamed the script (name only — route
 # stays chatcontrol.bisks.net/*, nothing else in the repo referenced the old
-# script name) to force a genuinely fresh Worker creation instead of a third
-# attempt to fix up whatever the old one got stuck in.
+# script name) on the theory this was Cloudflare-side stuck state on the old
+# "atprotozoa-chatcontrol" script.
+#
+# 2026-09-26: still 404ing after the rename (same fallback-Worker 404 page,
+# meaning the route itself never got created) — that theory was wrong too, or
+# at best incomplete. Current best guess, also unconfirmed: the zone's
+# 1000-route cap (notes/20-deploy.md) — the repo's wrangler.tomls sum to 1001
+# declared route patterns right now, and this rename needed a genuinely NEW
+# route (not just a re-deploy of an existing one), which is the one operation
+# that cap blocks. It's also possible the *old* "atprotozoa-chatcontrol"
+# script/route is still sitting there dangling from the rename above, itself
+# occupying the slot this one needs. See notes/20-deploy.md's "Route cap
+# likely hit again" for the check to run next (needs a CLOUDFLARE_API_TOKEN
+# this builder doesn't have) before trying a third name.
 
 routes = [
   { pattern = "chatcontrol.bisks.net/*", zone_name = "bisks.net" },

@@ -137,6 +137,52 @@ sites were still on `custom_domain = true` took one down within seconds. An
 explicit `<name>.bisks.net/*` route is unaffected — a more specific route wins,
 but a Custom Domain does not.
 
+### Route cap likely hit again (2026-09-26, unconfirmed — needs API access)
+
+`chatcontrol` and `tubersona` both shipped with a persistent root 404:
+`curl -sI https://chatcontrol.bisks.net/` returns Cloudflare's *fallback* Worker
+page ("not found — bisks.net", the `*.bisks.net/*` catch-all in `fallback/`),
+meaning the explicit `<name>.bisks.net/*` route for each never actually got
+created on the zone — the deploy step failed silently on the route, not on the
+asset upload (`wrangler deploy --dry-run` is clean locally for both; the repo's
+`check` job passed for every one of the three chatcontrol attempts and the one
+tubersona attempt; only `deploy (chunk N)` failed, each time).
+
+`grep -rh "pattern = " sites/*/wrangler.toml apex/wrangler.toml
+fallback/wrangler.toml | wc -l` currently returns **1001** — right at the
+documented 1000/zone cap this section already warns about. That arithmetic,
+plus "the most recent new-route creation before these two (`moottwins`,
+2026-09-25 05:17) still succeeded, and every *existing*-route redeploy since
+keeps succeeding" is consistent with the zone having just filled up: creating a
+new route is the only operation this would break, matching what's actually
+failing here.
+
+**Not confirmed against the live zone — this builder has no
+`CLOUDFLARE_API_TOKEN`.** Whoever picks this up next, in order:
+
+1. `node audit/cf-workers.mjs` (needs the Workers-scoped token from 1Password,
+   see `notes/90-infra-and-budget.md`) reports `danglingRoutes` — routes whose
+   script no longer exists. `chatcontrol`'s wrangler.toml was renamed
+   `atprotozoa-chatcontrol` → `atprotozoa-chatcontrol2` on 2026-09-25 (see that
+   file's comment) to work around a *different*, now-superseded theory. If the
+   old `atprotozoa-chatcontrol` script/route wasn't cleanly replaced by that
+   rename, it's sitting there dangling and holding a slot the new script can't
+   also claim — check for it by name first, and prune it if so
+   (`audit/cf-workers.mjs` has no `--prune`; do it by hand via the dashboard or
+   API, since deleting a *live* site's Worker is exactly what that script
+   deliberately won't automate).
+2. If the zone really is at 1000 with no dangling leftovers, this is the same
+   shape as the July custom-domain cap incident, one level up: the fix there was
+   pruning 64 stale hostnames; the routes cap has no equivalent stale set
+   (`notes/20-deploy.md`'s Worker-cap section already established all live
+   Workers map to real sites — same is likely true of routes). The sanctioned
+   fix is a Cloudflare limit-increase request, same as the 500-Worker cap
+   (`notes/90-infra-and-budget.md`) — check whether the 2026-09-17 request
+   already covers routes or whether a separate one is needed.
+3. Once headroom exists, redeploy `sites/chatcontrol` and `sites/tubersona`
+   (touch a file and push, or `pnpm dlx wrangler deploy` from each dir with a
+   real token) and re-check with `curl -sI`.
+
 ## KV For Shared Low-Stakes State
 
 KV is the default shared backend for experiment data that should survive a
