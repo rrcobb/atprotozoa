@@ -6,6 +6,7 @@ test("chenScore matches published Chen formula reference values", () => {
   assert.equal(chenScore(14, 14, false), 20); // AA
   assert.equal(chenScore(13, 13, false), 16); // KK
   assert.equal(chenScore(2, 2, false), 5); // 22, floored at 5
+  assert.equal(chenScore(5, 5, false), 6); // 55, the formula's one special-cased pair
   assert.equal(chenScore(14, 13, true), 12); // AKs
   assert.equal(chenScore(14, 13, false), 10); // AKo
   assert.equal(chenScore(11, 10, true), 9); // JTs (gap 0, straight bonus)

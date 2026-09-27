@@ -40,7 +40,8 @@ export function dealHand(rng = Math.random) {
 //
 // Steps, in order:
 //  1. Score the higher card: A=10, K=8, Q=7, J=6, else its rank/2.
-//  2. Pair: double the score, floor of 5 (so 22 is worth 5, not 2).
+//  2. Pair: double the score, floor of 5 (so 22 is worth 5, not 2) — except
+//     55, which the formula special-cases to 6 rather than the usual floor.
 //  3. Otherwise: +2 if suited.
 //  4. Subtract for the gap between the cards (cards strictly between them):
 //     0=+0, 1=-1, 2=-2, 3=-4, 4+=-5.
@@ -54,7 +55,7 @@ export function chenScore(rankA, rankB, suited) {
 
   let score = highCardPoints;
   if (hi === lo) {
-    score = Math.max(score * 2, 5);
+    score = hi === 5 ? 6 : Math.max(score * 2, 5);
   } else {
     if (suited) score += 2;
     const gap = hi - lo - 1;
