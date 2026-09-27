@@ -32,6 +32,9 @@ async function main() {
   const props = (await res.json()).sort(naturalCompare);
   const byId = new Map(props.map((p) => [p.id, p]));
 
+  const countEl = document.getElementById("prop-count");
+  if (countEl) countEl.textContent = props.length;
+
   // Reverse index: who points AT this id, and with what relation.
   const incoming = new Map(props.map((p) => [p.id, []]));
   for (const p of props) {
