@@ -157,6 +157,34 @@ keeps succeeding" is consistent with the zone having just filled up: creating a
 new route is the only operation this would break, matching what's actually
 failing here.
 
+**2026-09-27 update: a third site confirms it.** `preflop`, a brand-new site
+first deployed today, shows the identical symptom (`curl -sI
+https://preflop.bisks.net/` returns the fallback Worker's page, `check` green
+/ `deploy` red). The route-pattern grep above now returns **1002** (one higher
+than the 2026-09-26 count), consistent with the cap having stayed full and one
+more new-route attempt failing the same way. This is the strongest evidence
+yet for the cap theory specifically (as opposed to something particular to
+chatcontrol's rename): `preflop` never had an old script/route to leave
+dangling, so the dangling-route theory in step 1 below can't explain its
+failure — only the cap can. **Anyone building a brand-new standalone site
+right now should expect the same 404** until this clears; consider whether the
+idea can ship as a path on an existing site instead until then.
+
+One more lead for whoever picks this up with real credentials: four retired
+sites (`blockledger`, `catsofatproto`, `seinfeldify`, `thread-heirloom`, see
+"Retired sites" below) still declare live routes for hostnames nobody should
+be linking to anymore — 6 route patterns total. Removing those from each
+site's `wrangler.toml` and letting the normal deploy pipeline redeploy them
+would, if `wrangler deploy` actually syncs route removals to the zone (needs
+confirming — this builder has no way to check), free real headroom without
+waiting on a limit increase. Not attempted here: `catsofatproto` and
+`thread-heirloom`'s `bisks.net/<name>` path routes are explicitly flagged
+elsewhere in this doc as needing careful handling before removal (real old
+links may still point at them, and the wildcard fallback doesn't cover
+apex-path routes the way it covers subdomains), so this needs a human with
+zone access to verify the fallback behavior before pulling the routes, not a
+blind edit-and-push.
+
 **Not confirmed against the live zone — this builder has no
 `CLOUDFLARE_API_TOKEN`.** Whoever picks this up next, in order:
 

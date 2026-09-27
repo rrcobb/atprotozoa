@@ -8,22 +8,29 @@
 // embedded right in each like/repost's subject.uri and each reply's
 // reply.parent.uri, so no AppView fan-out is needed at all.
 //
-// Inward direction (who liked/replied/reposted YOUR posts) has no bulk
-// equivalent — getLikes/getRepostedBy/getPostThread aren't repo-backed, so
-// it's a capped, concurrency-limited fan-out over your most recent posts
-// (see POST_SCAN_CAP below). That cap is a genuine browser/AppView fan-out
-// safety bound, not habitual caution — see notes/40-new-site-playbook.md.
+// Inward direction (who liked/replied/reposted YOUR posts): likers and
+// reposters come from Constellation (lib/microcosm.js), which indexes the
+// whole backlink set per post in one paginated walk instead of per-post
+// AppView pagination — falling back to walking getLikes/getRepostedBy
+// directly (page to exhaustion, no truncation) if Constellation errors.
+// getPostThread has no bulk equivalent either way, so direct repliers still
+// come from one AppView call per post — that part of the fan-out is capped
+// by POST_SCAN_CAP below, a genuine browser fan-out safety bound, not
+// habitual caution — see notes/40-new-site-playbook.md.
 
 import { resolveDid, resolvePds, followGraph, classify, profilesFor, getProfile } from "./lib/identity.js";
 import { fetchRepoRecordsWithKeys } from "./lib/car.js";
+import { likerDids, reposterDids } from "./lib/microcosm.js";
 // handle-typeahead.js is loaded as a plain (non-module) script in index.html
 // and hangs itself off window — it's a copy-pasted IIFE, not an ES module.
 const attachHandleTypeahead = window.attachHandleTypeahead;
 
 const APPVIEW = "https://public.api.bsky.app/xrpc";
 const POST_SCAN_CAP = 80; // most recent posts scanned for inward engagement
-const LIKES_PAGE_CAP = 3; // up to 300 likers per post
-const REPOSTS_PAGE_CAP = 2; // up to 200 reposters per post
+// Fallback pagination when Constellation errors — page to exhaustion, not a
+// budget; 400 is a runaway backstop past any real post's like/repost count,
+// matching the moot-family GRAPH_PAGES convention (notes/40-new-site-playbook.md).
+const FALLBACK_PAGE_CAP = 400;
 const FANOUT_CONCURRENCY = 6;
 
 const KINDS = ["like", "reply", "repost"];
@@ -128,10 +135,10 @@ function rkeyOf(uri) {
   return (uri || "").split("/").pop() || "";
 }
 
-async function getLikers(uri) {
+async function walkGetLikes(uri) {
   const out = [];
   let cursor = "";
-  for (let page = 0; page < LIKES_PAGE_CAP; page++) {
+  for (let page = 0; page < FALLBACK_PAGE_CAP; page++) {
     const u = new URL(APPVIEW + "/app.bsky.feed.getLikes");
     u.searchParams.set("uri", uri);
     u.searchParams.set("limit", "100");
@@ -149,10 +156,10 @@ async function getLikers(uri) {
   return out;
 }
 
-async function getReposters(uri) {
+async function walkGetRepostedBy(uri) {
   const out = [];
   let cursor = "";
-  for (let page = 0; page < REPOSTS_PAGE_CAP; page++) {
+  for (let page = 0; page < FALLBACK_PAGE_CAP; page++) {
     const u = new URL(APPVIEW + "/app.bsky.feed.getRepostedBy");
     u.searchParams.set("uri", uri);
     u.searchParams.set("limit", "100");
@@ -168,6 +175,22 @@ async function getReposters(uri) {
     if (!cursor) break;
   }
   return out;
+}
+
+async function getLikers(uri) {
+  try {
+    return await likerDids(uri);
+  } catch {
+    return walkGetLikes(uri);
+  }
+}
+
+async function getReposters(uri) {
+  try {
+    return await reposterDids(uri);
+  } catch {
+    return walkGetRepostedBy(uri);
+  }
 }
 
 // Direct (depth-1) replies only — who actually replied to this exact post,
