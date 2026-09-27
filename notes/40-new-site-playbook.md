@@ -16,9 +16,9 @@ named `atprotozoa-<name>`, served at `<name>.bisks.net`.
    - `wrangler.toml`: `name = "atprotozoa-<newname>"` and a single route
      `{ pattern = "<newname>.bisks.net/*", zone_name = "bisks.net" }`.
    - `package.json`: `"name": "@atprotozoa/<newname>"`.
-   - If you copied an older site, delete any `bisks.net/<oldname>` path route
-     and the prefix-stripping in its `src/index.ts` — a new site is served at
-     the root of its own hostname and needs neither. See "Older sites" below.
+   - If you copied an older site, delete the prefix-stripping in its
+     `src/index.ts` — a new site is served at the root of its own hostname and
+     doesn't need it. See "Older sites" below.
    - Purge copied-in logic you don't need.
 
 3. **Build the idea frontend-first.** Start in `public/`: keep ephemeral state,
@@ -139,12 +139,15 @@ See `sites/windmill` for a personalized `/r/<code>` share route and
 `sites/padmoot` for OAuth. For what scope to request, see
 `notes/50-oauth-scopes.md`.
 
-## Older sites: legacy path routes
+## Older sites: mount prefixes
 
 Between mid-July and 2026-07-31, sites were mounted at `bisks.net/<name>`
-because the zone was at its Custom Domain cap. Those sites kept their path
-routes alongside their subdomain so previously-shared links still work, so **an
-older site may answer on both**, and its `src/index.ts` strips the mount prefix.
+because the zone was at its Custom Domain cap. Those path routes were removed on
+2026-09-27 to get under the 1000-route cap (see "The route cap" in
+`notes/20-deploy.md`), so every site now answers only on its subdomain, except
+`sites/games` at `bisks.net/games`. Many path-era sites still strip the old
+mount prefix in `src/index.ts`, which keeps `<name>.bisks.net/<name>/...` links
+working.
 
 If you're editing one, the prefix-strip must be **conditional**:
 
@@ -159,18 +162,17 @@ isn't there, so the slice chops the front off short paths instead
 (`"/app.js".slice(6)` → `""` → falls back to `"/"`), and every asset request
 serves `index.html` with a 200. The page renders; nothing works.
 
-About 30 sites sit one level deeper at `bisks.net/games/<name>`, so their
-`PREFIX` is `/games/<name>`. `sites/games` serves the cluster's index page at
-the bare `bisks.net/games`, and deliberately does not claim `bisks.net/games/*`,
-which would shadow each game's own path route. Clusters are no longer a routing
-concept: a new game is an ordinary site with its own subdomain.
+About 30 games were mounted one level deeper at `bisks.net/games/<name>`, so
+their `PREFIX` is `/games/<name>`. `sites/games` serves the cluster's index page
+at the bare `bisks.net/games` and links to each game's subdomain. Clusters are
+no longer a routing concept: a new game is an ordinary site with its own
+subdomain.
 
 **OAuth sites need a single canonical host.** An atproto client is identified by
 its `client_id` URL, and the PDS fetches `client-metadata.json` from that URL and
 checks the contents agree — so the client can't be dual-homed. Pick the
 subdomain, set `MOUNT = ""`, and point `client_id` / `client_uri` /
-`redirect_uris` at `https://<name>.bisks.net`. A legacy path route may still
-serve the site, but login only works on the canonical host.
+`redirect_uris` at `https://<name>.bisks.net`.
 
 ## Conventions that keep this one-shottable
 

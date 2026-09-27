@@ -10,8 +10,9 @@ It intentionally runs looser than a shared production codebase.
   across sites. See `notes/10-architecture.md` and `notes/00-vision.md`.
 - **One site = one directory = one Worker = one subdomain.** `sites/<name>` →
   `atprotozoa-<name>` → `<name>.bisks.net`, claimed with a plain route
-  (`zone_name`), not `custom_domain = true`. Sites built during the
-  path-mounting era also answer at `bisks.net/<name>`; see
+  (`zone_name`), not `custom_domain = true`. Don't add `bisks.net/<name>`
+  path routes: the zone has a 1000-route cap (`notes/20-deploy.md`). Sites
+  built during the path-mounting era still strip a mount prefix; see
   `notes/40-new-site-playbook.md` before editing one.
 - **Views within a site are paths**, not subdomains (e.g.
   `trigrams.bisks.net/firehose`).

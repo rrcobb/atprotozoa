@@ -137,90 +137,33 @@ sites were still on `custom_domain = true` took one down within seconds. An
 explicit `<name>.bisks.net/*` route is unaffected — a more specific route wins,
 but a Custom Domain does not.
 
-### Route cap likely hit again (2026-09-26, unconfirmed — needs API access)
+### The route cap
 
-`chatcontrol` and `tubersona` both shipped with a persistent root 404:
-`curl -sI https://chatcontrol.bisks.net/` returns Cloudflare's *fallback* Worker
-page ("not found — bisks.net", the `*.bisks.net/*` catch-all in `fallback/`),
-meaning the explicit `<name>.bisks.net/*` route for each never actually got
-created on the zone — the deploy step failed silently on the route, not on the
-asset upload (`wrangler deploy --dry-run` is clean locally for both; the repo's
-`check` job passed for every one of the three chatcontrol attempts and the one
-tubersona attempt; only `deploy (chunk N)` failed, each time).
+The zone reached 1000 routes on 2026-09-25. Past that point, deploying a
+brand-new site uploads its Worker but fails to create its route:
 
-`grep -rh "pattern = " sites/*/wrangler.toml apex/wrangler.toml
-fallback/wrangler.toml | wc -l` currently returns **1001** — right at the
-documented 1000/zone cap this section already warns about. That arithmetic,
-plus "the most recent new-route creation before these two (`moottwins`,
-2026-09-25 05:17) still succeeded, and every *existing*-route redeploy since
-keeps succeeding" is consistent with the zone having just filled up: creating a
-new route is the only operation this would break, matching what's actually
-failing here.
+```
+You have exceeded the limit of 1000 Workers routes on zone ''. [code: 10073]
+```
 
-**2026-09-27 update: a third site confirms it.** `preflop`, a brand-new site
-first deployed today, shows the identical symptom (`curl -sI
-https://preflop.bisks.net/` returns the fallback Worker's page, `check` green
-/ `deploy` red). The route-pattern grep above now returns **1002** (one higher
-than the 2026-09-26 count), consistent with the cap having stayed full and one
-more new-route attempt failing the same way. This is the strongest evidence
-yet for the cap theory specifically (as opposed to something particular to
-chatcontrol's rename): `preflop` never had an old script/route to leave
-dangling, so the dangling-route theory in step 1 below can't explain its
-failure — only the cap can. **Anyone building a brand-new standalone site
-right now should expect the same 404** until this clears; consider whether the
-idea can ship as a path on an existing site instead until then.
+The site then answers with the `fallback` Worker's "nothing here" page, and
+the run shows `check` green and `deploy (chunk N)` red. Redeploys of existing
+sites keep working, since they don't add routes. `blueskyisms`, `chatcontrol`,
+`preflop` and `tubersona` all hit this before it was fixed.
 
-**2026-09-27, later the same day: a fourth confirms it.** `blueskyisms`
-(brand-new, first deployed today) shows the same symptom — `curl -sI
-https://blueskyisms.bisks.net/` returns the fallback Worker's page. The
-requester (`@7778777.online`) tagged the bot again asking to "try it again";
-retrying the build changes nothing, since the site itself is fine
-(`node audit/smoke-site.mjs blueskyisms` and `pnpm check:imports` are both
-clean) and the failure is the same zone-level route creation as the other
-three. The route-pattern grep is now **1003**. Still no
-`CLOUDFLARE_API_TOKEN` on this box, so this is still waiting on a human with
-zone access to work the steps below.
+Most of the 1000 were legacy `bisks.net/<name>` path routes: 146 path-era
+sites held 293 of them next to their subdomain route. On 2026-09-27 those were
+removed from each `wrangler.toml` and every site redeployed, which brought the
+zone to roughly one route per site. `wrangler deploy` replaces a Worker's
+route set, so dropping a route from `wrangler.toml` and redeploying deletes it
+from the zone. `sites/games` keeps its two routes because `bisks.net/games` is
+its only address.
 
-One more lead for whoever picks this up with real credentials: four retired
-sites (`blockledger`, `catsofatproto`, `seinfeldify`, `thread-heirloom`, see
-"Retired sites" below) still declare live routes for hostnames nobody should
-be linking to anymore — 6 route patterns total. Removing those from each
-site's `wrangler.toml` and letting the normal deploy pipeline redeploy them
-would, if `wrangler deploy` actually syncs route removals to the zone (needs
-confirming — this builder has no way to check), free real headroom without
-waiting on a limit increase. Not attempted here: `catsofatproto` and
-`thread-heirloom`'s `bisks.net/<name>` path routes are explicitly flagged
-elsewhere in this doc as needing careful handling before removal (real old
-links may still point at them, and the wildcard fallback doesn't cover
-apex-path routes the way it covers subdomains), so this needs a human with
-zone access to verify the fallback behavior before pulling the routes, not a
-blind edit-and-push.
+Old `bisks.net/<name>` links now reach the apex Worker instead of the site.
 
-**Not confirmed against the live zone — this builder has no
-`CLOUDFLARE_API_TOKEN`.** Whoever picks this up next, in order:
-
-1. `node audit/cf-workers.mjs` (needs the Workers-scoped token from 1Password,
-   see `notes/90-infra-and-budget.md`) reports `danglingRoutes` — routes whose
-   script no longer exists. `chatcontrol`'s wrangler.toml was renamed
-   `atprotozoa-chatcontrol` → `atprotozoa-chatcontrol2` on 2026-09-25 (see that
-   file's comment) to work around a *different*, now-superseded theory. If the
-   old `atprotozoa-chatcontrol` script/route wasn't cleanly replaced by that
-   rename, it's sitting there dangling and holding a slot the new script can't
-   also claim — check for it by name first, and prune it if so
-   (`audit/cf-workers.mjs` has no `--prune`; do it by hand via the dashboard or
-   API, since deleting a *live* site's Worker is exactly what that script
-   deliberately won't automate).
-2. If the zone really is at 1000 with no dangling leftovers, this is the same
-   shape as the July custom-domain cap incident, one level up: the fix there was
-   pruning 64 stale hostnames; the routes cap has no equivalent stale set
-   (`notes/20-deploy.md`'s Worker-cap section already established all live
-   Workers map to real sites — same is likely true of routes). The sanctioned
-   fix is a Cloudflare limit-increase request, same as the 500-Worker cap
-   (`notes/90-infra-and-budget.md`) — check whether the 2026-09-17 request
-   already covers routes or whether a separate one is needed.
-3. Once headroom exists, redeploy `sites/chatcontrol` and `sites/tubersona`
-   (touch a file and push, or `pnpm dlx wrangler deploy` from each dir with a
-   real token) and re-check with `curl -sI`.
+To count what the zone holds, run `node audit/cf-workers.mjs --json` and sum
+each Worker's `routes`. The 2026-09-17 limit-increase request did not raise
+the route cap.
 
 ## KV For Shared Low-Stakes State
 
@@ -358,10 +301,7 @@ Four retired sites are still deployed and still hold a Worker slot:
 reduced to a static stub with a `RETIRED.md`; `audit/cf-workers.mjs` reports
 them as RETIRED. Deleting their Workers is safe — the `fallback` Worker answers
 unclaimed `*.bisks.net` hostnames with a "renamed, retired, or never existed"
-page, and the `RETIRED.md` files stay in the repo either way. But
-`catsofatproto` and `thread-heirloom` also hold `bisks.net/<name>` path routes,
-which the wildcard fallback does **not** cover; those routes need deleting on
-the zone too, or they 522.
+page, and the `RETIRED.md` files stay in the repo either way.
 
 ## History
 
