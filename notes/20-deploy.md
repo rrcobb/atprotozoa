@@ -170,6 +170,17 @@ failure — only the cap can. **Anyone building a brand-new standalone site
 right now should expect the same 404** until this clears; consider whether the
 idea can ship as a path on an existing site instead until then.
 
+**2026-09-27, later the same day: a fourth confirms it.** `blueskyisms`
+(brand-new, first deployed today) shows the same symptom — `curl -sI
+https://blueskyisms.bisks.net/` returns the fallback Worker's page. The
+requester (`@7778777.online`) tagged the bot again asking to "try it again";
+retrying the build changes nothing, since the site itself is fine
+(`node audit/smoke-site.mjs blueskyisms` and `pnpm check:imports` are both
+clean) and the failure is the same zone-level route creation as the other
+three. The route-pattern grep is now **1003**. Still no
+`CLOUDFLARE_API_TOKEN` on this box, so this is still waiting on a human with
+zone access to work the steps below.
+
 One more lead for whoever picks this up with real credentials: four retired
 sites (`blockledger`, `catsofatproto`, `seinfeldify`, `thread-heirloom`, see
 "Retired sites" below) still declare live routes for hostnames nobody should
