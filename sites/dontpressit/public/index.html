@@ -160,7 +160,8 @@
       <a href="https://bisks.net">more of these</a>
     </footer>
 
-    <script>
+    <script type="module">
+      import { followerDids } from "./lib/microcosm.js";
       const stageEl = document.getElementById("stage");
       const roundTagEl = document.getElementById("roundTag");
       const shareWrap = document.getElementById("share");
@@ -234,9 +235,24 @@
          let currentName = { handle: "round-1", displayName: "round 1", avatar: "" };
          try {
            const r = await fetch(`${PUB}/com.atproto.identity.resolveHandle?handle=fromthewestmeadow.com`).then(x => x.json());
-           const f = await fetch(`${PUB}/app.bsky.graph.getFollowers?actor=${encodeURIComponent(r.did)}&limit=100`).then(x => x.json());
-           const candidates = (f.followers || []).filter(x => x.handle && !x.handle.endsWith(".invalid"));
-           if (candidates.length) { const p = candidates[Math.floor(Math.random() * candidates.length)]; currentName = { handle: p.handle, displayName: p.displayName || p.handle, avatar: p.avatar || "" }; }
+           // Constellation first (every follower, one bulk read) so the pick isn't
+           // limited to whichever 100 followers the AppView returns on page one;
+           // AppView pagination is the fallback if Constellation is unreachable.
+           let dids;
+           try {
+             dids = await followerDids(r.did);
+           } catch (_) {
+             const f = await fetch(`${PUB}/app.bsky.graph.getFollowers?actor=${encodeURIComponent(r.did)}&limit=100`).then(x => x.json());
+             dids = (f.followers || []).map(x => x.did).filter(Boolean);
+           }
+           for (let tries = 0; tries < 5 && dids.length; tries++) {
+             const did = dids[Math.floor(Math.random() * dids.length)];
+             const p = await fetch(`${PUB}/app.bsky.actor.getProfile?actor=${encodeURIComponent(did)}`).then(x => x.json());
+             if (p && p.handle && !p.handle.endsWith(".invalid")) {
+               currentName = { handle: p.handle, displayName: p.displayName || p.handle, avatar: p.avatar || "" };
+               break;
+             }
+           }
          } catch (_) {}
          s = { roundNumber: 1, currentName, roundStartedAt: Date.now(), futileClicks: 0, visits: 0, graduated: [], totalGraduated: 0 };
          writeState(s); return s;

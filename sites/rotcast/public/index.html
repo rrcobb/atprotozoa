@@ -354,7 +354,8 @@
     </footer>
   </div>
 
-<script>
+<script type="module">
+import { likerDids } from "./lib/microcosm.js";
 const API = "https://public.api.bsky.app/xrpc/";
 const JETSTREAM = "wss://jetstream2.us-east.bsky.network/subscribe?wantedCollections=app.bsky.feed.post";
 // The OGs — antiali.as asked for this show, fromthewestmeadow.com is the
@@ -790,6 +791,12 @@ async function listRecentLikedUris(did, pds, limit) {
 }
 
 async function getPostLikers(uri) {
+  // Constellation first — every liker in one bulk read, not just the first
+  // page the AppView returns; getLikes pagination is the fallback.
+  try {
+    const dids = await likerDids(uri);
+    return dids.map((did) => ({ did }));
+  } catch (_) {}
   try {
     const data = await xrpc("app.bsky.feed.getLikes", { uri, limit: 100 });
     return (data.likes || []).map((l) => l.actor).filter(Boolean);
@@ -836,9 +843,12 @@ async function resolveGuestFromColikes(hostDids) {
     const likers = await getPostLikers(uri);
     const pool = likers.filter((a) => a.did && !hostDids.includes(a.did));
     if (!pool.length) continue;
-    const chosen = pick(pool);
+    let chosen = pick(pool);
     const text = await grabRecentPostText(chosen.did);
     if (!text) continue;
+    if (!chosen.handle) {
+      try { chosen = { ...chosen, ...(await getProfile(chosen.did)) }; } catch (_) {}
+    }
     return {
       did: chosen.did, text, handle: chosen.handle || chosen.did,
       displayName: chosen.displayName || chosen.handle || chosen.did, avatar: chosen.avatar || "",
