@@ -191,11 +191,12 @@
 
       <p class="about">
         The atlas rebuilds itself every six hours from a week of live
-        conversation and renders as a canvas with no public data file to
-        fetch, so this isn't a live read of it — it's a fixed cast of
-        thirteen labels the map is known for, hand-mapped into
-        mainland/island/far-shore geography once and left alone. Real label,
-        made-up kingdom.
+        conversation, and its own group names are dry categories, not the
+        mainland/island nicknames people who look at the map actually use —
+        so this stays a fixed cast of thirteen labels the map is known for,
+        hand-mapped into mainland/island/far-shore geography once and left
+        alone. Real label, made-up kingdom.
+        <span id="atlasMeta"></span>
       </p>
 
       <footer>
@@ -513,6 +514,25 @@
           }, "image/png");
         });
       }
+
+      // A same-origin proxy (src/index.ts) fetches atlas-api.jazco.dev's own
+      // /api/meta for us, since that API's CORS header only allows requests
+      // from atlas.jazco.dev itself. If it fails for any reason (offline,
+      // the proxy 502s, the upstream shape changes), leave the span empty —
+      // the about paragraph reads fine without it.
+      async function fetchAtlasMeta() {
+        try {
+          const res = await fetch("/api/meta");
+          if (!res.ok) return;
+          const meta = await res.json();
+          const $meta = document.getElementById("atlasMeta");
+          if (!$meta || typeof meta.conversations !== "number" || typeof meta.groups !== "number") return;
+          $meta.textContent = ` As of its last rebuild, the real atlas held ${meta.conversations.toLocaleString()} conversations across ${meta.groups} groups.`;
+        } catch (_) {
+          // no live number today — the paragraph still reads fine without it
+        }
+      }
+      fetchAtlasMeta();
 
       newSaga(null);
     </script>

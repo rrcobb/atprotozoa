@@ -3,16 +3,24 @@
 //
 // REGIONS is a hand-curated snapshot of real cluster/region labels named on
 // atlas.jazco.dev (the "living map of what Bluesky is talking about" — see
-// https://atlas.jazco.dev/). Atlas rebuilds itself every six hours from a
-// week of live conversation and renders as a WebGL canvas with no public
-// JSON endpoint to fetch client-side, so this can't chase the live map —
-// it's a fixed cast of the labels and geography (mainland vs. island,
-// what's near what) that the map is known for: a sprawling English-language
-// "mainland," a scatter of small special-interest islands close to shore,
-// and a ring of language-cluster "far shores" across open water. "Politics
-// Isle" specifically is here because it's the example baked into the build
+// https://atlas.jazco.dev/). Atlas does have a live JSON API
+// (atlas-api.jazco.dev/api/groups) behind its WebGL map, but that API's
+// group names are dry algorithmic descriptions ("Political & Social
+// Commentary," "Blue Sky Political Mobilization") — not the informal
+// mainland/island nicknames ("Politics Isle," the "Furry Archipelago") that
+// people who look at the map actually use, which is the joke the build
+// request itself was making. There's no way to line the two up, and the
+// live grouping reshuffles every six hours anyway, so this stays a fixed
+// cast of the labels and geography (mainland vs. island, what's near what)
+// the map is known for: a sprawling English-language "mainland," a scatter
+// of small special-interest islands close to shore, and a ring of
+// language-cluster "far shores" across open water. "Politics Isle"
+// specifically is here because it's the example baked into the build
 // request itself — a real bit about the atlas, riffing on the isle being a
-// small, loud, put-upon speck next to the mainland.
+// small, loud, put-upon speck next to the mainland. The page does pull one
+// genuinely live number from that API — see fetchAtlasMeta() in
+// index.html — as a nod to the fact that the map behind this is real and
+// still running, even though the cast of characters is fixed.
 
 export const REGIONS = [
   {
