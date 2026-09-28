@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>atlaslibs — a discourse-atlas RPG generator — bisks.net</title>
+    <meta
+      name="description"
+      content="A mad-libs RPG generator built from the real region names on atlas.jazco.dev — Politics Isle, the Furry Archipelago, the Japanese Shore — quested together by which ones are actually mapped as neighbors."
+    />
+
+    <!-- Open Graph / Twitter — so a shared link renders a card in Bluesky. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://atlaslibs.bisks.net/" />
+    <meta property="og:title" content="atlaslibs — a discourse-atlas RPG generator" />
+    <meta
+      property="og:description"
+      content="Every region is a real label off atlas.jazco.dev. Every quest follows the map's own geography — who's a neighbor, who's an island, who's across open water."
+    />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="atlaslibs — a discourse-atlas RPG generator" />
+    <meta
+      name="twitter:description"
+      content="Every region is a real label off atlas.jazco.dev, mad-libbed into a quest by which ones are actually neighbors."
+    />
+
+    <!-- bisks.net house style: black on white, one readable mono, lots of
+         space, blue accent. The parchment/ink palette is deliberately
+         contained to the map canvas. -->
+    <style>
+      :root {
+        --bg: #ffffff;
+        --ink: #111111;
+        --muted: #6b6b6b;
+        --faint: #e4e4e4;
+        --faintbg: #f6f6f6;
+        --accent: #1a5fd0;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro {
+        color: var(--muted); margin: 0.5rem 0 2.25rem; font-size: 0.9rem;
+        line-height: 1.7; max-width: 64ch;
+      }
+      .intro b { color: var(--ink); font-weight: 600; }
+      .intro a { color: var(--accent); }
+
+      button, a.btn {
+        font-family: var(--mono); font-size: 0.88rem; font-weight: 600;
+        color: #fff; background: var(--ink); border: none; border-radius: 6px;
+        padding: 0.65rem 1.1rem; cursor: pointer; text-decoration: none;
+        display: inline-flex; align-items: center; gap: 0.4rem;
+      }
+      button:hover, a.btn:hover { background: var(--accent); }
+      button.ghost, a.btn.ghost {
+        color: var(--ink); background: transparent; border: 1px solid var(--faint);
+        font-weight: 400;
+      }
+      button.ghost:hover, a.btn.ghost:hover { color: var(--accent); border-color: var(--accent); background: transparent; }
+      button.small, a.btn.small { font-size: 0.76rem; padding: 0.4rem 0.7rem; font-weight: 400; }
+      button:disabled { opacity: 0.5; cursor: default; }
+
+      .again-row { margin: 0 0 1.5rem; display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center; }
+      .again-row button#again { font-size: 1rem; padding: 0.8rem 1.4rem; }
+
+      .home-picker { font-size: 0.8rem; color: var(--muted); display: flex; align-items: center; gap: 0.4rem; }
+      .home-picker select {
+        font-family: var(--mono); font-size: 0.8rem; color: var(--ink);
+        border: 1px solid var(--faint); border-radius: 4px; padding: 0.35rem 0.5rem;
+        background: var(--bg);
+      }
+
+      .cast {
+        border: 1px solid var(--faint); border-radius: 6px; background: var(--faintbg);
+        padding: 0.85rem 1rem; font-size: 0.82rem; color: var(--muted);
+        margin-bottom: 1.5rem; line-height: 1.7;
+      }
+      .cast b { color: var(--ink); }
+
+      /* ── map ────────────────────────────────────────────────────────── */
+      .map-wrap {
+        display: flex; flex-direction: column; align-items: center; gap: 0.85rem;
+        margin-bottom: 2.5rem;
+      }
+      #map {
+        width: 100%; max-width: 640px; height: auto;
+        border: 1px solid var(--ink); border-radius: 4px;
+        display: block;
+      }
+      .map-caption {
+        font-size: 0.74rem; color: var(--muted); text-align: center; max-width: 48ch;
+      }
+      .share-row { display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
+
+      .controls-row {
+        display: flex; justify-content: space-between; align-items: center;
+        margin: 2rem 0 1rem; flex-wrap: wrap; gap: 0.6rem;
+      }
+      .controls-row h2 { font-size: 0.95rem; font-weight: 600; margin: 0; }
+
+      .cards { display: flex; flex-direction: column; gap: 1.25rem; }
+      .card {
+        border: 1px solid var(--faint); border-radius: 6px; padding: 1rem 1.1rem;
+        background: var(--faintbg);
+      }
+      .card-head {
+        display: flex; justify-content: space-between; align-items: baseline;
+        margin-bottom: 0.6rem; gap: 0.6rem; flex-wrap: wrap;
+      }
+      .card-title { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; }
+      .card-buttons { display: flex; gap: 0.4rem; }
+      .card-text {
+        white-space: pre-wrap; background: var(--bg); border: 1px solid var(--ink);
+        border-radius: 4px; padding: 0.85rem 1rem; font-size: 0.9rem;
+      }
+
+      .about {
+        margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--faint);
+        font-size: 0.78rem; color: var(--muted); line-height: 1.7;
+      }
+      .about a { color: var(--accent); }
+
+      footer {
+        margin-top: 2rem; padding-top: 0.75rem; border-top: 1px solid var(--faint);
+        color: var(--muted); font-size: 0.78rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>atlaslibs <span class="slash">/</span> a discourse-atlas RPG generator</h1>
+        <p class="intro">
+          A mad-libs generator whose kingdoms are real region names off
+          <a href="https://atlas.jazco.dev/" target="_blank" rel="noopener">atlas.jazco.dev</a>,
+          Jaz's living map of what Bluesky is talking about. <b>Politics Isle</b>,
+          the <b>Furry Archipelago</b>, the <b>Web3 Marshlands</b>, the <b>Japanese
+          Shore</b> — thirteen labels straight off the map, hand-mapped into the
+          same rough geography the atlas draws them in: one big English-language
+          mainland, a ring of small islands close to its coast, and a separate
+          ring of language-cluster "far shores" across open water. Every roll
+          picks a home region, quests it against whichever region is actually
+          its neighbor, and sends it after treasure kept somewhere distant —
+          then draws the map that explains why.
+        </p>
+      </header>
+
+      <div class="again-row">
+        <button id="again">🗺️ roll a new saga</button>
+        <label class="home-picker">
+          start from
+          <select id="homeSelect"></select>
+        </label>
+      </div>
+
+      <p class="cast" id="cast"></p>
+
+      <div class="map-wrap">
+        <canvas id="map" width="1200" height="630"></canvas>
+        <p class="map-caption">a hand-drawn map of the roll: home region, its nearest neighbor, and the distant region the quest is bound for</p>
+        <div class="share-row">
+          <button class="ghost small" id="download">download map</button>
+          <a class="btn small" id="shareBsky" href="#" target="_blank" rel="noopener">share to bluesky</a>
+          <button class="ghost small" id="shareNative" style="display:none;">share…</button>
+        </div>
+      </div>
+
+      <div class="controls-row">
+        <h2>the saga</h2>
+        <div class="card-buttons">
+          <button class="ghost small" id="copyAll">copy full saga</button>
+        </div>
+      </div>
+      <div class="cards" id="cards"></div>
+
+      <p class="about">
+        The atlas rebuilds itself every six hours from a week of live
+        conversation and renders as a canvas with no public data file to
+        fetch, so this isn't a live read of it — it's a fixed cast of
+        thirteen labels the map is known for, hand-mapped into
+        mainland/island/far-shore geography once and left alone. Real label,
+        made-up kingdom.
+      </p>
+
+      <footer>
+        part of <a href="https://bisks.net">bisks.net</a> — a little zoo of tiny atproto experiments ·
+        <a href="https://rateyourbuild.bisks.net/site/atlaslibs">rate this on rateyourbuild →</a>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { REGIONS, generateStory, SCENES, sceneText, neighborsOf, defaultRng } from "./lib/generator.js";
+
+      function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+      // ── word-wrap + parchment map canvas ──────────────────────────────
+      function wrapLines(ctx, text, maxWidth) {
+        const words = text.split(" ");
+        const lines = [];
+        let line = "";
+        for (const w of words) {
+          const test = line ? line + " " + w : w;
+          if (line && ctx.measureText(test).width > maxWidth) {
+            lines.push(line);
+            line = w;
+          } else {
+            line = test;
+          }
+        }
+        if (line) lines.push(line);
+        return lines;
+      }
+
+      function blobRadius(kind) {
+        if (kind === "mainland") return 92;
+        if (kind === "archipelago" || kind === "marsh") return 58;
+        return 46;
+      }
+
+      function drawBlob(ctx, cx, cy, r, seed) {
+        ctx.beginPath();
+        const pts = 10;
+        for (let i = 0; i <= pts; i++) {
+          const a = (i / pts) * Math.PI * 2;
+          const wob = 1 + 0.14 * Math.sin(a * 3 + seed) + 0.08 * Math.cos(a * 5 + seed * 2);
+          const x = cx + Math.cos(a) * r * wob;
+          const y = cy + Math.sin(a) * r * wob;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+      }
+
+      function drawRegionLabel(ctx, cx, cy, r, region) {
+        ctx.fillStyle = "#2c1e0f";
+        ctx.font = "bold 15px Georgia, serif";
+        ctx.textAlign = "center";
+        const lines = wrapLines(ctx, region.name, 150);
+        let ty = cy + r + 20;
+        lines.forEach((line) => { ctx.fillText(line, cx, ty); ty += 17; });
+        ctx.font = "italic 11px Georgia, serif";
+        ctx.fillStyle = "#6b5233";
+        ctx.fillText(`(${region.atlasLabel})`, cx, ty + 2);
+      }
+
+      function drawMap(state) {
+        const OW = 1200, OH = 630;
+        const canvas = document.getElementById("map");
+        const ctx = canvas.getContext("2d");
+
+        // parchment background
+        ctx.fillStyle = "#f1e4c2";
+        ctx.fillRect(0, 0, OW, OH);
+        for (let i = 0; i < 60; i++) {
+          ctx.fillStyle = `rgba(120, 92, 51, ${0.02 + Math.random() * 0.03})`;
+          ctx.beginPath();
+          ctx.ellipse(Math.random() * OW, Math.random() * OH, 20 + Math.random() * 60, 12 + Math.random() * 30, Math.random() * Math.PI, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.strokeStyle = "#3b2a17";
+        ctx.lineWidth = 8;
+        ctx.strokeRect(4, 4, OW - 8, OH - 8);
+
+        // title banner
+        ctx.fillStyle = "#3b2a17";
+        ctx.font = "italic 900 30px Georgia, serif";
+        ctx.textAlign = "center";
+        const titleLines = wrapLines(ctx, state.title, OW - 140);
+        let ty = 56;
+        titleLines.forEach((line) => { ctx.fillText(line, OW / 2, ty); ty += 34; });
+
+        // sea divider between the near cluster (left 2/3) and the distant
+        // region (right 1/3), drawn as a wavy vertical band.
+        const seaX = OW * 0.62;
+        ctx.strokeStyle = "#5b7fa6";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        for (let y = ty + 20; y < OH - 90; y += 6) {
+          const x = seaX + Math.sin(y * 0.15) * 10;
+          if (y === ty + 20) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.fillStyle = "#6b8fb5";
+        ctx.font = "italic 13px Georgia, serif";
+        ctx.save();
+        ctx.translate(seaX + 24, (ty + 20 + OH - 90) / 2);
+        ctx.rotate(Math.PI / 2);
+        ctx.textAlign = "center";
+        ctx.fillText("open water", 0, 0);
+        ctx.restore();
+
+        const homeR = blobRadius(state.home.kind);
+        const neighborR = blobRadius(state.neighbor.kind);
+        const distantR = blobRadius(state.distant.kind);
+
+        const homeX = OW * 0.22, homeY = OH * 0.58;
+        const neighborX = OW * 0.44, neighborY = OH * 0.58 + (state.home.kind === "mainland" ? 30 : -20);
+        const distantX = OW * 0.82, distantY = OH * 0.5;
+
+        // dotted travel line, home -> distant, across the sea
+        ctx.strokeStyle = "#8a4b1f";
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([2, 8]);
+        ctx.beginPath();
+        ctx.moveTo(homeX, homeY - homeR * 0.3);
+        ctx.quadraticCurveTo(OW * 0.55, OH * 0.3, distantX, distantY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // little boat icon partway along the path
+        ctx.save();
+        ctx.translate(OW * 0.55, OH * 0.34);
+        ctx.font = "20px serif";
+        ctx.textAlign = "center";
+        ctx.fillText("⛵", 0, 0);
+        ctx.restore();
+
+        // neighbor connector: a short solid bridge, since it's adjacent
+        ctx.strokeStyle = "#3b2a17";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(homeX + homeR * 0.6, homeY);
+        ctx.lineTo(neighborX - neighborR * 0.6, neighborY);
+        ctx.stroke();
+
+        const homeFill = state.home.kind === "mainland" ? "#c9a05a" : "#a9c98a";
+        drawBlob(ctx, homeX, homeY, homeR, 1);
+        ctx.fillStyle = homeFill;
+        ctx.fill();
+        ctx.strokeStyle = "#3b2a17";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        drawRegionLabel(ctx, homeX, homeY, homeR, state.home);
+        ctx.fillStyle = "#3b2a17";
+        ctx.font = "bold 11px Georgia, serif";
+        ctx.fillText("HOME", homeX, homeY - homeR - 10);
+
+        const neighborFill = state.neighbor.kind === "mainland" ? "#c9a05a" : "#a9c98a";
+        drawBlob(ctx, neighborX, neighborY, neighborR, 2);
+        ctx.fillStyle = neighborFill;
+        ctx.fill();
+        ctx.stroke();
+        drawRegionLabel(ctx, neighborX, neighborY, neighborR, state.neighbor);
+        ctx.fillStyle = "#3b2a17";
+        ctx.font = "bold 11px Georgia, serif";
+        ctx.fillText(state.isRival ? "RIVAL NEIGHBOR" : "ALLY NEIGHBOR", neighborX, neighborY - neighborR - 10);
+
+        const distantFill = state.distant.kind === "mainland" ? "#c9a05a" : "#c98a8a";
+        drawBlob(ctx, distantX, distantY, distantR, 3);
+        ctx.fillStyle = distantFill;
+        ctx.fill();
+        ctx.stroke();
+        drawRegionLabel(ctx, distantX, distantY, distantR, state.distant);
+        ctx.fillStyle = "#3b2a17";
+        ctx.font = "bold 11px Georgia, serif";
+        ctx.fillText("QUEST DESTINATION", distantX, distantY - distantR - 10);
+
+        // tagline ribbon
+        ctx.save();
+        ctx.translate(OW / 2, OH - 44);
+        ctx.fillStyle = "#3b2a17";
+        ctx.fillRect(-360, -22, 720, 40);
+        ctx.fillStyle = "#f1e4c2";
+        ctx.font = "italic 14px Georgia, serif";
+        ctx.textAlign = "center";
+        const tlLines = wrapLines(ctx, state.tagline, 680).slice(0, 2);
+        let tly = tlLines.length > 1 ? -4 : 4;
+        tlLines.forEach((l) => { ctx.fillText(l, 0, tly); tly += 17; });
+        ctx.restore();
+      }
+
+      // ── DOM wiring ─────────────────────────────────────────────────────
+      const $cast = document.getElementById("cast");
+      const $cards = document.getElementById("cards");
+      const $again = document.getElementById("again");
+      const $homeSelect = document.getElementById("homeSelect");
+      const $download = document.getElementById("download");
+      const $shareBsky = document.getElementById("shareBsky");
+      const $shareNative = document.getElementById("shareNative");
+      const $copyAll = document.getElementById("copyAll");
+
+      $homeSelect.innerHTML = `<option value="">— surprise me —</option>` +
+        REGIONS.map((r) => `<option value="${r.id}">${r.name}</option>`).join("");
+
+      let state = null;
+
+      function generateWithHome(forceHomeId) {
+        if (!forceHomeId) return generateStory();
+        // Re-roll until the forced home id comes up — the region list is
+        // small (13) so this converges fast, and it keeps generateStory as
+        // the single source of truth for how neighbor/distant get picked.
+        let s = generateStory();
+        let guard = 0;
+        while (s.home.id !== forceHomeId && guard++ < 500) s = generateStory();
+        return s;
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, (c) => (
+          { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+        ));
+      }
+
+      function renderCast() {
+        $cast.innerHTML = `<b>${escapeHtml(state.title)}</b><br>` +
+          `Home: <b>${state.home.name}</b> (${escapeHtml(state.home.atlasLabel)}) · ` +
+          `Neighbor: <b>${state.neighbor.name}</b> ${state.isRival ? "(rival)" : "(ally)"} · ` +
+          `Quest: <b>${state.distant.name}</b>`;
+      }
+
+      function renderCards() {
+        $cards.innerHTML = SCENES.map((sc, i) => `
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">${sc.title}</span>
+              <div class="card-buttons">
+                <button class="ghost small" data-copy="${i}">copy</button>
+              </div>
+            </div>
+            <div class="card-text" id="card-text-${i}">${escapeHtml(sceneText(i, state))}</div>
+          </div>
+        `).join("");
+      }
+
+      function fullSagaText() {
+        return `${state.title}\n\n` +
+          SCENES.map((sc, i) => `— ${sc.title.toUpperCase()} —\n${sceneText(i, state)}`).join("\n\n") +
+          `\n\n(rolled at atlaslibs.bisks.net)`;
+      }
+
+      function updateShare() {
+        const shareText = `${state.title} — ${state.tagline} https://atlaslibs.bisks.net/`;
+        $shareBsky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+      }
+
+      function newSaga(forceHomeId) {
+        state = generateWithHome(forceHomeId);
+        renderCast();
+        renderCards();
+        drawMap(state);
+        updateShare();
+      }
+
+      $again.addEventListener("click", () => newSaga($homeSelect.value || null));
+      $homeSelect.addEventListener("change", () => newSaga($homeSelect.value || null));
+
+      $cards.addEventListener("click", (e) => {
+        const copyI = e.target.getAttribute("data-copy");
+        if (copyI !== null) {
+          const el = document.getElementById("card-text-" + copyI);
+          if (el) navigator.clipboard.writeText(el.textContent);
+        }
+      });
+
+      $copyAll.addEventListener("click", () => {
+        navigator.clipboard.writeText(fullSagaText());
+      });
+
+      $download.addEventListener("click", () => {
+        const canvas = document.getElementById("map");
+        canvas.toBlob((blob) => {
+          if (!blob) return;
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = "atlaslibs-" + state.home.id + "-to-" + state.distant.id + ".png";
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }, "image/png");
+      });
+
+      function canShareFiles() {
+        if (!navigator.share || !navigator.canShare) return false;
+        try {
+          const probe = new File([""], "probe.png", { type: "image/png" });
+          return navigator.canShare({ files: [probe] });
+        } catch (_) {
+          return false;
+        }
+      }
+      if (canShareFiles()) {
+        $shareNative.style.display = "";
+        $shareNative.addEventListener("click", () => {
+          const canvas = document.getElementById("map");
+          canvas.toBlob(async (blob) => {
+            if (!blob) return;
+            const file = new File([blob], "atlaslibs-map.png", { type: "image/png" });
+            try {
+              await navigator.share({
+                files: [file],
+                text: `${state.title} — ${state.tagline} https://atlaslibs.bisks.net/`,
+                title: "atlaslibs",
+              });
+            } catch (_) {
+              // user cancelled the share sheet — no-op
+            }
+          }, "image/png");
+        });
+      }
+
+      newSaga(null);
+    </script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
