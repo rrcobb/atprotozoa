@@ -49,7 +49,7 @@ set -uo pipefail
 unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL
 
 BUILDER_DIR="${BUILDER_DIR:-/opt/atprotozoa/sites/buildthis/builder}"
-LISTBOT_MODEL="${LISTBOT_MODEL:-claude-sonnet-5}"
+LISTBOT_MODEL="${LISTBOT_MODEL:-claude-sonnet-5-5}"
 # Generous: the point is that it looks around properly. This is a liveness
 # guard, not a budget — an agent still going after 30 turns is stuck.
 LISTBOT_MAX_TURNS="${LISTBOT_MAX_TURNS:-30}"
