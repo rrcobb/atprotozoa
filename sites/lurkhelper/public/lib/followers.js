@@ -1,25 +1,30 @@
-// followers.js — resolve a handle, fetch its profile, page through its full
+// followers.js — resolve a handle, fetch its profile, read its full
 // follower list, and figure out which of those followers ever engaged with
 // its recent posts (liked, reposted, or replied) — the rest are "lurkers."
 // Reads Bluesky's public AppView anonymously (public.api.bsky.app, CORS *).
-// Handle-resolution + follower paging copied from sites/followwall (copy,
-// don't abstract); the recent-post + engagement fetch is new.
+// Handle-resolution copied from sites/followwall (copy, don't abstract).
 //
-// Likers and reposters come from microcosm.blue's Constellation
-// (blue.microcosm.links.getBacklinkDids, sources app.bsky.feed.like:subject.uri
-// and app.bsky.feed.repost:subject.uri), with the AppView's getLikes/
-// getRepostedBy as the fallback. This is a correctness fix: the old read took
-// one page of 100 per post and stopped, so a follower who liked a post with
-// more than 100 likes was invisible and got labelled a lurker — the one
-// verdict this site exists to give. Only the DID is ever used, so the
-// AppView's hydrated actor buys nothing. Gotchas in notes/40.
+// Followers, likers, and reposters all come from microcosm.blue's
+// Constellation (a backlink index, read to exhaustion via lib/microcosm.js),
+// with the AppView's paginated getFollowers/getLikes/getRepostedBy as the
+// fallback when Constellation errors. This is a correctness fix: the old
+// follower and likes/reposts reads took one page of 100 and stopped, so a
+// follower past the first page, or one who liked a post with more than 100
+// likes, was invisible and got labelled a lurker — the one verdict this site
+// exists to give. Only the DID is ever used from likers/reposters, so the
+// AppView's hydrated actor buys nothing there; followers are hydrated via
+// getProfiles since the wall displays handle/name/avatar. Gotchas in notes/40.
+
+import { followerDids } from "./microcosm.js";
 
 const PUB = "https://public.api.bsky.app/xrpc";
 const CONSTELLATION = "https://constellation.microcosm.blue";
 
-// Hard cap so a mega-account (millions of followers) doesn't turn one page
-// load into thousands of requests — plenty to fill a wall and compute stats.
-const MAX_PAGES = 20; // 20 * 100 = up to 2000 followers
+// Backstop for the AppView fallback walk only — Constellation is the primary
+// path and reads to exhaustion. 400 pages matches kevinmoot's FOLLOWERS_PAGES:
+// large enough that a real account never hits it, just a guard against a
+// runaway loop if the AppView misbehaves.
+const MAX_PAGES = 400;
 
 // How many recent posts to check for engagement. Likers and reposters are
 // now read in full rather than sampled, so this is the only bound on the
@@ -72,9 +77,38 @@ export async function fetchProfile(did) {
   };
 }
 
-// Every follower of `did`, newest-first (the order the AppView returns),
-// capped at MAX_PAGES pages.
-export async function fetchFollowers(did, { onStep } = {}) {
+// Profiles are only used for what's displayed (handle, name, avatar, bio),
+// so DIDs from Constellation are hydrated via getProfiles, 25 per call
+// (microcosm.js's own hydration guidance).
+async function hydrateProfiles(dids, onStep) {
+  const out = [];
+  for (let i = 0; i < dids.length; i += 25) {
+    if (onStep) onStep(`loading profiles… (${Math.min(i + 25, dids.length)} of ${dids.length})`);
+    const batch = dids.slice(i, i + 25);
+    const u = new URL(`${PUB}/app.bsky.actor.getProfiles`);
+    for (const d of batch) u.searchParams.append("actors", d);
+    let d;
+    try {
+      d = await jget(u.toString());
+    } catch {
+      continue;
+    }
+    for (const p of d.profiles || []) {
+      out.push({
+        did: p.did,
+        handle: p.handle,
+        displayName: p.displayName || p.handle,
+        avatar: p.avatar || "",
+        description: p.description || "",
+      });
+    }
+  }
+  return out;
+}
+
+// Every follower of `did`. Fallback walk is newest-first (the order the
+// AppView returns); Constellation's order is whatever the index returns.
+async function fetchFollowersAppView(did, { onStep } = {}) {
   const followers = [];
   let cursor = "";
   for (let pg = 0; pg < MAX_PAGES; pg++) {
@@ -102,6 +136,17 @@ export async function fetchFollowers(did, { onStep } = {}) {
     if (!cursor || !(d.followers || []).length) break;
   }
   return followers;
+}
+
+export async function fetchFollowers(did, { onStep } = {}) {
+  try {
+    const dids = await followerDids(did, {
+      onStep: (n) => onStep && onStep(`reading followers… (${n} found so far)`),
+    });
+    return await hydrateProfiles(dids, onStep);
+  } catch {
+    return fetchFollowersAppView(did, { onStep });
+  }
 }
 
 // The account's own most recent posts (skipping reposts of other people's

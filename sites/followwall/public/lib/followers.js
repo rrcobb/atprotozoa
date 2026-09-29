@@ -1,14 +1,22 @@
-// followers.js — resolve a handle, fetch its profile, and page through its
-// full follower list. Reads Bluesky's public AppView anonymously
+// followers.js — resolve a handle, fetch its profile, and read its full
+// follower list. Reads Bluesky's public AppView anonymously
 // (public.api.bsky.app, CORS *). Handle-resolution copied from
-// sites/clucktrack/public/lib/history.js (copy, don't abstract); the
-// getFollowers paging is new.
+// sites/clucktrack/public/lib/history.js (copy, don't abstract).
+//
+// Followers come from microcosm.blue's Constellation (a backlink index:
+// every app.bsky.graph.follow record whose subject is this DID, read to
+// exhaustion in one bulk call via lib/microcosm.js), with the AppView's
+// paginated getFollowers as the fallback when Constellation errors.
+
+import { followerDids } from "./microcosm.js";
 
 const PUB = "https://public.api.bsky.app/xrpc";
 
-// Hard cap so a mega-account (millions of followers) doesn't turn one page
-// load into thousands of requests — plenty to fill a wall and compute stats.
-const MAX_PAGES = 40; // 40 * 100 = up to 4000 followers
+// Backstop for the AppView fallback walk only — Constellation is the primary
+// path and reads to exhaustion. 400 pages matches kevinmoot's FOLLOWERS_PAGES:
+// large enough that a real account never hits it, just a guard against a
+// runaway loop if the AppView misbehaves.
+const MAX_PAGES = 400;
 
 async function jget(url) {
   const r = await fetch(url);
@@ -54,9 +62,38 @@ export async function fetchProfile(did) {
   };
 }
 
-// Every follower of `did`, newest-first (the order the AppView returns),
-// capped at MAX_PAGES pages.
-export async function fetchFollowers(did, { onStep } = {}) {
+// Profiles are only used for what's displayed (handle, name, avatar, bio),
+// so DIDs from Constellation are hydrated via getProfiles, 25 per call
+// (microcosm.js's own hydration guidance).
+async function hydrateProfiles(dids, onStep) {
+  const out = [];
+  for (let i = 0; i < dids.length; i += 25) {
+    if (onStep) onStep(`loading profiles… (${Math.min(i + 25, dids.length)} of ${dids.length})`);
+    const batch = dids.slice(i, i + 25);
+    const u = new URL(`${PUB}/app.bsky.actor.getProfiles`);
+    for (const d of batch) u.searchParams.append("actors", d);
+    let d;
+    try {
+      d = await jget(u.toString());
+    } catch {
+      continue;
+    }
+    for (const p of d.profiles || []) {
+      out.push({
+        did: p.did,
+        handle: p.handle,
+        displayName: p.displayName || p.handle,
+        avatar: p.avatar || "",
+        description: p.description || "",
+      });
+    }
+  }
+  return out;
+}
+
+// Every follower of `did`. Fallback walk is newest-first (the order the
+// AppView returns); Constellation's order is whatever the index returns.
+async function fetchFollowersAppView(did, { onStep } = {}) {
   const followers = [];
   let cursor = "";
   for (let pg = 0; pg < MAX_PAGES; pg++) {
@@ -84,4 +121,15 @@ export async function fetchFollowers(did, { onStep } = {}) {
     if (!cursor || !(d.followers || []).length) break;
   }
   return followers;
+}
+
+export async function fetchFollowers(did, { onStep } = {}) {
+  try {
+    const dids = await followerDids(did, {
+      onStep: (n) => onStep && onStep(`reading followers… (${n} found so far)`),
+    });
+    return await hydrateProfiles(dids, onStep);
+  } catch {
+    return fetchFollowersAppView(did, { onStep });
+  }
 }
