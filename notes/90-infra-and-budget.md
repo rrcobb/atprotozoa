@@ -130,7 +130,7 @@ Gotchas that cost real time getting here:
 
 ## Model & the runaway guards
 
-- **Sonnet** (`claude-sonnet-5`), `BUILDER_MODEL` overrides for a one-off Opus.
+- **Sonnet 5.5** (`claude-sonnet-5-5`), `BUILDER_MODEL` overrides for a one-off Opus.
   Near-Opus on the copy-a-site-and-edit workload, cheaper, and on a subscription
   the "cost" is subscription rate-limit pressure, not dollars.
 - **`--max-turns 90`** (`BUILDER_MAX_TURNS` overrides). Raised from 30 → 60 → 90.

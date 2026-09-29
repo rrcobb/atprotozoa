@@ -223,7 +223,7 @@ echo "=== build (claude -p, same invocation as the Action) ==="
 # isolated non-root box); allowedTools + the FIRST-read INSTRUCTIONS.md keep edits
 # in the sandbox. Tee the CLI's output to a log so we can tell "out of budget"
 # (usage-limit) from "build flopped" afterwards, and stream it to the box journal.
-BUILDER_MODEL="${BUILDER_MODEL:-claude-sonnet-5}"
+BUILDER_MODEL="${BUILDER_MODEL:-claude-sonnet-5-5}"
 # Turn ceiling: a runaway stop, not a build budget. The Action used 30 (tuned for
 # Opus, which is more turn-efficient). Sonnet takes more, smaller steps, and a real
 # build — a whole game with animations, not a one-file edit — blew past 30 and got
