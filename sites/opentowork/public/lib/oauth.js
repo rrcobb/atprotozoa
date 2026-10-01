@@ -9,7 +9,7 @@
 //
 // Brand-new site served at the root of its own hostname — no mount prefix.
 //
-// Scope is update-only on the signer's own app.bsky.actor.profile record
+// Scope is create+update on the signer's own app.bsky.actor.profile record (the PDS demands both for putRecord)
 // (putRecord to swap the avatar) plus image blob uploads. Reading the profile
 // and avatar needs no grant — repo.getRecord / sync.getBlob are public.
 // Must stay in lockstep with client-metadata.json.
@@ -29,7 +29,7 @@ const ORIGIN = location.origin; // https://opentowork.bisks.net (or localhost in
 const MOUNT = ""; // served at the root of its own hostname, no path prefix
 export const CLIENT_ID = `${ORIGIN}${MOUNT}/client-metadata.json`;
 export const REDIRECT_URI = `${ORIGIN}${MOUNT}/`; // must be listed in client-metadata.json
-const SCOPE = "atproto repo:app.bsky.actor.profile?action=update blob:image/*";
+const SCOPE = "atproto repo:app.bsky.actor.profile?action=create&action=update blob:image/*";
 
 const BSKY_PUBLIC_API = "https://api.bsky.app";
 const PLC_DIR = "https://plc.directory";
@@ -146,7 +146,14 @@ async function idbDel(key) {
 }
 
 export async function getSession() {
-  return idbGet("current");
+  const s = await idbGet("current");
+  // A session granted under an older, narrower scope can't putRecord (403
+  // InsufficientScope); drop it so the user signs in again and re-consents.
+  if (s && s.scope && !s.scope.includes("action=create")) {
+    await idbDel("current");
+    return null;
+  }
+  return s;
 }
 export async function clearSession() {
   return idbDel("current");
