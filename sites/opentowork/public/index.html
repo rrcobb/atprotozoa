@@ -90,6 +90,12 @@
       <section class="panel">
         <div class="stage" id="stage"><div class="ph" id="ph">type a handle to preview</div></div>
 
+        <label class="field" for="bannerText">banner text</label>
+        <div class="row" style="margin-bottom: 0.9rem">
+          <input id="bannerText" type="text" value="#OPENTOWORK" maxlength="30" autocomplete="off" spellcheck="false" />
+          <button type="button" id="textReset" class="ghost">reset</button>
+        </div>
+
         <div id="signedOut">
           <label class="field" for="handle">your bluesky handle</label>
           <div class="row">
@@ -145,8 +151,15 @@
       };
       if (window.attachHandleTypeahead) attachHandleTypeahead(els.handle);
 
+      const DEFAULT_TEXT = "#OPENTOWORK";
+      const TEXT_KEY = "opentowork:text"; // survives the OAuth redirect so the ring applied after login uses it
+      const textEl = $("bannerText");
+      try { textEl.value = localStorage.getItem(TEXT_KEY) || DEFAULT_TEXT; } catch {}
+      const bannerText = () => textEl.value.trim() || DEFAULT_TEXT;
+
       let session = null;
       let busy = false;
+      let lastProfile = null; // profile behind the current preview, for live re-render on text edits
 
       function setStatus(msg, kind) {
         els.status.textContent = msg || "";
@@ -175,7 +188,7 @@
       async function renderRing(profile) {
         const base = await baseImage(profile);
         const bmp = await bitmapFromBytes(base.bytes, base.mime);
-        const canvas = drawRing(bmp);
+        const canvas = drawRing(bmp, undefined, bannerText());
         return { base, canvas };
       }
 
@@ -186,6 +199,7 @@
         setStatus("fetching avatar…");
         try {
           const profile = await readProfile(handle);
+          lastProfile = profile;
           const { canvas } = await renderRing(profile);
           showCanvas(canvas);
           setStatus("looking good. sign in to put it on your profile.", "ok");
@@ -203,6 +217,7 @@
         try {
           setStatus("reading your profile…");
           const profile = await readProfile(session.did);
+          lastProfile = profile;
           const { base, canvas } = await renderRing(profile);
           showCanvas(canvas);
           const jpeg = await toJpeg(canvas);
@@ -215,7 +230,7 @@
           await saveOriginal(session.did, { ...saved, appliedCid: cid });
           setStatus("done — your avatar now wears the ring. it can take a minute to show up everywhere.", "ok");
           els.shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(
-            "put the #opentowork ring on my bluesky avatar with https://opentowork.bisks.net/");
+            "put the " + bannerText() + " ring on my bluesky avatar with https://opentowork.bisks.net/");
           els.shareRow.hidden = false;
         } catch (e) {
           setStatus(e.message || "couldn't apply the ring", "err");
@@ -266,6 +281,19 @@
         if (session) els.who.querySelector("b").textContent = "@" + session.handle;
       }
 
+      let redrawTimer = 0;
+      textEl.addEventListener("input", () => {
+        try { localStorage.setItem(TEXT_KEY, textEl.value); } catch {}
+        clearTimeout(redrawTimer);
+        redrawTimer = setTimeout(async () => {
+          if (!lastProfile || busy) return;
+          try { showCanvas((await renderRing(lastProfile)).canvas); } catch {}
+        }, 150);
+      });
+      $("textReset").addEventListener("click", () => {
+        textEl.value = DEFAULT_TEXT;
+        textEl.dispatchEvent(new Event("input"));
+      });
       els.previewBtn.addEventListener("click", preview);
       els.handle.addEventListener("keydown", (e) => { if (e.key === "Enter") preview(); });
       els.signinBtn.addEventListener("click", async () => {
@@ -298,6 +326,7 @@
         else if (session) {
           try {
             const profile = await readProfile(session.did);
+            lastProfile = profile;
             const { canvas } = await renderRing(profile);
             showCanvas(canvas);
           } catch {}

@@ -45,16 +45,27 @@ export function drawRing(img, size = SIZE, text = "#OPENTOWORK") {
   g.strokeStyle = GREEN_DARK;
   g.stroke();
 
+  const rText = R - band / 2;
   // text along the arc, reading left-to-right across the bottom
-  const fontPx = band * 0.62;
-  g.font = `800 ${fontPx}px system-ui, "Helvetica Neue", Arial, sans-serif`;
+  let fontPx = band * 0.62;
+  const setFont = () => { g.font = `800 ${fontPx}px system-ui, "Helvetica Neue", Arial, sans-serif`; };
+  setFont();
   g.fillStyle = "#fff";
   g.textAlign = "center";
   g.textBaseline = "middle";
-  const rText = R - band / 2;
   const chars = [...text];
-  const widths = chars.map((ch) => g.measureText(ch).width + fontPx * 0.06);
-  const total = widths.reduce((a, b) => a + b, 0);
+  const measure = () => chars.map((ch) => g.measureText(ch).width + fontPx * 0.06);
+  let widths = measure();
+  let total = widths.reduce((a, b) => a + b, 0);
+  // Custom text has to stay inside the banner arc (the sector spans 2*half,
+  // minus a little margin at each end), so shrink the font until it fits.
+  const maxTotal = 2 * half * 0.86 * rText;
+  if (total > maxTotal) {
+    fontPx *= maxTotal / total;
+    setFont();
+    widths = measure();
+    total = widths.reduce((a, b) => a + b, 0);
+  }
   // At the bottom of the circle, larger canvas angle = further left, so start
   // at the left end and walk the angle down.
   let ang = Math.PI / 2 + total / rText / 2;
