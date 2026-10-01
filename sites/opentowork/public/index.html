@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>opentowork — the linkedin ring for your bluesky avatar</title>
+    <meta
+      name="description"
+      content="Preview the #OPENTOWORK ring on your Bluesky avatar, then sign in with OAuth and it swaps the avatar for you. One click restores the original."
+    />
+    <meta property="og:title" content="opentowork" />
+    <meta property="og:description" content="Puts the LinkedIn #OPENTOWORK ring over your Bluesky avatar and changes it for you. Restore with one click." />
+    <meta property="og:image" content="https://opentowork.bisks.net/og.png" />
+    <meta property="og:url" content="https://opentowork.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <style>
+      :root {
+        --bg: #0d1410;
+        --panel: #142019;
+        --line: #26382c;
+        --ink: #eaf3e6;
+        --dim: #8ea58f;
+        --green: #5fa83a;
+        --err: #ff8a80;
+        --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
+      html, body { margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--font);
+        line-height: 1.55;
+        background-image: radial-gradient(circle at 50% -10%, rgba(95, 168, 58, 0.14), transparent 55%);
+      }
+      .wrap { max-width: 560px; margin: 0 auto; padding: 3rem 1.1rem 4rem; }
+      header { text-align: center; margin-bottom: 1.8rem; }
+      h1 { font-size: clamp(1.9rem, 8vw, 2.6rem); margin: 0 0 0.5rem; letter-spacing: -0.02em; }
+      h1 .tag { color: var(--green); }
+      header p { color: var(--dim); max-width: 44ch; margin: 0 auto; font-size: 0.95rem; }
+      .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 1.1rem; margin-top: 1.1rem; }
+      .stage { display: flex; justify-content: center; padding: 0.4rem 0 0.8rem; }
+      .stage canvas, .stage .ph {
+        width: 220px; height: 220px; border-radius: 50%;
+        background: #0a100c; border: 1px dashed var(--line);
+        display: flex; align-items: center; justify-content: center;
+        color: var(--dim); font-size: 0.8rem; text-align: center; padding: 1rem;
+      }
+      .stage canvas { border: 0; padding: 0; }
+      label.field { display: block; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); margin-bottom: 0.4rem; }
+      .row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      input[type="text"] {
+        flex: 1; min-width: 14ch; font: inherit; padding: 0.6rem 0.75rem;
+        border: 1px solid var(--line); background: #0a100c; color: var(--ink); border-radius: 8px;
+      }
+      input:focus { outline: none; border-color: var(--green); }
+      button {
+        font: inherit; font-weight: 700; font-size: 0.9rem; padding: 0.6rem 0.95rem;
+        border: 1px solid var(--line); background: transparent; color: var(--ink);
+        border-radius: 8px; cursor: pointer;
+      }
+      button:hover:not(:disabled) { border-color: var(--green); }
+      button:disabled { opacity: 0.4; cursor: default; }
+      button.primary { background: var(--green); border-color: var(--green); color: #0b1a06; }
+      button.primary:hover:not(:disabled) { background: #77c04f; }
+      button.ghost { color: var(--dim); }
+      .who { font-size: 0.9rem; margin-bottom: 0.8rem; }
+      .who b { color: var(--green); font-weight: 600; }
+      .fine { font-size: 0.8rem; color: var(--dim); margin-top: 0.7rem; }
+      .status { font-size: 0.85rem; color: var(--dim); margin-top: 0.7rem; min-height: 1.3em; }
+      .status.err { color: var(--err); }
+      .status.ok { color: var(--green); }
+      footer { margin-top: 2.4rem; color: var(--dim); font-size: 0.78rem; text-align: center; }
+      footer a { color: var(--dim); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1><span class="tag" onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">#</span>opentowork</h1>
+        <p>
+          the linkedin ring, on your bluesky avatar. sign in with bluesky and
+          it swaps your avatar for you — the original is kept in this browser
+          so you can put it back with one click.
+        </p>
+      </header>
+
+      <section class="panel">
+        <div class="stage" id="stage"><div class="ph" id="ph">type a handle to preview</div></div>
+
+        <div id="signedOut">
+          <label class="field" for="handle">your bluesky handle</label>
+          <div class="row">
+            <input id="handle" type="text" placeholder="you.bsky.social" autocomplete="off" autocapitalize="none" spellcheck="false" />
+            <button type="button" id="previewBtn">preview</button>
+          </div>
+          <div class="row" style="margin-top: 0.7rem">
+            <button type="button" id="signinBtn" class="primary">sign in &amp; put the ring on</button>
+          </div>
+          <div class="fine">
+            signing in is the approval: once you grant access, the ring is
+            applied automatically. the grant covers only updating your profile
+            record and uploading the image — it can't post or read anything.
+          </div>
+        </div>
+
+        <div id="signedIn" hidden>
+          <div class="who" id="who"></div>
+          <div class="row">
+            <button type="button" id="applyBtn" class="primary">put the ring on</button>
+            <button type="button" id="restoreBtn" hidden>restore original</button>
+            <button type="button" id="signoutBtn" class="ghost">sign out</button>
+          </div>
+        </div>
+
+        <div class="status" id="status"></div>
+        <div class="row" id="shareRow" hidden style="margin-top: 0.4rem">
+          <a id="shareLink" href="#" target="_blank" rel="noopener"><button type="button">post about it</button></a>
+        </div>
+      </section>
+
+      <footer>
+        runs entirely in your browser. part of <a href="https://bisks.net">bisks.net</a>
+        · <a href="https://rateyourbuild.bisks.net/site/opentowork" target="_blank" rel="noopener">rate this on rateyourbuild →</a>
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
+      import { drawRing, toJpeg } from "./lib/ring.js";
+      import {
+        readProfile, fetchAvatarBytes, bitmapFromBytes, setAvatar,
+        loadOriginal, saveOriginal, clearOriginal,
+      } from "./lib/avatar.js";
+
+      const $ = (id) => document.getElementById(id);
+      const els = {
+        stage: $("stage"), handle: $("handle"), previewBtn: $("previewBtn"), signinBtn: $("signinBtn"),
+        signedOut: $("signedOut"), signedIn: $("signedIn"), who: $("who"),
+        applyBtn: $("applyBtn"), restoreBtn: $("restoreBtn"), signoutBtn: $("signoutBtn"),
+        status: $("status"), shareRow: $("shareRow"), shareLink: $("shareLink"),
+      };
+      if (window.attachHandleTypeahead) attachHandleTypeahead(els.handle);
+
+      let session = null;
+      let busy = false;
+
+      function setStatus(msg, kind) {
+        els.status.textContent = msg || "";
+        els.status.className = "status" + (kind ? " " + kind : "");
+      }
+      function showCanvas(c) {
+        els.stage.replaceChildren(c);
+      }
+      function setBusy(b) {
+        busy = b;
+        els.applyBtn.disabled = els.restoreBtn.disabled = els.previewBtn.disabled = els.signinBtn.disabled = b;
+      }
+
+      // The image to put the ring on: the saved original if the live avatar is
+      // the ringed one we published, else whatever the avatar is right now.
+      async function baseImage(profile) {
+        if (!profile.avatar) throw new Error("this account has no avatar to put a ring on");
+        const saved = await loadOriginal(profile.did);
+        if (saved && saved.appliedCid && saved.appliedCid === profile.avatar.cid) {
+          return { bytes: saved.bytes, mime: saved.mime, fresh: false };
+        }
+        const bytes = await fetchAvatarBytes(profile.pds, profile.did, profile.avatar.cid);
+        return { bytes, mime: profile.avatar.mime, fresh: true };
+      }
+
+      async function renderRing(profile) {
+        const base = await baseImage(profile);
+        const bmp = await bitmapFromBytes(base.bytes, base.mime);
+        const canvas = drawRing(bmp);
+        return { base, canvas };
+      }
+
+      async function preview() {
+        const handle = els.handle.value.trim().replace(/^@/, "");
+        if (!handle) return setStatus("type a handle first", "err");
+        setBusy(true);
+        setStatus("fetching avatar…");
+        try {
+          const profile = await readProfile(handle);
+          const { canvas } = await renderRing(profile);
+          showCanvas(canvas);
+          setStatus("looking good. sign in to put it on your profile.", "ok");
+        } catch (e) {
+          setStatus(e.message || "preview failed", "err");
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      async function apply() {
+        if (!session || busy) return;
+        setBusy(true);
+        els.shareRow.hidden = true;
+        try {
+          setStatus("reading your profile…");
+          const profile = await readProfile(session.did);
+          const { base, canvas } = await renderRing(profile);
+          showCanvas(canvas);
+          const jpeg = await toJpeg(canvas);
+          // Save the original before touching the profile so restore works even
+          // if the write succeeds but this page dies before recording it.
+          if (base.fresh) await saveOriginal(session.did, { bytes: base.bytes, mime: base.mime, appliedCid: null });
+          setStatus("uploading and updating your avatar…");
+          const cid = await setAvatar(session, profile, jpeg, "image/jpeg");
+          const saved = await loadOriginal(session.did);
+          await saveOriginal(session.did, { ...saved, appliedCid: cid });
+          setStatus("done — your avatar now wears the ring. it can take a minute to show up everywhere.", "ok");
+          els.shareLink.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(
+            "put the #opentowork ring on my bluesky avatar with https://opentowork.bisks.net/");
+          els.shareRow.hidden = false;
+        } catch (e) {
+          setStatus(e.message || "couldn't apply the ring", "err");
+        } finally {
+          setBusy(false);
+          await refreshRestore();
+        }
+      }
+
+      async function restore() {
+        if (!session || busy) return;
+        setBusy(true);
+        try {
+          const saved = await loadOriginal(session.did);
+          if (!saved) throw new Error("no saved original in this browser");
+          setStatus("restoring…");
+          const profile = await readProfile(session.did);
+          await setAvatar(session, profile, saved.bytes, saved.mime);
+          await clearOriginal(session.did);
+          showCanvas(await bitmapCanvas(saved));
+          els.shareRow.hidden = true;
+          setStatus("original avatar restored.", "ok");
+        } catch (e) {
+          setStatus(e.message || "restore failed", "err");
+        } finally {
+          setBusy(false);
+          await refreshRestore();
+        }
+      }
+
+      async function bitmapCanvas(saved) {
+        const bmp = await bitmapFromBytes(saved.bytes, saved.mime);
+        const c = document.createElement("canvas");
+        c.width = c.height = 400;
+        const side = Math.min(bmp.width, bmp.height);
+        c.getContext("2d").drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, 400, 400);
+        return c;
+      }
+
+      async function refreshRestore() {
+        els.restoreBtn.hidden = !(session && (await loadOriginal(session.did)));
+      }
+
+      function renderAuth() {
+        els.signedOut.hidden = !!session;
+        els.signedIn.hidden = !session;
+        if (session) els.who.innerHTML = "signed in as <b></b>";
+        if (session) els.who.querySelector("b").textContent = "@" + session.handle;
+      }
+
+      els.previewBtn.addEventListener("click", preview);
+      els.handle.addEventListener("keydown", (e) => { if (e.key === "Enter") preview(); });
+      els.signinBtn.addEventListener("click", async () => {
+        const handle = els.handle.value.trim().replace(/^@/, "");
+        if (!handle) return setStatus("type a handle first", "err");
+        setStatus("redirecting to your PDS…");
+        try { await login(handle); } catch (e) { setStatus(e.message || "sign-in failed", "err"); }
+      });
+      els.applyBtn.addEventListener("click", apply);
+      els.restoreBtn.addEventListener("click", restore);
+      els.signoutBtn.addEventListener("click", async () => {
+        await clearSession();
+        session = null;
+        renderAuth();
+        setStatus("");
+      });
+
+      (async () => {
+        let fromCallback = null;
+        try {
+          fromCallback = await completeLoginIfCallback();
+          session = fromCallback || (await getSession());
+        } catch (e) {
+          setStatus(e.message || "sign-in failed", "err");
+        }
+        renderAuth();
+        await refreshRestore();
+        // Coming back from the OAuth consent screen is the approval: apply now.
+        if (session && fromCallback) apply();
+        else if (session) {
+          try {
+            const profile = await readProfile(session.did);
+            const { canvas } = await renderRing(profile);
+            showCanvas(canvas);
+          } catch {}
+        }
+      })();
+    </script>
+  </body>
+</html>
