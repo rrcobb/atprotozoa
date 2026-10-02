@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>didicon — an identicon for your DID</title>
+<meta name="description" content="Every did:plc hashes into its own identicon: a curated palette and a few angled, asymmetric strokes. Same identity, same icon, every time." />
+<meta property="og:title" content="didicon — an identicon for your DID" />
+<meta property="og:description" content="Every did:plc hashes into its own identicon: a curated palette and a few angled, asymmetric strokes. Enter a Bluesky handle and see yours." />
+<meta property="og:url" content="https://didicon.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://didicon.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="didicon: a grid of identicons built from angled colored strokes." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="didicon — an identicon for your DID" />
+<meta name="twitter:description" content="Every did:plc hashes into its own identicon: a curated palette and a few angled strokes." />
+<meta name="twitter:image" content="https://didicon.bisks.net/og.png" />
+<style>
+  :root {
+    --bg: #0d0c11; --fg: #f3f0f7; --dim: #a39fb5; --accent: #ff6b9a; --accent2: #7ee8d0;
+    --cardsolid: #17151f; --border: #302d40;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; min-height: 100%;
+    background: radial-gradient(ellipse at 10% -10%, #2a1a3d 0%, transparent 55%), var(--bg);
+    color: var(--fg);
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  body { display: flex; flex-direction: column; align-items: center; padding: 3.5rem 1.1rem 5rem; }
+  .wrap { width: 100%; max-width: 620px; }
+  h1 {
+    font-size: 1.9rem; margin: 0 0 0.35rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tag { color: var(--dim); font-size: 0.92rem; margin: 0 0 2rem; line-height: 1.55; max-width: 54ch; }
+  .tag code { color: var(--accent2); }
+  form { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+  input[type="text"] {
+    flex: 1; min-width: 0; background: var(--cardsolid); border: 1px solid var(--border);
+    color: var(--fg); border-radius: 8px; padding: 0.75rem 0.9rem; font: inherit; font-size: 0.95rem;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button {
+    background: linear-gradient(90deg, var(--accent), #ffb86b); color: #1a0a14; border: none;
+    border-radius: 8px; padding: 0.75rem 1.1rem; font: inherit; font-weight: 700; font-size: 0.9rem;
+    cursor: pointer; white-space: nowrap;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  .hint { color: var(--dim); font-size: 0.78rem; margin: 0 0 2rem; }
+  .status { color: var(--dim); font-size: 0.9rem; min-height: 1.4em; margin-bottom: 1rem; }
+  .status.err { color: #ff8a8a; }
+
+  .card { display: none; }
+  .card.show { display: block; animation: rise 0.4s ease; }
+  .card[hidden] { display: none; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  #iconCanvas { display: block; width: min(100%, 360px); height: auto; aspect-ratio: 1 / 1; margin: 0 auto 1.1rem; border-radius: 18%; }
+  .shapes { display: flex; justify-content: center; align-items: flex-end; gap: 1rem; margin-bottom: 1.2rem; }
+  .shapes canvas { width: 72px; height: 72px; }
+  .shapes canvas.sm { width: 40px; height: 40px; }
+  .shapes canvas.xs { width: 24px; height: 24px; }
+  .who { text-align: center; margin-bottom: 0.3rem; }
+  .who .handle { font-weight: 700; font-size: 1.05rem; }
+  .who .did { color: var(--dim); font-size: 0.68rem; word-break: break-all; margin-top: 0.15rem; }
+  .stats { display: flex; justify-content: center; gap: 0.5rem; flex-wrap: wrap; margin: 0.9rem 0 1.4rem; font-size: 0.72rem; color: var(--dim); }
+  .stats span { border: 1px solid var(--border); border-radius: 999px; padding: 0.3rem 0.7rem; }
+  .stats b { color: var(--accent2); }
+  .swatches { display: inline-flex; gap: 3px; vertical-align: middle; margin-left: 0.3rem; }
+  .swatches i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1px solid #fff3; }
+
+  .share { border-top: 1px dashed var(--border); padding-top: 1.2rem; }
+  #shareCanvas { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--border); margin-bottom: 0.8rem; }
+  .share-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .share-post, .share-actions button {
+    flex: 1; min-width: 140px; text-align: center; border-radius: 8px; padding: 0.65rem 0.9rem;
+    font: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; text-decoration: none;
+  }
+  .share-post { background: linear-gradient(90deg, var(--accent), #ffb86b); color: #1a0a14; }
+  .share-actions button { background: transparent; border: 1px solid var(--border); color: var(--fg); }
+  footer { margin-top: 3rem; color: var(--dim); font-size: 0.75rem; text-align: center; line-height: 1.7; }
+  footer a { color: var(--accent2); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>d<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">i</span>dicon</h1>
+    <p class="tag">
+      Your <code>did:plc</code> hashes into a color palette and a handful of
+      slanted strokes, thrown down off-balance. Same identity, same icon,
+      every time — nothing stored anywhere. Enter a Bluesky handle.
+    </p>
+
+    <form id="f">
+      <input id="handle" type="text" placeholder="e.g. yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <button id="go" type="submit">generate</button>
+    </form>
+    <p class="hint">works on any handle — yours, a friend's, an enemy's.</p>
+
+    <p id="status" class="status"></p>
+
+    <div id="card" class="card">
+      <canvas id="iconCanvas" width="720" height="720"></canvas>
+      <div class="shapes">
+        <canvas id="shapeCircle" width="144" height="144"></canvas>
+        <canvas id="shapeSquare" width="144" height="144"></canvas>
+        <canvas class="sm" id="shapeSm" width="80" height="80"></canvas>
+        <canvas class="xs" id="shapeXs" width="48" height="48"></canvas>
+      </div>
+
+      <div class="who">
+        <div class="handle" id="handleOut"></div>
+        <div class="did" id="didOut"></div>
+      </div>
+
+      <div class="stats">
+        <span>palette <b id="statPalette"></b><span class="swatches" id="swatches" style="border:0;padding:0"></span></span>
+        <span><b id="statStrokes"></b> strokes</span>
+        <span><b id="statCaps"></b> caps</span>
+      </div>
+
+      <div class="share">
+        <canvas id="shareCanvas" width="1200" height="630"></canvas>
+        <div class="share-actions">
+          <button id="shareNative" class="share-post" type="button" style="display:none;border:none;">📤 share card</button>
+          <a id="shareBluesky" class="share-post" target="_blank" rel="noopener">🦋 share your icon</a>
+          <button id="iconDownload" type="button">⬇ icon png</button>
+          <button id="shareDownload" type="button">⬇ card png</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      part of <a href="https://bisks.net">atprotozoa</a> ·
+      built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a> ·
+      <a href="https://rateyourbuild.bisks.net/site/didicon">rate this on rateyourbuild →</a>
+    </footer>
+  </div>
+
+<script src="lib/handle-typeahead.js"></script>
+<script src="lib/icon.js"></script>
+<script>
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById('handle'));
+const API = "https://public.api.bsky.app/xrpc/";
+
+function cleanHandle(raw) {
+  let h = raw.trim();
+  h = h.replace(/^@/, "");
+  const m = h.match(/bsky\.app\/profile\/([^\/\s?#]+)/i);
+  if (m) h = m[1];
+  return h;
+}
+
+const $ = (id) => document.getElementById(id);
+const els = {
+  form: $("f"), input: $("handle"), go: $("go"), status: $("status"), card: $("card"),
+  handleOut: $("handleOut"), didOut: $("didOut"),
+  statPalette: $("statPalette"), swatches: $("swatches"), statStrokes: $("statStrokes"), statCaps: $("statCaps"),
+  iconCanvas: $("iconCanvas"), shareCanvas: $("shareCanvas"),
+  shareNative: $("shareNative"), shareBluesky: $("shareBluesky"),
+  shareDownload: $("shareDownload"), iconDownload: $("iconDownload"),
+};
+
+let lastShareText = "";
+
+function setStatus(msg, isErr) {
+  els.status.textContent = msg || "";
+  els.status.className = "status" + (isErr ? " err" : "");
+}
+
+async function xrpc(method, params) {
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(API + method + (qs ? "?" + qs : ""));
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).message || msg; } catch (_) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function shareUrlFor(handle) { return "https://didicon.bisks.net/?h=" + encodeURIComponent(handle); }
+
+function shareText(handle, spec) {
+  return `@${handle}'s identity, drawn as an identicon — ${spec.palette} palette, ${spec.count} angled strokes. ` +
+    `same DID, same icon, every time.\n\nmake yours → ${shareUrlFor(handle)}`;
+}
+
+function paint(canvas, did, shape) {
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  return drawIcon(ctx, 0, 0, canvas.width, did, shape);
+}
+
+function buildShareCard(did, handle, spec) {
+  const canvas = els.shareCanvas;
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const mono = "ui-monospace, monospace";
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0d0c11";
+  ctx.fillRect(0, 0, W, H);
+  drawIcon(ctx, 60, 75, 480, did, "rounded");
+  // the same DID, small, as it would sit next to a post
+  drawIcon(ctx, 580, 75, 56, did, "circle");
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#ff6b9a";
+  ctx.font = `800 46px ${mono}`;
+  ctx.fillText("didicon", 600, 190);
+  ctx.fillStyle = "#f3f0f7";
+  ctx.font = `700 30px ${mono}`;
+  ctx.fillText("@" + handle, 600, 245);
+  ctx.fillStyle = "#a39fb5";
+  ctx.font = `400 15px ${mono}`;
+  ctx.fillText(did.length > 42 ? did.slice(0, 42) + "…" : did, 600, 275);
+
+  ctx.fillStyle = "#7ee8d0";
+  ctx.font = `700 14px ${mono}`;
+  ctx.fillText("PALETTE", 600, 340);
+  ctx.fillStyle = "#f3f0f7";
+  ctx.font = `800 34px ${mono}`;
+  ctx.fillText(spec.palette, 600, 380);
+  let sx = 600;
+  for (const c of [spec.bg, ...spec.inks]) {
+    ctx.fillStyle = c;
+    ctx.beginPath(); ctx.arc(sx + 18, 425, 18, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.35)"; ctx.lineWidth = 2; ctx.stroke();
+    sx += 48;
+  }
+  ctx.fillStyle = "#7ee8d0";
+  ctx.font = `700 14px ${mono}`;
+  ctx.fillText("STROKES", 600, 490);
+  ctx.fillStyle = "#f3f0f7";
+  ctx.font = `800 34px ${mono}`;
+  ctx.fillText(spec.count + (spec.round ? " · round" : " · flat"), 600, 530);
+
+  ctx.fillStyle = "#ff6b9a";
+  ctx.font = `700 20px ${mono}`;
+  ctx.fillText("didicon.bisks.net", 600, H - 40);
+}
+
+async function reveal(rawHandle) {
+  const handle = cleanHandle(rawHandle);
+  if (!handle) { setStatus("enter a handle first.", true); return; }
+
+  els.go.disabled = true;
+  els.card.classList.remove("show");
+  setStatus("resolving " + handle + " ...");
+
+  try {
+    let did;
+    if (handle.startsWith("did:")) {
+      did = handle;
+    } else {
+      did = (await xrpc("com.atproto.identity.resolveHandle", { handle })).did;
+    }
+    const profile = await xrpc("app.bsky.actor.getProfile", { actor: did });
+
+    const spec = paint(els.iconCanvas, did, "rounded");
+    paint($("shapeCircle"), did, "circle");
+    paint($("shapeSquare"), did, "square");
+    paint($("shapeSm"), did, "rounded");
+    paint($("shapeXs"), did, "circle");
+
+    els.handleOut.textContent = "@" + profile.handle;
+    els.didOut.textContent = did;
+    els.statPalette.textContent = spec.palette;
+    els.swatches.innerHTML = "";
+    for (const c of [spec.bg, ...spec.inks]) {
+      const i = document.createElement("i");
+      i.style.background = c;
+      els.swatches.appendChild(i);
+    }
+    els.statStrokes.textContent = spec.count;
+    els.statCaps.textContent = spec.round ? "round" : "flat";
+
+    buildShareCard(did, profile.handle, spec);
+    lastShareText = shareText(profile.handle, spec);
+    els.shareBluesky.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(lastShareText);
+
+    setStatus("");
+    els.card.classList.add("show");
+  } catch (err) {
+    setStatus("couldn't resolve that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+}
+
+els.form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  reveal(els.input.value);
+});
+
+function whoSlug() { return (els.handleOut.textContent || "icon").replace(/[^a-z0-9.-]/gi, "_"); }
+
+function downloadCanvas(canvas, name) {
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, "image/png");
+}
+els.shareDownload.addEventListener("click", () => downloadCanvas(els.shareCanvas, "didicon-card-" + whoSlug() + ".png"));
+els.iconDownload.addEventListener("click", () => downloadCanvas(els.iconCanvas, "didicon-" + whoSlug() + ".png"));
+
+function canShareFiles() {
+  if (!navigator.share || !navigator.canShare) return false;
+  try {
+    return navigator.canShare({ files: [new File([""], "probe.png", { type: "image/png" })] });
+  } catch (_) { return false; }
+}
+if (canShareFiles()) {
+  els.shareNative.style.display = "";
+  els.shareNative.addEventListener("click", () => {
+    els.shareCanvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "didicon-" + whoSlug() + ".png", { type: "image/png" });
+      try { await navigator.share({ files: [file], text: lastShareText, title: "didicon" }); } catch (_) {}
+    }, "image/png");
+  });
+}
+
+const sharedHandle = new URLSearchParams(location.search).get("h");
+if (sharedHandle) {
+  els.input.value = sharedHandle;
+  reveal(sharedHandle);
+}
+</script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
