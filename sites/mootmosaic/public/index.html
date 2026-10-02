@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>mootmosaic — one photo from all your moots' photos</title>
+<meta name="description" content="Every image your moots posted on a day, tiled into a single photo you can post. Each day is saved into a year calendar." />
+<meta property="og:title" content="mootmosaic — one photo from all your moots' photos" />
+<meta property="og:description" content="Every image your moots posted on a day, tiled into a single photo you can post. Each day is saved into a year calendar." />
+<meta property="og:url" content="https://mootmosaic.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://mootmosaic.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A grid of colorful tiles merging into one mosaic." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="https://mootmosaic.bisks.net/og.png" />
+<style>
+  :root { --bg:#0f1218; --card:#181d27; --fg:#e8ecf4; --dim:#8b95a8; --accent:#5fd0c4; --accent2:#ff8fb1; --border:#2a3243; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; display:flex; flex-direction:column; align-items:center; padding:3rem 1rem 4rem; }
+  .wrap { width:100%; max-width:760px; }
+  h1 { margin:0 0 .4rem; font-size:2rem; background:linear-gradient(90deg,var(--accent),var(--accent2)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .sub { color:var(--dim); margin:0 0 1.5rem; line-height:1.5; font-size:.9rem; }
+  form { display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:1rem; }
+  input { background:var(--card); border:1px solid var(--border); color:var(--fg); padding:.6rem .7rem; border-radius:6px; font:inherit; }
+  input[type=text] { flex:1 1 220px; }
+  button, a.btn { background:var(--accent); color:#06201d; border:0; padding:.6rem .9rem; border-radius:6px; font:inherit; font-weight:700; cursor:pointer; text-decoration:none; display:inline-block; }
+  button.alt, a.btn.alt { background:var(--card); color:var(--fg); border:1px solid var(--border); }
+  button:disabled { opacity:.5; cursor:default; }
+  #status { color:var(--dim); font-size:.85rem; min-height:1.3em; margin:.3rem 0 1rem; }
+  #status.err { color:#ff7b7b; }
+  #result[hidden], #calendar-sec[hidden] { display:none; }
+  canvas#mosaic { width:100%; height:auto; border-radius:8px; border:1px solid var(--border); background:#000; display:block; }
+  .actions { display:flex; flex-wrap:wrap; gap:.5rem; margin:.8rem 0 1.5rem; }
+  h2 { font-size:1.1rem; margin:2rem 0 .6rem; }
+  .cal { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
+  .cal .dow { color:var(--dim); font-size:.7rem; text-align:center; }
+  .cal .cell { aspect-ratio:1; background:var(--card); border-radius:3px; position:relative; overflow:hidden; font-size:.6rem; color:var(--dim); }
+  .cal .cell img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; cursor:pointer; }
+  .cal .cell span { position:absolute; left:2px; top:1px; text-shadow:0 0 3px #000; color:#fff; z-index:1; }
+  .calhead { display:flex; gap:.5rem; align-items:center; margin-bottom:.6rem; }
+  .months { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:1rem; }
+  .months h3 { margin:0 0 .3rem; font-size:.8rem; color:var(--accent); }
+  .footer { color:var(--dim); font-size:.75rem; line-height:1.6; margin-top:2.5rem; }
+  .footer a { color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>moot<span id="secret" style="cursor:pointer">m</span>osaic</h1>
+  <p class="sub">Every image your moots posted on a day, tiled into one photo. Pick a day, make the mosaic, post it. Each one you make is saved in this browser and fills in a year calendar.</p>
+
+  <form id="form">
+    <input type="text" id="handle" placeholder="you.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <input type="date" id="day" />
+    <button type="submit" id="go">make mosaic</button>
+  </form>
+  <div id="status"></div>
+
+  <div id="result" hidden>
+    <canvas id="mosaic" width="1600" height="1600"></canvas>
+    <div class="actions">
+      <button id="dl">download png</button>
+      <button id="share" class="alt">share…</button>
+      <a id="intent" class="btn alt" target="_blank" rel="noopener">compose on bluesky</a>
+    </div>
+    <div id="credits" class="sub"></div>
+  </div>
+
+  <div id="calendar-sec" hidden>
+    <h2>calendar</h2>
+    <div class="calhead">
+      <button id="prevY" class="alt">←</button><b id="yearLabel"></b><button id="nextY" class="alt">→</button>
+      <button id="dlCal" class="alt">download year</button>
+    </div>
+    <div id="months" class="months"></div>
+  </div>
+
+  <p class="footer">
+    A moot is a mutual follow. This reads the public Bluesky AppView from your browser, takes
+    images from original posts (not reposts) by accounts you follow who follow you back, and
+    tiles them on a canvas. Days you've made are kept in this browser's IndexedDB as small
+    thumbnails. Posting is manual: download the image or use share, since a site with no server
+    can't post on a schedule.<br />
+    <a href="https://rateyourbuild.bisks.net/site/mootmosaic">rate this on rateyourbuild →</a> ·
+    part of <a href="https://bisks.net">atprotozoa</a> ·
+    built by <a href="https://buildthis.bisks.net">@buildthis.bisks.net</a>
+  </p>
+</div>
+<script src="lib/handle-typeahead.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
