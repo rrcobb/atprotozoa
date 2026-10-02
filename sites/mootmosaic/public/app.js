@@ -4,7 +4,7 @@ const API = "https://public.api.bsky.app/xrpc/";
 // Concurrent requests against the public AppView / CDN: a politeness limit so
 // a 1000-moot account doesn't fire 1000 requests at once.
 const CONCURRENCY = 8;
-// Canvas side in px. Bounded by browser canvas memory (and Bluesky's image
+// Canvas width in px. Bounded by browser canvas memory (and Bluesky's image
 // size limits), not by the data.
 const SIDE = 1600;
 
@@ -104,30 +104,66 @@ async function loadBitmap(url) {
   return createImageBitmap(await r.blob());
 }
 
-function gridFor(n) {
-  const cols = Math.ceil(Math.sqrt(n));
-  return { cols, rows: Math.ceil(n / cols) };
-}
+// Justified-row collage: every photo keeps its own aspect ratio (no cropping),
+// rows are scaled to fill the width, and the canvas grows to fit.
+const PAD = 36, GAP = 10, HEAD = 84, MAX_H = 3200;
 
-function drawMosaic(canvas, bitmaps, side) {
-  const n = bitmaps.length;
-  const { cols, rows } = gridFor(n);
-  canvas.width = canvas.height = side;
+function layoutRows(ars, inner, h) {
+  const rows = [];
+  let cur = [], sum = 0;
+  for (let i = 0; i < ars.length; i++) {
+    cur.push(i); sum += ars[i];
+    if (sum * h + GAP * (cur.length - 1) >= inner) {
+      rows.push({ idx: cur, h: (inner - GAP * (cur.length - 1)) / sum, full: true });
+      cur = []; sum = 0;
+    }
+  }
+  if (cur.length) rows.push({ idx: cur, h: Math.min(h, (inner - GAP * (cur.length - 1)) / sum), full: false });
+  return rows;
+}
+const rowsHeight = (rows) => rows.reduce((a, r) => a + r.h, 0) + GAP * (rows.length - 1);
+
+function drawMosaic(canvas, bitmaps, side, caption) {
+  const inner = side - PAD * 2;
+  const ars = bitmaps.map((b) => b.width / b.height);
+  // Largest target row height whose collage stays roughly square-ish
+  // (<= 1.25x the width): bigger photos when there are few, tighter rows when many.
+  let lo = 40, hi = inner, best = layoutRows(ars, inner, lo);
+  for (let k = 0; k < 24; k++) {
+    const mid = (lo + hi) / 2, rows = layoutRows(ars, inner, mid);
+    if (rowsHeight(rows) <= inner * 1.25) { lo = mid; best = rows; } else hi = mid;
+  }
+  const rows = best;
+  const bodyH = Math.min(rowsHeight(rows), MAX_H);
+  const scale = bodyH / rowsHeight(rows);
+  canvas.width = side;
+  canvas.height = Math.round(HEAD + bodyH + PAD);
   const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#0f1218";
-  ctx.fillRect(0, 0, side, side);
-  const cw = side / cols, ch = side / rows;
-  bitmaps.forEach((bm, i) => {
-    const r = Math.floor(i / cols), c = i % cols;
-    // last row may be short: stretch its tiles to fill the width
-    const inRow = r === rows - 1 ? n - r * cols : cols;
-    const w = r === rows - 1 ? side / inRow : cw;
-    const x = (r === rows - 1 ? (i - r * cols) * w : c * cw);
-    const y = r * ch;
-    const s = Math.max(w / bm.width, ch / bm.height);
-    const sw = w / s, sh = ch / s;
-    ctx.drawImage(bm, (bm.width - sw) / 2, (bm.height - sh) / 2, sw, sh, x, y, w, ch);
-  });
+  const g = ctx.createLinearGradient(0, 0, side, canvas.height);
+  g.addColorStop(0, "#151a24"); g.addColorStop(1, "#0d1016");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, side, canvas.height);
+  ctx.fillStyle = "#e8ecf4"; ctx.font = "600 34px ui-monospace, Menlo, Consolas, monospace";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(caption, PAD, 58);
+  ctx.fillStyle = "#5fd0c4"; ctx.fillRect(PAD, 70, 56, 3);
+  let y = HEAD;
+  for (const r of rows) {
+    const rh = r.h * scale;
+    const widths = r.idx.map((i) => ars[i] * rh);
+    let x = PAD;
+    if (!r.full) x += (inner - widths.reduce((a, b) => a + b, 0) - GAP * (r.idx.length - 1)) / 2;
+    r.idx.forEach((i, j) => {
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(x, y, widths[j], rh, 6);
+      ctx.clip();
+      ctx.drawImage(bitmaps[i], x, y, widths[j], rh);
+      ctx.restore();
+      x += widths[j] + GAP;
+    });
+    y += rh + GAP;
+  }
 }
 
 // ---- calendar storage (IndexedDB, thumbnails only) ----
@@ -284,7 +320,7 @@ els.form.addEventListener("submit", async (e) => {
     });
     const ok = all.map((im, i) => ({ im, bm: bms[i] })).filter((x) => x.bm);
     if (!ok.length) throw new Error("couldn't load any of the images");
-    drawMosaic(els.canvas, ok.map((x) => x.bm), SIDE);
+    drawMosaic(els.canvas, ok.map((x) => x.bm), SIDE, `@${prof.handle}'s moots · ${els.day.value}`);
     els.result.hidden = false;
     const who = [...new Set(ok.map((x) => x.im.handle))];
     els.credits.textContent = `${ok.length} images from ${who.length} moots: ` + who.map((h) => "@" + h).join(" ");
@@ -293,7 +329,8 @@ els.form.addEventListener("submit", async (e) => {
     els.canvas.toBlob((b) => { state.blob = b; }, "image/png");
     const t = document.createElement("canvas");
     t.width = t.height = 240;
-    t.getContext("2d").drawImage(els.canvas, 0, 0, 240, 240);
+    const cw = els.canvas.width, chh = els.canvas.height, cs = Math.min(cw, chh);
+    t.getContext("2d").drawImage(els.canvas, (cw - cs) / 2, 0, cs, cs, 0, 0, 240, 240);
     await saveDay(prof.handle, els.day.value, t.toDataURL("image/jpeg", 0.7), ok.length);
     setStatus(`done — ${ok.length} images from ${who.length} moots.`);
     await refreshCalendar();
