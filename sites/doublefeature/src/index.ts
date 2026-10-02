@@ -68,9 +68,9 @@ function esc(s: string): string {
 // pattern as sites/didscope.
 const GENERIC_TITLE = "doublefeature — two youtube clips, side by side";
 const GENERIC_DESC =
-  "Nolan's Odyssey siren song next to a muted Red Lobster Endless Shrimp ad — swap in any two YouTube clips, set a time range for each, and share the remix.";
+  "Ludwig Göransson's “Sirens” (from Nolan's Odyssey) next to a muted Red Lobster Endless Shrimp ad — swap in any two YouTube clips, set a time range for each, and share the remix.";
 const GENERIC_OG_URL_ATTR = 'content="https://doublefeature.bisks.net/"';
-const GENERIC_OG_IMAGE_ATTR = 'content="https://img.youtube.com/vi/LgOMT7ka6do/hqdefault.jpg"';
+const GENERIC_OG_IMAGE_ATTR = 'content="https://img.youtube.com/vi/2_-XPMYQmXc/hqdefault.jpg"';
 
 async function renderShare(env: Env, request: Request, rawEncoded: string): Promise<Response> {
   const base = await env.ASSETS.fetch(new Request(new URL("/", request.url), { method: "GET" }));
