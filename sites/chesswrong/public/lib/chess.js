@@ -162,3 +162,27 @@ export function chessify(original) {
   const [, base, punct] = out.match(/^(.*?)([.!?]*)$/s);
   return { title: `${base} ${tag}${punct}`, swaps: 0, appended: true };
 }
+
+// Body text: same swap table, but never appends a tag, and swaps inside running
+// prose only. Returns the rewritten string.
+export function chessifyText(text) {
+  return String(text).replace(WORD, (w) => {
+    const key = w.toLowerCase().replace(/[’]/g, "'");
+    if (!Object.prototype.hasOwnProperty.call(MAP, key)) return w;
+    const rep = MAP[key];
+    return rep.toLowerCase() === key ? w : matchCase(w, rep);
+  });
+}
+
+// Margin annotations in chess notation, dropped after some paragraphs.
+const ASIDES = [
+  "14.Nf3!?", "22...Qxd4?!", "Black resigns.", "(diagram: White to move)", "see Game 7, Karpov–Kasparov",
+  "transposes to the Queen's Gambit Declined.", "an inaccuracy; 17.Bg5 was stronger.", "!! (the engine disagrees)",
+  "he overlooked the fork on c7.", "theory ends here.", "draw offered; declined.", "= (equal)", "?? — hangs the rook.",
+];
+
+// Deterministic: returns an aside for paragraph `i` of a post, or "" for most.
+export function asideFor(postId, i) {
+  const h = hash(postId + ":" + i);
+  return h % 4 === 0 ? ASIDES[(h >>> 3) % ASIDES.length] : "";
+}

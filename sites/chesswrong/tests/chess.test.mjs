@@ -18,3 +18,14 @@ test("falls back to a chess tag, before trailing punctuation", () => {
 test("long all-caps words stay shouted", () => {
   assert.equal(chessify("MISTAKES were made").title, "BLUNDERS were made");
 });
+
+import { chessifyText, asideFor } from "../public/lib/chess.js";
+
+test("body text swaps words but never appends a tag", () => {
+  assert.equal(chessifyText("Zxqv blorp."), "Zxqv blorp.");
+  assert.equal(chessifyText("We made a mistake."), "We made a blunder.");
+});
+
+test("asides are deterministic", () => {
+  assert.equal(asideFor("abc", 3), asideFor("abc", 3));
+});

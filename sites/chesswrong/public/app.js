@@ -85,7 +85,7 @@ function render() {
   for (const p of rows.slice(0, shown)) {
     const li = document.createElement("li");
     const a = document.createElement("a");
-    a.className = "t"; a.href = p.url; a.target = "_blank"; a.rel = "noopener"; a.textContent = p.title;
+    a.className = "t"; a.href = `/read?id=${p.id}`; a.textContent = p.title;
     li.append(a);
     if (showOrig) {
       const o = document.createElement("div");
