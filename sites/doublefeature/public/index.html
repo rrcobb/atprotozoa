@@ -233,6 +233,7 @@
             <input type="text" id="labelA" autocomplete="off" spellcheck="false" maxlength="80" placeholder="caption for this clip" />
           </div>
           <label class="mute-row"><input type="checkbox" id="muteA" /> muted</label>
+          <label class="mute-row"><input type="checkbox" id="hideControlsA" /> hide player controls</label>
         </div>
       </div>
 
@@ -262,6 +263,7 @@
             <input type="text" id="labelB" autocomplete="off" spellcheck="false" maxlength="80" placeholder="caption for this clip" />
           </div>
           <label class="mute-row"><input type="checkbox" id="muteB" /> muted</label>
+          <label class="mute-row"><input type="checkbox" id="hideControlsB" /> hide player controls</label>
         </div>
       </div>
     </div>
@@ -302,8 +304,8 @@ let lastSrc = { a: "", b: "" };
 
 function encodeState(s) {
   const json = JSON.stringify({
-    a: { i: s.a.id, s: s.a.start || 0, e: s.a.end || 0, m: !!s.a.mute, l: s.a.label || "" },
-    b: { i: s.b.id, s: s.b.start || 0, e: s.b.end || 0, m: !!s.b.mute, l: s.b.label || "" },
+    a: { i: s.a.id, s: s.a.start || 0, e: s.a.end || 0, m: !!s.a.mute, ...(s.a.hideControls ? { c: 0 } : {}), l: s.a.label || "" },
+    b: { i: s.b.id, s: s.b.start || 0, e: s.b.end || 0, m: !!s.b.mute, ...(s.b.hideControls ? { c: 0 } : {}), l: s.b.label || "" },
   });
   const bytes = new TextEncoder().encode(json);
   let bin = "";
@@ -320,8 +322,8 @@ function decodeState(str) {
     const obj = JSON.parse(new TextDecoder().decode(bytes));
     if (!obj || !obj.a || !obj.b || !obj.a.i || !obj.b.i) return null;
     return {
-      a: { id: obj.a.i, start: obj.a.s || 0, end: obj.a.e || 0, mute: !!obj.a.m, label: obj.a.l || "" },
-      b: { id: obj.b.i, start: obj.b.s || 0, end: obj.b.e || 0, mute: !!obj.b.m, label: obj.b.l || "" },
+      a: { id: obj.a.i, start: obj.a.s || 0, end: obj.a.e || 0, mute: !!obj.a.m, hideControls: obj.a.c === 0, label: obj.a.l || "" },
+      b: { id: obj.b.i, start: obj.b.s || 0, end: obj.b.e || 0, mute: !!obj.b.m, hideControls: obj.b.c === 0, label: obj.b.l || "" },
     };
   } catch (_) {
     return null;
@@ -383,7 +385,7 @@ function formatTime(sec) {
 
 // --- rendering -----------------------------------------------------------
 function embedSrc(cfg) {
-  let src = `https://www.youtube.com/embed/${cfg.id}?rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&mute=${cfg.mute ? 1 : 0}`;
+  let src = `https://www.youtube.com/embed/${cfg.id}?rel=0&modestbranding=1&playsinline=1&iv_load_policy=3&mute=${cfg.mute ? 1 : 0}&controls=${cfg.hideControls ? 0 : 1}`;
   if (cfg.start) src += `&start=${cfg.start}`;
   if (cfg.end) src += `&end=${cfg.end}`;
   return src;
@@ -402,6 +404,7 @@ function render(slot) {
   document.getElementById("end" + slot.toUpperCase()).value = formatTime(cfg.end);
   document.getElementById("label" + slot.toUpperCase()).value = cfg.label || "";
   document.getElementById("mute" + slot.toUpperCase()).checked = !!cfg.mute;
+  document.getElementById("hideControls" + slot.toUpperCase()).checked = !!cfg.hideControls;
   refreshShare();
 }
 function renderAll() { render("a"); render("b"); }
@@ -439,6 +442,7 @@ for (const slot of ["a", "b"]) {
   const endEl = document.getElementById("end" + S);
   const labelEl = document.getElementById("label" + S);
   const muteEl = document.getElementById("mute" + S);
+  const hideControlsEl = document.getElementById("hideControls" + S);
 
   const applyUrl = debounce(() => {
     const parsed = parseYouTubeInput(urlEl.value);
@@ -471,6 +475,11 @@ for (const slot of ["a", "b"]) {
 
   muteEl.addEventListener("change", () => {
     state[slot].mute = muteEl.checked;
+    render(slot);
+  });
+
+  hideControlsEl.addEventListener("change", () => {
+    state[slot].hideControls = hideControlsEl.checked;
     render(slot);
   });
 }
