@@ -3,6 +3,7 @@ import { replayDate, shift, clamp, ymd } from "./clock.js";
 const $ = (id) => document.getElementById(id);
 const todayReal = ymd(Date.now());
 const liveDay = () => clamp(replayDate(ymd(Date.now())), todayReal);
+const FIRST = "2007-01-01"; // matches the date picker's min; LessWrong has nothing earlier
 const PAGE = 20; // comments revealed per click; purely a rendering choice, all are fetched
 let cur = null;
 let comments = [];
@@ -39,10 +40,12 @@ function renderComments() {
 async function load(day) {
   const mine = ++seq;
   cur = clamp(day, todayReal);
+  if (cur < FIRST) cur = FIRST;
   $("date").textContent = new Date(cur + "T00:00:00Z").toLocaleDateString("en-US", { timeZone: "UTC", weekday: "long", year: "numeric", month: "long", day: "numeric" });
   $("pick").value = cur;
   $("live").classList.toggle("on", cur === liveDay());
   $("next").disabled = cur >= todayReal;
+  $("prev").disabled = cur <= FIRST;
   $("posts").textContent = ""; $("comments").textContent = "";
   $("ph").hidden = $("ch").hidden = $("more").hidden = true;
   $("sub").textContent = "";
@@ -88,6 +91,16 @@ function go(day) {
 $("prev").addEventListener("click", () => go(shift(cur, -1)));
 $("next").addEventListener("click", () => go(shift(cur, 1)));
 $("live").addEventListener("click", () => go(liveDay()));
+$("rand").addEventListener("click", () => {
+  const a = Date.parse(FIRST), b = Date.parse(todayReal);
+  go(ymd(a + Math.floor(Math.random() * (b - a))));
+});
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest && e.target.closest("input")) return;
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.key === "ArrowLeft" && !$("prev").disabled) go(shift(cur, -1));
+  if (e.key === "ArrowRight" && !$("next").disabled) go(shift(cur, 1));
+});
 $("more").addEventListener("click", renderComments);
 $("pick").addEventListener("change", (e) => { if (/^\d{4}-\d{2}-\d{2}$/.test(e.target.value)) go(e.target.value); });
 
