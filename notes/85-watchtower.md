@@ -112,7 +112,7 @@ page can't put words in the bot's mouth.
 
 ## Who reads the report
 
-Three consumers, all off-zone fetches of the `workers.dev` hostname:
+Two consumers, all off-zone fetches of the `workers.dev` hostname:
 
 - **The weekly digest** reads `/alerts.json` for "what broke, for how long"
   (`notes/80`). A null read is reported as a gap, never as an all-clear.
@@ -120,27 +120,11 @@ Three consumers, all off-zone fetches of the `workers.dev` hostname:
   the job is enqueued, so "what's broken right now" arrives in the brief as fact
   rather than as something the run has to go find. That's what makes a
   maintenance-only daily pass practical (`notes/80`, daily slot).
-- **The box build** calls `/check?name=` per build, below.
 
-## Wired into the box build
+## Verifying new builds
 
-After `box-build.sh`'s root poll confirms a site is serving, it calls
-`/check?name=<builtName>` once and passes the returned `problems` to
-`reply.mjs` as `ASSET_PROBLEMS`. A non-empty list demotes the reply from
-"built it 🎉 / (it's live)" to "built it — heads up: it's up but not serving
-right", in the same protected paragraph the stale and dead caveats use. The
-list is also recorded on the outcome as `assetProblems`.
-
-The root poll alone passes the failure that broke 110 sites at once — an asset
-served as `text/html` — because the root itself was 200 throughout. This check
-is the one that sees it.
-
-Advisory, never blocking: a watchtower that's unreachable, slow, or that
-doesn't know the site yet leaves `ASSET_PROBLEMS` empty, and the reply reads
-exactly as it did before. It only runs on a verified root, since a stale or
-dead URL is already worse news than a broken asset.
-
-One call at reply time, not a second delayed one. The cron probes sites that
-just appeared on the gallery first (above), so a fresh site is re-checked
-within minutes regardless, and a real break posts its own in-thread alert. A
-delayed second poll would hold the box open to duplicate that.
+Watchtower is the only check that a build actually came up. The build box
+replies as soon as it pushes and doesn't probe the URL. Until 2026-10-04 it
+polled the URL itself and then called `/check?name=`, but its ~90s budget was
+shorter than the deploy, so every new site got a false "couldn't load" caveat.
+The cron's new-sites-first ordering and in-thread alerts cover the same ground.

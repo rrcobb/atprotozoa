@@ -89,15 +89,10 @@ Each tick:
    boundary with a visible marker. Thread fetch and image download are
    best-effort; on failure the build proceeds on what it has.
 4. **Like the tagging post** as a "working on it" ack, guarded by a per-post KV
-   marker so a retry can't stack duplicate likes. When the job will actually
-   *wait* — another job queued ahead of it — the bot also posts a short visible
-   "queued" reply, so a user can tell "not seen" from "working on it". The reply
-   is deleted when the build's outcome lands. Not on every tag: a build that
-   starts immediately answers itself within minutes, and an ack on each round
-   would put filler in the fast iteration threads. Logged as `ackReply`.
-   Mobius mode doesn't add a case of its own, since it only paces when two or
-   more jobs are queued. From 2026-09-17 to 2026-10-04 the ack also fired
-   whenever mobius mode was on, which put a "queued" reply on every tag.
+   marker so a retry can't stack duplicate likes. The like is the only ack; the
+   next post in the thread is the build reply. There used to be a visible
+   "got it — queued" reply as well. A bug made it fire on every tag from
+   2026-09-17, and Rob removed it on 2026-10-04 rather than fix it.
 5. **Enqueue the job** for the box (`USE_BOX_QUEUE = "1"`). The
    `repository_dispatch` path to the GitHub Action is still wired as a fallback;
    see `notes/90`.
@@ -128,25 +123,18 @@ disposition — success links the live URL, a partial invites a re-tag, a failur
 says so honestly. Automatic; no human in the loop. See `notes/90` for how
 disposition is decided and when a job requeues instead of replying.
 
-The celebration is earned, not assumed. "built it 🎉" and "(it's live)" only go
-out when the box confirmed the URL serves (and, on an edit, serves new bytes)
-AND watchtower's `/check?name=` came back without problems. Anything else drops
-the emoji and adds a one-line caveat: the URL never came up, it's up but its
-assets aren't serving, or the url's bytes just didn't change — each ending in
-the same ask, since the fix (if there is one) is another push and the user's way
-to trigger one is a re-tag. The asset case is the one a root fetch can't see;
-see `notes/85`.
+The box replies right after it pushes, without checking the URL. deploy.yml
+takes about 100 seconds from the push, so the link can 404 for a minute or so
+after the reply lands. Watchtower (`notes/85`) is the check that a site actually
+came up: it checks a new site on its next tick and posts in the tagging thread
+if the site is still broken on the following tick.
 
-The byte-identical case is phrased as a hedge, not a diagnosis — it is not proof
-the deploy failed. A url whose output depends on live data (not just the
-deployed code) can read byte-identical on a perfectly good deploy, if nothing in
-the polled window happens to exercise the changed code path. Caught 2026-09-24:
-a logs.bisks.net fix to per-row rendering came back "byte-identical" on two
-separate deploys that had both landed (heika.dog confirmed both), because the
-timeline's most recent rows didn't happen to hit the changed branch. The reply
-used to assert "the deploy didn't land" here, which was simply wrong both times
-it fired — see `builder/reply.mjs` and `builder/box-build.sh` for the corrected
-wording.
+Until 2026-10-04 the box polled the URL itself for ~90s and, on a miss, dropped
+the 🎉 and added "heads up: i couldn't get that url to load". That budget was
+shorter than the deploy, so every new site got the caveat. Rather than tune it,
+Rob removed the box-side check: it duplicated watchtower, and its edit variant
+(compare page bytes before and after the push) was unreliable on pages that
+render live data.
 
 ### 5. The request record
 
@@ -353,7 +341,7 @@ cleared each build like `BUILD_RESULT` and `BUILD_NOTE`.
   thing to link, and linking one swept site would present a batch edit as that
   site's build — the wrong-URL failure mode `SIDE_EFFECT_PATHS_RE` guards
   against, arriving by another route. For the same reason a declared sweep
-  writes no `.buildthis.json` provenance stamp and skips the liveness check.
+  writes no `.buildthis.json` provenance stamp.
 - **It counts as a success.** `status` is `"success"` on the outcome record, so
   a run that pushed real fixes doesn't land in the failure bucket the way a
   `no_build` used to. `/health` counts sweeps separately from builds.

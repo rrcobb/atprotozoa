@@ -716,12 +716,6 @@ async function runWatcher(env: Env): Promise<void> {
         if (requester) await markBuiltFor(env, requester, m.rootUri || m.uri);
       }
 
-      // Say out loud that the build is queued. The like is the other half of
-      // this and fires earlier, but it's easy to miss in a notification feed,
-      // which left users unable to tell a tag the bot never saw from one it's
-      // mid-build on (theme 8). Per-post marker, same as the like.
-      await postQueuedAck(env, session, m);
-
       // Only mark handled if the handoff actually left. A failed one stays
       // un-handled so the next tick retries it.
       await env.STATE.put(handledKey, "1", { expirationTtl: 60 * 60 * 24 * 7 });
@@ -1356,27 +1350,12 @@ interface LogEvent {
   // What the bot said when it closed the gate. Without this the log showed an
   // empty reply for every non-mutual event even though a reply had gone out.
   gateReply?: string;
-  // The visible "queued" acknowledgement, when one was posted. The like alone is
-  // easy to miss, so a user couldn't tell "not seen" from "working on it".
-  ackReply?: string;
-  // The ack's own post uri, when the post succeeded — lets the outcome handler
-  // delete it once the build is done (see "Queued-ack cleanup"). Absent when no
-  // ack was posted, or the post itself failed.
-  ackReplyUri?: string;
   // Filled by the builder's outcome POST. builtName is "<site>" or "<site>/<path>".
   outcome?: {
     status: "success" | "failure";
     builtName?: string;
     url?: string;
     replyText?: string;
-    // Post-deploy liveness result on a success: true = the box confirmed the URL
-    // served; false = it pushed but the URL didn't come up in time (worth a look);
-    // undefined = not a success / older record from before the check existed.
-    liveVerified?: boolean;
-    // What watchtower's /check said about the site right after the root poll
-    // passed (notes/85): a one-line list of asset problems, or absent when it
-    // reported none, was unreachable, or didn't know the site yet.
-    assetProblems?: string;
     // A partial build: a real first pass shipped and is live, but the build ran out
     // of turns (or wall clock) before finishing. The site is continuable by
     // re-tagging the thread. status is still "success" (it IS live); this flags it
@@ -2025,10 +2004,6 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
     // The box asks to requeue instead of retire when the build was incomplete or
     // out of budget and it wants another attempt. The worker enforces the ceiling.
     requeue?: boolean;
-    // Post-deploy liveness result (success only): did the built URL actually serve?
-    liveVerified?: boolean;
-    // Watchtower's asset problems for the built site, if any (notes/85).
-    assetProblems?: string;
     // A partial (shipped-but-unfinished) build, continuable by re-tagging.
     partial?: boolean;
     // The box's own classification — the field to count outcomes on. `status` is a
@@ -2068,8 +2043,6 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
       builtName: body.builtName || undefined,
       url: body.url || undefined,
       replyText: body.replyText || undefined,
-      liveVerified: typeof body.liveVerified === "boolean" ? body.liveVerified : undefined,
-      assetProblems: typeof body.assetProblems === "string" && body.assetProblems ? body.assetProblems.slice(0, 500) : undefined,
       partial: body.partial === true ? true : undefined,
       disposition: body.disposition || undefined,
       maintenance: body.maintenance || undefined,
@@ -2082,20 +2055,6 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
     await env.STATE.delete(`${JOB_PREFIX}${body.mentionUri}`);
   } catch {
     // The job ages out on its TTL anyway; a failed delete isn't worth erroring on.
-  }
-  // This IS the outcome landing — clean up this build's own queued ack, if it
-  // got one, per heika.dog's 2026-09-24 ask (see "Queued-ack cleanup"). Only
-  // logs in when there's actually something to delete, so the common case
-  // (the build started immediately and never got an ack) costs nothing extra.
-  try {
-    const raw = await env.STATE.get(`${EVENT_PREFIX}${body.mentionUri}`);
-    const ackReplyUri = raw ? (JSON.parse(raw) as LogEvent).ackReplyUri : undefined;
-    if (ackReplyUri) {
-      const session = await login(env);
-      await deleteOwnPost(session, ackReplyUri);
-    }
-  } catch (err) {
-    console.error(`ack cleanup failed for ${body.mentionUri}: ${err}`);
   }
   return new Response(JSON.stringify({ ok: true }), {
     headers: { "content-type": "application/json" },
@@ -3047,7 +3006,7 @@ function isGateReply(text: string | undefined): boolean {
 //      this shipped.
 //   2. A post by the bot in the mention's ancestor chain that is a direct reply
 //      to a post by this same person, and isn't a gate reply. That's the bot
-//      answering their ask (queued ack, "built it", a question back), which
+//      answering their ask ("built it", a question back), which
 //      covers threads predating the marker. It misses the case where Rob
 //      approved and the bot answered under Rob's post instead — that person
 //      re-gates once and Rob approves again, which is today's behaviour.
@@ -3101,9 +3060,7 @@ async function builtForInThread(
 
 // `mentions` maps each @handle that appears in `text` to its DID, so the tag
 // resolves to a real facet. Replies with no tags pass {} and get no facets.
-// Returns the created post's own strongRef on success, undefined on failure —
-// callers that need to delete this reply later (the queued ack) use it; the
-// gate reply doesn't and just ignores it.
+// Returns the created post's own strongRef on success, undefined on failure.
 async function replyToPost(
   session: Session,
   m: Mention,
@@ -3139,119 +3096,6 @@ async function replyToPost(
     return undefined;
   }
   return (await res.json()) as { uri: string; cid: string };
-}
-
-// --- Queued acknowledgement -------------------------------------------
-//
-// The like is the bot's "seen it" signal, but a like is easy to miss in a busy
-// notification feed, so a user waiting on a build can't tell a tag that was
-// never seen from one that's mid-build (theme 8 of the issue-themes note). This
-// is the visible half of that: a short in-thread reply saying the build is
-// queued.
-//
-// Not on every tag. A build that starts immediately answers itself within
-// minutes, and posting an ack on each one would put a filler post in every
-// round of the long iteration threads that are the bot's best output. So the
-// ack only goes out when the job will actually WAIT: something is already in
-// the queue ahead of it. That's exactly the case where silence is ambiguous.
-const ACK_MIN_QUEUE_AHEAD = 1;
-
-// How many jobs are waiting ahead of this one. Counts `queued` only — a
-// `claimed` job is the one being built right now, which is the normal state and
-// not a wait. Returns 0 on any failure, so a KV hiccup means no ack rather than
-// a spurious one.
-async function queuedJobsAhead(env: Env, mentionUri: string): Promise<number> {
-  try {
-    let count = 0;
-    let cursor: string | undefined;
-    do {
-      const page = await env.STATE.list({ prefix: JOB_PREFIX, cursor });
-      for (const k of page.keys) {
-        if (k.name === `${JOB_PREFIX}${mentionUri}`) continue; // this job itself
-        const raw = await env.STATE.get(k.name);
-        if (!raw) continue;
-        try {
-          if ((JSON.parse(raw) as QueueJob).status === "queued") count++;
-        } catch {
-          continue;
-        }
-      }
-      if (page.list_complete) break;
-      cursor = page.cursor;
-    } while (cursor);
-    return count;
-  } catch (err) {
-    console.error(`queuedJobsAhead failed: ${err}`);
-    return 0;
-  }
-}
-
-// Post the queued ack, if this job is going to wait. Guarded by a per-post
-// marker like the like, so a re-tick can't stack duplicates. Best-effort
-// throughout: a failed ack must never affect the build that was just
-// dispatched.
-async function postQueuedAck(
-  env: Env,
-  session: Session,
-  m: Mention,
-): Promise<void> {
-  try {
-    const ackKey = `acked:${m.uri}`;
-    if (await env.STATE.get(ackKey)) return;
-
-    const ahead = await queuedJobsAhead(env, m.uri);
-    // No separate case for mobius mode: it only paces when more than one job is
-    // queued (see handleNextJob), which is the ahead >= 1 case already. A lone
-    // job is served on the next poll. An earlier version acked whenever mobius
-    // was on, which with MOBIUS_INTERVAL_MINUTES set meant a "queued" reply on
-    // every tag from 2026-09-17 to 2026-10-04.
-    if (ahead < ACK_MIN_QUEUE_AHEAD) return;
-
-    const ackReply =
-      ahead === 1
-        ? `got it — queued behind one other build, i'll reply here when it's live.`
-        : `got it — queued behind ${ahead} other builds, i'll reply here when it's live.`;
-    const ackPost = await replyToPost(session, m, ackReply);
-    await env.STATE.put(ackKey, "1", { expirationTtl: 60 * 60 * 24 * 30 });
-    // ackReplyUri lets handleOutcomePost delete this reply once the build is
-    // done (see "Queued-ack cleanup") — absent if the post itself failed.
-    await recordEvent(env, m.uri, { ackReply, ackReplyUri: ackPost?.uri });
-  } catch (err) {
-    console.error(`postQueuedAck failed for ${m.uri}: ${err}`);
-  }
-}
-
-// --- Queued-ack cleanup ------------------------------------------------
-//
-// heika.dog, 2026-09-24: the queued ack above is a fine thing to say WHILE a
-// build waits, but leaving it sitting in the thread once the real reply has
-// landed next to it is just clutter. handleOutcomePost deletes a build's own
-// ack the moment its outcome lands (the ack's uri rides on the event record
-// via ackReplyUri, set above). A one-time backlog sweep for acks that
-// predated ackReplyUri also lived here; heika.dog asked (2026-09-24, same
-// thread) to keep this per-build delete but drop that whole-profile sweep,
-// so it's gone.
-
-// Delete `uri` from the bot's OWN repo. Silently refuses (rather than throws)
-// on anything that isn't a post uri or isn't owned by this session's did —
-// same guard builder/post-reply.mjs's admin delete uses; a cleanup helper is
-// exactly the wrong place to ever touch someone else's record.
-async function deleteOwnPost(session: Session, uri: string): Promise<void> {
-  const m = uri.match(/^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/]+)$/);
-  if (!m) return;
-  const [, did, rkey] = m;
-  if (did !== session.did) return;
-  const res = await fetch(`${PDS}/xrpc/com.atproto.repo.deleteRecord`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${session.accessJwt}`,
-    },
-    body: JSON.stringify({ repo: session.did, collection: "app.bsky.feed.post", rkey }),
-  });
-  if (!res.ok) {
-    console.error(`deleteOwnPost failed for ${uri}: ${res.status} ${await res.text()}`);
-  }
 }
 
 // Like a post — the bot's "working on it" acknowledgement. Creates an
@@ -3639,10 +3483,6 @@ interface HealthSnapshot {
     // Deliberate non-builds ("nothing to build here") — not failures.
     declined: number;
   };
-  deadLinks: string[]; // recent successes whose URL didn't serve after deploy
-  // Recent successes this Worker couldn't verify either way — a same-zone probe
-  // returns 522 regardless of whether the site is up. Reported, but not an issue.
-  unverifiable: string[];
   issues: string[]; // human-readable list of what's wrong (empty when ok)
 }
 
@@ -3696,14 +3536,6 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
     partials = 0,
     sweeps = 0,
     declined = 0;
-  // Candidates for the dead-link check: recent successes the box couldn't verify
-  // live at build time (liveVerified===false). But that's often just new-custom-
-  // -domain lag — the cert/DNS provisions a minute or two after the box's 90s
-  // window (favstar and mahjong-solitaire both did this, then came up fine). So we
-  // don't flag on the stored flag alone; we RE-PROBE the URL live below and only
-  // flag the ones STILL down. undefined liveVerified = older record from before the
-  // check existed — not a candidate.
-  const deadLinkCandidates: Array<{ name: string; url: string }> = [];
   for (const e of recentWindow) {
     if (e.outcome?.status === "success") {
       successes++;
@@ -3714,12 +3546,6 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
       // how much of the recent output went to fixing rather than making — the
       // whole point of letting the daily slot choose maintenance (notes/80).
       if (e.outcome.disposition === "maintenance") sweeps++;
-      if (e.outcome.liveVerified === false && e.outcome.builtName) {
-        deadLinkCandidates.push({
-          name: e.outcome.builtName,
-          url: canonicalUrl(e.outcome.builtName, e.outcome.url),
-        });
-      }
     } else if (e.outcome?.status === "failure") {
       // "Nothing to build here" is a deliberate, correct outcome — the bot looked
       // and chose not to build (a decline) or had nothing to build in the first
@@ -3730,39 +3556,6 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
       if (e.outcome.disposition === "no_build" || e.outcome.disposition === "reaction") declined++;
       else failures++;
     }
-  }
-
-  // Re-probe each candidate live: a site that serves NOW has recovered (new-domain
-  // provisioning lag), so it isn't a real dead link. Bounded work — the candidate
-  // set is tiny (recent unverified successes).
-  //
-  // A Worker cannot reliably probe its OWN zone. A subrequest from here to
-  // <name>.bisks.net gets routed internally and comes back 522 ("connection
-  // timed out") even while the site serves 200 to the outside world. Verified
-  // 2026-07-31: canvass, gridlock, mootree, simcluster-guests and aphoverb were
-  // all reported dead within an hour of shipping fine, and every probe returned
-  // exactly 522. cf.resolveOverride does not work around it.
-  //
-  // So 522 (and a network-level throw) means UNKNOWN, not dead. Reporting a
-  // healthy site as broken trains everyone to ignore this endpoint, which is
-  // worse than staying quiet — the point is to catch real "looks fine, isn't"
-  // failures, and a permanently-red check catches nothing.
-  const deadLinks: string[] = [];
-  const unverifiable: string[] = [];
-  for (const c of deadLinkCandidates) {
-    let status: number | null = null;
-    try {
-      // Bounded wait: an on-zone probe can hang open indefinitely (same
-      // self-zone flakiness as the 522s above) and would take /health down
-      // with it. A timeout means UNKNOWN, same as a network-level throw.
-      const r = await fetch(c.url, { method: "GET", redirect: "manual", signal: AbortSignal.timeout(5000) });
-      status = r.status;
-    } catch {
-      status = null; // network-level failure or probe timeout
-    }
-    if (status !== null && status >= 200 && status < 400) continue; // live
-    if (status === 522 || status === null) unverifiable.push(c.name);
-    else deadLinks.push(c.name);
   }
 
   // Roll up the issues. `ok` is false if any of these fire.
@@ -3776,7 +3569,6 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
   }
   if (orphans > 0) issues.push(`${orphans} orphaned job(s) stuck claimed >${ORPHAN_AGE_MS / 60000}min`);
   if (backlog) issues.push(`queue backlog: ${queued} waiting (>${QUEUE_BACKLOG_WARN})`);
-  if (deadLinks.length) issues.push(`${deadLinks.length} recent build(s) pushed but not live: ${deadLinks.join(", ")}`);
 
   return {
     ok: issues.length === 0,
@@ -3791,8 +3583,6 @@ async function computeHealth(env: Env): Promise<HealthSnapshot> {
     },
     orphans,
     recent: { window: recentWindow.length, successes, failures, partials, sweeps, declined },
-    deadLinks,
-    unverifiable,
     issues,
   };
 }
@@ -3875,8 +3665,6 @@ function renderHealthPage(s: HealthSnapshot): string {
     ${row("shipped", `${s.recent.successes}${s.recent.partials ? ` (${s.recent.partials} a first pass)` : ""}`)}
     ${s.recent.declined ? row("nothing to build", String(s.recent.declined)) : ""}
     ${row("failed", String(s.recent.failures))}
-    ${row("pushed but not live", `${dot(s.deadLinks.length === 0)} ${s.deadLinks.length}${s.deadLinks.length ? " (" + s.deadLinks.join(", ") + ")" : ""}`)}
-    ${(s.unverifiable || []).length ? row("couldn't verify (same-zone probe)", `${(s.unverifiable || []).length} (${(s.unverifiable || []).join(", ")}) — watchtower checks these from off-zone`) : ""}
   </table>
   <footer>
     machine-readable at <a href="/health">/health</a> ·

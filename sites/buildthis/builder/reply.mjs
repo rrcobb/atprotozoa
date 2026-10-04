@@ -17,17 +17,6 @@
 //                     (with BUILD_RESULT's url appended, if set) otherwise.
 //                     Always fit to 300 graphemes, keeping the url whole and
 //                     guaranteeing the note at least MIN_NOTE graphemes.
-//   LIVE_STATUS    -> box-build.sh's post-deploy check: "verified" (the url serves
-//                     and, for an edit, serves new bytes), "stale" (2xx but
-//                     byte-identical to before the push — the deploy didn't land),
-//                     or "dead" (never served). Picks the reply's caveat, so the
-//                     bot stops saying "give the deploy a minute" when it knows
-//                     better. Empty for non-shipping dispositions.
-//   ASSET_PROBLEMS -> what watchtower said when asked about this site right after
-//                     a verified root ("/check?name="). Non-empty means the page
-//                     loads but something a root fetch can't see is wrong — an
-//                     asset served as HTML, say. Advisory: empty also means the
-//                     call failed or wasn't made, and the reply reads as before.
 //   MENTION_URI    -> the tagging post's uri; keys the event-log outcome POST
 //                     AND the request record's rkey (see request-record.mjs)
 //   BRIEF, AUTHOR  -> the request text and the requester's handle, for the
@@ -119,13 +108,6 @@ async function main() {
   const result = (process.env.BUILD_RESULT || "").trim();
   const note = (process.env.BUILD_NOTE || "").trim();
   const partial = (process.env.BUILD_ERROR || "").trim() === "partial";
-  const liveStatus = (process.env.LIVE_STATUS || "").trim();
-  // watchtower's off-zone verdict for this site, asked once after the root verify
-  // passed (box-build.sh). Non-empty means it fetched the site and found something
-  // wrong that a root fetch can't see — an asset coming back as HTML is the one
-  // that broke 110 sites at once. Empty covers both "checked, fine" and "couldn't
-  // reach watchtower": the check is advisory, so no answer changes nothing.
-  const assetProblems = (process.env.ASSET_PROBLEMS || "").trim();
   // A declared maintenance pass: the run swept/repaired across the fleet instead
   // of building one thing. box-build.sh sets DISPOSITION=maintenance and passes
   // the agent's own one-line summary here. See notes/80's daily-slot section —
@@ -162,73 +144,17 @@ async function main() {
     // The partial's whole point is that the work is preserved and CONTINUABLE: the
     // template invites a re-tag on this thread to keep building it (which runs as a
     // normal edit against the now-live site — no special resume machinery).
-    // The tail is honest about whether the URL actually serves the new build.
-    // box-build.sh polls for up to 240s and reports LIVE_STATUS: "verified" (serving,
-    // and for an edit serving genuinely new bytes), "stale" (2xx but byte-identical
-    // to before the push), or "dead" (never served).
-    // Previously every one of these got "(give the deploy a minute to go live)",
-    // which reads as reassurance and was wrong exactly when the user most needed
-    // the truth: 90 of 361 successes in the 30-day log were never verified live.
-    //
-    // "stale" is NOT proof the deploy failed — it only means this one url's bytes
-    // didn't change, which also happens on a successful deploy whose change isn't
-    // visible at that url (a data-driven page where no row in the polled window
-    // exercises the changed code, say). Caught 2026-09-24: a logs.bisks.net fix to
-    // per-row rendering read "stale" twice in a row on TWO deploys that both
-    // landed fine (heika.dog confirmed both), because the timeline's most recent
-    // rows didn't happen to hit the changed branch. The caveat below hedges
-    // instead of asserting "the deploy didn't land" — that phrasing was flatly
-    // wrong both times it fired here, and the honest claim the evidence supports
-    // is "couldn't confirm," not "confirmed broken."
-    //
-    // Neither caveat tells the user to just wait. A failed deploy on this repo is
-    // SILENT AND PERMANENT — there is no retry, the site goes on serving its last
-    // good build indefinitely, and the only signal is a red Actions run (found by
-    // the 2026-09-17 Cloudflare audit). So "give it a few minutes" would be false
-    // comfort for the case that needs action: the fix is another push, which for
-    // a user means re-tagging.
-    // Joined to the headline with a SINGLE newline, so it stays inside the tail's
-    // protected first paragraph rather than becoming a sheddable one of its own.
-    // A verified root plus watchtower problems is its own case: the page loads, so
-    // "i couldn't get that url to load" would be wrong, but the site is visibly
-    // broken to anyone who opens it. Say what's true — it shipped, it's not working
-    // — in the same protected paragraph the stale/dead caveats use, and with the
-    // same action: another push, which for the user means re-tagging. The specific
-    // problem strings are watchtower's own words about the fetch, not site content,
-    // so they're safe to omit here; the thread gets the detail from watchtower's
-    // own alert if the break is real.
-    const caveat =
-      liveStatus === "verified"
-        ? assetProblems
-          ? `\nheads up: it's up but not serving right — looks like its assets are broken. tag me and i'll push a fix.`
-          : ""
-        : liveStatus === "stale"
-          ? `\nheads up: that link still looks byte-identical to before i pushed — might mean the deploy didn't land, might just mean this change doesn't show up on that exact page. tag me if it looks off and i'll dig in.`
-          : `\nheads up: i couldn't get that url to load after building it. tag me and i'll take another run at it.`;
-    // "built it 🎉" next to "the deploy didn't land" reads as the bot not knowing
-    // what happened. When the url isn't confirmed, state what was done without the
-    // celebration and let the caveat carry the news.
-    // fitToLimit sheds tail paragraphs from the END to keep the note whole, and
-    // never sheds the first. So the url line and the caveat are JOINED into that
-    // protected first paragraph: the caveat is news the user acts on (the link
-    // doesn't work), and losing it would leave a broken link presented as a
-    // finished build — worse than the truncation this whole change is fixing.
-    // "not fully done; tag me here" is predictable boilerplate and sits in the
-    // second paragraph, which is what gets dropped under pressure.
-    // "shipped" gates the celebration AND the "(it's live)" line. Broken assets
-    // disqualify a build from both for the same reason a dead url does: the user
-    // opens it and it doesn't work. The caveat above carries the news instead.
-    const shipped = liveStatus === "verified" && !assetProblems;
-    const headline = partial
-      ? `got a first pass up${shipped ? " 🚧" : ""} — ${url}`
-      : `built it${shipped ? " 🎉" : ""} — ${url}`;
-    const template = shipped
-      ? partial
-        ? `${headline}\n\nnot fully done; tag me here to keep building it.`
-        : `${headline}\n\n(it's live)`
-      // Unverified: caveat rides in the protected paragraph. On a partial it also
-      // carries the "tag me" ask, so the invitation would only repeat it.
-      : `${headline}${caveat}`;
+    // No liveness caveat. The box used to poll the url after pushing and hedge the
+    // reply when it couldn't confirm the deploy, but its ~90s budget was shorter
+    // than deploy.yml, so every new site got "couldn't get that url to load". It
+    // was removed 2026-10-04: watchtower checks new sites on its next tick and
+    // posts in this thread if one is really broken (notes/85).
+    // "not fully done; tag me here" sits in the second paragraph, which
+    // fitToLimit sheds first when the note is long.
+    const headline = partial ? `got a first pass up 🚧 — ${url}` : `built it 🎉 — ${url}`;
+    const template = partial
+      ? `${headline}\n\nnot fully done; tag me here to keep building it.`
+      : headline;
     // Optional: the agent's own short line about what it built, in its voice.
     // Prepended to the template. The tagger is always one of Rob's mutuals, so we
     // trust the phrasing — the only mechanical constraint is Bluesky's 300-grapheme
@@ -302,11 +228,7 @@ async function main() {
   // `requeue` tells the worker to put the job back on the queue instead of retiring
   // it (see REQUEUE in box-build.sh); `posted` records whether we actually replied.
   const requeue = process.env.REQUEUE === "true";
-  // Whether box-build.sh confirmed the site actually served after deploy. Logged on
-  // the outcome so /health and the timeline can flag a build that pushed but never
-  // came up (a broken deploy) vs. one verified live.
-  const liveVerified = process.env.LIVE_VERIFIED === "true";
-  await reportOutcome({ ok, result, url, text, requeue, posted: !skipReply, liveVerified, liveStatus, partial, assetProblems, maintenance, isMaintenance });
+  await reportOutcome({ ok, result, url, text, requeue, posted: !skipReply, partial, maintenance, isMaintenance });
 }
 
 // Count graphemes, not UTF-16 code units — Bluesky's 300 limit is graphemes, so
@@ -402,7 +324,7 @@ function fitToLimit(head, tail, limit, minHead = 0) {
 // a log line) if the endpoint or secret isn't configured, so an unconfigured or
 // briefly-down log sink never fails the build. Non-2xx and network errors are
 // logged and swallowed for the same reason.
-async function reportOutcome({ ok, result, url, text, requeue = false, posted = true, liveVerified = false, liveStatus = "", partial = false, assetProblems = "", maintenance = "", isMaintenance = false }) {
+async function reportOutcome({ ok, result, url, text, requeue = false, posted = true, partial = false, maintenance = "", isMaintenance = false }) {
   const endpoint = process.env.OUTCOME_URL;
   const secret = process.env.OUTCOME_SECRET;
   const mentionUri = process.env.MENTION_URI;
@@ -434,23 +356,12 @@ async function reportOutcome({ ok, result, url, text, requeue = false, posted = 
     // Ask the worker to requeue this job (bump attempts, back to queued) rather
     // than retire it. The worker enforces the attempt ceiling; this is the request.
     requeue: requeue || undefined,
-    // Post-deploy liveness result (success builds only). false here on a success
-    // means "pushed but the URL didn't serve in time" — a signal worth surfacing.
-    liveVerified: ok && result ? liveVerified : undefined,
-    // Why the liveness check came out that way: "verified" | "stale" | "dead".
-    // liveVerified collapses stale and dead into one false, but they mean very
-    // different things — a stale edit deployed nothing, a dead url never came up.
-    liveStatus: liveStatus || undefined,
     // Unfinished-but-live: a first pass shipped, continuable by re-tagging.
     partial: partial || undefined,
     // The sweep's own one-line summary ("swept handle-typeahead.js onto 9 sites").
     // Stands in for builtName on a run that edited many sites and named none, so
     // the timeline and the digest have something to show.
     maintenance: maintenance || undefined,
-    // What watchtower found wrong when asked about this site right after the
-    // deploy — a root fetch can pass while an asset serves as HTML. Absent means
-    // either clean or not asked; the check is advisory and never blocks the reply.
-    assetProblems: assetProblems || undefined,
   };
   try {
     const res = await fetch(endpoint, {

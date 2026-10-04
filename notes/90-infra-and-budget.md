@@ -217,7 +217,7 @@ reply + queue act on it:
   only by that declaration — both pushed — and a sweep's derived name would be
   whichever swept site happened to have the most changed files, which the reply
   would then present as "the site I built". For the same reason a declared sweep
-  writes no provenance stamp and skips the liveness check. Counted as
+  writes no provenance stamp. Counted as
   `status: "success"` on the outcome. The daily slot is explicitly allowed to
   spend its whole run this way; see `notes/80`.
 - **usage_limit** — out of subscription budget. Honest "out of budget, back soon"
@@ -330,7 +330,7 @@ endpoints are the escape hatch if that changes.
   `issues` list when one of its checks trips. `/health.html` is the same, for
   eyeballing. It answers "are jobs flowing?" — it knows nothing about the box's
   internals (auth, disk, systemd unit state, the `claude` CLI); for those, log
-  into the box. The four checks:
+  into the box. The three checks:
   - **box alive** — did the box poll `/next-job` within 12 min? (It polls every 15s
     *when idle*; during a build it's heads-down, hence the wide window — a build can
     run ~10 min. A dead box trips this AND the orphan check below.)
@@ -338,8 +338,6 @@ endpoints are the escape hatch if that changes.
     backlog (>8 waiting) means arrivals are outpacing the one box.
   - **orphans** — jobs stuck `claimed` >30 min (a build that died without reporting;
     this is what the day-old orphaned job would have shown up as).
-  - **pushed-but-not-live** — recent successes whose URL didn't serve after deploy
-    (`liveVerified:false`); the favstar-class dead-link signal.
   - It's public + read-only (no secrets, just counts), so an uptime check or a cron
     can watch `.ok` without a token.
 - Box loop: `journalctl -u buildthis-poll -f` on the box.
@@ -361,13 +359,12 @@ defenses now in place:
 - **Success = the push actually landed on main** (HEAD moved past the pre-build
   SHA), not "a `BUILD_RESULT` file exists." A staged-but-uncommitted build can't be
   reported live. (`box-build.sh`)
-- **Post-deploy liveness check** — after a success pushes, the box polls the target
-  URL until it serves (bounded at 240s from the push) *before* replying. The
-  result (`liveVerified`) is logged on the outcome; a build that pushed but never
-  came up is flagged in `/health`, not linked as a 404. The budget was ~90s until
-  2026-10-04, shorter than deploy.yml's ~100s from push to `wrangler deploy`
-  finishing, so every new site got the "couldn't get that url to load" caveat
-  even though it came up seconds later.
+- **Did the site come up** — watchtower's job, not the box's (`notes/85`). It
+  checks a site new to the gallery on its next tick and posts in the tagging
+  thread if it's broken twice in a row. The box used to poll the URL itself
+  before replying and record `liveVerified` on the outcome. That was removed
+  2026-10-04: its ~90s budget was shorter than deploy.yml's ~100s, so every new
+  site got a false "couldn't get that url to load", and it duplicated watchtower.
 - **Scratch files cleared every build** — `BUILD_RESULT`/`BUILD_NOTE` are gitignored,
   so `git clean` skips them; they're now `rm`'d at the start of every build so a
   stale note can't leak into a later reply.

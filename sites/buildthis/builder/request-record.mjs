@@ -108,7 +108,6 @@ export function buildRequestRecord({
   siteUrl,
   edit,
   commit,
-  liveStatus,
   requestedAt,
   builtAt,
   maintenance,
@@ -136,7 +135,6 @@ export function buildRequestRecord({
   if (siteUrl) rec.siteUrl = siteUrl;
   if (typeof edit === "boolean") rec.edit = edit;
   if (commit) rec.commit = commit;
-  if (liveStatus) rec.liveStatus = liveStatus;
   if (maintenance) rec.maintenance = clamp(maintenance, 300);
   if (requestedAt) rec.requestedAt = requestedAt;
   if (builtAt) rec.builtAt = builtAt;
@@ -185,7 +183,6 @@ export async function writeRequestRecord(session, env, extra = {}) {
     site: (env.BUILD_RESULT || "").trim() || undefined,
     edit: env.BUILD_IS_EDIT ? env.BUILD_IS_EDIT === "true" : undefined,
     commit: (env.BUILD_COMMIT || "").trim() || undefined,
-    liveStatus: (env.LIVE_STATUS || "").trim() || undefined,
     maintenance: (env.BUILD_MAINTENANCE || "").trim() || undefined,
     requestedAt: await postCreatedAt(postUri),
     builtAt: new Date().toISOString(),
