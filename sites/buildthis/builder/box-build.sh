@@ -711,7 +711,7 @@ fi
 
 # Post-deploy liveness check: the bot's whole promise is "it's live at <url>", so
 # verify that's TRUE before saying it. On a success, poll the target URL until it
-# serves (deploy.yml + Cloudflare take ~40s), bounded. This is the belt-and-braces
+# serves (deploy.yml + Cloudflare take ~100s), bounded. This is the belt-and-braces
 # for favstar-class misses: even if some future bug lets an unshipped build read as
 # pushed, a dead URL is caught here and recorded, instead of the bot cheerfully
 # linking a 404. LIVE_VERIFIED is passed to reply.mjs → logged on the outcome, so
@@ -743,23 +743,29 @@ LIVE_VERIFIED=""
 LIVE_STATUS=""
 if { [ "$DISPOSITION" = "success" ] || [ "$DISPOSITION" = "partial" ]; } && [ -n "$LIVE_URL" ]; then
   echo "=== verify live: $LIVE_URL ==="
-  # ~90s budget (deploy is usually <60s). New custom domains can take longer to
-  # provision a cert; a miss here isn't fatal — it's recorded, and the reply still
-  # goes out, now saying what actually happened.
+  # 240s budget, measured from the push. deploy.yml takes ~100s end to end: the
+  # deploy job starts ~55s after the push (checkout, install, check job) and
+  # `wrangler deploy` takes ~45s more, longer when it queues behind the previous
+  # push's run. The budget used to be ~90s, which lost that race on every new
+  # site from 2026-09-23 to 2026-10-04 — each one got the "couldn't get that url
+  # to load" caveat about 10s before its deploy finished. A miss here isn't fatal
+  # — it's recorded, and the reply still goes out, saying what actually happened.
+  LIVE_BUDGET_S=240
+  LIVE_START=$SECONDS
   CODE=000
-  for i in $(seq 1 9); do
+  while [ $((SECONDS - LIVE_START)) -lt "$LIVE_BUDGET_S" ]; do
     BODY_FILE="$(mktemp /tmp/buildthis-live.XXXXXX)"
     CODE="$(curl -s -o "$BODY_FILE" -w '%{http_code}' --max-time 8 "$LIVE_URL" 2>/dev/null || echo 000)"
     if [ "$CODE" -ge 200 ] 2>/dev/null && [ "$CODE" -lt 400 ] 2>/dev/null; then
       if [ -z "$PRE_DEPLOY_HASH" ]; then
         LIVE_VERIFIED="true"; LIVE_STATUS="verified"
-        echo "  live ($CODE) after ~$((i*10))s — new site, no baseline needed"
+        echo "  live ($CODE) after ~$((SECONDS - LIVE_START))s — new site, no baseline needed"
         rm -f "$BODY_FILE"; break
       fi
       NOW_HASH="$(sha256sum < "$BODY_FILE" | cut -d' ' -f1)"
       if [ "$NOW_HASH" != "$PRE_DEPLOY_HASH" ]; then
         LIVE_VERIFIED="true"; LIVE_STATUS="verified"
-        echo "  live ($CODE) after ~$((i*10))s — content changed, new bytes confirmed"
+        echo "  live ($CODE) after ~$((SECONDS - LIVE_START))s — content changed, new bytes confirmed"
         rm -f "$BODY_FILE"; break
       fi
       # 2xx but byte-identical: the old page. Keep polling — the deploy may land
@@ -774,7 +780,7 @@ if { [ "$DISPOSITION" = "success" ] || [ "$DISPOSITION" = "partial" ]; } && [ -n
     if [ "$LIVE_STATUS" = "stale" ]; then
       echo "  serving ($CODE) but byte-identical to pre-deploy — inconclusive: could be a deploy that didn't land, or a change this url's bytes don't reflect either way"
     else
-      echo "  NOT serving within ~90s (last=$CODE) — recorded, reply still sent"
+      echo "  NOT serving within ${LIVE_BUDGET_S}s (last=$CODE) — recorded, reply still sent"
     fi
   fi
 fi

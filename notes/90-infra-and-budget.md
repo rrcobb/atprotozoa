@@ -362,9 +362,12 @@ defenses now in place:
   SHA), not "a `BUILD_RESULT` file exists." A staged-but-uncommitted build can't be
   reported live. (`box-build.sh`)
 - **Post-deploy liveness check** — after a success pushes, the box polls the target
-  URL until it serves (bounded ~90s) *before* replying. The result (`liveVerified`)
-  is logged on the outcome; a build that pushed but never came up is flagged in
-  `/health`, not linked as a 404.
+  URL until it serves (bounded at 240s from the push) *before* replying. The
+  result (`liveVerified`) is logged on the outcome; a build that pushed but never
+  came up is flagged in `/health`, not linked as a 404. The budget was ~90s until
+  2026-10-04, shorter than deploy.yml's ~100s from push to `wrangler deploy`
+  finishing, so every new site got the "couldn't get that url to load" caveat
+  even though it came up seconds later.
 - **Scratch files cleared every build** — `BUILD_RESULT`/`BUILD_NOTE` are gitignored,
   so `git clean` skips them; they're now `rm`'d at the start of every build so a
   stale note can't leak into a later reply.

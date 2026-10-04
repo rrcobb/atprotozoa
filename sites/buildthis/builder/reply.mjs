@@ -163,7 +163,7 @@ async function main() {
     // template invites a re-tag on this thread to keep building it (which runs as a
     // normal edit against the now-live site — no special resume machinery).
     // The tail is honest about whether the URL actually serves the new build.
-    // box-build.sh polls for ~90s and reports LIVE_STATUS: "verified" (serving,
+    // box-build.sh polls for up to 240s and reports LIVE_STATUS: "verified" (serving,
     // and for an edit serving genuinely new bytes), "stale" (2xx but byte-identical
     // to before the push), or "dead" (never served).
     // Previously every one of these got "(give the deploy a minute to go live)",
