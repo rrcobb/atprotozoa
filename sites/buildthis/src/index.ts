@@ -3153,8 +3153,7 @@ async function replyToPost(
 // minutes, and posting an ack on each one would put a filler post in every
 // round of the long iteration threads that are the bot's best output. So the
 // ack only goes out when the job will actually WAIT: something is already in
-// the queue ahead of it, or mobius mode is pacing the backlog. That's exactly
-// the case where silence is ambiguous.
+// the queue ahead of it. That's exactly the case where silence is ambiguous.
 const ACK_MIN_QUEUE_AHEAD = 1;
 
 // How many jobs are waiting ahead of this one. Counts `queued` only — a
@@ -3201,18 +3200,17 @@ async function postQueuedAck(
     if (await env.STATE.get(ackKey)) return;
 
     const ahead = await queuedJobsAhead(env, m.uri);
-    // Mobius mode paces the queue, so even an empty queue means a wait of up to
-    // MOBIUS_INTERVAL_MINUTES before this job is dispensed. That's a wait worth
-    // announcing for the same reason a backlog is.
-    const paced = num(env.MOBIUS_INTERVAL_MINUTES ?? "") > 0;
-    if (ahead < ACK_MIN_QUEUE_AHEAD && !paced) return;
+    // No separate case for mobius mode: it only paces when more than one job is
+    // queued (see handleNextJob), which is the ahead >= 1 case already. A lone
+    // job is served on the next poll. An earlier version acked whenever mobius
+    // was on, which with MOBIUS_INTERVAL_MINUTES set meant a "queued" reply on
+    // every tag from 2026-09-17 to 2026-10-04.
+    if (ahead < ACK_MIN_QUEUE_AHEAD) return;
 
     const ackReply =
-      ahead === 0
-        ? `got it — queued, i'll reply here when it's live.`
-        : ahead === 1
-          ? `got it — queued behind one other build, i'll reply here when it's live.`
-          : `got it — queued behind ${ahead} other builds, i'll reply here when it's live.`;
+      ahead === 1
+        ? `got it — queued behind one other build, i'll reply here when it's live.`
+        : `got it — queued behind ${ahead} other builds, i'll reply here when it's live.`;
     const ackPost = await replyToPost(session, m, ackReply);
     await env.STATE.put(ackKey, "1", { expirationTtl: 60 * 60 * 24 * 30 });
     // ackReplyUri lets handleOutcomePost delete this reply once the build is

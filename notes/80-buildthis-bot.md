@@ -90,11 +90,14 @@ Each tick:
    best-effort; on failure the build proceeds on what it has.
 4. **Like the tagging post** as a "working on it" ack, guarded by a per-post KV
    marker so a retry can't stack duplicate likes. When the job will actually
-   *wait* — something queued ahead of it, or mobius mode pacing the queue — the
-   bot also posts a short visible "queued" reply, so a user can tell "not seen"
-   from "working on it". Not on every tag: a build that starts immediately
-   answers itself within minutes, and an ack on each round would put filler in
-   the fast iteration threads. Logged as `ackReply`.
+   *wait* — another job queued ahead of it — the bot also posts a short visible
+   "queued" reply, so a user can tell "not seen" from "working on it". The reply
+   is deleted when the build's outcome lands. Not on every tag: a build that
+   starts immediately answers itself within minutes, and an ack on each round
+   would put filler in the fast iteration threads. Logged as `ackReply`.
+   Mobius mode doesn't add a case of its own, since it only paces when two or
+   more jobs are queued. From 2026-09-17 to 2026-10-04 the ack also fired
+   whenever mobius mode was on, which put a "queued" reply on every tag.
 5. **Enqueue the job** for the box (`USE_BOX_QUEUE = "1"`). The
    `repository_dispatch` path to the GitHub Action is still wired as a fallback;
    see `notes/90`.
