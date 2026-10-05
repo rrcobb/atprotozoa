@@ -6,7 +6,7 @@ compatibility_date = "2025-01-01"
 #  1. fetch handler  -> serves /.well-known/atproto-did so buildthis.bisks.net
 #     can be verified as the bot's Bluesky handle, plus a static landing page.
 #  2. scheduled handler (cron) -> the watcher: polls the bot's mentions, gates on
-#     Rob + his mutuals, and fires a repository_dispatch to build the idea.
+#     Rob + his mutuals, and enqueues a build job for the builder box.
 assets = { directory = "./public", binding = "ASSETS" }
 
 # Binds the subdomain to the Worker (provisions DNS + cert on deploy).
@@ -62,10 +62,6 @@ ROB_DID = "did:plc:f6n22z62adionrvb5s6n6vfk"
 # buildthis.bisks.net handle switch.
 BOT_IDENTIFIER = "did:plc:wlj4p2kazhifag6w4nanjnee"
 
-# GitHub repo the builder Action lives in, "owner/name". repository_dispatch
-# targets this repo.
-GITHUB_REPO = "rrcobb/atprotozoa"
-
 # Spend is bounded ONLY by dollars (the builder's provider spend cap — see
 # notes/80); there are deliberately no build-count or per-person caps. The one
 # knob here: longest ASSEMBLED brief we'll accept (chars) — instruction plus
@@ -82,12 +78,6 @@ MAX_BRIEF_CHARS = "20000"
 # turning a build into an image-download job.
 MAX_BRIEF_IMAGES = "4"
 
-# "1" => the watcher ENQUEUES builds for the Hetzner box to pull (the live path:
-# builds run on Rob's Claude subscription, always-on, off the laptop). Unset or
-# not "1" => fire the GitHub Action via repository_dispatch (the fallback path).
-# Flip is a one-line deploy; the Action stays wired as an instant fallback.
-USE_BOX_QUEUE = "1"
-
 # Mobius mode (see notes/80-buildthis-bot.md and /mobius): when a burst of tags
 # leaves more than one job queued, /next-job paces releases to at most one every
 # this many minutes instead of draining the backlog back-to-back, so a burst of
@@ -98,6 +88,5 @@ MOBIUS_INTERVAL_MINUTES = "20"
 
 # Secrets (set with `wrangler secret put`, never in this file):
 #   BOT_APP_PASSWORD  -> the bot account's app-password (createSession).
-#   GITHUB_TOKEN      -> a PAT with `repo` scope to fire repository_dispatch (fallback).
 #   OUTCOME_SECRET    -> shared secret the builder presents on POST /outcome.
 #   QUEUE_TOKEN       -> shared secret the box presents on POST /next-job.

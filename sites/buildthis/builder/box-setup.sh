@@ -53,8 +53,8 @@ fi
 sudo chown -R "$BUILDER_USER":"$BUILDER_USER" "$CHECKOUT"
 sudo -u "$BUILDER_USER" git -C "$CHECKOUT" config user.name "buildthis"
 sudo -u "$BUILDER_USER" git -C "$CHECKOUT" config user.email "buildthis@bisks.net"
-# The push URL uses a PAT the same way the Action's checkout does (a PAT push
-# fires deploy.yml; GITHUB_TOKEN would not). The token lives in /etc/buildthis/env
+# The push URL uses a PAT (a PAT push fires deploy.yml; an Actions GITHUB_TOKEN
+# push would not). The token lives in /etc/buildthis/env
 # as BUILDER_PAT and is injected at push time by box-build.sh, NOT baked into the
 # remote here — so it never lands in git config on disk.
 

@@ -4,9 +4,8 @@
 //   fetch()     -> serves /.well-known/atproto-did (Bluesky handle verification)
 //                  and the static landing page for everything else.
 //   scheduled() -> the watcher: every couple minutes, poll the bot's mentions,
-//                  gate on Rob's mutuals + the daily/per-person budget, and fire
-//                  a repository_dispatch that builds the idea. Non-mutuals get a
-//                  one-time reply that tags Rob.
+//                  gate on Rob's mutuals, and enqueue a build job for the
+//                  builder box. Non-mutuals get a one-time reply that tags Rob.
 
 interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
@@ -23,26 +22,20 @@ interface Env {
   BOT_DID: string;
   ROB_DID: string;
   BOT_IDENTIFIER: string;
-  GITHUB_REPO: string;
 
   MAX_BRIEF_CHARS: string;
   MAX_BRIEF_IMAGES: string;
 
   // secrets
   BOT_APP_PASSWORD: string;
-  GITHUB_TOKEN: string;
   // Shared secret the builder presents on POST /outcome so a random caller can't
   // forge build outcomes into the event log. Set with `wrangler secret put
-  // OUTCOME_SECRET` here and `gh secret set OUTCOME_SECRET` for the Action.
+  // OUTCOME_SECRET` here and in the box's /etc/buildthis/env.
   OUTCOME_SECRET: string;
   // Shared secret the builder BOX presents on POST /next-job to claim a build off
   // the queue. Set with `wrangler secret put QUEUE_TOKEN` here + in the box's
   // /etc/buildthis/env. Without it, /next-job rejects (fail closed).
   QUEUE_TOKEN: string;
-  // "1" => the watcher enqueues builds for the box to pull (the live path). Unset
-  // or not "1" => the watcher fires the GitHub Action via repository_dispatch (the
-  // fallback path). A plain var so the cutover is one dashboard toggle, no deploy.
-  USE_BOX_QUEUE?: string;
   // Minutes between dispensed jobs when the queue has a backlog (mobius mode —
   // see the "Build queue" section). "0" or unset disables throttling entirely,
   // restoring the original drain-as-fast-as-possible behavior.
@@ -144,7 +137,7 @@ export default {
       return handleLogsRead(env, url);
     }
 
-    // Outcome sink for the builder (GitHub Action). The build's final step POSTs
+    // Outcome sink for the builder box. The build's final step POSTs
     // its result here — built site name / success|failure / reply text — keyed by
     // the mention uri, so it merges onto the same event the watcher started.
     // Authenticated by a shared secret so a random caller can't forge outcomes.
@@ -692,14 +685,9 @@ async function runWatcher(env: Env): Promise<void> {
       replyParentCid: m.cid,
     };
 
-    // Two paths, selected by the USE_BOX_QUEUE var so the cutover is a toggle:
-    //   box queue (live)  -> enqueue for the Hetzner box to pull and build.
-    //   dispatch (fallback) -> fire the GitHub Action (the original path).
-    // Either way `dispatched` means "the build was successfully handed off."
-    const useQueue = env.USE_BOX_QUEUE === "1";
-    const dispatched = useQueue
-      ? await enqueueJob(env, payload)
-      : await dispatchBuild(env, payload);
+    // Enqueue for the Hetzner box to pull and build. `dispatched` means "the
+    // job was written to the queue."
+    const dispatched = await enqueueJob(env, payload);
 
     // Record whether the handoff actually left, so a failure is visible in the
     // timeline rather than looking like a build that silently never ran.
@@ -814,10 +802,7 @@ Build this idea as a small new site (or a small feature on an existing one), the
   });
   await recordEvent(env, post.uri, { mutual: true });
 
-  const useQueue = env.USE_BOX_QUEUE === "1";
-  const dispatched = useQueue
-    ? await enqueueJob(env, payload)
-    : await dispatchBuild(env, payload);
+  const dispatched = await enqueueJob(env, payload);
   await recordEvent(env, post.uri, { dispatched });
 
   active.tickCount = (active.tickCount ?? 0) + 1;
@@ -2049,8 +2034,8 @@ async function handleOutcomePost(request: Request, env: Env): Promise<Response> 
       at: new Date().toISOString(),
     },
   });
-  // A finished outcome also retires the queue job (box path): the build ran and
-  // replied, so drop it from the queue. No-op on the dispatch path (no job key).
+  // A finished outcome also retires the queue job: the build ran and replied, so
+  // drop it from the queue.
   try {
     await env.STATE.delete(`${JOB_PREFIX}${body.mentionUri}`);
   } catch {
@@ -3182,7 +3167,7 @@ function mentionFacets(text: string, mentions: Record<string, string>): unknown[
   return facets;
 }
 
-// --- GitHub dispatch -------------------------------------------------------
+// --- Build payload ---------------------------------------------------------
 
 interface BuildPayload {
   brief: string;
@@ -3202,31 +3187,10 @@ interface BuildPayload {
   replyParentCid: string;
 }
 
-async function dispatchBuild(env: Env, payload: BuildPayload): Promise<boolean> {
-  const res = await fetch(
-    `https://api.github.com/repos/${env.GITHUB_REPO}/dispatches`,
-    {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${env.GITHUB_TOKEN}`,
-        accept: "application/vnd.github+json",
-        "content-type": "application/json",
-        "user-agent": "buildthis-bot",
-      },
-      body: JSON.stringify({ event_type: "buildthis", client_payload: payload }),
-    },
-  );
-  if (!res.ok) {
-    console.error(`dispatch failed: ${res.status} ${await res.text()}`);
-    return false;
-  }
-  return true;
-}
-
 // --- Build queue (box path) ------------------------------------------------
 //
-// A KV-backed FIFO the Hetzner builder box drains. A job is the same BuildPayload
-// the Action's dispatch carries, plus a claim lifecycle. Keyed by mention uri so a
+// A KV-backed FIFO the Hetzner builder box drains. A job is a BuildPayload plus a
+// claim lifecycle. Keyed by mention uri so a
 // re-tick can't enqueue the same mention twice (put is idempotent on the key), and
 // so it lines up with the event:<uri> record the timeline reads.
 //
@@ -3690,7 +3654,7 @@ function renderHealthPage(s: HealthSnapshot): string {
 // recent deploys, fine at human-click frequency on /health but not something
 // to run 720 times a day forever. Box aliveness (BOX_HEARTBEAT_KEY, the same
 // definition /health already uses) is the right proxy anyway — it's exactly
-// the signal a builder-box or GitHub Actions outage trips.
+// the signal a builder-box outage trips.
 //
 // If the Worker itself is ever the thing that's down, no sample gets
 // appended at all — that shows up as a gap in the data (see `staleData` and

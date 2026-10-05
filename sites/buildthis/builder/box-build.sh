@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# box-build.sh — run ONE build on the builder box. The box equivalent of the
-# GitHub Action's build + read-result + reply steps (.github/workflows/buildthis.yml),
-# so the box path is behavior-identical to the Action path and the cutover is safe.
+# box-build.sh — run ONE build on the builder box: sync, build, push, reply.
 #
-# Reads the job from the environment (same shape the Action's dispatch payload
-# carries), so the poll loop can just export these and call this script. To test
+# Reads the job from the environment, so the poll loop can just export these and
+# call this script. To test
 # a build BY HAND before the queue exists, set at least BRIEF + the reply target:
 #
 #   source /etc/buildthis/env
@@ -216,7 +214,7 @@ fi
 cleanup_images() { [ -n "$IMAGE_DIR" ] && rm -rf "$IMAGE_DIR"; }
 trap cleanup_images EXIT
 
-echo "=== build (claude -p, same invocation as the Action) ==="
+echo "=== build (claude -p) ==="
 # Sonnet for the builder (cheaper than Opus, near-Opus on this copy-a-site-and-edit
 # workload). Overridable via BUILDER_MODEL if we ever want to bump a build to Opus.
 # --max-turns bounds a runaway; bypassPermissions makes it unattended (fine on this
@@ -224,7 +222,7 @@ echo "=== build (claude -p, same invocation as the Action) ==="
 # in the sandbox. Tee the CLI's output to a log so we can tell "out of budget"
 # (usage-limit) from "build flopped" afterwards, and stream it to the box journal.
 BUILDER_MODEL="${BUILDER_MODEL:-claude-sonnet-5-5}"
-# Turn ceiling: a runaway stop, not a build budget. The Action used 30 (tuned for
+# Turn ceiling: a runaway stop, not a build budget. Started at 30 (tuned for
 # Opus, which is more turn-efficient). Sonnet takes more, smaller steps, and a real
 # build — a whole game with animations, not a one-file edit — blew past 30 and got
 # cut off mid-build. 60 gave room but became the BINDING constraint rather than a
@@ -608,7 +606,7 @@ BUILD_ERROR=""
 # Reply in-thread AND report the outcome to the event log — reply.mjs does both
 # (it owns the /outcome POST, keyed by MENTION_URI, with the reply text as the
 # logged replyText). DISPOSITION/REQUEUE tell the worker whether to retire or
-# requeue the job. Same script the Action's reply step runs, same env contract.
+# requeue the job.
 echo "=== reply + report outcome (reply.mjs) ==="
 # On a maintenance run the agent deliberately named no site, so there is nothing
 # to link and BUILT_NAME holds only DERIVED_NAME's guess (whichever swept site had

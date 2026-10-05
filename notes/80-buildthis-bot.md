@@ -93,9 +93,7 @@ Each tick:
    next post in the thread is the build reply. There used to be a visible
    "got it — queued" reply as well. A bug made it fire on every tag from
    2026-09-17, and Rob removed it on 2026-10-04 rather than fix it.
-5. **Enqueue the job** for the box (`USE_BOX_QUEUE = "1"`). The
-   `repository_dispatch` path to the GitHub Action is still wired as a fallback;
-   see `notes/90`.
+5. **Enqueue the job** for the box; see `notes/90`.
 6. Record the mention as handled (KV) so it can't re-trigger.
 
 Cron-polling rather than Jetstream because `listNotifications` gives mentions

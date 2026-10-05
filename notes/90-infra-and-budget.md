@@ -28,8 +28,7 @@ Cloudflare cron Worker  (sites/buildthis, every 2 min)
    │  gate: author is a mutual of bisks.net?   (getRelationships)
    │  like the post (ack), build the brief (tag text + thread context)
    │
-   │  USE_BOX_QUEUE = "1"  →  enqueueJob():  write job:<uri> to KV
-   │  (else, fallback)     →  repository_dispatch to the GitHub Action
+   │  enqueueJob():  write job:<uri> to KV
    ▼
 KV build queue  (job:<uri> records in the buildthis Worker's STATE namespace)
    ▲   │
@@ -70,8 +69,7 @@ agents never push to main at once). The box makes only **outbound** calls
   runs `builder/box-build.sh`, repeats. `set -uo` (not `-e`) so one failed build
   never kills the loop; a stuck build ages out of the queue rather than
   re-looping.
-- **One build:** `builder/box-build.sh` — the box equivalent of the Action's
-  build+reply steps, behavior-identical so the cutover was safe.
+- **One build:** `builder/box-build.sh` — sync, build, push, reply.
 
 ### Changing the box scripts (which need a restart, and when it's safe)
 
@@ -176,7 +174,7 @@ bot naps and catches up, it doesn't bill.
 ## The queue
 
 Reuses the buildthis Worker's `STATE` KV. A `job:<uri>` record is the same
-`BuildPayload` the Action's dispatch carried, plus a claim lifecycle
+`BuildPayload` plus a claim lifecycle
 (`queued` → `claimed`, deleted on outcome) and an `attempts` counter. Keyed by
 mention uri so a re-tick can't double-enqueue, and so it lines up with the
 `event:<uri>` timeline record.
@@ -271,19 +269,14 @@ logs.bisks.net) has a 30-day TTL; git history doesn't. The scratch files
 the start of every build (`git clean` skips gitignored files, so a stale one used to
 leak into the next build and reply the wrong copy to the wrong thread).
 
-## The cutover switch
+## No fallback
 
-`USE_BOX_QUEUE` (a plain var in `sites/buildthis/wrangler.toml`):
-
-- `"1"` → watcher enqueues for the box (live).
-- unset / not `"1"` → watcher fires the GitHub Action via `repository_dispatch`
-  (fallback).
-
-The Action is still fully wired as an instant fallback — flip the var off and
-redeploy to revert to it. Caveat: it runs on the capped API workspace, which is
-the billing model that got abandoned for burning a month's cap in a day. So it's
-a real fallback only while that workspace has budget, and only as a stopgap
-while the box is down — not somewhere to sit.
+The box is the only build path. Until 2026-10-05 the Worker could instead fire
+a GitHub Action (`.github/workflows/buildthis.yml`) via `repository_dispatch`,
+selected by a `USE_BOX_QUEUE` var. It was removed: it ran on the capped API
+workspace, had drifted from the box (Opus, 30 turns, no wall clock), and a path
+that never runs can't be trusted when it's needed. If the box is down, jobs wait
+in the queue; rebuild the box with `box-setup.sh`.
 
 ## Secrets
 
@@ -292,7 +285,7 @@ while the box is down — not somewhere to sit.
 | `CLAUDE_CODE_OAUTH_TOKEN` | box `/etc/buildthis/env` | subscription inference auth |
 | `BUILDER_PAT` | box env | Contents:write PAT; push fires deploy.yml |
 | `BOT_APP_PASSWORD` | box env | bot's Bluesky app-password (posts replies) |
-| `OUTCOME_SECRET` | box env + Worker + GH secret | auths POST /outcome |
+| `OUTCOME_SECRET` | box env + Worker | auths POST /outcome |
 | `QUEUE_TOKEN` | box env + Worker | auths POST /next-job |
 | `CLOUDFLARE_API_TOKEN` | 1Password only | Workers admin for the `audit/cf-*.mjs` scripts |
 | Cloudflare DNS token | 1Password only | `Zone → DNS → Edit` on `bisks.net` |
