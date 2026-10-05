@@ -304,20 +304,18 @@ blocked not by policy but by reporting: every unprompted mechanism had to end in
 a `BUILD_RESULT` naming one site, so a run that fixed nine sites had nowhere to
 say so.
 
-**The brief carries the inputs, not a research assignment.** A run that has to
-discover what's broken spends its turns discovering instead of fixing, so the
-facts are assembled before the job is enqueued:
+**The brief carries breakage as fact.** A run that has to discover what's
+broken spends its turns discovering instead of fixing, so the one input
+assembled before the job is enqueued is what's broken right now: watchtower's
+`/report.json` and `/alerts.json` (`notes/85`), fetched Worker-side by
+`fleetHealthForBrief()` and pasted in as text.
 
-| input | where it comes from | how it reaches the brief |
-| --- | --- | --- |
-| which sites are broken, and since when | watchtower `/report.json` + `/alerts.json` (`notes/85`) | fetched Worker-side by `fleetHealthForBrief()`, pasted in as text |
-| which drop-in copies have drifted | `audit/drop-ins.mjs` (`notes/41`) | the brief names the command; it's a repo script, so the run executes it |
-| which third-party tool to use, and which site to copy it from | `notes/40`'s "Ecosystem tools" table | named as a pointer |
-
-The brief also names two standing gaps worth a pass: sites that have a handle
-input but not `handle-typeahead.js` (`sites/sidenote`'s diary records forgetting
-it on a first pass), and sites still walking `getFollowers`/`getLikes` at 100 per
-page instead of Constellation via the `microcosm.js` drop-in.
+Past that the brief gives places to look rather than a checklist: the logs
+timeline and recent threads, the sites themselves, `notes/` and `audit/`, and
+the `sites/sidenote` diary. It used to name specific gaps (drop-in drift,
+missing handle typeahead, the Constellation conversion). Once those were done,
+every slot from 2026-09-30 to 2026-10-05 reported "nothing to fix" and left the
+repo alone, so on 2026-10-05 the list was replaced with the open-ended version.
 
 **An unreachable watchtower is a stated gap, not an all-clear.** When the fetch
 fails the brief says so and points at the URLs, rather than omitting the

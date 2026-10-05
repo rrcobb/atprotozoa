@@ -499,10 +499,13 @@ Use your judgment and the repository's existing history; do not force work just 
 
 ${fleetSection}
 
-DRIFT AND COVERAGE (run these yourself from the repo root — they're fast)
-- \`node audit/drop-ins.mjs\` lists each drop-in file, how many copies exist, and which copies have drifted from canonical. \`node audit/drop-ins.mjs --sweep\` brings drifted copies back. See notes/41-drop-ins.md; look at a drifted copy's diff before sweeping it.
-- handle-typeahead.js is carried by 244 sites, but some sites with a handle input still don't have it. sites/sidenote's diary records forgetting it on a first pass. Finding those sites and dropping it in is a good maintenance pass.
-- notes/40-new-site-playbook.md "Ecosystem tools" is the table of which third-party tool to use for what, and which site to copy it from. Many sites still walk getFollowers/getLikes at 100 per page instead of using Constellation via the microcosm.js drop-in. Converting a batch of them is also a good maintenance pass.
+WHERE TO LOOK
+There's no checklist. A fleet of ~700 small sites always has something worth doing; find it the way a curious maintainer would.
+- Read what people have said. logs.bisks.net and the recent build threads hold bug reports, half-finished asks, and "tag me to keep going" partials nobody came back to.
+- Use the sites. Pick a few, load them, click the main control. Look for things that don't work, read badly, or fall short of the house principles in notes/00-vision.md and notes/45-sharing-and-virality.md.
+- Read the notes and the repo. notes/ describes how things are supposed to work; audit/ has scripts that inventory the fleet. Gaps between the two are fair game, and so is writing a new audit script when a check would be useful again.
+- Read your own diary (sites/sidenote) for things a past run flagged and left for later.
+Anything watchtower reports as broken comes first. Past that, pick whatever you think is most worth doing.
 
 REPORTING A MAINTENANCE RUN
 If your run was maintenance rather than a single new thing, write a repo-root file called BUILD_MAINTENANCE whose first line is a short summary of what you did across how many sites (e.g. "swept handle-typeahead.js onto 9 sites" or "fixed the 404 on listbot"). Write BUILD_NOTE as usual. Do NOT invent a BUILD_RESULT site just to have something to name — a maintenance run reports itself through BUILD_MAINTENANCE and gets its own reply. If the run really did center on one site, name it in BUILD_RESULT as normal and skip BUILD_MAINTENANCE.
