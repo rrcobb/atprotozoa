@@ -304,8 +304,8 @@ if grep -qiE "usage limit|rate limit|resets? at|reached your (usage|limit)" "$CL
   USAGE_LIMIT="1"
 fi
 
-# Distinguish "ran out of turns on a too-big ask" from a transient failure. Hitting
-# Detect a --max-turns overrun. It's DETERMINISTIC (an identical rerun overruns
+# Detect a --max-turns overrun, to tell "ran out of turns on a too-big ask" from a
+# transient failure. It's DETERMINISTIC (an identical rerun overruns
 # identically), so it's never worth a blind retry. What happens next depends on
 # whether real work got onto disk first (see the classify block): if it did, this is
 # a PARTIAL — a live first pass, continuable by re-tag; if nothing landed, it's a
@@ -504,7 +504,7 @@ fi
 #   maintenance-> real work landed, the agent declared it a SWEEP (BUILD_MAINTENANCE),
 #                 and there is no single site to link. Reply "fixed X on N sites",
 #                 retire. Ranks ABOVE success so a sweep isn't announced as "built
-#                 it \xf0\x9f\x8e\x89 \u2014 <one arbitrary site it touched>"; the daily slot is
+#                 it \ud83c\udf89 \u2014 <one arbitrary site it touched>"; the daily slot is
 #                 explicitly allowed to spend its whole run this way (notes/80).
 #   no_build   -> clean exit, nothing REAL changed: a decline of a real ask, an
 #                 explain-only answer, or a receipts-only resync. Reply the note;
