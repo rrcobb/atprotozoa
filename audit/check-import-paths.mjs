@@ -54,7 +54,7 @@ function walk(dir, out = []) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(p, out);
-    else if (/\.(html?|js|mjs)$/.test(entry.name)) out.push(p);
+    else if (/\.(html?|js|mjs|css)$/.test(entry.name)) out.push(p);
   }
   return out;
 }
@@ -63,12 +63,25 @@ function walk(dir, out = []) {
 const ATTR_RE = /<(script|link|img|source|audio|video)\b[^>]*?\s(src|href)=["']([^"']+)["']/gi;
 // ES module refs inside .js/.mjs (and inline <script type="module">).
 const IMPORT_RE = /\bimport\s[^;]*?\sfrom\s*["']([^"']+)["']|\bimport\(\s*["']([^"']+)["']\s*\)|\bexport\s[^;]*?\sfrom\s*["']([^"']+)["']/g;
+// url() refs in stylesheets: .css files and <style> blocks in HTML. Only those —
+// `url(` also appears in plain JS. Sites that render an OG card with og-gen.mjs
+// keep its font in sites/<name>/fonts/, outside public/, and pages that copied
+// the @font-face rule pointed at /fonts/ and 404'd (seven sites, 2026-10-05).
+const CSS_URL_RE = /url\(\s*["']?([^"')]+)["']?\s*\)/g;
+const STYLE_RE = /<style\b[^>]*>([\s\S]*?)<\/style>/gi;
 
-function extractRefs(content, isHtml) {
+function extractRefs(content, isHtml, isCss) {
   const refs = [];
+  if (isCss) {
+    for (const m of content.matchAll(CSS_URL_RE)) refs.push({ raw: m[1].trim(), kind: "css url()" });
+    return refs;
+  }
   if (isHtml) {
     for (const m of content.matchAll(ATTR_RE)) {
       refs.push({ raw: m[3], kind: `${m[1]}[${m[2]}]` });
+    }
+    for (const style of content.matchAll(STYLE_RE)) {
+      for (const m of style[1].matchAll(CSS_URL_RE)) refs.push({ raw: m[1].trim(), kind: "css url()" });
     }
   }
   for (const m of content.matchAll(IMPORT_RE)) {
@@ -128,6 +141,7 @@ for (const site of listSiteDirs()) {
 
   for (const file of walk(publicDir)) {
     const isHtml = /\.html?$/.test(file);
+    const isCss = file.endsWith(".css");
     const content = readFileSync(file, "utf8");
     // The URL this file is actually served at once deployed — used as the
     // base for resolving relative refs exactly like a browser would,
@@ -136,7 +150,7 @@ for (const site of listSiteDirs()) {
     const servedPath = prefix + "/" + path.posix.relative(publicDir, file).split(path.sep).join("/");
     const baseUrl = "https://dummy" + servedPath;
 
-    for (const { raw, kind } of extractRefs(content, isHtml)) {
+    for (const { raw, kind } of extractRefs(content, isHtml, isCss)) {
       if (isSkippable(raw)) continue;
       if (isMappedByImportMap(raw, importMap)) continue;
 
