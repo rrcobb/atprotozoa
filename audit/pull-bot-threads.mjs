@@ -1,52 +1,61 @@
-// Pull every notification for @buildthis.bisks.net plus the full thread each one
-// sits in, for auditing what users run into. Usage (from the repo root):
+// Pull every thread @buildthis.bisks.net has been involved in, for auditing what
+// users run into. Usage (from the repo root):
 //   node audit/pull-bot-threads.mjs [out-dir]
-// Reads the bot app-password from 1Password (op read) at runtime; nothing secret
-// is written. Output: notifications.json, threads.json, threads.txt, unanswered.txt.
+// Public data only, no login: thread roots come from the bot's own author feed
+// (every thread it replied in) plus the mentions in buildthis.bisks.net/logs.json
+// (the last 30 days, which also covers tags the bot never answered). Output:
+// threads.json, threads.txt, unanswered.txt.
 // See notes/history/2026-09-buildthis-issue-themes.md for a read of the output.
-import { execFileSync } from "node:child_process";
 import { writeFileSync, mkdirSync } from "node:fs";
 
 const OUT = (process.argv[2] || "audit/raw/bot-threads") + "/";
 mkdirSync(OUT, { recursive: true });
 
-const identifier = execFileSync("op", ["read", "op://Personal/Bluesky/username"]).toString().trim();
-const password = execFileSync("op", ["read", "op://Personal/Bluesky/add more/cf worker app password"]).toString().trim();
-
-const PDS = "https://bsky.social";
-async function xrpc(method, params, { auth, body } = {}) {
-  const url = new URL(`${PDS}/xrpc/${method}`);
+const APPVIEW = "https://public.api.bsky.app";
+const BOT = "buildthis.bisks.net";
+async function xrpc(method, params) {
+  const url = new URL(`${APPVIEW}/xrpc/${method}`);
   for (const [k, v] of Object.entries(params || {})) if (v !== undefined) url.searchParams.set(k, v);
-  const res = await fetch(url, {
-    method: body ? "POST" : "GET",
-    headers: { ...(auth ? { Authorization: `Bearer ${auth}` } : {}), ...(body ? { "content-type": "application/json" } : {}) },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) throw new Error(`${method} ${res.status}: ${await res.text()}`);
-  return res.json();
+  for (let attempt = 1; ; attempt++) {
+    const res = await fetch(url);
+    if (res.ok) return res.json();
+    if (res.status === 429 && attempt < 5) {
+      await new Promise((r) => setTimeout(r, 2000 * attempt));
+      continue;
+    }
+    throw new Error(`${method} ${res.status}: ${await res.text()}`);
+  }
 }
 
-const session = await xrpc("com.atproto.server.createSession", {}, { body: { identifier, password } });
-const jwt = session.accessJwt;
-console.log(`logged in as ${session.handle} (${session.did})`);
-
-// 1. all notifications
-const notifs = [];
-let cursor;
-for (let page = 0; page < 200; page++) {
-  const r = await xrpc("app.bsky.notification.listNotifications", { limit: 100, cursor }, { auth: jwt });
-  notifs.push(...r.notifications);
-  console.log(`notifications page ${page + 1}: total ${notifs.length}`);
-  cursor = r.cursor;
-  if (!cursor || r.notifications.length === 0) break;
-}
-writeFileSync(OUT + "notifications.json", JSON.stringify(notifs, null, 2));
-
-// 2. thread for each distinct root
-const rootOf = (n) => n.record?.reply?.root?.uri || n.reasonSubject || n.uri;
+// 1. every post the bot has made; each one's thread root is a thread it was in
 const roots = new Set();
-for (const n of notifs) if (["mention", "reply", "quote"].includes(n.reason)) roots.add(rootOf(n));
-console.log(`distinct thread roots: ${roots.size}`);
+let cursor;
+let botPosts = 0;
+for (let page = 0; ; page++) {
+  const r = await xrpc("app.bsky.feed.getAuthorFeed", { actor: BOT, limit: 100, cursor, filter: "posts_with_replies" });
+  for (const item of r.feed) {
+    if (item.post.author.handle !== BOT) continue; // reposts
+    botPosts++;
+    roots.add(item.post.record?.reply?.root?.uri || item.post.uri);
+  }
+  if ((page + 1) % 5 === 0) console.log(`author feed page ${page + 1}: ${botPosts} bot posts, ${roots.size} roots`);
+  cursor = r.cursor;
+  if (!cursor || r.feed.length === 0) break;
+}
+console.log(`author feed done: ${botPosts} bot posts, ${roots.size} roots`);
+
+// 2. mentions from the event log, including ones the bot never replied to. These
+// are the tagging posts, not roots; getPostThread walks up from them below.
+let offset = 0;
+let logged = 0;
+for (;;) {
+  const res = await fetch(`https://${BOT}/logs.json?limit=500&offset=${offset}`);
+  const body = await res.json();
+  for (const e of body.events || []) if (e.mentionUri) { roots.add(e.mentionUri); logged++; }
+  offset += (body.events || []).length;
+  if (!body.events?.length || offset >= body.total) break;
+}
+console.log(`event log: ${logged} mentions; ${roots.size} uris to fetch`);
 
 function flatten(node, depth = 0, out = []) {
   if (!node || !node.post) return out;
@@ -66,19 +75,26 @@ function flatten(node, depth = 0, out = []) {
 }
 
 const threads = [];
+const seenRoots = new Set();
 let i = 0;
 for (const uri of roots) {
   i++;
   try {
-    const t = await xrpc("app.bsky.feed.getPostThread", { uri, depth: 50, parentHeight: 50 }, { auth: jwt });
-    // walk up to true root
+    let t = await xrpc("app.bsky.feed.getPostThread", { uri, depth: 50, parentHeight: 80 });
+    // Walk up to the true root. Parents in a thread view carry no siblings, so
+    // when the uri isn't the root, refetch from the root to get the whole tree.
     let top = t.thread;
     while (top.parent && top.parent.post) top = top.parent;
-    threads.push({ root: uri, posts: flatten(top) });
+    const rootUri = top.post?.uri || uri;
+    if (!seenRoots.has(rootUri)) {
+      seenRoots.add(rootUri);
+      if (rootUri !== uri) top = (await xrpc("app.bsky.feed.getPostThread", { uri: rootUri, depth: 50, parentHeight: 0 })).thread;
+      threads.push({ root: rootUri, posts: flatten(top) });
+    }
   } catch (e) {
     threads.push({ root: uri, error: String(e.message).slice(0, 200) });
   }
-  if (i % 10 === 0) console.log(`threads ${i}/${roots.size}`);
+  if (i % 50 === 0) console.log(`threads ${i}/${roots.size} (${threads.length} distinct)`);
 }
 writeFileSync(OUT + "threads.json", JSON.stringify(threads, null, 2));
 
@@ -101,7 +117,7 @@ console.log(`wrote ${threads.length} threads, ${lines.length} lines`);
 // 4. tags with no bot reply beneath them. A post can be captured under two roots
 // (a reply-notification's reasonSubject and the real root), so dedupe by uri and
 // count a tag answered if any copy has a bot descendant.
-const BOT_HANDLE = session.handle;
+const BOT_HANDLE = BOT;
 const answered = new Map();
 const meta = new Map();
 for (const t of threads) {
