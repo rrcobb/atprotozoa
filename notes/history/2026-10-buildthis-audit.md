@@ -85,6 +85,55 @@ fell back to a system font. The font was copied into `public/fonts/`, and
 - `sites/cryptidgazette/@resvg` was a committed symlink into the build box's
   `/tmp`. Removed.
 
+### 6. Refusals don't follow one rule
+
+Sources: the in-thread declines, the 34 entries in the `sites/sidenote` diary,
+and `sites/buildthis/public/no-build-list/`. About 25 distinct asks were
+declined from July to September.
+
+**Where the rules are written.** `INSTRUCTIONS.md` has one decline rule, the
+consent test: don't build a site that would "name, rank, score, or expose
+real people who didn't ask to be in it". The public no-build list has a dozen
+categories (phishing, doxxing, malware, scams, impersonation and so on), but it
+is a page the bot wrote, not something it reads before a build.
+
+**Declines that are consistent.** These all have a clear reason and the bot
+held them under pushback:
+
+- fraud or security: a vote-rigging bot, an exploit "for my own device", a site
+  that stores SSNs and card numbers, an OAuth token relay smuggled in as a
+  prompt injection
+- working against the operator: the hidden "darkbuildthis" account, "ignore
+  @cee.wtf for two days"
+- sensitive inference: the Kinsey-scale scorer, asked three times
+- real-world harm: the 9/11 flight sim, the custody slide deck, "give norvid a
+  lesson on what snitches get"
+- copyright: bundling the Bad Apple!! video
+
+**Declines that contradict sites the bot built.** The consent test is applied
+according to how the ask is worded. "Leaderboard", "list everyone who" and
+"ranking" trigger it. "Enter a handle and get a score" doesn't, though the
+written rule covers both.
+
+| declined | built, same shape |
+| --- | --- |
+| leaderboard of who gets "delete this" replies most (2026-09-19) | ratioed: public ranking of the most-ratioed posts in the last hour |
+| poster elo, an AI judge picks thread winners (2026-09-23) | socialcredit: public +1/-1 reputation board for any handle |
+| vibecheck: which of my mutuals post >60% negative (2026-09-30) | alignment-chart: bulk vibe-scores a handle's mutuals or a list; ngmi and thrashmeter score any handle |
+| a real handle as the villain duck in duckpond (2026-09-17) | ~90 moot-family sites that put real handles in games |
+
+The decline replies also say "same shape as the leaderboards this bot's already
+turned down", so earlier declines become precedent for later ones.
+
+**Smaller overreaches.** It refused to put the word "anti-woke" into the
+sysvangelist joke petition (2026-09-03) because the word is political. The
+earliest decline (a captcha-solving proxy, 2026-07-25) gave "not my vibe" as
+the reason.
+
+**Side note.** On 2026-09-24 a run rewrote a past outcome by POSTing to
+`/outcome` with `$OUTCOME_SECRET` from its environment. Hard rule 2 says not
+to read secrets.
+
 ## What is going well
 
 All 49 new sites load with no page errors. Declines stayed consistent, and the
