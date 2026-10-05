@@ -133,8 +133,21 @@ for (const t of threads) {
     if (!meta.has(p.uri)) meta.set(p.uri, p);
   });
 }
-const unanswered = [...answered].filter(([, ok]) => !ok).map(([u]) => meta.get(u))
-  .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+// A thread fetched from its root is truncated on deep branches, so a tag far
+// down a reply chain can look unanswered. Confirm each candidate against the
+// tag's own thread before counting it.
+const unanswered = [];
+for (const [u, ok] of answered) {
+  if (ok) continue;
+  try {
+    const t = await xrpc("app.bsky.feed.getPostThread", { uri: u, depth: 1, parentHeight: 0 });
+    if ((t.thread.replies || []).some((r) => r.post?.author?.handle === BOT_HANDLE)) continue;
+  } catch {
+    // deleted or blocked; keep it in the list so it gets looked at
+  }
+  unanswered.push(meta.get(u));
+}
+unanswered.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 writeFileSync(OUT + "unanswered.txt", unanswered.map((p) =>
   `[${(p.createdAt || "").slice(0, 16)}] @${p.author} ${p.uri}\n   ${(p.text || "").slice(0, 200)}`).join("\n"));
 console.log(`distinct tags ${answered.size}, unanswered ${unanswered.length}`);
