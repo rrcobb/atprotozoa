@@ -38,6 +38,11 @@ measurements are often still useful, and several of the failure modes recur.
   rateyourbuild catalog resync dirtying every run's tree) and lists the fix
   order. Re-run the pull with `audit/pull-bot-threads.mjs`.
 
+- **`2026-10-buildthis-audit.md`** — the follow-up pass: every thread (884)
+  and the 49 sites added since September, loaded in a headless browser. Bot
+  replies hidden by threadgates, 93 sites without an OG image, and a daily
+  slot whose standing checklist is exhausted.
+
 - **`going-live-checklist.md`** — the one-time bootstrap: Cloudflare login, the
   DID for handle verification, first deploys, wiring CI. All done.
 
