@@ -172,6 +172,16 @@ function initShare() {
   $("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
 }
 
+// ---- the name is not stable ----
+// Postmodern bit: clicking the heading cycles the author through his own doubles.
+function initTitle() {
+  const names = ["Jorge Luis Borges", "Borges, J. L.", "[Borges]", "Pierre Menard, author of Borges", "Borges y yo", "the other one, Borges"];
+  let i = 0;
+  const h = $("title");
+  h.addEventListener("click", () => { i = (i + 1) % names.length; $("title-name").textContent = names[i]; });
+}
+
+initTitle();
 initWorks();
 initPieces();
 initTimeline();
