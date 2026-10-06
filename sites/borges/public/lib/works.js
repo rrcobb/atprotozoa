@@ -35,6 +35,7 @@ export const WORKS = [
   { y: 1980, t: "Siete noches", kind: "essay", n: "Seven public lectures: the Divine Comedy, nightmares, the Thousand and One Nights, Buddhism, poetry, the Kabbalah, blindness." },
   { y: 1981, t: "La cifra", kind: "poetry" },
   { y: 1982, t: "Nueve ensayos dantescos", kind: "essay" },
+  { y: 1983, t: "La memoria de Shakespeare", kind: "fiction", n: "Late stories: Shakespeare's Memory, Blue Tigers, Paracelsus's Rose." },
   { y: 1985, t: "Los conjurados", kind: "poetry", n: "His last book of poems." },
 ];
 

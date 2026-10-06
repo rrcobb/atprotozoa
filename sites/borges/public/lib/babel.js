@@ -1,10 +1,12 @@
-// A browsable Library of Babel, after the 1941 story: 25 symbols (22 letters,
+// A browsable Library of Babel, after the 1941 story: 29 symbols (a-z,
 // space, comma, period), pages of 40 lines x 80 characters, 410 pages a book,
 // 32 books a shelf, 5 shelves a wall, 4 walls a hexagon. The text of a page is
 // derived from its address with a seeded PRNG, so the same address always
-// gives the same page. (Not Jonathan Basile's libraryofbabel.info, which
-// enumerates the whole space; this one just samples it.)
-const ALPHA = "abcdefghilmnopqrstuvyz" + " ,.";
+// gives the same page. Same geometry and alphabet as Jonathan
+// Basile's libraryofbabel.info, but not the same mapping: his is a reversible
+// bijection from address to text, so a given address there is a different page
+// than the same address here, and text can't be searched for here.
+const ALPHA = "abcdefghijklmnopqrstuvwxyz" + " ,.";
 export const LINES = 40, COLS = 80, PAGES = 410, BOOKS = 32, SHELVES = 5, WALLS = 4;
 
 function hash(str) {
