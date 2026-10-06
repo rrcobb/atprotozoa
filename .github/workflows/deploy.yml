@@ -65,6 +65,9 @@ jobs:
   # run (~417 dirs), failing the run at expansion with no failed-job logs.
   changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # to find the last successful deploy run
     outputs:
       chunks: ${{ steps.detect.outputs.chunks }}
     steps:
@@ -74,6 +77,8 @@ jobs:
 
       - id: detect
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -112,7 +117,24 @@ jobs:
                 done
           }
 
+          # Diff from the last push that deployed successfully, not just from
+          # this push's parent. A run that fails or gets dropped (a check
+          # failure, or GitHub cancelling a job it couldn't find a runner for,
+          # 2026-10-05) used to strand its dirs: later pushes diffed only their
+          # own commits, so a site nobody touched again never redeployed. Falls
+          # back to the push's own `before` when there's no usable last success.
           before="${{ github.event.before }}"
+          # Unfiltered listing, newest first, picking the success in jq: the
+          # API's own status=success filter returned a run from two weeks back
+          # once (2026-10-06), which would redeploy far more than needed.
+          last_ok=$(gh api "repos/${{ github.repository }}/actions/workflows/deploy.yml/runs?branch=main&per_page=50" \
+            --jq '[.workflow_runs[] | select(.conclusion == "success")][0].head_sha // empty' 2>/dev/null || true)
+          if [ -n "$last_ok" ] && [ "$last_ok" != "${{ github.sha }}" ] \
+            && git merge-base --is-ancestor "$last_ok" "${{ github.sha }}" 2>/dev/null; then
+            echo "Diffing from the last successful deploy: $last_ok (push before: $before)"
+            before="$last_ok"
+          fi
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.deploy_all }}" = "true" ]; then
             selected=$(all_dirs)
           elif [ -z "$before" ] || ! git cat-file -e "${before}^{commit}" 2>/dev/null; then
