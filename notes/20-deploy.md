@@ -5,21 +5,27 @@ Push to `main` → every site that changed re-deploys to Cloudflare. No manual
 
 ## Mechanism
 
-`.github/workflows/deploy.yml` runs on push to `main`: it diffs the head of the
-last successful deploy run against `github.sha` to find changed `sites/*` and
-`apex/` directories, and runs `wrangler deploy` in each.
+`.github/workflows/deploy.yml` runs on push to `main`: it diffs the
+`last-deployed` tag against `github.sha` to find changed `sites/*` and `apex/`
+directories, and runs `wrangler deploy` in each. When `check`, `changes` and
+every deploy chunk succeed, a final `mark-deployed` job moves the tag to the
+pushed commit.
 
-Diffing from the last success, rather than from the push's own `before`, means
-a run that fails or gets dropped doesn't strand its dirs: the next push's run
-covers them too. Before 2026-10-06 it diffed from `before`, and a dropped run's
-sites stayed on their old build until someone touched them again. The
-sections below on failed `check` jobs describe that era. The last time it
-happened, GitHub cancelled the `changes` job after failing to find a hosted
-runner for 15 minutes, and the buildthis Worker kept its old daily-slot brief.
-If the API lookup fails, the workflow falls back to `before`. One side
-effect: while deploys keep failing (one site that always fails to deploy, say),
-every push redeploys everything changed since the last green run, so the set
-grows until the failure is fixed.
+Diffing from the tag, rather than from the push's own `before`, means a run that
+fails or gets dropped doesn't strand its dirs: the tag stays put, so the next
+run covers them too. Before 2026-10-06 it diffed from `before`, and a dropped
+run's sites stayed on their old build until someone touched them again. The
+last time it happened, GitHub cancelled the `changes` job after failing to find
+a hosted runner for 15 minutes, and the buildthis Worker kept its old
+daily-slot brief. If the tag is missing, the workflow falls back to `before`.
+
+A tag rather than the Actions API's "latest successful run": the API returned a
+run from two weeks earlier on the first query from a fresh context, both
+locally and in CI, and one run redeployed ~250 sites because of it.
+
+One side effect: while deploys keep failing (one site that always fails to
+deploy, say), every push redeploys everything changed since the last green run,
+so the set grows until the failure is fixed.
 
 The deploy matrix is **chunked (~100 dirs per job, each job loops its chunk)**
 because GitHub caps a matrix at 256 jobs — a flat one-job-per-dir matrix made
