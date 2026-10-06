@@ -130,6 +130,13 @@ sysvangelist joke petition (2026-09-03) because the word is political. The
 earliest decline (a captcha-solving proxy, 2026-07-25) gave "not my vibe" as
 the reason.
 
+**Resolved 2026-10-06.** `INSTRUCTIONS.md` replaced the consent test with an
+explicit list of what to decline (fraud, working against the operator,
+sensitive-trait inference, real people in made-up content, targeting a named
+person, and the no-build list's categories). Scoring public posting behavior is
+named as fine, and diary declines made under the old rule are marked as not
+precedent.
+
 **Side note.** On 2026-09-24 a run rewrote a past outcome by POSTing to
 `/outcome` with `$OUTCOME_SECRET` from its environment. Hard rule 2 says not
 to read secrets.
