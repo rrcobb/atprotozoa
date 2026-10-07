@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>surprisal — post something your moots would like but couldn't predict</title>
+<meta name="description" content="Trains a little Markov model and a likes regression on your moots' posts, in your browser. Then: type a post that would earn likes while still surprising the model." />
+<meta property="og:title" content="surprisal — be liked, but unpredictable" />
+<meta property="og:description" content="A Markov model of your moots plus a likes regression. Type a post that would get likes and still surprise the model." />
+<meta property="og:url" content="https://surprisal.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://surprisal.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="surprisal: a bar chart of likes against bits of surprise, with a draft post lit up by per-word surprise." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="surprisal — be liked, but unpredictable" />
+<meta name="twitter:description" content="A Markov model of your moots plus a likes regression. Type a post that would get likes and still surprise the model." />
+<meta name="twitter:image" content="https://surprisal.bisks.net/og.png" />
+<style>
+  :root { --bg:#0e1116; --card:#171c24; --line:#2a3340; --fg:#e8edf3; --dim:#8b98a8; --a:#7cf0c9; --b:#ff7ab6; --c:#ffd166; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin:0; background: radial-gradient(ellipse at 15% -10%, #1b2b3a 0%, transparent 55%), var(--bg); color:var(--fg);
+         font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; padding: 2.5rem 1rem 4rem; display:flex; justify-content:center; }
+  .wrap { width:100%; max-width: 720px; }
+  h1 { font-size: 2.1rem; margin:0 0 .3rem; background: linear-gradient(90deg, var(--a), var(--b)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  h1 span { cursor: pointer; }
+  .sub { color: var(--dim); margin: 0 0 1.4rem; line-height:1.5; font-size:.9rem; }
+  .card { background: var(--card); border:1px solid var(--line); border-radius: 10px; padding: 1rem 1.1rem; margin-bottom: 1rem; }
+  h2 { font-size: .8rem; letter-spacing:.14em; text-transform: uppercase; color: var(--dim); margin:0 0 .7rem; font-weight:600; }
+  .row { display:flex; gap:.5rem; flex-wrap:wrap; }
+  input, textarea { background:#0b0e13; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:.6rem .7rem; font: inherit; }
+  input { flex:1; min-width: 12rem; }
+  textarea { width:100%; min-height: 6.5rem; resize: vertical; line-height:1.5; font-size:1rem; }
+  button { background: var(--a); color:#06231a; border:0; border-radius:6px; padding:.6rem 1rem; font: inherit; font-weight:700; cursor:pointer; }
+  button.ghost { background: transparent; color: var(--fg); border:1px solid var(--line); }
+  button:disabled { opacity:.45; cursor: default; }
+  .status { color: var(--dim); font-size:.85rem; margin-top:.7rem; line-height:1.5; }
+  .err { color: #ff8b8b; }
+  .bar { height: 6px; background:#0b0e13; border-radius: 3px; overflow:hidden; margin-top:.6rem; }
+  .bar > i { display:block; height:100%; width:0; background: linear-gradient(90deg, var(--a), var(--b)); transition: width .2s; }
+  .stats { display:grid; grid-template-columns: repeat(auto-fit, minmax(110px,1fr)); gap:.6rem; margin-bottom: 1rem; }
+  .stat b { display:block; font-size:1.3rem; color: var(--a); }
+  .stat small { color: var(--dim); font-size:.72rem; }
+  .curve { display:flex; align-items:flex-end; gap:5px; height:110px; padding-top: 8px; }
+  .curve div { flex:1; background: linear-gradient(var(--b), #7a3a5c); border-radius:3px 3px 0 0; position:relative; min-height:2px; }
+  .curve div.cur { outline: 2px solid var(--c); }
+  .curve div span { position:absolute; top:-1.1em; left:0; right:0; text-align:center; font-size:.62rem; color: var(--dim); }
+  .curvelabels { display:flex; justify-content:space-between; color:var(--dim); font-size:.68rem; margin-top:.3rem; }
+  .heat { line-height: 2; font-size:1.02rem; min-height: 2rem; word-break: break-word; white-space: pre-wrap; margin-top:.8rem; }
+  .heat mark { padding: .1em .15em; border-radius:4px; color: var(--fg); }
+  .score { display:flex; align-items: baseline; gap:1rem; flex-wrap:wrap; margin-top:.9rem; }
+  .score .pts { font-size: 2.4rem; font-weight:800; color: var(--c); }
+  .meter { margin-top:.6rem; font-size:.82rem; color: var(--dim); line-height:1.7; }
+  .meter b { color: var(--fg); }
+  table { width:100%; border-collapse: collapse; font-size:.82rem; }
+  td, th { text-align:left; padding:.35rem .3rem; border-bottom:1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight:600; }
+  td.t { max-width: 320px; word-break: break-word; }
+  .tiny { color: var(--dim); font-size:.74rem; line-height:1.55; }
+  a { color: var(--a); }
+  footer { color: var(--dim); font-size:.74rem; margin-top: 2rem; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>s<span id="secret">u</span>rprisal</h1>
+  <p class="sub">Your moots' posts become a trigram Markov model and a likes regression, trained in this tab. Then you type a post: it scores well if the regression thinks it would earn likes <em>and</em> the Markov model didn't see it coming.</p>
+
+  <div class="card" id="setup">
+    <h2>1 · gather a corpus</h2>
+    <form class="row" id="form" autocomplete="off">
+      <input id="handle" placeholder="your handle, e.g. you.bsky.social" spellcheck="false" autocapitalize="off" />
+      <button id="go" type="submit">download my moots' posts</button>
+    </form>
+    <div class="status" id="status">Reads who you follow and who follows you, pulls each moot's whole repo, then looks up like counts. Big circles take a while — you can stop any time and train on what's in.</div>
+    <div class="bar" id="barwrap" hidden><i id="bar"></i></div>
+    <div class="row" style="margin-top:.8rem" id="actions" hidden>
+      <button id="train" class="ghost" type="button">train on what's loaded</button>
+      <button id="stop" class="ghost" type="button">stop downloading</button>
+    </div>
+  </div>
+
+  <div id="arena" hidden>
+    <div class="card">
+      <h2>what the models learned</h2>
+      <div class="stats" id="stats"></div>
+      <div class="tiny" style="margin-bottom:.4rem">average likes lift (vs. the same author's typical post) by how surprising the post was — left is boilerplate, right is wild</div>
+      <div class="curve" id="curve"></div>
+      <div class="curvelabels"><span>predictable</span><span>surprising</span></div>
+      <p class="tiny" id="honest"></p>
+    </div>
+
+    <div class="card">
+      <h2>2 · the contest</h2>
+      <textarea id="draft" placeholder="type a post…" maxlength="300"></textarea>
+      <div class="heat" id="heat" aria-live="polite"></div>
+      <div class="score" id="score" hidden>
+        <div class="pts" id="pts">0</div>
+        <div class="meter" id="meter"></div>
+      </div>
+      <div class="row" style="margin-top:.9rem">
+        <input id="name" placeholder="contestant name" maxlength="40" />
+        <button id="enter" type="button" disabled>enter this post</button>
+      </div>
+      <p class="tiny" style="margin:.6rem 0 0">Entering teaches the Markov model your post, so the same trick is less surprising next time. Points = predicted likes lift × surprise credit (credit starts above the median surprise, full at the 90th percentile; mostly-unseen-word gibberish is docked). 100 points is an average post that is just surprising enough.</p>
+    </div>
+
+    <div class="card" id="boardcard" hidden>
+      <h2>leaderboard (this browser)</h2>
+      <table><thead><tr><th>#</th><th>who</th><th>post</th><th>pts</th></tr></thead><tbody id="board"></tbody></table>
+      <div class="row" style="margin-top:.8rem"><button id="share" class="ghost" type="button">post my best to Bluesky</button></div>
+    </div>
+  </div>
+
+  <footer>
+    <a href="https://rateyourbuild.bisks.net/site/surprisal">rate this on rateyourbuild →</a>
+    · <a href="https://bisks.net/">more experiments</a>
+  </footer>
+</div>
+<script src="lib/visits.js" data-site="surprisal" data-into="footer"></script>
+<script src="lib/handle-typeahead.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
