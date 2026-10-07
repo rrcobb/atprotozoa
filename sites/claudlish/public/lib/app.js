@@ -393,7 +393,9 @@
 
   function buildQuestions(unitIndex) {
     const unit = UNITS[unitIndex];
-    const pool = allPairs();
+    // Distractors come from the same unit so they share the prompt's register:
+    // a refusal is never offered "Yes." or "Sure." as the wrong answer.
+    const pool = unit.pairs;
     const qs = unit.pairs.map((pair) => {
       const dir = Math.random() < 0.5 ? "toClaudlish" : "toPlain";
       const answerField = dir === "toClaudlish" ? "cl" : "en";
