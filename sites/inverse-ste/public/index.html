@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>inverse ste linter</title>
+<meta name="description" content="Simplified Technical English, inverted: every common word is an error. Write only with vocabulary beyond the approved set.">
+<meta property="og:title" content="inverse ste linter">
+<meta property="og:description" content="Every common word is an error. Write only with vocabulary beyond the approved set.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://inverse-ste.bisks.net/">
+<meta property="og:image" content="https://inverse-ste.bisks.net/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://inverse-ste.bisks.net/og.png">
+<style>
+  :root { color-scheme: light dark; --bg:#faf8f3; --fg:#1d1b17; --mut:#7a7466; --bad:#c2410c; --ok:#15803d; --bd:#d9d3c4; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161512; --fg:#ece8dc; --mut:#9a937f; --bad:#fb923c; --ok:#4ade80; --bd:#3a362c; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.6 Georgia,serif; }
+  main { max-width:44rem; margin:0 auto; padding:2rem 1rem 3rem; }
+  h1 { font-size:1.6rem; margin:0 0 .2rem; }
+  .sub { color:var(--mut); margin:0 0 1.2rem; }
+  textarea, #out { width:100%; box-sizing:border-box; min-height:9rem; padding:.7rem; border:1px solid var(--bd); border-radius:6px; background:transparent; color:inherit; font:inherit; }
+  #out { white-space:pre-wrap; margin-top:1rem; min-height:0; }
+  .bad { color:var(--bad); text-decoration:underline wavy; text-underline-offset:3px; }
+  #score { font-size:1.1rem; margin-top:1rem; }
+  #score.pass { color:var(--ok); }
+  .row { display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; margin-top:.8rem; }
+  button, a.btn { font:inherit; padding:.35rem .8rem; border:1px solid var(--bd); border-radius:6px; background:transparent; color:inherit; cursor:pointer; text-decoration:none; }
+  footer { margin-top:2rem; color:var(--mut); font-size:.85rem; }
+  footer a { color:inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>inverse ste linter</h1>
+  <p class="sub">Simplified Technical English limits you to a small approved vocabulary. Here the approved words are the errors. Use only vocabulary beyond them.</p>
+  <textarea id="inp" placeholder="Type or paste something. Try: The cat sat on the mat."></textarea>
+  <div id="score" aria-live="polite"></div>
+  <div id="out" hidden></div>
+  <div class="row">
+    <button id="example" type="button">load an example</button>
+    <a id="share" class="btn" href="#" target="_blank" rel="noopener" hidden>post score to Bluesky</a>
+  </div>
+  <footer>
+    The word list is a ~700 word approximation of ASD-STE100, not the official dictionary.
+    · <a href="https://rateyourbuild.bisks.net/site/inverse-ste">rate this on rateyourbuild →</a>
+  </footer>
+</main>
+<script type="module">
+import { lint, summarize } from "./linter.js";
+const inp = document.getElementById("inp");
+const out = document.getElementById("out");
+const score = document.getElementById("score");
+const share = document.getElementById("share");
+
+function render() {
+  const text = inp.value;
+  const toks = lint(text);
+  const s = summarize(toks);
+  out.replaceChildren();
+  if (!s.total) { out.hidden = true; score.textContent = ""; score.className = ""; share.hidden = true; return; }
+  for (const t of toks) {
+    if (t.simple) {
+      const sp = document.createElement("span");
+      sp.className = "bad";
+      sp.textContent = t.text;
+      sp.title = "approved STE word";
+      out.append(sp);
+    } else out.append(document.createTextNode(t.text));
+  }
+  out.hidden = false;
+  const pass = s.violations === 0;
+  score.className = pass ? "pass" : "";
+  score.textContent = pass
+    ? `Clean: all ${s.total} words sit beyond the approved set.`
+    : `${s.violations} of ${s.total} words are too simple (${s.score}% clean).`;
+  const msg = `inverse ste linter: ${s.score}% clean (${s.violations}/${s.total} words too simple)\nhttps://inverse-ste.bisks.net/`;
+  share.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(msg);
+  share.hidden = false;
+}
+inp.addEventListener("input", render);
+document.getElementById("example").addEventListener("click", () => {
+  inp.value = "Perspicacious interlocutors habitually obfuscate epistemological exigencies; nevertheless, heterogeneous ontologies flourish.";
+  render();
+});
+render();
+</script>
+</body>
+</html>
