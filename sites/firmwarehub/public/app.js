@@ -1,10 +1,10 @@
 // firmwarehub: static catalogue (data/firmware.json) rendered client-side.
 // Latest release tags are fetched from the GitHub API per repo and cached in
 // localStorage for an hour. Unauthenticated GitHub API allows 60 req/hour per
-// IP and the catalogue has ~23 repos, so the cache is what keeps repeat visits free.
+// IP and the catalogue has ~30 repos, so the cache is what keeps repeat visits free.
 const CACHE_MS = 3600e3;
 const CATS = { music: "music", esp32: "esp32 gadgets", home: "smart home", radio: "radio", tools: "tools", camera: "cameras", network: "networking", printer: "3d printers", drone: "drones", handheld: "handhelds" };
-const FLASH = { web: "browser install", usb: "usb / dfu", sd: "sd card" };
+const FLASH = { web: "browser install", usb: "usb / dfu", sd: "sd card", patch: "patch your own OS" };
 
 const $ = (id) => document.getElementById(id);
 const state = { q: "", cat: null, flash: null };
