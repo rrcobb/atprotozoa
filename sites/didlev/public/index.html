@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>didlev — who is closest to your DID?</title>
+<meta name="description" content="Pulls all your Bluesky mutuals and ranks them by Levenshtein distance between their DID and yours: closest and furthest in identifier-space." />
+<meta property="og:title" content="didlev — who is closest to your DID?" />
+<meta property="og:description" content="Pulls all your Bluesky mutuals and ranks them by Levenshtein distance between their DID and yours." />
+<meta property="og:url" content="https://didlev.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://didlev.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="didlev: two DID strings with their differing characters highlighted." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="didlev — who is closest to your DID?" />
+<meta name="twitter:description" content="Pulls all your Bluesky mutuals and ranks them by Levenshtein distance between their DID and yours." />
+<meta name="twitter:image" content="https://didlev.bisks.net/og.png" />
+<style>
+  :root { --bg:#0e1116; --card:#171c24; --fg:#e6edf3; --dim:#8b97a6; --accent:#5ee6a8; --accent2:#ff7a90; --border:#2a3240; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family: ui-monospace,"SF Mono",Menlo,Consolas,monospace; display:flex; flex-direction:column; align-items:center; padding:3rem 1rem 4rem; }
+  .wrap { width:100%; max-width:680px; }
+  h1 { font-size:2rem; margin:0 0 .4rem; color:var(--accent); }
+  p.sub { color:var(--dim); margin:0 0 1.4rem; line-height:1.5; }
+  form { display:flex; gap:.5rem; margin-bottom:1rem; }
+  input { flex:1; background:var(--card); color:var(--fg); border:1px solid var(--border); border-radius:6px; padding:.65rem .8rem; font:inherit; }
+  button { background:var(--accent); color:#06140d; border:0; border-radius:6px; padding:.65rem 1rem; font:inherit; font-weight:700; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  #status { color:var(--dim); min-height:1.4em; margin-bottom:1rem; }
+  #status.err { color:var(--accent2); }
+  #results[hidden] { display:none; }
+  h2 { font-size:1rem; margin:1.6rem 0 .6rem; color:var(--accent); }
+  h2.far { color:var(--accent2); }
+  .row { display:flex; align-items:center; gap:.7rem; background:var(--card); border:1px solid var(--border); border-radius:8px; padding:.5rem .7rem; margin-bottom:.4rem; }
+  .row img { width:36px; height:36px; border-radius:50%; background:var(--border); flex:none; }
+  .who { flex:1; min-width:0; }
+  .who a { color:var(--fg); text-decoration:none; font-weight:700; overflow-wrap:anywhere; }
+  .did { color:var(--dim); font-size:.72rem; overflow-wrap:anywhere; }
+  .did b { color:var(--accent2); font-weight:700; }
+  .dist { font-size:1.3rem; font-weight:700; min-width:2.2rem; text-align:right; }
+  .me { color:var(--dim); font-size:.8rem; margin-bottom:.6rem; overflow-wrap:anywhere; }
+  .share { margin-top:1.4rem; }
+  .share a { color:var(--accent); }
+  footer { margin-top:2.5rem; color:var(--dim); font-size:.8rem; }
+  footer a { color:var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>did<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">l</span>ev</h1>
+  <p class="sub">Your DID is a string. So is everyone else's. Enter a handle and this pulls all of that account's mutuals, then ranks them by Levenshtein edit distance between the DIDs: who is closest to you, and who is furthest away.</p>
+  <form id="form">
+    <input id="handle" type="text" placeholder="you.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" required />
+    <button id="go" type="submit">compare</button>
+  </form>
+  <div id="status"></div>
+  <div id="results" hidden>
+    <div class="me" id="me"></div>
+    <h2>closest DIDs</h2>
+    <div id="closest"></div>
+    <h2 class="far">furthest DIDs</h2>
+    <div id="furthest"></div>
+    <div class="share"><a id="share" target="_blank" rel="noopener">post this to Bluesky →</a></div>
+  </div>
+  <footer>distance is computed on the part after <code>did:plc:</code>. <a href="https://rateyourbuild.bisks.net/site/didlev">rate this on rateyourbuild →</a></footer>
+</div>
+<script src="lib/handle-typeahead.js"></script>
+<script type="module">
+import { didDistance, didBody, mutualsOf } from "./lib/lev.js";
+
+const API = "https://api.bsky.app/xrpc/";
+const SHOW = 10; // how many rows per list; a display choice, the ranking covers every mutual
+const MAX_PAGES = 400; // backstop against a pathological account, 40k edges per direction; real accounts end by cursor long before
+
+const $ = (id) => document.getElementById(id);
+const els = { form: $("form"), handle: $("handle"), go: $("go"), status: $("status"), results: $("results"),
+  me: $("me"), closest: $("closest"), furthest: $("furthest"), share: $("share") };
+
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(els.handle, {});
+
+function setStatus(msg, err) { els.status.textContent = msg; els.status.className = err ? "err" : ""; }
+
+async function jget(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+
+async function resolve(raw) {
+  let a = raw.trim().replace(/^@/, "").replace(/^at:\/\//, "");
+  const m = a.match(/bsky\.app\/profile\/([^/\s?#]+)/i);
+  if (m) a = m[1];
+  if (!a) throw new Error("enter a handle");
+  const p = await jget(API + "app.bsky.actor.getProfile?actor=" + encodeURIComponent(a));
+  return p;
+}
+
+async function pageAll(method, did, key, label) {
+  const out = [];
+  let cursor = "";
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const q = new URLSearchParams({ actor: did, limit: "100" });
+    if (cursor) q.set("cursor", cursor);
+    const d = await jget(API + method + "?" + q);
+    out.push(...d[key]);
+    setStatus(label + ": " + out.length + "…");
+    cursor = d.cursor;
+    if (!cursor || !d[key].length) break;
+  }
+  return out;
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+// Highlight positions where the two bodies differ at the same index (a quick visual, not the edit script).
+function diffHtml(mine, theirs) {
+  let h = "";
+  for (let i = 0; i < theirs.length; i++) h += theirs[i] === mine[i] ? esc(theirs[i]) : "<b>" + esc(theirs[i]) + "</b>";
+  return h;
+}
+
+function rowHtml(p, mineBody) {
+  const body = didBody(p.did);
+  const prefix = p.did.slice(0, p.did.length - body.length);
+  return '<div class="row"><img src="' + esc(p.avatar || "") + '" alt="" loading="lazy" />' +
+    '<div class="who"><a href="https://bsky.app/profile/' + esc(p.did) + '" target="_blank" rel="noopener">@' + esc(p.handle) + '</a>' +
+    '<div class="did">' + esc(prefix) + diffHtml(mineBody, body) + '</div></div>' +
+    '<div class="dist">' + p.dist + '</div></div>';
+}
+
+els.form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  els.go.disabled = true;
+  els.results.hidden = true;
+  setStatus("resolving…");
+  try {
+    const me = await resolve(els.handle.value);
+    const [follows, followers] = await Promise.all([
+      pageAll("app.bsky.graph.getFollows", me.did, "follows", "follows"),
+      pageAll("app.bsky.graph.getFollowers", me.did, "followers", "followers"),
+    ]);
+    const mutuals = mutualsOf(follows, followers).filter((p) => p.did !== me.did);
+    if (!mutuals.length) { setStatus("no mutuals found for @" + me.handle, true); return; }
+    for (const p of mutuals) p.dist = didDistance(me.did, p.did);
+    mutuals.sort((a, b) => a.dist - b.dist || a.handle.localeCompare(b.handle));
+    const mineBody = didBody(me.did);
+    els.me.textContent = "@" + me.handle + " · " + me.did + " · " + mutuals.length + " mutuals";
+    els.closest.innerHTML = mutuals.slice(0, SHOW).map((p) => rowHtml(p, mineBody)).join("");
+    els.furthest.innerHTML = mutuals.slice(-SHOW).reverse().map((p) => rowHtml(p, mineBody)).join("");
+    const c = mutuals[0], f = mutuals[mutuals.length - 1];
+    const text = "my DID's closest mutual is @" + c.handle + " (distance " + c.dist + ") and furthest is @" + f.handle +
+      " (distance " + f.dist + ") — via didlev.bisks.net";
+    els.share.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+    els.results.hidden = false;
+    setStatus("");
+  } catch (err) {
+    setStatus("couldn't do that: " + err.message, true);
+  } finally {
+    els.go.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
