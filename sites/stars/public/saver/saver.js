@@ -12,7 +12,9 @@ addEventListener("resize", resize);
 resize();
 
 const DEFAULTS = { speed: 0.35, size: 1, density: 800, warp: false, color: 0, paused: false };
-const COLORS = ["white", "rainbow", "lilac"];
+const COLORS = ["white", "rainbow", "lilac", "trans"];
+// trans flag blue / pink / white, weighted so pink and blue dominate
+const TRANS = ["91,206,250", "245,169,184", "255,255,255", "245,169,184", "91,206,250"];
 let S = { ...DEFAULTS };
 try { Object.assign(S, JSON.parse(localStorage.getItem("stars-saver") || "{}")); } catch {}
 const save = () => { try { localStorage.setItem("stars-saver", JSON.stringify(S)); } catch {} };
@@ -42,6 +44,7 @@ const spd = () => (S.speed * 100).toFixed(0);
 function color(s, a) {
   if (S.color === 1) return `hsla(${Math.round(s.h * 360)},90%,70%,${a})`;
   if (S.color === 2) return `hsla(${270 + Math.round(s.h * 40)},80%,${70 + Math.round(s.h * 25)}%,${a})`;
+  if (S.color === 3) return `rgba(${TRANS[Math.min(4, Math.floor(s.h * 5))]},${a})`;
   return `rgba(255,255,255,${a})`;
 }
 
@@ -55,6 +58,7 @@ function act(k) {
     case "[": S.density /= 1.3; fit(); toast("stars " + S.density); break;
     case "w": S.warp = !S.warp; toast(S.warp ? "warp on" : "warp off"); break;
     case "c": S.color = (S.color + 1) % COLORS.length; toast(COLORS[S.color]); break;
+    case "t": toggleTilt(); return;
     case " ": S.paused = !S.paused; toast(S.paused ? "paused" : "go"); break;
     case "f": fullscreen(); return;
     case "r": S = { ...DEFAULTS }; fit(); toast("reset"); break;
@@ -97,6 +101,41 @@ const up = (e) => {
 canvas.addEventListener("pointerup", up);
 canvas.addEventListener("pointercancel", () => { tp = null; });
 
+// tilt steering: the vanishing point drifts with the phone's orientation, so
+// the stars seem to fly where you lean. iOS needs a permission prompt from a gesture.
+let tilt = { on: false, raw: null, base: null, vx: 0, vy: 0, tx: 0, ty: 0 };
+function onOrient(e) {
+  if (e.gamma == null || e.beta == null) return;
+  const ang = (screen.orientation && screen.orientation.angle) || 0;
+  let x = e.gamma, y = e.beta;
+  if (ang === 90) { x = e.beta; y = -e.gamma; }
+  else if (ang === 270 || ang === -90) { x = -e.beta; y = e.gamma; }
+  else if (ang === 180) { x = -e.gamma; y = -e.beta; }
+  tilt.raw = { x, y };
+  if (!tilt.base) tilt.base = { x, y };
+  // 30 degrees of lean = full deflection
+  tilt.tx = Math.max(-1, Math.min(1, (x - tilt.base.x) / 30));
+  tilt.ty = Math.max(-1, Math.min(1, (y - tilt.base.y) / 30));
+}
+async function toggleTilt() {
+  if (tilt.on) {
+    tilt.on = false; removeEventListener("deviceorientation", onOrient);
+    tilt.tx = tilt.ty = 0; toast("tilt off"); return;
+  }
+  if (typeof DeviceOrientationEvent === "undefined") { toast("no tilt sensor here"); return; }
+  try {
+    if (typeof DeviceOrientationEvent.requestPermission === "function") {
+      if ((await DeviceOrientationEvent.requestPermission()) !== "granted") { toast("tilt permission denied"); return; }
+    }
+  } catch { toast("tilt unavailable"); return; }
+  tilt.on = true; tilt.base = null;
+  addEventListener("deviceorientation", onOrient);
+  toast("tilt on - lean to steer (T to stop)");
+  setTimeout(() => { if (tilt.on && !tilt.raw) { tilt.on = false; removeEventListener("deviceorientation", onOrient); toast("no tilt sensor here"); } }, 2500);
+}
+$("tiltbtn").addEventListener("click", (e) => { e.stopPropagation(); toggleTilt(); });
+if (typeof DeviceOrientationEvent !== "undefined" && matchMedia("(pointer: coarse)").matches) $("tiltbtn").hidden = false;
+
 // hide the cursor when the mouse sits still
 let idleT = 0;
 addEventListener("mousemove", () => { document.body.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(() => document.body.classList.add("idle"), 2500); });
@@ -109,7 +148,9 @@ function frame(now) {
     ctx.fillStyle = S.warp ? "rgba(0,0,0,0.35)" : "#000";
     ctx.fillRect(0, 0, W, H);
     const sp = S.speed * (S.warp ? 4 : 1) * (S.paused ? 0 : 1);
-    const F = Math.max(W, H) * 0.5, cx = W / 2, cy = H / 2;
+    tilt.vx += (tilt.tx - tilt.vx) * Math.min(1, dt * 4);
+    tilt.vy += (tilt.ty - tilt.vy) * Math.min(1, dt * 4);
+    const F = Math.max(W, H) * 0.5, cx = W / 2 + tilt.vx * W * 0.45, cy = H / 2 + tilt.vy * H * 0.45;
     for (const s of pool) {
       s.pz = s.z;
       s.z -= sp * dt;
