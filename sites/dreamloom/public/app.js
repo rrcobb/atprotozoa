@@ -1,5 +1,8 @@
 // dreamloom: fetch a handle's recent posts that mention a term, let the user
-// x some out, send the rest to the user's own OpenAI-compatible endpoint via xsai.
+// x some out, send the rest to the user's own OpenAI-compatible endpoint via xsai,
+// or generate images via Hydracept (hosted or BYOK through the Worker proxy).
+import { fetchHostedStatus, generateHydraceptImage } from "./lib/hydracept-client.js";
+
 const $ = (id) => document.getElementById(id);
 const DEFAULT_SYS = "You are a dream journal ghostwriter. Below are past dream entries by one person. Study their voice, length, recurring settings and motifs, then write ONE brand-new dream entry in that same voice. Don't copy any example; invent new events. Output only the entry.";
 const WANT = 10; // product decision: "last 10 examples"
@@ -7,6 +10,7 @@ const LS = "dreamloom.settings";
 
 let examples = []; // { text, createdAt, uri, on }
 let handleClean = "";
+let hydraceptHosted = false;
 
 const clean = (h) => h.trim().replace(/^@/, "").toLowerCase();
 
@@ -93,13 +97,17 @@ function loadSettings() {
   $("sys").value = DEFAULT_SYS;
   try {
     const s = JSON.parse(localStorage.getItem(LS) || "{}");
-    for (const k of ["baseurl", "apikey", "output", "model", "sys"]) if (s[k] != null) $(k).value = s[k];
+    for (const k of ["baseurl", "apikey", "hydraceptkey", "output", "model", "sys"]) {
+      if (s[k] != null && $(k)) $(k).value = s[k];
+    }
   } catch {}
   syncOutput();
 }
 function saveSettings() {
   const s = {};
-  for (const k of ["baseurl", "apikey", "output", "model", "sys"]) s[k] = $(k).value;
+  for (const k of ["baseurl", "apikey", "hydraceptkey", "output", "model", "sys"]) {
+    if ($(k)) s[k] = $(k).value;
+  }
   try { localStorage.setItem(LS, JSON.stringify(s)); } catch {}
 }
 function syncOutput() {
@@ -126,13 +134,16 @@ function showOut(node, shareText) {
   } else a.hidden = true;
 }
 
+function hydraceptTokenForImage() {
+  const key = $("hydraceptkey").value.trim();
+  if (key) return key;
+  if (hydraceptHosted) return "";
+  return null;
+}
+
 $("go").addEventListener("click", async () => {
   const used = examples.filter((x) => x.on);
   if (!used.length) { showOut(document.createTextNode("fetch some examples first (and keep at least one)."), ""); return; }
-  const baseURL = $("baseurl").value.trim().replace(/\/?$/, "/");
-  const apiKey = $("apikey").value.trim();
-  const model = $("model").value.trim();
-  if (!apiKey || !model) { showOut(document.createTextNode("needs an api key and a model."), ""); return; }
   saveSettings();
   const sys = $("sys").value.trim() || DEFAULT_SYS;
   const body = used.map((x, i) => `--- example ${i + 1} ---\n${x.text}`).join("\n\n");
@@ -140,14 +151,34 @@ $("go").addEventListener("click", async () => {
   showOut(document.createTextNode("weaving…"), "");
   try {
     if ($("output").value === "image") {
-      const { generateImage } = await import("https://esm.sh/@xsai/generate-image");
-      const r = await generateImage({ baseURL, apiKey, model, prompt: `${sys}\n\n${body}`.slice(0, 4000), responseFormat: "b64_json" });
-      const img = document.createElement("img");
-      const b64 = r.image || (r.images && (r.images[0].b64_json || r.images[0]));
-      img.src = typeof b64 === "string" && b64.startsWith("http") ? b64 : "data:image/png;base64," + b64;
-      img.alt = "generated dream image";
-      showOut(img, "");
+      const hToken = hydraceptTokenForImage();
+      if (hToken !== null) {
+        const src = await generateHydraceptImage(`${sys}\n\n${body}`, { token: hToken || undefined });
+        const img = document.createElement("img");
+        img.src = src;
+        img.alt = "generated dream image";
+        showOut(img, "");
+      } else {
+        const baseURL = $("baseurl").value.trim().replace(/\/?$/, "/");
+        const apiKey = $("apikey").value.trim();
+        const model = $("model").value.trim();
+        if (!apiKey || !model) {
+          showOut(document.createTextNode("needs an api key and model, hosted Hydracept, or a Hydracept key."), "");
+          return;
+        }
+        const { generateImage } = await import("https://esm.sh/@xsai/generate-image");
+        const r = await generateImage({ baseURL, apiKey, model, prompt: `${sys}\n\n${body}`.slice(0, 4000), responseFormat: "b64_json" });
+        const img = document.createElement("img");
+        const b64 = r.image || (r.images && (r.images[0].b64_json || r.images[0]));
+        img.src = typeof b64 === "string" && b64.startsWith("http") ? b64 : "data:image/png;base64," + b64;
+        img.alt = "generated dream image";
+        showOut(img, "");
+      }
     } else {
+      const baseURL = $("baseurl").value.trim().replace(/\/?$/, "/");
+      const apiKey = $("apikey").value.trim();
+      const model = $("model").value.trim();
+      if (!apiKey || !model) { showOut(document.createTextNode("needs an api key and a model."), ""); return; }
       const { generateText } = await import("https://esm.sh/@xsai/generate-text");
       const r = await generateText({
         baseURL, apiKey, model,
@@ -162,12 +193,19 @@ $("go").addEventListener("click", async () => {
   } catch (err) {
     const p = document.createElement("span");
     p.className = "err";
-    p.textContent = "failed: " + (err && err.message ? err.message : err) + " — check key, model, and that the endpoint allows browser (CORS) calls.";
+    p.textContent = "failed: " + (err && err.message ? err.message : err);
     showOut(p, "");
   } finally {
     $("go").disabled = false;
   }
 });
 
+async function initHydracept() {
+  const st = await fetchHostedStatus();
+  hydraceptHosted = Boolean(st.hosted);
+  if (hydraceptHosted) $("hydracept-hosted").hidden = false;
+}
+
 if (typeof window !== "undefined" && window.attachHandleTypeahead) window.attachHandleTypeahead($("handle"));
 loadSettings();
+initHydracept();
