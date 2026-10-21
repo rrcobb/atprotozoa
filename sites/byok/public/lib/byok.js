@@ -1,7 +1,8 @@
 // byok.js — bring-your-own-key. The visitor pastes their own provider API key,
-// it lives in this browser's localStorage and nowhere else, and the page calls
-// the provider directly with it. No Worker, no proxy, no server-side key, so
-// the site owner pays nothing for what the visitor generates.
+// it lives in this browser's localStorage, and the page calls the provider
+// with it. Most providers are called directly from the browser; Hydracept is
+// proxied same-origin (/api/hydracept/*) because the Hydracept API does not
+// expose browser-readable CORS on job routes. The site owner never sees keys.
 //
 // Copy this file into a site's public/lib/ and call mountKeyPanel() plus one of
 // the capability functions. Copy, don't import across sites.
@@ -26,7 +27,14 @@
 // that actually works fine. A blocked call throws "Failed to fetch" with no
 // status; an allowed one gives you a status and a readable body even on a 401.
 
+import { parseImageSize } from "./hydracept-pure.js";
+import { hydraceptQuote as proxyQuote, hydraceptRun as proxyRun } from "./hydracept-client.js";
+
 const STORE_PREFIX = "byok:";
+
+const HYDRACEPT_IMAGE = "image.generate.v1";
+const HYDRACEPT_VOICE = "audio.voice.generate.v1";
+const HYDRACEPT_MP3 = "mp3_44100_128";
 
 // `dialect` picks the request/response adapter. Everything else is data.
 export const PROVIDERS = {
@@ -185,6 +193,16 @@ export const PROVIDERS = {
     imageModel: "fal-ai/flux/schnell",
     can: ["image"],
   },
+  hydracept: {
+    label: "Hydracept",
+    keyHint: "Hydracept API key",
+    consoleUrl: "https://hydracept.com/start",
+    dialect: "hydracept",
+    // Rachel — stock ElevenLabs voice id routed through audio.voice.generate.v1
+    voiceId: "21m00Tcm4TlvDq8ikWAM",
+    speechModel: "eleven_v4",
+    can: ["image", "speak"],
+  },
   voyage: {
     label: "Voyage",
     keyHint: "pa-…",
@@ -279,6 +297,24 @@ function need(provider, capability) {
 
 // Providers disagree about where the error message lives; try the known shapes
 // so the UI can show the real reason rather than a status code.
+async function defaultConfirmQuote(display) {
+  if (typeof window === "undefined") return true;
+  return window.confirm(`Hydracept quote: ${display}. Run this job?`);
+}
+
+async function hydraceptWithQuote(key, capability, input, { confirmQuote, quoteId, signal } = {}) {
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  let qid = quoteId;
+  if (!qid) {
+    const q = await proxyQuote({ capability, input, token: key });
+    const ok = confirmQuote ? await confirmQuote(q.display, q) : await defaultConfirmQuote(q.display);
+    if (!ok) throw new Error("Cancelled.");
+    qid = q.quoteId;
+  }
+  if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  return proxyRun({ capability, input, quoteId: qid, token: key });
+}
+
 async function readError(res, fallback) {
   let detail = "";
   try {
@@ -363,10 +399,18 @@ export async function chat(prompt, { provider = "openai", system, model, maxToke
 // Returns something you can put straight in an <img src>: a hosted URL from
 // fal, a data: URL from OpenAI (which returns base64, not a link).
 
-export async function image(prompt, { provider = "fal", model, size = "1024x1024", signal, ...rest } = {}) {
+export async function image(prompt, { provider = "fal", model, size = "1024x1024", signal, confirmQuote, quoteId, ...rest } = {}) {
   const { meta, key } = need(provider, "image");
   const useModel = model || meta.imageModel;
   const headers = { "content-type": "application/json", ...authHeaders(meta, key) };
+
+  if (meta.dialect === "hydracept") {
+    const { width, height } = parseImageSize(size);
+    const input = { prompt, width, height, ...rest };
+    const ran = await hydraceptWithQuote(key, HYDRACEPT_IMAGE, input, { confirmQuote, quoteId, signal });
+    const mime = ran.mediaType || "image/png";
+    return `data:${mime};base64,${ran.dataBase64}`;
+  }
 
   if (meta.dialect === "fal") {
     const res = await fetch(`${meta.base}/${useModel}`, {
@@ -399,9 +443,22 @@ export async function image(prompt, { provider = "fal", model, size = "1024x1024
 // Returns a blob: URL for an <audio src>. Revoke it with URL.revokeObjectURL
 // when you're done if the page makes many.
 
-export async function speak(text, { provider = "elevenlabs", voice, model, signal } = {}) {
+export async function speak(text, { provider = "elevenlabs", voice, model, signal, confirmQuote, quoteId } = {}) {
   const { meta, key } = need(provider, "speak");
   const headers = { "content-type": "application/json", ...authHeaders(meta, key) };
+
+  if (meta.dialect === "hydracept") {
+    const input = {
+      text,
+      voiceId: voice || meta.voiceId,
+      modelId: model || meta.speechModel,
+      outputFormatPreference: HYDRACEPT_MP3,
+    };
+    const ran = await hydraceptWithQuote(key, HYDRACEPT_VOICE, input, { confirmQuote, quoteId, signal });
+    const bin = Uint8Array.from(atob(ran.dataBase64), (c) => c.charCodeAt(0));
+    const mime = ran.mediaType || "audio/mpeg";
+    return URL.createObjectURL(new Blob([bin], { type: mime }));
+  }
 
   let url;
   let body;
@@ -583,9 +640,11 @@ export function mountKeyPanel(target, { provider, capability, onChange, blurb, t
     } else {
       el.innerHTML = `
         <h3>${title || "Use your own API key"}</h3>
-        <p class="byok-why">${blurb || "This page calls the provider straight from your browser."}
-        Your key is stored in this browser and sent only to ${meta.label} — it never
-        reaches this site's server, because this site doesn't have one that sees it.
+        <p class="byok-why">${blurb || (meta.dialect === "hydracept"
+          ? "Hydracept runs through this site's proxy (the API blocks direct browser calls). Your key stays in this browser and is forwarded only for the quote and job you confirm."
+          : "This page calls the provider straight from your browser.")}
+        Your key is stored in this browser${meta.dialect === "hydracept" ? "" : ` and sent only to ${meta.label}`} — it never
+        reaches this site's server${meta.dialect === "hydracept" ? " except as a one-shot proxy" : ", because this site doesn't have one that sees it"}.
         <a href="${meta.consoleUrl}" target="_blank" rel="noopener">Get a key</a>.</p>
         <div class="byok-row">${picker}
           <input type="password" data-byok="input" placeholder="${meta.keyHint}"
