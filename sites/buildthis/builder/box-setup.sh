@@ -17,7 +17,7 @@ set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/rrcobb/atprotozoa.git}"
 CHECKOUT="${CHECKOUT:-/opt/atprotozoa}"
-NODE_MAJOR="${NODE_MAJOR:-22}"
+NODE_MAJOR="${NODE_MAJOR:-24}"
 BUILDER_USER="${BUILDER_USER:-builder}"
 
 echo "=== apt deps ==="
@@ -36,10 +36,13 @@ sudo sed -i -e 's|^mozilla/emSign_ECC_Root_CA_-_G3.crt|!&|' /etc/ca-certificates
 sudo update-ca-certificates
 
 echo "=== node ${NODE_MAJOR} (nodesource) ==="
-if ! command -v node >/dev/null || [ "$(node -v | cut -c2- | cut -d. -f1)" -lt "$NODE_MAJOR" ]; then
+if ! command -v node >/dev/null || [ "$(node -v | cut -c2- | cut -d. -f1)" != "$NODE_MAJOR" ]; then
   curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | sudo -E bash -
-  sudo apt-get install -y nodejs
 fi
+# Install outside the check so a re-run picks up the newest patch on the line.
+# Node ships security fixes as patch releases (2026-10: 22.23.1 -> 22.23.4), and
+# the old major-only check made a re-run a no-op for those.
+sudo apt-get install -y nodejs
 node -v
 
 echo "=== pnpm + claude-code + wrangler (global) ==="
@@ -116,14 +119,14 @@ ENVTEMPLATE
 else
   echo "  /etc/buildthis/env already exists — left untouched"
 fi
-# Node's bundled roots still trust the eMudhra chain (see the distrust step
-# above), so point node at the system store. Drop once node ships the fix.
+# Point node at the system store, so the distrust step above and any future CA
+# change apply to node and to everything else on the box in one place. Node's
+# bundled roots dropped the eMudhra chain in 22.23.4 / 24.22.1; this stays anyway.
 if ! sudo grep -q '^NODE_OPTIONS=' /etc/buildthis/env; then
   sudo tee -a /etc/buildthis/env >/dev/null <<'NODECA'
 
-# eMudhra CA compromise (2026-10): node's bundled roots still trust it, so read
-# the system store, where emSign ECC Root CA - G3 is disabled. Drop once node and
-# ca-certificates ship the fix.
+# Read the system CA store, so CA changes (e.g. the 2026-10 eMudhra distrust of
+# emSign ECC Root CA - G3) are made once in /etc/ca-certificates.conf.
 NODE_OPTIONS=--use-openssl-ca
 SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 NODECA
