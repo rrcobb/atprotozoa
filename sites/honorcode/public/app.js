@@ -1,7 +1,7 @@
-import { moots } from "./lib/cluster.js";
+import { moots, resolveDid } from "./lib/cluster.js";
 import { fetchRepoRecordsWithKeys } from "./lib/car.js";
 import { resolvePds } from "./lib/identity.js";
-import { TENETS, CLAIMER, summarizePosts, scoreTenets, overall, rankFor, extremes } from "./lib/honor.js";
+import { TENETS, CLAIMER, summarizePosts, scoreTenets, overall, rankFor, extremes, findClaims, buildTimeline, monthLabel } from "./lib/honor.js";
 
 const PUB = "https://api.bsky.app/xrpc";
 const FEED_PAGES = 400; // fallback-only backstop (repo download failed); unreachable in practice, same as the moot-family GRAPH_PAGES
@@ -10,7 +10,7 @@ const $ = (id) => document.getElementById(id);
 const els = {
   form: $("searchForm"), input: $("handleInput"), btn: $("goBtn"), status: $("status"),
   results: $("results"), who: $("who"), big: $("big"), rank: $("rank"), line: $("line"),
-  chart: $("chart"), rows: $("rows"), facts: $("facts"),
+  chart: $("chart"), timeline: $("timeline"), badges: $("badges"), badgeCount: $("badgeCount"), rows: $("rows"), facts: $("facts"),
   shareBluesky: $("shareBluesky"), shareDownload: $("shareDownload"), shareNative: $("shareNative"),
 };
 
@@ -26,11 +26,15 @@ const short = (h) => "@" + String(h || "").replace(/\.bsky\.social$/, "");
 // (oversized repo, non-CORS PDS, malformed CAR) — the AppView author feed
 // walked until its cursor runs out.
 async function loadPosts(did, onStep) {
+  return (await loadPostsWithUris(did, onStep)).map((r) => r.value);
+}
+
+async function loadPostsWithUris(did, onStep) {
   try {
     const pds = await resolvePds(did);
     if (!pds) throw new Error("no PDS");
     const { records } = await fetchRepoRecordsWithKeys(pds, did, "app.bsky.feed.post", onStep);
-    return records.map((r) => r.value);
+    return records;
   } catch {
     onStep("repo download failed, walking the author feed…");
     const out = [];
@@ -44,13 +48,24 @@ async function loadPosts(did, onStep) {
       if (!r.ok) break;
       const d = await r.json();
       for (const it of d.feed || []) {
-        if (!it.reason && it.post && it.post.author.did === did && it.post.record) out.push(it.post.record);
+        if (!it.reason && it.post && it.post.author.did === did && it.post.record) out.push({ uri: it.post.uri, value: it.post.record });
       }
       cursor = d.cursor;
       if (!cursor) break;
     }
     return out;
   }
+}
+
+// The claimer's whole repo, downloaded once per page load and reused across
+// lookups. Resolves to [{ uri, value }]; rejects if it can't be read.
+let claimerPosts = null;
+function loadClaimerPosts(onStep) {
+  if (!claimerPosts) {
+    claimerPosts = resolveDid(CLAIMER).then((did) => loadPostsWithUris(did, onStep));
+    claimerPosts.catch(() => { claimerPosts = null; });
+  }
+  return claimerPosts;
 }
 
 function polar(cx, cy, r, i, n) {
@@ -111,6 +126,84 @@ function drawRadar(ctx, W, H, scores, opts = {}) {
   ctx.restore();
 }
 
+const WHEN = (t) => monthLabel(t);
+
+// Honor-over-time line chart with a marker on every badge's month.
+function drawTimeline(ctx, W, H, points, badges) {
+  ctx.clearRect(0, 0, W, H);
+  if (!points.length) return;
+  const L = 44, R = 16, T = 22, B = 30;
+  const t0 = points[0].t, t1 = points[points.length - 1].t;
+  const X = (t) => L + (t1 === t0 ? (W - L - R) / 2 : ((t - t0) / (t1 - t0)) * (W - L - R));
+  const Y = (v) => T + (1 - v) * (H - T - B);
+  ctx.save();
+  ctx.font = "12px ui-monospace, monospace";
+  ctx.strokeStyle = "#362647"; ctx.fillStyle = "#a996c4"; ctx.lineWidth = 1;
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (const f of [0, 0.25, 0.5, 0.75, 1]) {
+    ctx.beginPath(); ctx.moveTo(L, Y(f)); ctx.lineTo(W - R, Y(f)); ctx.stroke();
+    ctx.fillText(pct(f) + "%", L - 6, Y(f));
+  }
+  ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+  ctx.fillText(WHEN(t0), L, H - 8);
+  ctx.textAlign = "right";
+  ctx.fillText(WHEN(t1), W - R, H - 8);
+  ctx.beginPath();
+  points.forEach((p, i) => (i ? ctx.lineTo(X(p.t), Y(p.score)) : ctx.moveTo(X(p.t), Y(p.score))));
+  ctx.strokeStyle = "#f4c76a"; ctx.lineWidth = 2.5; ctx.stroke();
+  // badge markers ride the line at the point for their month
+  const at = (t) => {
+    let best = points[0];
+    for (const p of points) if (p.t <= t) best = p; else break;
+    return best;
+  };
+  ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = "13px ui-monospace, monospace";
+  for (const b of badges) {
+    const p = at(b.t);
+    const x = X(Math.max(t0, Math.min(t1, b.t))), y = Y(p.score);
+    ctx.beginPath(); ctx.arc(x, y, b.kind === "claim" ? 9 : 5.5, 0, 7);
+    ctx.fillStyle = b.kind === "claim" ? "#f4c76a" : "#17101f";
+    ctx.fill();
+    ctx.strokeStyle = "#f4c76a"; ctx.lineWidth = 1.5; ctx.stroke();
+    if (b.kind === "claim") { ctx.fillStyle = "#1a1004"; ctx.fillText("⚔", x, y + 0.5); }
+  }
+  ctx.restore();
+}
+
+function renderBadges(badges) {
+  els.badges.textContent = "";
+  els.badgeCount.textContent = badges.length ? `${badges.length} hatch${badges.length === 1 ? "" : "es"} of honor` : "no hatches of honor yet";
+  for (const b of badges) {
+    const li = document.createElement("li");
+    li.className = "badge " + b.kind;
+    const g = document.createElement("span");
+    g.className = "bg";
+    g.textContent = b.glyph;
+    const body = document.createElement("div");
+    const title = document.createElement("b");
+    title.textContent = "🐣 " + b.title;
+    const when = document.createElement("span");
+    when.className = "when";
+    when.textContent = " · " + new Date(b.t).toISOString().slice(0, 10);
+    const det = document.createElement("div");
+    det.className = "rule";
+    det.textContent = b.detail + " ";
+    if (b.uri) {
+      const m = /^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/(.+)$/.exec(b.uri);
+      if (m) {
+        const a = document.createElement("a");
+        a.href = `https://bsky.app/profile/${m[1]}/post/${m[2]}`;
+        a.target = "_blank"; a.rel = "noopener";
+        a.textContent = "see the post ↗";
+        det.appendChild(a);
+      }
+    }
+    body.append(title, when, det);
+    li.append(g, body);
+    els.badges.appendChild(li);
+  }
+}
+
 function renderRows(scores) {
   els.rows.textContent = "";
   for (const t of TENETS) {
@@ -169,12 +262,18 @@ async function run(raw) {
     setStatus("downloading every post…");
     const records = await loadPosts(cl.did, setStatus);
     const summary = summarizePosts(records);
-    // pool lists mutuals first; widening to plain follows appends after them
-    const mutualHandles = cl.pool.slice(0, cl.counts.mutuals).map((p) => p.handle.toLowerCase());
     const isClaimer = cl.handle.toLowerCase() === CLAIMER;
-    const claimed = mutualHandles.includes(CLAIMER);
+    // Claimed = the claimer quote-posted one of this handle's posts with just
+    // "claim". That lives in the claimer's repo, so read all of it.
+    let claims = null; // null = the claimer's repo couldn't be read
+    if (!isClaimer) {
+      setStatus("checking the claimer's whole repo for claims…");
+      try { claims = findClaims(await loadClaimerPosts(setStatus), cl.did); } catch {}
+    }
+    const claimed = claims === null ? null : claims.length > 0;
     const scores = scoreTenets(cl.counts, summary, claimed);
     if (isClaimer) scores.claimed = null; // the claimer can't claim themself
+    const { points, badges } = buildTimeline(records, isClaimer ? null : claims);
     const total = overall(scores);
     const rank = rankFor(total);
     const { best, worst } = extremes(scores);
@@ -187,12 +286,16 @@ async function run(raw) {
     ctx.clearRect(0, 0, els.chart.width, els.chart.height);
     drawRadar(ctx, els.chart.width, els.chart.height, scores, { font: 14 });
     renderRows(scores);
+    drawTimeline(els.timeline.getContext("2d"), els.timeline.width, els.timeline.height, points, badges);
+    renderBadges(badges);
 
     els.facts.textContent = "";
     const facts = [
       `${summary.n.toLocaleString()} posts read, ${cl.counts.mutuals.toLocaleString()} mutuals out of ${cl.counts.follows.toLocaleString()} follows and ${cl.counts.followers.toLocaleString()} followers.`,
       best && worst && best !== worst ? `strongest tenet: ${best.label}. weakest: ${worst.label}.` : "",
-      isClaimer ? "you are the claimer. the claim stands alone." : claimed ? "claimed by @norvid-studies.bsky.social. there is no higher honor." : "not yet claimed by @norvid-studies.bsky.social. the honor is pending.",
+      isClaimer ? "you are the claimer. the claim stands alone." : claimed === null ? "couldn't read @norvid-studies.bsky.social's repo, so the claim is left out of the score."
+        : claimed ? `claimed by @norvid-studies.bsky.social${claims.length > 1 ? ` ${claims.length} times` : ""}. there is no higher honor.`
+        : "not yet claimed: @norvid-studies.bsky.social hasn't quoted you with \"claim\". the honor is pending.",
     ].filter(Boolean);
     for (const f of facts) {
       const li = document.createElement("li");

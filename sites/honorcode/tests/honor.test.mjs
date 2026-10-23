@@ -36,3 +36,35 @@ test("claimed lifts the overall", () => {
   const b = overall(scoreTenets({ follows: 10, followers: 10, mutuals: 5 }, s, true));
   assert.ok(b > a);
 });
+
+import { findClaims, isClaimText, buildTimeline } from "../public/lib/honor.js";
+
+test("claims need a quote of the handle's post with just the word claim", () => {
+  const did = "did:plc:me";
+  const q = (text, uri) => ({ uri: "at://norvid/app.bsky.feed.post/" + text, value: { text, createdAt: "2026-02-01T00:00:00Z", embed: { $type: "app.bsky.embed.record", record: { uri } } } });
+  const posts = [
+    q("claim", `at://${did}/app.bsky.feed.post/1`),
+    q("Claim.", `at://${did}/app.bsky.feed.post/2`),
+    q("claim this", `at://${did}/app.bsky.feed.post/3`),
+    q("claim", "at://did:plc:other/app.bsky.feed.post/4"),
+    { uri: "x", value: { text: "claim", createdAt: "2026-02-01T00:00:00Z" } },
+  ];
+  assert.strictEqual(findClaims(posts, did).length, 2);
+  assert.ok(isClaimText(" “Claim!” "));
+  assert.ok(!isClaimText("claimed"));
+});
+
+test("timeline scores monthly and hatches badges, claim included", () => {
+  const now = Date.parse("2026-04-15T00:00:00Z");
+  const recs = [
+    { createdAt: "2026-01-02T00:00:00Z", text: "a" },
+    { createdAt: "2026-02-02T00:00:00Z", reply: {}, text: "b" },
+  ];
+  const claims = [{ t: Date.parse("2026-03-10T00:00:00Z"), target: "at://did:plc:me/app.bsky.feed.post/1" }];
+  const { points, badges } = buildTimeline(recs, claims, now);
+  assert.strictEqual(points.length, 4);
+  assert.ok(points[3].score > points[1].score);
+  const titles = badges.map((b) => b.title);
+  assert.ok(titles.includes("First Word") && titles.includes("Claimed") && titles.includes("First Answer"));
+  assert.strictEqual(buildTimeline([], [], now).points.length, 0);
+});
