@@ -31,24 +31,8 @@ const $ = (id) => document.getElementById(id);
 
 let deck, cur, score, streak, best, endAt, timer, locked;
 
-// Wrong answers get a sad little trombone-fart from Web Audio, no files.
-let ac;
-function fart() {
-  try {
-    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
-    const o = ac.createOscillator(), g = ac.createGain();
-    o.type = "sawtooth";
-    o.frequency.setValueAtTime(120, ac.currentTime);
-    o.frequency.exponentialRampToValueAtTime(45, ac.currentTime + 0.35);
-    const lfo = ac.createOscillator(), lg = ac.createGain();
-    lfo.frequency.value = 38; lg.gain.value = 30;
-    lfo.connect(lg); lg.connect(o.frequency);
-    g.gain.setValueAtTime(0.25, ac.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.4);
-    o.connect(g); g.connect(ac.destination);
-    o.start(); lfo.start(); o.stop(ac.currentTime + 0.4); lfo.stop(ac.currentTime + 0.4);
-  } catch (e) { /* no audio, no problem */ }
-}
+// Wrong answers play a physically modelled fart (fart.js, loaded as a module).
+function fart() { if (window.playFart) window.playFart(); }
 
 function shuffle(a) {
   a = a.slice();
