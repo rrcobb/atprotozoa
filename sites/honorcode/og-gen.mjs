@@ -13,7 +13,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">
 <rect width="1200" height="630" fill="#0a0712"/>
 ${[0.25, 0.5, 0.75, 1].map((f) => `<polygon points="${poly(f)}" fill="none" stroke="#362647"/>`).join("")}
 <polygon points="${shape}" fill="#f4c76a" fill-opacity="0.3" stroke="#f4c76a" stroke-width="4"/>
-<text x="64" y="150" font-family="JetBrains Mono" font-weight="800" font-size="72" fill="#f4c76a">honorcode</text>
+<text x="64" y="150" font-family="JetBrains Mono" font-weight="800" font-size="72" fill="#f4c76a">claim your honor</text>
 <text x="64" y="215" font-family="JetBrains Mono" font-size="24" fill="#a996c4">your honor, plotted by the tenets</text>
 <text x="64" y="250" font-family="JetBrains Mono" font-size="24" fill="#a996c4">of the simcluster code.</text>
 <text x="64" y="320" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="#f2e9ff">be excellent.</text>
