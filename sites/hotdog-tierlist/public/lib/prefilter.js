@@ -8,6 +8,8 @@
 // (Jev would be the nicer first pass, but api.typesafe.ai sends no CORS headers,
 // so a browser page can't call it — see notes/40-new-site-playbook.md.)
 
+import { cacheGet, cacheSet, proxied } from "./cache.js";
+
 const SIZE = 32;
 // Share of pixels that must be warm food colours. Hot dogs fill a good part of
 // the frame; 3% is far below any real one, so this rejects only images that
@@ -38,15 +40,20 @@ export function isPlausible(rgba) {
 
 // -> true if the photo at `url` could be a hot dog (also true when unreadable).
 export async function plausibleUrl(url) {
+  const key = "warm:" + url;
+  const cached = await cacheGet(key);
+  if (typeof cached === "boolean") return cached;
   try {
-    const res = await fetch(url);
+    const res = await fetch(proxied(url));
     if (!res.ok) return true;
     const bmp = await createImageBitmap(await res.blob(), { resizeWidth: SIZE, resizeHeight: SIZE });
     const c = document.createElement("canvas");
     c.width = c.height = SIZE;
     const ctx = c.getContext("2d");
     ctx.drawImage(bmp, 0, 0, SIZE, SIZE);
-    return isPlausible(ctx.getImageData(0, 0, SIZE, SIZE).data);
+    const ok = isPlausible(ctx.getImageData(0, 0, SIZE, SIZE).data);
+    cacheSet(key, ok);
+    return ok;
   } catch {
     return true;
   }

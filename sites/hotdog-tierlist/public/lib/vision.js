@@ -2,6 +2,7 @@
 // off post photos. Runs entirely on the visitor's device: the ~90MB model
 // comes from the jsdelivr/huggingface CDNs and is cached by the browser, so
 // the Worker does no inference and pays for nothing.
+import { cacheGet, cacheSet, proxied } from "./cache.js";
 import { VISUAL_PROMPTS, GATE_PROMPTS, BASELINE_PROMPT, scoreImage } from "./vision-score.js";
 
 const CDN = "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
@@ -40,11 +41,16 @@ export function loadVision(onStatus = () => {}) {
 
 // -> {hotdog, toppings:[{name,p}]} or null if the image can't be fetched/read.
 export async function readImage(url) {
+  const key = "clip:" + url;
+  const cached = await cacheGet(key);
+  if (cached) return cached;
   const { tf, processor, visionModel, text } = await loadVision();
   try {
-    const image = await tf.RawImage.read(url);
+    const image = await tf.RawImage.read(proxied(url));
     const { image_embeds } = await visionModel(await processor(image));
-    return scoreImage(Array.from(image_embeds.data), text);
+    const r = scoreImage(Array.from(image_embeds.data), text);
+    cacheSet(key, r);
+    return r;
   } catch {
     return null;
   }

@@ -89,7 +89,7 @@ function altTexts(p) {
   return imgs.map((i) => i.alt).filter(Boolean);
 }
 
-// Thumbnail URLs of a post's attached images (cdn.bsky.app, CORS-open), for
+// Thumbnail URLs of a post's attached images (cdn.bsky.app; read via the Worker's /img proxy), for
 // the optional in-browser photo reader.
 function thumbs(p) {
   const e = p.embed || {};
