@@ -1,5 +1,5 @@
 import { buildCluster } from "./lib/cluster.js";
-import { searchAuthorPhrase, postUrl } from "./lib/search.js";
+import { searchAuthorPhrase, mediaPostsForAuthor, postUrl } from "./lib/search.js";
 import { loadVision, readImage } from "./lib/vision.js";
 import { GATE_MIN } from "./lib/vision-score.js";
 import { PROVIDERS, getProvider, getKey, saveKey, forgetKeys, askToppings } from "./lib/llm-vision.js";
@@ -23,6 +23,7 @@ const els = {
   shareLink: document.getElementById("shareLink"),
   photos: document.getElementById("photos"),
   useRef: document.getElementById("useRef"),
+  stop: document.getElementById("stopPhotos"),
 };
 
 // --- bring-your-own vision key ---------------------------------------------
@@ -197,6 +198,7 @@ async function run(handleInput) {
   }
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, members.length) }, worker));
 
+  if (els.photos.checked) await scanMediaPosts(members, found);
   const posts = [...found.values()];
   if (els.photos.checked) await readPhotos(posts);
   const rows = renderBoard(posts);
@@ -210,7 +212,63 @@ async function run(handleInput) {
   els.go.disabled = false;
 }
 
-// Optional second pass: run CLIP over each hotdog post's photos, on-device.
+// Photo pass 1: posts are otherwise found only by their words, so a hot dog
+// photo with no caption never gets looked at. Walk every member's media posts,
+// let CLIP's "is this a hot dog" gate pick the photos, and add those posts.
+// Total work is every image a mutual ever posted, so the stop button lets the
+// visitor end it early and keep what was found.
+let stopPhotos = false;
+els.stop.addEventListener("click", () => {
+  stopPhotos = true;
+  els.stop.hidden = true;
+});
+
+async function scanMediaPosts(members, found) {
+  try {
+    await loadVision(setStatus);
+  } catch (e) {
+    setStatus(`photo model failed to load (${e.message}) — showing text-only results.`, true);
+    return;
+  }
+  stopPhotos = false;
+  els.stop.hidden = false;
+  const queue = members.slice();
+  let people = 0;
+  let images = 0;
+  let added = 0;
+  async function worker() {
+    while (queue.length && !stopPhotos) {
+      const m = queue.shift();
+      let media = [];
+      try {
+        media = await mediaPostsForAuthor(m.did);
+      } catch {
+        // one unreachable account shouldn't sink the scan
+      }
+      for (const p of media) {
+        if (stopPhotos) break;
+        if (found.has(p.uri)) continue; // already matched by its words
+        for (const url of p.images) {
+          const r = await readImage(url);
+          images++;
+          if (r && r.hotdog >= GATE_MIN) {
+            if (!p.author.handle) p.author = { did: m.did, handle: m.handle };
+            found.set(p.uri, p);
+            added++;
+            break;
+          }
+        }
+        if (images % 5 === 0) setStatus(`scanning photos… ${people}/${members.length} people, ${images} images, ${added} hot dog photos found`);
+      }
+      people++;
+      setStatus(`scanning photos… ${people}/${members.length} people, ${images} images, ${added} hot dog photos found`);
+    }
+  }
+  await Promise.all([worker(), worker()]);
+  els.stop.hidden = true;
+}
+
+// Photo pass 2: run CLIP over each hotdog post's photos, on-device.
 async function readPhotos(posts) {
   const withImgs = posts.filter((p) => p.images && p.images.length);
   if (!withImgs.length) return;

@@ -104,3 +104,45 @@ export function postUrl(uri) {
   if (!m) return "https://bsky.app";
   return `https://bsky.app/profile/${m[1]}/post/${m[2]}`;
 }
+
+// Every media post (images attached) in one account's feed, for the photo
+// pass: a hot dog photo with no hot dog words in its text or alt text is
+// invisible to searchPosts. getAuthorFeed's posts_with_media filter walks the
+// account's whole feed, so this pages until the cursor is empty. Small thumbs
+// are enough for CLIP (it downsizes to 224px anyway).
+const FEED = "https://public.api.bsky.app/xrpc";
+const FEED_SAFETY_PAGES = 400; // runaway-loop guard only; 40,000 media posts from one account is unreachable
+
+export async function mediaPostsForAuthor(did) {
+  const posts = [];
+  let cursor = "";
+  for (let page = 0; page < FEED_SAFETY_PAGES; page++) {
+    const u = new URL(`${FEED}/app.bsky.feed.getAuthorFeed`);
+    u.searchParams.set("actor", did);
+    u.searchParams.set("filter", "posts_with_media");
+    u.searchParams.set("limit", "100");
+    if (cursor) u.searchParams.set("cursor", cursor);
+    const d = await searchGet(u.toString());
+    if (!d) break;
+    const feed = d.feed || [];
+    for (const item of feed) {
+      const p = item.post;
+      if (!p || item.reason || p.author?.did !== did) continue; // skip reposts of others
+      const imgs = ((p.embed?.images) || (p.embed?.media?.images) || []).map((i) => i.thumb || i.fullsize).filter(Boolean);
+      if (!imgs.length) continue;
+      const rec = p.record || {};
+      posts.push({
+        uri: p.uri,
+        author: p.author,
+        text: [rec.text || "", ...altTexts(p)].filter(Boolean).join("\n"),
+        images: imgs,
+        createdAt: rec.createdAt || p.indexedAt,
+        likeCount: p.likeCount || 0,
+        repostCount: p.repostCount || 0,
+      });
+    }
+    cursor = d.cursor;
+    if (!cursor || feed.length === 0) break;
+  }
+  return posts;
+}
