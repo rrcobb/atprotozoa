@@ -1,6 +1,8 @@
 import { buildCluster } from "./lib/cluster.js";
 import { searchAuthorPhrase, postUrl } from "./lib/search.js";
 import { loadVision, readImage } from "./lib/vision.js";
+import { GATE_MIN } from "./lib/vision-score.js";
+import { PROVIDERS, getProvider, getKey, saveKey, forgetKeys, askToppings } from "./lib/llm-vision.js";
 import { HOTDOG_QUERIES, isHotdogPost, tally, assignTiers, TIERS } from "./lib/toppings.js";
 
 // A concurrency limit, not a data cap: every cluster member is still searched
@@ -22,6 +24,39 @@ const els = {
   photos: document.getElementById("photos"),
   useRef: document.getElementById("useRef"),
 };
+
+// --- bring-your-own vision key ---------------------------------------------
+const vel = {
+  provider: document.getElementById("vprovider"),
+  key: document.getElementById("vkey"),
+  state: document.getElementById("vkeyState"),
+  get: document.getElementById("vget"),
+};
+for (const [id, p] of Object.entries(PROVIDERS)) vel.provider.add(new Option(p.label, id));
+vel.provider.value = getProvider();
+
+function syncVisionKey() {
+  const id = vel.provider.value;
+  vel.key.placeholder = PROVIDERS[id].hint;
+  vel.get.href = PROVIDERS[id].url;
+  vel.state.textContent = getKey(id) ? `(${PROVIDERS[id].label} key saved)` : "";
+}
+vel.provider.addEventListener("change", syncVisionKey);
+document.getElementById("vsave").addEventListener("click", () => {
+  const id = vel.provider.value;
+  if (!vel.key.value.trim()) return setStatus("paste a key first.", true);
+  if (!saveKey(id, vel.key.value)) return setStatus("couldn't store the key (browser storage is off).", true);
+  vel.key.value = "";
+  els.photos.checked = true;
+  syncVisionKey();
+  setStatus(`${PROVIDERS[id].label} key saved in this browser — photo reading is on.`);
+});
+document.getElementById("vforget").addEventListener("click", () => {
+  forgetKeys();
+  syncVisionKey();
+  setStatus("keys forgotten.");
+});
+syncVisionKey();
 
 els.useRef.addEventListener("click", () => {
   els.handle.value = "jakobsachs.blog";
@@ -185,6 +220,8 @@ async function readPhotos(posts) {
     setStatus(`photo model failed to load (${e.message}) — showing text-only results.`, true);
     return;
   }
+  const provider = getProvider();
+  let useLlm = !!getKey(provider);
   let done = 0;
   const queue = withImgs.slice();
   async function worker() {
@@ -193,7 +230,20 @@ async function readPhotos(posts) {
       const seen = new Set();
       for (const url of p.images) {
         const r = await readImage(url);
-        if (r) for (const t of r.toppings) seen.add(t.name);
+        if (!r) continue;
+        if (!useLlm) {
+          for (const t of r.toppings) seen.add(t.name);
+        } else if (r.hotdog >= GATE_MIN) {
+          // CLIP says probably-hotdog: let the visitor's own model name the toppings.
+          try {
+            for (const n of await askToppings(url, provider)) seen.add(n);
+          } catch (e) {
+            // a bad key fails every call; fall back to CLIP's guesses once, loudly.
+            useLlm = false;
+            setStatus(`vision key failed (${e.message}) — using the on-device guesses instead.`, true);
+            for (const t of r.toppings) seen.add(t.name);
+          }
+        }
       }
       p.visual = [...seen];
       done++;
