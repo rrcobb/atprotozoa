@@ -2,6 +2,7 @@ import { buildCluster } from "./lib/cluster.js";
 import { searchAuthorPhrase, mediaPostsForAuthor, postUrl } from "./lib/search.js";
 import { loadVision, readImage } from "./lib/vision.js";
 import { GATE_MIN } from "./lib/vision-score.js";
+import { plausibleUrl } from "./lib/prefilter.js";
 import { PROVIDERS, getProvider, getKey, saveKey, forgetKeys, askToppings } from "./lib/llm-vision.js";
 import { HOTDOG_QUERIES, isHotdogPost, tally, assignTiers, TIERS } from "./lib/toppings.js";
 
@@ -236,6 +237,7 @@ async function scanMediaPosts(members, found) {
   let people = 0;
   let images = 0;
   let added = 0;
+  let skipped = 0;
   async function worker() {
     while (queue.length && !stopPhotos) {
       const m = queue.shift();
@@ -249,8 +251,10 @@ async function scanMediaPosts(members, found) {
         if (stopPhotos) break;
         if (found.has(p.uri)) continue; // already matched by its words
         for (const url of p.images) {
-          const r = await readImage(url);
           images++;
+          // cheap colour check first: skips CLIP on photos with no bun/sausage colours
+          if (!(await plausibleUrl(url))) { skipped++; continue; }
+          const r = await readImage(url);
           if (r && r.hotdog >= GATE_MIN) {
             if (!p.author.handle) p.author = { did: m.did, handle: m.handle };
             found.set(p.uri, p);
@@ -258,10 +262,10 @@ async function scanMediaPosts(members, found) {
             break;
           }
         }
-        if (images % 5 === 0) setStatus(`scanning photos… ${people}/${members.length} people, ${images} images, ${added} hot dog photos found`);
+        if (images % 5 === 0) setStatus(`scanning photos… ${people}/${members.length} people, ${images} images (${skipped} skipped as not hot-dog-coloured), ${added} hot dog photos found`);
       }
       people++;
-      setStatus(`scanning photos… ${people}/${members.length} people, ${images} images, ${added} hot dog photos found`);
+      setStatus(`scanning photos… ${people}/${members.length} people, ${images} images (${skipped} skipped as not hot-dog-coloured), ${added} hot dog photos found`);
     }
   }
   await Promise.all([worker(), worker()]);
