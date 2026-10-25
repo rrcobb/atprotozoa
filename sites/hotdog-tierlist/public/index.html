@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>hotdog tier list — your simcluster's toppings, ranked — bisks.net</title>
+    <meta name="description" content="Crawl a Bluesky handle's mutuals, find every post about hot dogs, and rank the toppings they mention from S to F." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://hotdog-tierlist.bisks.net/" />
+    <meta property="og:title" content="hotdog tier list — your simcluster's toppings, ranked" />
+    <meta property="og:description" content="Mustard supremacy? Ketchup crimes? Crawl a simcluster and tier-list the hot dog toppings its people actually post about." />
+    <meta property="og:image" content="https://hotdog-tierlist.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A tier list board with hot dog topping emoji in S to F rows." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="hotdog tier list — your simcluster's toppings, ranked" />
+    <meta name="twitter:description" content="Crawl a simcluster and tier-list the hot dog toppings its people post about." />
+    <meta name="twitter:image" content="https://hotdog-tierlist.bisks.net/og.png" />
+    <style>
+      :root { --bg:#fffaf0; --ink:#2a1a0e; --muted:#7a6a5a; --line:#e6d9c4; --card:#fff; --accent:#c2410c; --bad:#b91c1c;
+        --mono: ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace; }
+      * { box-sizing: border-box; }
+      body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono); font-size:15px; line-height:1.55; }
+      main { max-width:760px; margin:0 auto; padding:40px 20px 80px; }
+      h1 { font-size:28px; margin:0 0 4px; letter-spacing:-0.02em; }
+      .tagline { color:var(--muted); margin:0 0 24px; font-size:14px; }
+      form { border:1px solid var(--line); border-radius:10px; padding:16px; background:var(--card); }
+      label { display:block; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:6px; }
+      input[type=text] { width:100%; font:inherit; padding:9px 10px; border:1px solid var(--line); border-radius:6px; }
+      .hint { font-size:12px; color:var(--muted); margin:6px 0 0; }
+      .linklike { background:none; border:none; padding:0; font:inherit; color:var(--accent); text-decoration:underline; cursor:pointer; }
+      button.primary { margin-top:14px; width:100%; font:inherit; font-weight:700; padding:11px; border:none; border-radius:6px; background:var(--accent); color:#fff; cursor:pointer; }
+      button.primary:disabled { opacity:.5; cursor:default; }
+      #status { margin-top:16px; font-size:13px; color:var(--muted); min-height:1.4em; }
+      #status.err { color:var(--bad); }
+      #board { margin-top:16px; border:2px solid #000; background:#1a1a1a; }
+      #board:empty { display:none; }
+      .tier { display:flex; border-bottom:2px solid #000; min-height:64px; }
+      .tier:last-child { border-bottom:none; }
+      .tier .label { flex:0 0 64px; display:flex; align-items:center; justify-content:center; font-size:30px; font-weight:800; color:#000; }
+      .tier .items { flex:1; display:flex; flex-wrap:wrap; gap:6px; padding:8px; align-content:center; }
+      .topping { font:inherit; font-size:14px; background:#333; color:#fff; border:1px solid #555; border-radius:6px; padding:6px 10px; cursor:pointer; }
+      .topping:hover { background:#444; }
+      .topping small { color:#bbb; margin-left:4px; }
+      #evidence, #people { margin-top:20px; border:1px solid var(--line); border-radius:10px; padding:4px 16px 12px; background:var(--card); }
+      #evidence[hidden], #people[hidden], #shareLink[hidden] { display:none; }
+      #evidence h3, #people h3 { font-size:14px; }
+      .ev { font-size:13px; padding:8px 0; border-top:1px solid var(--line); word-break:break-word; }
+      #peopleList { font-size:13px; padding-left:20px; columns:2; }
+      a { color:var(--accent); }
+      footer { margin-top:32px; font-size:12px; color:var(--muted); display:flex; flex-wrap:wrap; gap:6px 16px; }
+      footer a { color:var(--muted); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>hot<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">d</span>og tier list 🌭</h1>
+      <p class="tagline">crawl a simcluster, read everyone's hot dog posts, rank the toppings S to F</p>
+
+      <form id="form">
+        <label for="handle">whose simcluster</label>
+        <input type="text" id="handle" placeholder="you.bsky.social" autocomplete="off" />
+        <p class="hint">a handle, @handle, DID, or bsky.app profile URL — <button type="button" class="linklike" id="useRef">try @jakobsachs.blog's</button></p>
+        <button type="submit" class="primary" id="go">build the tier list</button>
+      </form>
+
+      <div id="status"></div>
+      <div id="board"></div>
+      <div id="evidence" hidden></div>
+      <div id="people" hidden><h3>🌭 the hotdog posters</h3><ol id="peopleList"></ol></div>
+
+      <p class="hint" style="margin-top:20px">
+        how it works: for every mutual, their own post history (text + image alt text) is searched for hot dog, hotdog, chili dog and corn dog.
+        Toppings named in those posts are counted by how many different people mention them; "no ketchup", "gross" and friends push a topping toward F.
+        It reads words, not photos — a mustard-only dog with no caption won't count.
+      </p>
+
+      <footer>
+        <a id="shareLink" href="#" target="_blank" rel="noopener" hidden>post this tier list →</a>
+        <a href="https://rateyourbuild.bisks.net/site/hotdog-tierlist">rate this on rateyourbuild →</a>
+        <a href="https://bisks.net">← bisks.net</a>
+      </footer>
+    </main>
+    <script type="module" src="/app.js"></script>
+    <script src="lib/handle-typeahead.js"></script>
+    <script>if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));</script>
+  </body>
+</html>
