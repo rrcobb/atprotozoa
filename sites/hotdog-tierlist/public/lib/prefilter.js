@@ -11,36 +11,52 @@
 import { cacheGet, cacheSet, proxied } from "./cache.js";
 
 const SIZE = 32;
-// Share of pixels that must be warm food colours. Hot dogs fill a good part of
-// the frame; 3% is far below any real one, so this rejects only images that
-// have essentially none (night skies, greenery, b/w, UI screenshots).
-export const WARM_MIN = 0.03;
+// A hot dog photo needs three things at once: a fair share of saturated
+// bun/sausage browns (hue 8-42, saturation >= 0.4), and either a stripe of
+// condiment (mustard yellow or ketchup red, both strongly saturated) or a frame
+// that is mostly bun/sausage. Skin, wood and sunsets are warm too but low in
+// saturation, so the 0.4 floor plus the condiment test is what rejects them.
+// The thresholds lean strict on purpose: under 1% of photos are hot dogs, so
+// the saved CLIP time matters more than the odd missed plain dog.
+export const BROWN_MIN = 0.08;
+export const BROWN_ONLY = 0.25;
+export const CONDIMENT_MIN = 0.005;
 
-// rgba: Uint8ClampedArray from canvas getImageData -> share of warm pixels.
-export function warmFraction(rgba) {
+// rgba: Uint8ClampedArray from canvas getImageData -> {brown, condiment} shares.
+export function foodShares(rgba) {
   const n = rgba.length / 4;
-  if (!n) return 1;
-  let warm = 0;
+  if (!n) return { brown: 1, condiment: 1 };
+  let brown = 0, condiment = 0;
   for (let i = 0; i < rgba.length; i += 4) {
     const r = rgba[i] / 255, g = rgba[i + 1] / 255, b = rgba[i + 2] / 255;
     const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
-    if (max < 0.2 || d / max < 0.25) continue; // too dark or too grey to be food
+    if (max < 0.3 || d === 0) continue;
+    const s = d / max;
     let h;
     if (max === r) h = 60 * (((g - b) / d + 6) % 6);
     else if (max === g) h = 60 * ((b - r) / d + 2);
     else h = 60 * ((r - g) / d + 4);
-    if (h <= 65 || h >= 345) warm++; // red -> orange -> tan -> mustard yellow
+    if (s >= 0.6 && ((h >= 44 && h <= 64 && max >= 0.6) || ((h <= 8 || h >= 350) && max <= 0.9))) condiment++;
+    else if (s >= 0.4 && h >= 8 && h <= 42) brown++;
   }
-  return warm / n;
+  return { brown: brown / n, condiment: condiment / n };
+}
+
+// Kept for callers/tests that want the single combined number.
+export function warmFraction(rgba) {
+  const { brown, condiment } = foodShares(rgba);
+  return brown + condiment;
 }
 
 export function isPlausible(rgba) {
-  return warmFraction(rgba) >= WARM_MIN;
+  if (!rgba.length) return true; // unreadable fails open
+  const { brown, condiment } = foodShares(rgba);
+  return brown >= BROWN_ONLY || (brown >= BROWN_MIN && condiment >= CONDIMENT_MIN);
 }
 
 // -> true if the photo at `url` could be a hot dog (also true when unreadable).
 export async function plausibleUrl(url) {
-  const key = "warm:" + url;
+  const key = "warm2:" + url; // bumped when the thresholds changed, so old verdicts are not reused
   const cached = await cacheGet(key);
   if (typeof cached === "boolean") return cached;
   try {
