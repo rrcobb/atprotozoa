@@ -65,14 +65,23 @@ export function findToppings(text) {
 export function tally(posts) {
   const map = new Map();
   for (const p of posts) {
-    for (const t of findToppings(p.text)) {
+    // p.visual: toppings the photo reader spotted (vision.js), neutral
+    // sentiment, counted only when the text didn't already name them.
+    const named = findToppings(p.text);
+    const seen = new Set(named.map((t) => t.name));
+    const seeing = (p.visual || [])
+      .filter((n) => !seen.has(n))
+      .map((n) => TOPPINGS.find((t) => t[0] === n))
+      .filter(Boolean)
+      .map(([name, emoji]) => ({ name, emoji, sentiment: 0, seen: true }));
+    for (const t of named.concat(seeing)) {
       let r = map.get(t.name);
       if (!r) map.set(t.name, (r = { name: t.name, emoji: t.emoji, people: new Set(), mentions: 0, pos: 0, neg: 0, score: 0, posts: [] }));
       r.people.add(p.author.did || p.author.handle);
       r.mentions++;
       if (t.sentiment > 0) r.pos++;
       if (t.sentiment < 0) r.neg++;
-      r.posts.push({ post: p, sentiment: t.sentiment });
+      r.posts.push({ post: p, sentiment: t.sentiment, seen: !!t.seen });
     }
   }
   const rows = [...map.values()];

@@ -71,6 +71,7 @@ export async function searchAuthorPhrase(phrase, did) {
         author: p.author || {},
         // alt text counts: the thread that asked for this was an image post.
         text: [rec.text || "", ...altTexts(p)].filter(Boolean).join("\n"),
+        images: thumbs(p),
         createdAt: rec.createdAt || p.indexedAt,
         likeCount: p.likeCount || 0,
         repostCount: p.repostCount || 0,
@@ -86,6 +87,14 @@ function altTexts(p) {
   const e = p.embed || {};
   const imgs = e.images || (e.media && e.media.images) || [];
   return imgs.map((i) => i.alt).filter(Boolean);
+}
+
+// Thumbnail URLs of a post's attached images (cdn.bsky.app, CORS-open), for
+// the optional in-browser photo reader.
+function thumbs(p) {
+  const e = p.embed || {};
+  const imgs = e.images || (e.media && e.media.images) || [];
+  return imgs.map((i) => i.fullsize || i.thumb).filter(Boolean);
 }
 
 // bsky.app permalink from an at:// uri (works with a DID identifier too, no

@@ -23,3 +23,12 @@ test("tally and tiers", () => {
   assert.ok(tiers.S.some((r) => r.name === "mustard"));
   assert.ok(tiers.F.some((r) => r.name === "ketchup"));
 });
+
+test("photo-spotted toppings count, without double-counting text", () => {
+  const p = { uri: "x", author: { did: "a" }, text: "hot dog with mustard", visual: ["mustard", "relish"] };
+  const rows = tally([p]);
+  const by = Object.fromEntries(rows.map((r) => [r.name, r]));
+  assert.strictEqual(by.mustard.mentions, 1);
+  assert.ok(!by.mustard.posts[0].seen);
+  assert.ok(by.relish.posts[0].seen);
+});

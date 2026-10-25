@@ -1,5 +1,6 @@
 import { buildCluster } from "./lib/cluster.js";
 import { searchAuthorPhrase, postUrl } from "./lib/search.js";
+import { loadVision, readImage } from "./lib/vision.js";
 import { HOTDOG_QUERIES, isHotdogPost, tally, assignTiers, TIERS } from "./lib/toppings.js";
 
 // A concurrency limit, not a data cap: every cluster member is still searched
@@ -18,6 +19,7 @@ const els = {
   people: document.getElementById("people"),
   peopleList: document.getElementById("peopleList"),
   shareLink: document.getElementById("shareLink"),
+  photos: document.getElementById("photos"),
   useRef: document.getElementById("useRef"),
 };
 
@@ -71,8 +73,8 @@ function showEvidence(r) {
       .slice()
       .sort((a, b) => (b.post.likeCount || 0) - (a.post.likeCount || 0))
       .map(
-        ({ post }) =>
-          `<div class="ev"><a href="https://bsky.app/profile/${esc(post.author.handle || post.author.did)}" target="_blank" rel="noopener">@${esc(post.author.handle || "")}</a>: ${esc(post.text.slice(0, 280))} <a href="${postUrl(post.uri)}" target="_blank" rel="noopener">↗</a></div>`,
+        ({ post, seen }) =>
+          `<div class="ev">${seen ? "\u{1F441} <i>spotted in the photo (a guess)</i> " : ""}<a href="https://bsky.app/profile/${esc(post.author.handle || post.author.did)}" target="_blank" rel="noopener">@${esc(post.author.handle || "")}</a>: ${esc(post.text.slice(0, 280))} <a href="${postUrl(post.uri)}" target="_blank" rel="noopener">↗</a></div>`,
       )
       .join("");
   box.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -161,6 +163,7 @@ async function run(handleInput) {
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, members.length) }, worker));
 
   const posts = [...found.values()];
+  if (els.photos.checked) await readPhotos(posts);
   const rows = renderBoard(posts);
   renderPeople(posts);
   updateShare(cluster.handle, rows);
@@ -170,6 +173,36 @@ async function run(handleInput) {
       : `${posts.length} hotdog posts from ${new Set(posts.map((p) => p.author.did)).size} people across ${members.length} checked. ${rows.length} toppings ranked — tap one for the receipts.`,
   );
   els.go.disabled = false;
+}
+
+// Optional second pass: run CLIP over each hotdog post's photos, on-device.
+async function readPhotos(posts) {
+  const withImgs = posts.filter((p) => p.images && p.images.length);
+  if (!withImgs.length) return;
+  try {
+    await loadVision(setStatus);
+  } catch (e) {
+    setStatus(`photo model failed to load (${e.message}) — showing text-only results.`, true);
+    return;
+  }
+  let done = 0;
+  const queue = withImgs.slice();
+  async function worker() {
+    while (queue.length) {
+      const p = queue.shift();
+      const seen = new Set();
+      for (const url of p.images) {
+        const r = await readImage(url);
+        if (r) for (const t of r.toppings) seen.add(t.name);
+      }
+      p.visual = [...seen];
+      done++;
+      setStatus(`reading photos… ${done}/${withImgs.length} posts`);
+    }
+  }
+  // Model inference is CPU/GPU-bound in one tab; two at a time keeps it moving
+  // without stacking big tensors.
+  await Promise.all([worker(), worker()]);
 }
 
 els.form.addEventListener("submit", (ev) => {
