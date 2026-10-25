@@ -5218,6 +5218,11 @@ function renderNoDigestPage(): string {
 </html>`;
 }
 
+// Every site.json lands in rateyourbuild's catalog with a page at /site/<name>.
+function rybUrl(name: string): string {
+  return `https://rateyourbuild.bisks.net/site/${encodeURIComponent(name)}`;
+}
+
 function renderDigestPage(d: Digest): string {
   const runCount = d.shipped.reduce((n, s) => n + s.runs, 0);
   const sweepBit = d.sweeps.length
@@ -5244,7 +5249,7 @@ function renderDigestPage(d: Digest): string {
             : escHtml(s.name);
           return `<div class="card">
           <h3>${head}</h3>
-          <p>asked for by ${who}${runs}</p>
+          <p>asked for by ${who}${runs} · <a href="${rybUrl(s.name)}">rate it on rateyourbuild →</a></p>
         </div>`;
         })
         .join("\n")
@@ -5262,14 +5267,14 @@ function renderDigestPage(d: Digest): string {
     .slice(0, 5)
     .map(
       (v) =>
-        `<li><span class="n">${escHtml(v.name)}</span><span class="v">${v.requests.toLocaleString("en-US")} requests</span></li>`,
+        `<li><span class="n"><a href="${rybUrl(v.name)}">${escHtml(v.name)}</a></span><span class="v">${v.requests.toLocaleString("en-US")} requests</span></li>`,
     );
 
   const ratedRows = (d.rated ?? [])
     .slice(0, 5)
     .map(
       (r) =>
-        `<li><span class="n">${escHtml(r.name)}</span><span class="v">${r.avg.toFixed(1)}/10 · ${r.count} ${r.count === 1 ? "rating" : "ratings"}</span></li>`,
+        `<li><span class="n"><a href="${rybUrl(r.name)}">${escHtml(r.name)}</a></span><span class="v">${r.avg.toFixed(1)}/10 · ${r.count} ${r.count === 1 ? "rating" : "ratings"}</span></li>`,
     );
 
   const breakRows = d.breaks === null
