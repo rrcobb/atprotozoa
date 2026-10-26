@@ -36,11 +36,15 @@ acting in public alongside them.
 
 - Worker reduced to this stub: no cron watcher, no OAuth endpoints, no queue.
 - `box-listbot.sh` and `LISTBOT_PROMPT.md` are removed, and `box-poll.sh` no
-  longer knows the `listbot` job kind.
+  longer knows the `listbot` job kind. On the box, listbot is out of `QUEUES`
+  and the `LISTBOT_*` lines in `/etc/buildthis/env` (backup at
+  `/etc/buildthis/env.bak-listbot`), and `buildthis-poll` was restarted.
+- The bot account `@listbot.bisks.net` is deactivated. The DNS TXT record for
+  the handle is left in place so nobody else can claim it.
 - Users' lists are untouched. They're ordinary records in each user's repo.
 
-Still to do, as of 2026-10-26. These need the atprotozoa Cloudflare login and
-root on the box:
+Still to do, as of 2026-10-26. This needs a `wrangler login` to the atprotozoa
+Cloudflare account:
 
 - Delete KV namespace `listbot-state` (`ba21bd2761d54713a922001ef0c26792`),
   which holds every user's encrypted OAuth session. Nothing reads it now; the
@@ -50,9 +54,6 @@ root on the box:
   DPoP-bound, the DPoP private keys are inside the encrypted blobs, and the
   client is confidential, so once the blobs and `CLIENT_PRIVATE_KEY` are gone
   nobody can use them.
-- Drop listbot from `QUEUES` and the `LISTBOT_*` lines in
-  `/etc/buildthis/env`, then restart `buildthis-poll` while idle. Until then the
-  box logs a 404 from `listbot.bisks.net/next-job` each pass, which is harmless.
 
 ## If you think this should come back
 
