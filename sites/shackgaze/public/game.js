@@ -25,11 +25,25 @@
     ["compRatio", "comp ratio", 1, 20, 0.1, 1.5, "compressor", ":1"],
     ["compAtk", "comp attack", 0.001, 0.2, 0.001, 0.04, "compressor", "s"],
     ["compRel", "comp release", 0.02, 1, 0.01, 0.25, "compressor", "s"],
-    ["pluckLen", "pluck length", 0.3, 3, 0.05, 1.4, "plucks", "s"],
-    ["pluckLoss", "string loss", 0.9, 1, 0.001, 1, "plucks", ""],
-    ["declick", "declick rate", 100, 4000, 50, 600, "plucks", "/s"],
+    ["pluckLen", "pluck length", 0.2, 3, 0.05, 0.3, "plucks", "s"],
+    ["pluckT60", "string T60", 0.1, 6, 0.05, 0.8, "plucks", "s"],
+    ["pluckAtk", "attack (raised cosine)", 0.5, 30, 0.5, 5, "plucks", "ms"],
+    ["pluckRel", "release", 10, 600, 10, 150, "plucks", "ms"],
+    ["exciteMs", "excitation burst (Hann)", 0.5, 10, 0.5, 3, "plucks", "ms"],
+    ["exciteLP", "excitation 1-pole a", 0, 0.95, 0.01, 0.5, "plucks", ""],
+    ["exciteComb", "pick position (comb)", 0, 0.5, 0.01, 0.2, "plucks", "×N"],
+    ["sweepHi", "tone sweep start", 800, 12000, 50, 5000, "plucks", "Hz"],
+    ["sweepLo", "tone sweep end", 300, 6000, 50, 1200, "plucks", "Hz"],
+    ["sweepTau", "tone sweep tau", 0.02, 1, 0.01, 0.15, "plucks", "s"],
     ["pluckOct", "hit octave", -1, 2, 1, 1, "plucks", "oct"],
     ["melody", "melody: random(0) / beatty(1)", 0, 1, 1, 0, "plucks", ""],
+    ["drumLevel", "drums", 0, 2, 0.01, 0.9, "drums", "×"],
+    ["kickLevel", "kick", 0, 2, 0.01, 1, "drums", "×"],
+    ["snareLevel", "snare", 0, 2, 0.01, 1, "drums", "×"],
+    ["hatLevel", "hats + crash", 0, 2, 0.01, 1, "drums", "×"],
+    ["snareSend", "snare → echo", 0, 1, 0.01, 0.2, "drums", ""],
+    ["timeJitter", "timing jitter ±", 0, 30, 0.5, 5, "drums", "ms"],
+    ["velJitter", "velocity jitter ±", 0, 0.5, 0.01, 0.1, "drums", ""],
     ["blurMax", "haze blur", 0, 16, 0.1, 7, "visual", "px"],
     ["blurClar", "clarity clears haze", 0, 40, 1, 15, "visual", ""],
     ["blurCombo", "combo clears haze", 0, 0.5, 0.01, 0.1, "visual", ""],
@@ -39,17 +53,17 @@
     default: {},
     "wall of fuzz": { drive: 16, padLevel: 1.8, padCut: 2400, echoFb: 0.75, echoWet: 1.3, blurMax: 11, postCut: 3200 },
     "dry & clear": { drive: 1.5, echoWet: 0.15, echoFb: 0.15, padLevel: 0.5, blurMax: 1.5, duckDepth: 0.9, leadCut: 9000 },
-    "cathedral": { echoTime: 0.48, echoFb: 0.86, echoDark: 1400, echoHp: 220, padCut: 600, pluckLen: 2.6, compRatio: 3 },
-    "tape wobble": { pluckLoss: 0.992, drive: 3, echoTime: 0.11, echoFb: 0.6, echoDark: 1800, bloom: 0.5, melody: 1 },
+    "cathedral": { echoTime: 0.48, echoFb: 0.86, echoDark: 1400, echoHp: 220, padCut: 600, pluckLen: 2.2, pluckT60: 4, compRatio: 3 },
+    "tape wobble": { pluckT60: 2.5, pluckLen: 1.2, drive: 3, echoTime: 0.11, echoFb: 0.6, echoDark: 1800, bloom: 0.5, melody: 1 },
   };
   const P = {}; for (const d of DEFS) P[d[0]] = d[5];
-  const STORE = "shackgaze.mix.v1";
+  const STORE = "shackgaze.mix.v2"; // v2: plucks/drums params replaced the v1 set
   function setParams(o) { for (const d of DEFS) if (o && typeof o[d[0]] === "number" && isFinite(o[d[0]])) P[d[0]] = Math.min(d[3], Math.max(d[2], o[d[0]])); }
   function save() { try { localStorage.setItem(STORE, JSON.stringify(P)); } catch {} }
   try { setParams(JSON.parse(localStorage.getItem(STORE) || "{}")); } catch {}
   try { if (location.hash.startsWith("#mix=")) setParams(JSON.parse(atob(decodeURIComponent(location.hash.slice(5))))); } catch {}
 
-  let notes, ac, master, fuzz, t0, running, score, combo, hits, total, raf, flash = [0, 0, 0, 0], padNodes = [], padBus, padTrim, padLP, leadBus, leadLP, echoDly, echoFb, echoHP, echoLP, echoOut, postLP, comp, melodyN = 0, hitTimes = [];
+  let notes, ac, master, fuzz, t0, running, score, combo, hits, total, raf, flash = [0, 0, 0, 0], padNodes = [], padBus, padTrim, padLP, leadBus, leadLP, echoDly, echoFb, echoHP, echoLP, echoOut, postLP, comp, melodyN = 0, hitTimes = [], drumBus, noiseBuf, drumEvents = [], drumIdx = 0, leadBufs = null, leadKey = "";
 
   // deterministic chart so everyone plays the same song
   function chart() {
@@ -70,7 +84,7 @@
   function applyMix() {
     if (!ac) return;
     const t = ac.currentTime, ramp = (p, v) => p.setTargetAtTime(v, t, 0.02);
-    ramp(master.gain, P.master); ramp(padTrim.gain, P.padLevel); ramp(leadBus.gain, P.leadLevel);
+    ramp(master.gain, P.master); ramp(drumBus.gain, P.drumLevel); ramp(padTrim.gain, P.padLevel); ramp(leadBus.gain, P.leadLevel);
     ramp(padLP.frequency, P.padCut); ramp(leadLP.frequency, P.leadCut); ramp(postLP.frequency, P.postCut);
     ramp(echoDly.delayTime, P.echoTime); ramp(echoFb.gain, P.echoFb); ramp(echoOut.gain, P.echoWet);
     ramp(echoHP.frequency, P.echoHp); ramp(echoLP.frequency, P.echoDark);
@@ -86,6 +100,8 @@
     echoDly = ac.createDelay(1); echoFb = ac.createGain(); echoOut = ac.createGain();
     echoHP = ac.createBiquadFilter(); echoHP.type = "highpass";
     echoLP = ac.createBiquadFilter(); echoLP.type = "lowpass";
+    drumBus = ac.createGain(); drumBus.connect(master); // kit skips the fuzz so it stays punchy
+    noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate); { const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
     fuzz.connect(postLP); postLP.connect(master);
     postLP.connect(echoDly); echoDly.connect(echoHP); echoHP.connect(echoLP); echoLP.connect(echoFb); echoFb.connect(echoDly);
     echoLP.connect(echoOut); echoOut.connect(master);
@@ -101,30 +117,91 @@
     }
     applyMix();
   }
-  // Karplus–Strong: y[n] = ½(y[n−N] + y[n−N−1]), N = fs/f0, seeded with a noise burst.
-  // The averaging lowpass makes high harmonics die first; the fuzz chain keeps the grit after.
-  function ksBuffer(f0, amp, dur) {
+  // Karplus–Strong: y[n] = g·½(y[n−N] + y[n−N−1]), N = fs/f0. The averaging lowpass makes high harmonics die first;
+  // the fuzz chain keeps the grit after. g is set from the T60 so the string rings for pluckT60 seconds (−60 dB).
+  // Excitation: ~3 ms Hann-windowed noise, 1-pole lowpass, minus a copy delayed 0.2·N (pick-position comb).
+  function ksBuffer(f0, dur) {
     const fs = ac.sampleRate, len = Math.floor(fs * dur), N = Math.max(2, Math.round(fs / f0 - 0.5)); // −½: the two-tap average adds half a sample of delay
     const buf = ac.createBuffer(1, len, fs), y = buf.getChannelData(0);
+    const M = Math.min(N + 1, Math.max(2, Math.round(fs * P.exciteMs / 1000))), e = new Float32Array(N + 1);
+    for (let i = 0; i < M; i++) e[i] = (Math.random() * 2 - 1) * 0.5 * (1 - Math.cos(2 * Math.PI * i / (M - 1)));
+    for (let i = 1; i <= N; i++) e[i] = (1 - P.exciteLP) * e[i] + P.exciteLP * e[i - 1];
+    const D = Math.round(P.exciteComb * N), c = new Float32Array(N + 1); let pk = 1e-9;
+    for (let i = 0; i <= N; i++) { c[i] = e[i] - (i >= D ? e[i - D] : 0); pk = Math.max(pk, Math.abs(c[i])); }
+    const g = Math.pow(10, -3 * N / (fs * P.pluckT60)), atk = Math.max(1, fs * P.pluckAtk / 1000), rel = Math.min(len, Math.max(1, fs * P.pluckRel / 1000));
     for (let n = 0; n < len; n++) {
-      if (n <= N) y[n] = Math.random() * 2 - 1;
-      else y[n] = P.pluckLoss * 0.5 * (y[n - N] + y[n - N - 1]);
-      const tau = n / fs;
-      y[n] *= amp * Math.min(tau * P.declick, 1); // declick: ~1.7ms linear ramp-in
-      if (tau > dur - 0.05) y[n] *= (dur - tau) / 0.05; // and out, so the buffer end can't click
+      y[n] = n <= N ? c[n] / pk : g * 0.5 * (y[n - N] + y[n - N - 1]);
+    }
+    for (let n = 0; n < len; n++) { // envelope applied after the recurrence so it doesn't feed back into the string
+      if (n < atk) y[n] *= 0.5 * (1 - Math.cos(Math.PI * n / atk));
+      if (n > len - rel) y[n] *= 0.5 * (1 + Math.cos(Math.PI * (n - (len - rel)) / rel));
     }
     return buf;
+  }
+  // the 8 scale-degree buffers are rendered once per set of string params, not per hit
+  function leadBuffers() {
+    const key = [P.pluckLen, P.pluckT60, P.pluckAtk, P.pluckRel, P.exciteMs, P.exciteLP, P.exciteComb, P.pluckOct].join("|");
+    if (key !== leadKey || !leadBufs) {
+      leadKey = key; leadBufs = SCALE.map(s => ksBuffer(110 * Math.pow(2, (s + 12 * P.pluckOct) / 12), P.pluckLen));
+    }
+    return leadBufs;
   }
   function pluck(lane, good) {
     if (!ac) return;
     let deg = lane * 2 + Math.floor(Math.random() * 3);
     // melody from hits: Sturmian steps floor((n+1)a) - floor(n*a), a = 1/phi^2, accumulated into a scale walk
     if (good && P.melody >= 1) { const A = 1 / (((1 + Math.sqrt(5)) / 2) ** 2); deg = 0; for (let k = 0; k <= melodyN; k++) deg += 1 + Math.floor((k + 1) * A) - Math.floor(k * A); melodyN++; }
-    const semis = SCALE[deg % SCALE.length] + (good ? 12 * P.pluckOct : 0);
-    const f = 110 * Math.pow(2, semis / 12), n = ac.currentTime;
-    const src = ac.createBufferSource(); src.buffer = ksBuffer(f, good ? 0.5 : P.missLevel, P.pluckLen);
-    src.connect(leadBus); src.start(n);
+    const n = ac.currentTime, src = ac.createBufferSource(), g = ac.createGain(), lp = ac.createBiquadFilter();
+    src.buffer = leadBuffers()[deg % SCALE.length];
+    if (!good) src.playbackRate.value = Math.pow(2, -P.pluckOct); // misses sound an octave-shift lower, from the same buffers
+    g.gain.value = good ? 0.5 : P.missLevel * 0.5;
+    // tone sweep: lowpass opens at sweepHi and decays toward sweepLo with time constant sweepTau
+    lp.type = "lowpass"; lp.frequency.setValueAtTime(P.sweepHi, n); lp.frequency.setTargetAtTime(P.sweepLo, n, P.sweepTau);
+    src.connect(lp); lp.connect(g); g.connect(leadBus); src.start(n);
     if (good) hitTimes.push(n);
+  }
+  // ---- drums: 16 steps/bar at 104 BPM, scheduled a little ahead of the audio clock
+  const BARS = BEATS / 4, STEP = BEAT / 4;
+  function drumChart() {
+    const ev = [], add = (bar, step, v, vel) => ev.push({ t: (bar * 16 + step) * STEP, v, vel });
+    for (let bar = 0; bar < BARS; bar++) {
+      if (bar >= 12 && bar <= 14) { for (const s of [0, 6, 10]) add(bar, s, "kick", 1); continue; } // breakdown: kick only
+      if (bar === 15) { for (let s = 0; s < 16; s++) add(bar, s, "snare", 0.2 + 0.8 * s / 15); continue; } // 16th snare roll, vel .2 -> 1
+      if (bar === 16) add(bar, 0, "crash", 1);
+      for (const s of [0, 6, 10]) add(bar, s, "kick", 1);
+      for (const s of [4, 12]) add(bar, s, "snare", 1);
+      for (let s = 0; s < 16; s += 2) {
+        if (s === 14 && bar % 2 === 1) add(bar, s, "open", 0.7); // open hat every other bar
+        else add(bar, s, "hat", s % 4 === 2 ? 0.7 : 0.45);
+      }
+    }
+    return ev;
+  }
+  function env(t, peak, dec, atk = 0.001) {
+    const g = ac.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(peak, t + atk); g.gain.exponentialRampToValueAtTime(0.0005, t + atk + dec); return g;
+  }
+  function noise(t, dur, hp) {
+    const s = ac.createBufferSource(), f = ac.createBiquadFilter(); s.buffer = noiseBuf; s.loop = true; f.type = "highpass"; f.frequency.value = hp;
+    s.connect(f); s.start(t, Math.random() * 0.8); s.stop(t + dur); return f;
+  }
+  function drum(ev) {
+    const j = () => Math.random() * 2 - 1, t = Math.max(ac.currentTime, t0 + ev.t + j() * P.timeJitter / 1000), vel = ev.vel * (1 + j() * P.velJitter);
+    if (ev.v === "kick") { // sine 150 -> 48 Hz over 120 ms, 2 ms attack, 400 ms decay
+      const o = ac.createOscillator(), g = env(t, vel * 0.9 * P.kickLevel, 0.4, 0.002);
+      o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(48, t + 0.12);
+      o.connect(g); g.connect(drumBus); o.start(t); o.stop(t + 0.5);
+    } else if (ev.v === "snare") { // noise through 1.2 kHz highpass + 185 Hz triangle, 20% to the echo bus
+      const g = env(t, vel * 0.5 * P.snareLevel, 0.18), n = noise(t, 0.3, 1200), o = ac.createOscillator(), og = env(t, vel * 0.4 * P.snareLevel, 0.12), send = ac.createGain();
+      o.type = "triangle"; o.frequency.value = 185; n.connect(g); o.connect(og); o.start(t); o.stop(t + 0.2);
+      send.gain.value = P.snareSend; for (const x of [g, og]) { x.connect(drumBus); x.connect(send); } send.connect(echoDly);
+    } else if (ev.v === "crash") {
+      const g = env(t, vel * 0.35 * P.hatLevel, 1.4, 0.003); noise(t, 1.6, 4500).connect(g); g.connect(drumBus);
+    } else { // hats: noise through a 7 kHz highpass, 40 ms (open: 250 ms)
+      const g = env(t, vel * 0.3 * P.hatLevel, ev.v === "open" ? 0.25 : 0.04); noise(t, 0.35, 7000).connect(g); g.connect(drumBus);
+    }
+  }
+  function runDrums() {
+    while (drumIdx < drumEvents.length && t0 + drumEvents[drumIdx].t < ac.currentTime + 0.4) drum(drumEvents[drumIdx++]);
   }
   // pad gain = 1 − 0.7·Σ(hit envelopes); each hit's envelope is exp(−τ/0.3), clamped at 0
   function duck() {
@@ -137,8 +214,8 @@
   function now() { return ac.currentTime - t0; }
   function start() {
     if (ac) { padNodes.forEach(o => { try { o.stop(); } catch {} }); ac.close(); padNodes = []; }
-    hitTimes = []; melodyN = 0;
-    audio(); notes = chart(); total = notes.length; score = 0; combo = 0; hits = 0; running = true; t0 = ac.currentTime + 0.5;
+    hitTimes = []; melodyN = 0; leadBufs = null; drumIdx = 0;
+    audio(); notes = chart(); total = notes.length; score = 0; combo = 0; hits = 0; running = true; t0 = ac.currentTime + 0.5; drumEvents = drumChart(); leadBuffers();
     $("go").textContent = "restart"; $("msg").textContent = "lanes: D F J K (or tap the lanes).";
     cancelAnimationFrame(raf); raf = requestAnimationFrame(tick);
   }
@@ -161,7 +238,7 @@
   function tick() {
     const tt = now();
     for (const n of notes) if (n.state === 0 && n.t < tt - 0.16) { n.state = 2; combo = 0; }
-    duck(); ui(); draw(tt);
+    runDrums(); duck(); ui(); draw(tt);
     const lastT = notes[notes.length - 1].t;
     if (tt > lastT + 3) return end();
     raf = requestAnimationFrame(tick);
