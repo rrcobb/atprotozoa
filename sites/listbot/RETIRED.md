@@ -35,16 +35,24 @@ acting in public alongside them.
 ## What retiring it did
 
 - Worker reduced to this stub: no cron watcher, no OAuth endpoints, no queue.
-- KV namespace `listbot-state` deleted, which removed every user's encrypted
-  OAuth session. The Worker secrets (`SESSION_ENC_KEY`, `CLIENT_PRIVATE_KEY`,
-  `BOT_APP_PASSWORD`, `QUEUE_TOKEN`, `OUTCOME_SECRET`) are deleted too. The
-  refresh tokens weren't revoked one by one at each PDS. They're DPoP-bound,
-  and the DPoP private keys were inside the deleted blobs. The client is
-  confidential, and its assertion key is gone. So nobody can use those tokens,
-  and they expire on their own.
-- The build box no longer polls listbot (`QUEUES` in `/etc/buildthis/env`),
-  and `box-listbot.sh` / `LISTBOT_PROMPT.md` are removed.
+- `box-listbot.sh` and `LISTBOT_PROMPT.md` are removed, and `box-poll.sh` no
+  longer knows the `listbot` job kind.
 - Users' lists are untouched. They're ordinary records in each user's repo.
+
+Still to do, as of 2026-10-26. These need the atprotozoa Cloudflare login and
+root on the box:
+
+- Delete KV namespace `listbot-state` (`ba21bd2761d54713a922001ef0c26792`),
+  which holds every user's encrypted OAuth session. Nothing reads it now; the
+  stub has no KV binding. Then delete the Worker secrets (`SESSION_ENC_KEY`,
+  `CLIENT_PRIVATE_KEY`, `BOT_APP_PASSWORD`, `QUEUE_TOKEN`, `OUTCOME_SECRET`).
+  The refresh tokens don't need revoking one by one at each PDS. They're
+  DPoP-bound, the DPoP private keys are inside the encrypted blobs, and the
+  client is confidential, so once the blobs and `CLIENT_PRIVATE_KEY` are gone
+  nobody can use them.
+- Drop listbot from `QUEUES` and the `LISTBOT_*` lines in
+  `/etc/buildthis/env`, then restart `buildthis-poll` while idle. Until then the
+  box logs a 404 from `listbot.bisks.net/next-job` each pass, which is harmless.
 
 ## If you think this should come back
 
