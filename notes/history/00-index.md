@@ -43,6 +43,13 @@ measurements are often still useful, and several of the failure modes recur.
   replies hidden by threadgates, 93 sites without an OG image, and a daily
   slot whose standing checklist is exhausted.
 
+- **`listbot.md`** — the original `notes/88`: a bot that kept your Bluesky
+  lists when you tagged it, using a server-held OAuth session per user and an
+  agent on the build box to read each request. Retired 2026-10-26 (see
+  `sites/listbot/RETIRED.md`). The OAuth confidential-client, DPoP, and
+  encrypted-session sections are the reference for any future bot that writes
+  to other people's repos.
+
 - **`going-live-checklist.md`** — the one-time bootstrap: Cloudflare login, the
   DID for handle verification, first deploys, wiring CI. All done.
 

@@ -23,7 +23,7 @@ is any good.
 ## Status, 2026-09-17
 
 **Partly built, and the central open question moved.** `sites/listbot`
-(`notes/88`) shipped the list output as its own bot: tag it, and an
+(`notes/history/listbot.md`, retired) shipped the list output as its own bot: tag it, and an
 `app.bsky.graph.list` lands in **your** repo, signed by your key. That was the
 output this note ranked as trivially buildable, and it turned out to carry the
 hardest machinery — see "Who owns the thing" below, which is rewritten in light
@@ -148,7 +148,7 @@ opt-in later if anyone cares.
 listbot went **requester-owned**, not bisks.net-owned, and the ceremony this
 note worried about turned out to be affordable: the user signs in once at
 `listbot.bisks.net` and thereafter just tags. Records land in their repo, signed
-by their key, and survive us entirely. `notes/88` has the machinery.
+by their key, and survive us entirely. `notes/history/listbot.md` (retired) has the machinery.
 
 What made it work is worth naming, because it's the reusable part:
 **confidential-client OAuth**. Every other OAuth site here is a public client

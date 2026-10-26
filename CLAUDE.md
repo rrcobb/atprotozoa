@@ -43,7 +43,6 @@ It intentionally runs looser than a shared production codebase.
 - `85-watchtower.md`
 - `86-stats.md`
 - `87-labeler.md` (built, not live — see `ideas/labeler-candidates.md`)
-- `88-listbot.md`
 - `90-infra-and-budget.md`
 
 Read from the notes if you have a question about how things work.
@@ -58,6 +57,7 @@ Read from the notes if you have a question about how things work.
 - `2026-10-buildthis-audit.md`
 - `builder-inputs-and-runway.md`
 - `going-live-checklist.md`
+- `listbot.md`
 - `prior-art-mino.md`
 - `trigrams-design.md`
 - `trigrams-reply-and-quiver.md`

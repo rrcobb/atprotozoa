@@ -1,5 +1,10 @@
 # listbot — list management by tagging a bot
 
+> **Retired 2026-10-26.** This was `notes/88-listbot.md`. It describes the
+> design as it was when the bot was live; none of it runs now. Why it was
+> retired, and what was torn down, is in `sites/listbot/RETIRED.md`. The code is
+> in git history before that date.
+
 `@listbot.bisks.net` is a Bluesky account that keeps your lists for you. You
 sign in once at `listbot.bisks.net`; after that you tag it and say what you
 want, and it makes the list, adds people, and takes them off.

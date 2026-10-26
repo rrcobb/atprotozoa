@@ -303,8 +303,8 @@ unfiltered live public image firehose. See `sites/catsofatproto/RETIRED.md` and
 The deploy workflow has no delete path; it only runs `wrangler deploy` on
 changed directories. Removing a live Worker or a stale hostname is a manual step.
 
-Four retired sites are still deployed and still hold a Worker slot:
-`blockledger`, `catsofatproto`, `seinfeldify`, `thread-heirloom`. Each is
+Five retired sites are still deployed and still hold a Worker slot:
+`blockledger`, `catsofatproto`, `listbot`, `seinfeldify`, `thread-heirloom`. Each is
 reduced to a static stub with a `RETIRED.md`; `audit/cf-workers.mjs` reports
 them as RETIRED. Deleting their Workers is safe — the `fallback` Worker answers
 unclaimed `*.bisks.net` hostnames with a "renamed, retired, or never existed"

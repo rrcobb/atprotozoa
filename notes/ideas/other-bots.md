@@ -202,7 +202,7 @@ laws:
    made a cheap structural call about what a tag *could* mean — a length cap, a
    count of mention facets, whose post was being replied to — it refused a tag
    the agent would have handled, and it refused it silently. Four of those in
-   one day (`notes/88-listbot.md` lists them).
+   one day (`notes/history/listbot.md` lists them).
 
    None looked like judgment while being written: "you can't add someone from
    your own post" reads as a fact about the domain until someone names a person

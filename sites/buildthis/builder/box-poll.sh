@@ -11,8 +11,8 @@
 # MULTI-BOT. The box started as buildthis's alone and is now a general runner:
 # each bot's Worker serves its own /next-job with its own token, and the box
 # polls them in turn. Each bot keeps its own queue in its own KV namespace —
-# nothing is shared, which is the point. listbot's queue holds tag text; its
-# Worker holds OAuth tokens that must never come near here.
+# nothing is shared, which is the point. (listbot, retired 2026-10-26, was the
+# second bot; see sites/listbot/RETIRED.md.)
 #
 # A job's `kind` picks the script. An unknown kind is logged and skipped rather
 # than guessed at — a job the box doesn't understand is a deploy-order problem
@@ -41,9 +41,8 @@ QUEUES="${QUEUES:-buildthis|https://buildthis.bisks.net/next-job|QUEUE_TOKEN}"
 # kind field, so jobs queued by an older worker still run.
 script_for_kind() {
   case "$1" in
-    build)   echo "$BUILDER_DIR/box-build.sh" ;;
-    listbot) echo "$BUILDER_DIR/box-listbot.sh" ;;
-    *)       echo "" ;;
+    build) echo "$BUILDER_DIR/box-build.sh" ;;
+    *)     echo "" ;;
   esac
 }
 
@@ -55,16 +54,13 @@ done
 while true; do
   WORKED=0
 
-  # Builds come first, always. The box runs one job at a time, so a listbot job
-  # claimed while a build is queued puts that build behind it. listbot's jobs are
-  # short (well under a minute against a build's five to thirteen), but "short"
-  # isn't "free" and the bot is meant to be the dumber, lighter one — it should
-  # never be the reason someone's build waits.
+  # Builds come first, always. The box runs one job at a time, so another bot's
+  # job claimed while a build is queued puts that build behind it.
   #
-  # QUEUES is already ordered with buildthis first, and this preserves that
-  # within a pass: once any queue yields a job, later queues wait for the next
-  # pass. So a steady stream of builds naturally starves listbot rather than the
-  # other way round, which is the priority we want.
+  # QUEUES is ordered with buildthis first, and this preserves that within a
+  # pass: once any queue yields a job, later queues wait for the next pass. So a
+  # steady stream of builds starves any other queue rather than the other way
+  # round, which is the priority we want.
   CLAIMED_THIS_PASS=0
 
   for QUEUE in $QUEUES; do
@@ -123,15 +119,6 @@ while true; do
         REPLY_ROOT_CID="$(printf '%s' "$BODY" | jq -r .replyRootCid)" \
         REPLY_PARENT_URI="$(printf '%s' "$BODY" | jq -r .replyParentUri)" \
         REPLY_PARENT_CID="$(printf '%s' "$BODY" | jq -r .replyParentCid)" \
-          bash "$SCRIPT"
-        ;;
-      listbot)
-        # The whole job rides in as JSON — it's one structured blob (tag text,
-        # the thread, the user's existing lists) rather than a handful of
-        # scalars, and the script hands it straight to the agent.
-        JOB_JSON="$BODY" \
-        MENTION_URI="$MENTION_URI" \
-        OUTCOME_URL="$(printf '%s' "$BODY" | jq -r '.outcomeUrl // empty')" \
           bash "$SCRIPT"
         ;;
     esac

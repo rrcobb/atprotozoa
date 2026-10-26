@@ -175,7 +175,7 @@ music step, not a separate bot.
 
 A feed per request (`protocol-object-bot.md`). Cool for the requester,
 invisible to everyone else; the two feeds already published have zero
-subscribers (`feeds-and-labels.md`). Listbot (`notes/88`) is the better form.
+subscribers (`feeds-and-labels.md`). Listbot (`notes/history/listbot.md`, retired) is the better form.
 
 ## Order
 

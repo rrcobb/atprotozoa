@@ -158,7 +158,7 @@ answering on its own terms before treating either as a project.
 
 #### Revised: three different problems, not one
 
-`sites/listbot` (`notes/88`) pulled these apart by solving one of them.
+`sites/listbot` (`notes/history/listbot.md`, retired) pulled these apart by solving one of them.
 
 **Acting as a user — solved, no minted identity.** listbot writes
 `app.bsky.graph.list` records into other people's repos, signed by their keys,
