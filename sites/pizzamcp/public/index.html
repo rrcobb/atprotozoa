@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>pizzamcp — a pizza MCP server</title>
+<meta name="description" content="A pretend pizza-ordering MCP server. Add one URL to your MCP client and let the model build, price and track a pizza.">
+<meta property="og:title" content="pizzamcp — a pizza MCP server">
+<meta property="og:description" content="Add one URL to your MCP client and let the model build, price and track a pretend pizza.">
+<meta property="og:image" content="https://pizzamcp.bisks.net/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+:root{color-scheme:light dark;--bg:#fff7ed;--fg:#2b1608;--ac:#d4351c;--card:#fff;--bd:#f0d9bf}
+@media(prefers-color-scheme:dark){:root{--bg:#1e1209;--fg:#fbeedd;--ac:#ff6a4d;--card:#2a1a0e;--bd:#4a3220}}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif}
+main{max-width:42rem;margin:0 auto;padding:2rem 1rem}
+h1{font-size:2rem;margin:0}.sub{opacity:.75;margin:.25rem 0 1.5rem}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:1rem;margin:1rem 0}
+code,pre{font:13px ui-monospace,monospace}pre{overflow:auto;background:var(--bg);padding:.75rem;border-radius:8px;border:1px solid var(--bd)}
+button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:.5rem .9rem;font:inherit;cursor:pointer}
+select,input{font:inherit;padding:.3rem;border-radius:6px;border:1px solid var(--bd);background:var(--card);color:var(--fg)}
+label{margin-right:.75rem;display:inline-block;margin-bottom:.4rem}
+#out{white-space:pre-wrap}footer{font-size:13px;opacity:.7;margin-top:2rem}a{color:var(--ac)}
+</style>
+</head>
+<body>
+<main>
+<h1>🍕 pizzamcp</h1>
+<p class="sub">a pizza-ordering MCP server. the pizza is pretend: nothing gets ordered, no card is asked for.</p>
+
+<div class="card">
+<b>connect it</b>
+<p>Add this URL as a remote (streamable HTTP) MCP server:</p>
+<pre id="url">https://pizzamcp.bisks.net/mcp</pre>
+<p>Claude Code: <code>claude mcp add --transport http pizza https://pizzamcp.bisks.net/mcp</code></p>
+<p>Tools: <code>get_menu</code>, <code>build_pizza</code>, <code>price_order</code>, <code>place_order</code>, <code>track_order</code>.</p>
+</div>
+
+<div class="card">
+<b>try it here</b>
+<p>
+<label>size <select id="size"><option>small</option><option>medium</option><option selected>large</option><option>xl</option></select></label>
+<label>crust <select id="crust"><option value="hand_tossed">hand tossed</option><option>thin</option><option>pan</option><option>stuffed</option><option value="gluten_free">gluten free</option></select></label>
+<label>toppings <input id="tops" value="pepperoni, mushroom" size="28"></label>
+<label>name <input id="who" value="pat" size="10"></label>
+</p>
+<button id="go">place pretend order</button> <button id="track" disabled>track it</button>
+<pre id="out">press the button</pre>
+</div>
+
+<p><a id="share" target="_blank" rel="noopener">post about it on bluesky</a></p>
+<footer>unaffiliated with any pizza chain. · <a href="https://rateyourbuild.bisks.net/site/pizzamcp">rate this on rateyourbuild →</a></footer>
+</main>
+<script>
+(function(){
+  var $=function(i){return document.getElementById(i)},lastId=null,n=1;
+  function call(name,args){
+    return fetch('/mcp',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({jsonrpc:'2.0',id:n++,method:'tools/call',params:{name:name,arguments:args}})})
+      .then(function(r){return r.json()}).then(function(j){return j.result.content[0].text});
+  }
+  function show(t){$('out').textContent=t}
+  $('go').addEventListener('click',function(){
+    var tops=$('tops').value.split(',').map(function(s){return s.trim().toLowerCase().replace(/ /g,'_')}).filter(Boolean);
+    show('placing…');
+    call('place_order',{name:$('who').value,pizzas:[{size:$('size').value,crust:$('crust').value,toppings:tops}]}).then(function(t){
+      show(t);try{lastId=JSON.parse(t).order_id}catch(e){lastId=null}
+      $('track').disabled=!lastId;
+    }).catch(function(e){show('error: '+e)});
+  });
+  $('track').addEventListener('click',function(){
+    if(!lastId)return;call('track_order',{order_id:lastId}).then(show).catch(function(e){show('error: '+e)});
+  });
+  $('share').href='https://bsky.app/intent/compose?text='+encodeURIComponent('a pizza MCP server you can plug into your agent 🍕 https://pizzamcp.bisks.net');
+})();
+</script>
+</body>
+</html>
