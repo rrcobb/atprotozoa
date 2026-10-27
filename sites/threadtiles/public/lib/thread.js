@@ -19,13 +19,40 @@ function imagesOf(embed) {
   if (t.startsWith("app.bsky.embed.video") && embed.thumbnail) {
     return [{ src: embed.thumbnail, full: embed.thumbnail, alt: embed.alt || "", video: true }];
   }
-  if (t.startsWith("app.bsky.embed.recordWithMedia")) return imagesOf(embed.media);
+  if (t.startsWith("app.bsky.embed.recordWithMedia")) return [...imagesOf(embed.media), ...quotedImages(embed.record)];
+  if (t === "app.bsky.embed.record#view") return quotedImages(embed);
   return [];
+}
+
+// Images inside a quoted post (the thread is often a pile of quote-posts of the art itself).
+// Each carries the quoted post's uri/handle so the tile links to the real post.
+function quotedImages(view) {
+  const rec = view && (view.record && view.record.$type === "app.bsky.embed.record#viewRecord" ? view.record : view.$type === "app.bsky.embed.record#viewRecord" ? view : null);
+  if (!rec) return [];
+  const out = [];
+  for (const e of rec.embeds || []) {
+    for (const im of imagesOf(e)) out.push({ ...im, quotedUri: rec.uri, quotedHandle: rec.author?.handle || "" });
+  }
+  return out;
 }
 
 // Flatten a thread (parents above, replies below) into tiles in time order.
 // Each tile remembers its post so the UI can link back to it.
-export function collectTiles(root) {
+// Posts that say they have replies but arrived without any: the appview prunes a
+// thread past roughly ten levels deep, so each of these needs its own fetch.
+export function truncatedUris(root) {
+  const out = [];
+  const visit = (n) => {
+    if (!n || !n.post) return;
+    if (n.post.replyCount > 0 && !(n.replies || []).length) out.push(n.post.uri);
+    for (const r of n.replies || []) visit(r);
+  };
+  visit(root);
+  return out;
+}
+
+// extraRoots: sub-thread fetches (replies only) stitched in below the main root.
+export function collectTiles(root, extraRoots = []) {
   const posts = new Map();
   const visit = (n, dir) => {
     if (!n || !n.post) return; // blocked / notFound nodes carry no post
@@ -40,12 +67,16 @@ export function collectTiles(root) {
     while (p && p.post) { posts.set(p.post.uri, p.post); p = p.parent; }
     for (const r of root.replies || []) visit(r, "down");
   }
+  for (const x of extraRoots) visit(x, "down");
   const sorted = [...posts.values()].sort((a, b) =>
     String(a.record?.createdAt || a.indexedAt).localeCompare(String(b.record?.createdAt || b.indexedAt)));
   const tiles = [];
+  const seenSrc = new Set(); // the same art quoted twice is one tile
   for (const p of sorted) {
     for (const im of imagesOf(p.embed)) {
-      tiles.push({ ...im, uri: p.uri, handle: p.author?.handle || "", did: p.author?.did || "" });
+      if (seenSrc.has(im.src)) continue;
+      seenSrc.add(im.src);
+      tiles.push({ ...im, uri: im.quotedUri || p.uri, handle: im.quotedHandle || p.author?.handle || "", did: p.author?.did || "" });
     }
   }
   return { tiles, postCount: posts.size };

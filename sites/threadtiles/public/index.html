@@ -80,7 +80,7 @@
         </div>
 
         <div class="fine">
-          reads the whole thread (the posts above, and every reply tree below) from the public bluesky appview and
+          reads the whole thread (the posts above, and every reply tree below, including images inside quoted posts) from the public bluesky appview and
           draws the grid in your browser, oldest image first. video posts show their thumbnail.
         </div>
       </section>
@@ -92,7 +92,7 @@
     </div>
 
     <script type="module">
-      import { parsePostRef, collectTiles, gridDims, fitTile, postUrl } from "./lib/thread.js";
+      import { parsePostRef, collectTiles, truncatedUris, gridDims, fitTile, postUrl } from "./lib/thread.js";
 
       const API = "https://public.api.bsky.app/xrpc/";
       // getPostThread's own maximums for depth and parentHeight; the whole thread, not a sample.
@@ -140,8 +140,22 @@
           const uri = await resolveUri(ref);
           const t = await api(`app.bsky.feed.getPostThread?uri=${encodeURIComponent(uri)}&depth=${MAX_DEPTH}&parentHeight=${MAX_PARENTS}`);
           if (!t.thread || !t.thread.post) return status("that post is blocked, deleted or not visible", true);
-          // Walk up to the true root so the original poster filter means the thread starter.
-          const { tiles, postCount } = collectTiles(t.thread);
+          // The appview prunes replies below ~10 levels. Re-fetch from every pruned node
+          // until none are left, so long self-reply chains come back whole.
+          const extras = [], seen = new Set();
+          let queue = truncatedUris(t.thread);
+          while (queue.length) {
+            const batch = queue.filter((u) => !seen.has(u));
+            batch.forEach((u) => seen.add(u));
+            queue = [];
+            for (let i = 0; i < batch.length; i += 6) {
+              const subs = await Promise.all(batch.slice(i, i + 6).map((u) =>
+                api(`app.bsky.feed.getPostThread?uri=${encodeURIComponent(u)}&depth=${MAX_DEPTH}&parentHeight=0`).catch(() => null)));
+              for (const s of subs) if (s && s.thread && s.thread.post) { extras.push(s.thread); queue.push(...truncatedUris(s.thread)); }
+              status(`walking the thread… ${extras.length} branches`);
+            }
+          }
+          const { tiles, postCount } = collectTiles(t.thread, extras);
           if (!tiles.length) return status(`no images in these ${postCount} posts`, true);
           let rootDid = t.thread.post.author.did, p = t.thread;
           while (p.parent && p.parent.post) p = p.parent;
