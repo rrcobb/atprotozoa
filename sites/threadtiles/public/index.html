@@ -124,25 +124,56 @@
 
       // Load one image and shrink it straight into a small canvas, so the full-size decode can be
       // freed. A thousand decoded ~1000px thumbnails is gigabytes; a thousand 'keep' canvases is not.
-      // Retries once because a few failures out of hundreds of requests are normal.
       function loadOnce(src, keep) {
         return new Promise((res) => {
           const im = new Image();
           im.crossOrigin = "anonymous"; // keeps the canvas exportable
           im.onload = () => {
-            const k = Math.min(1, keep / Math.max(im.naturalWidth, im.naturalHeight));
-            const c = document.createElement("canvas");
-            c.width = Math.max(1, Math.round(im.naturalWidth * k)); c.height = Math.max(1, Math.round(im.naturalHeight * k));
-            c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
-            im.src = "";
-            res(c);
+            try {
+              const k = Math.min(1, keep / Math.max(im.naturalWidth, im.naturalHeight));
+              const c = document.createElement("canvas");
+              c.width = Math.max(1, Math.round(im.naturalWidth * k)); c.height = Math.max(1, Math.round(im.naturalHeight * k));
+              c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+              im.src = "";
+              res(c);
+            } catch { res(null); }
           };
           im.onerror = () => res(null);
           im.src = src;
         });
       }
-      async function loadImg(src, keep) {
-        return (await loadOnce(src, keep)) || (await loadOnce(src, keep));
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      // Failures at this scale are almost always the CDN throttling a burst of requests, so a failed
+      // image is retried with backoff (alternating thumbnail / fullsize URLs), and whatever is still
+      // missing after a pass goes through another pass at lower concurrency until a pass recovers nothing.
+      async function loadImg(t, keep, tries) {
+        for (let a = 0; a < tries; a++) {
+          const c = await loadOnce(a % 2 && t.full && t.full !== t.src ? t.full : t.src, keep);
+          if (c) return c;
+          await sleep(400 * 2 ** a + Math.random() * 300);
+        }
+        return null;
+      }
+      async function loadAll(tiles, keep, onProgress) {
+        const imgs = new Array(tiles.length).fill(null);
+        let pending = tiles.map((_, i) => i), conc = 8, idle = 0, pass = 0;
+        while (pending.length && idle < 3) {
+          const before = pending.length;
+          let cursor = 0, done = 0;
+          const workers = Array.from({ length: conc }, async () => {
+            while (cursor < pending.length) {
+              const i = pending[cursor++];
+              imgs[i] = await loadImg(tiles[i], keep, pass ? 4 : 3);
+              onProgress(++done, pending.length, pass);
+            }
+          });
+          await Promise.all(workers);
+          pending = pending.filter((i) => !imgs[i]);
+          idle = pending.length < before ? 0 : idle + 1;
+          conc = Math.max(2, conc >> 1); pass++;
+          if (pending.length) await sleep(1500);
+        }
+        return imgs;
       }
 
       $("form").addEventListener("submit", async (e) => {
@@ -176,18 +207,11 @@
           while (p.parent && p.parent.post) p = p.parent;
           rootDid = p.post.author.did;
           status(`${tiles.length} images in ${postCount} posts — loading…`);
-          const imgs = [];
-          let done = 0;
-          // Fetch in small batches so a big thread doesn't open hundreds of connections at once.
-          const BATCH = 8;
-          // Long edge kept per image: the slider tops out at 800, but a big thread's tiles end up
-          // far smaller than that (canvas area cap), so 400 is plenty and keeps memory sane.
-          const keep = tiles.length > 100 ? 400 : 800;
-          for (let i = 0; i < tiles.length; i += BATCH) {
-            const part = await Promise.all(tiles.slice(i, i + BATCH).map((x) => loadImg(x.src, keep)));
-            imgs.push(...part); done += part.length;
-            status(`loading images… ${done}/${tiles.length}`);
-          }
+          // Long edge kept per image, sized to what the finished grid can actually show: the canvas
+          // area cap divided across the tiles (slider tops out at 800, small threads keep full 800).
+          const keep = tiles.length <= 100 ? 800 : Math.max(128, Math.min(400, Math.ceil(Math.sqrt(MAX_PIXELS / tiles.length))));
+          const imgs = await loadAll(tiles, keep, (d, n, pass) =>
+            status(`loading images… ${d}/${n}${pass ? ` (retry pass ${pass})` : ""}`));
           if (!imgs.some(Boolean)) return status(`found ${tiles.length} images but none of them would load — try again`, true);
           loaded = { tiles, imgs, rootDid, threadUrl: postUrl(uri, ref.actor), postCount };
           $("result").hidden = false;
@@ -209,6 +233,8 @@
         });
         return out;
       }
+
+      const shareText = () => `every image in this thread, tiled (${loaded.count}) — ${loaded.threadUrl}\nvia https://threadtiles.bisks.net`;
 
       function draw() {
         if (!loaded) return;
@@ -241,8 +267,8 @@
           a.textContent = `${i + 1}. @${t.handle}${t.video ? " (video)" : ""}${t.alt ? " — " + t.alt : ""}`;
           return a;
         }));
-        const text = `every image in this thread, tiled (${items.length}) — ${loaded.threadUrl}\nvia https://threadtiles.bisks.net`;
-        $("intent").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+        loaded.count = items.length;
+        $("intent").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText());
       }
 
       for (const id of ["size", "gap", "crop", "op"]) $(id).addEventListener("input", draw);
@@ -260,11 +286,24 @@
           setTimeout(() => URL.revokeObjectURL(a.href), 4000);
         } catch (e) { status("export failed: " + e.message, true); }
       });
+      // Share = the image plus the text, together. Where the browser can't share files (most desktops),
+      // the image goes to the clipboard and the compose window opens so it can be pasted in.
       $("shareBtn").addEventListener("click", async () => {
         try {
-          const f = new File([await blob()], "threadtiles.png", { type: "image/png" });
-          if (navigator.canShare && navigator.canShare({ files: [f] })) await navigator.share({ files: [f], text: loaded.threadUrl });
-          else $("dl").click();
+          const b = await blob();
+          const f = new File([b], "threadtiles.png", { type: "image/png" });
+          const text = shareText();
+          if (navigator.canShare && navigator.canShare({ files: [f] })) {
+            await navigator.share({ files: [f], text });
+          } else if (navigator.clipboard && window.ClipboardItem) {
+            await navigator.clipboard.write([new ClipboardItem({ "image/png": b })]);
+            status("image copied — paste it into the post that just opened");
+            window.open("https://bsky.app/intent/compose?text=" + encodeURIComponent(text), "_blank", "noopener");
+          } else {
+            $("dl").click();
+            status("saved the png — attach it to your post");
+            window.open("https://bsky.app/intent/compose?text=" + encodeURIComponent(text), "_blank", "noopener");
+          }
         } catch (e) { if (e.name !== "AbortError") status("share failed: " + e.message, true); }
       });
 
