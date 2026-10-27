@@ -7,11 +7,10 @@ import { jget } from "./identity.js";
 
 const PUB = "https://public.api.bsky.app/xrpc";
 
-// Hard cap so a mega-account doesn't turn one page load into thousands of
-// requests — plenty to browse, and each entry is a click away from its own
-// on-demand block-status check anyway (see blocklists.js), so there's no
-// need to ever pull the *whole* graph automatically.
-const MAX_PAGES = 5; // 5 * 100 = up to 500 entries
+// Pages to exhaustion; no bulk equivalent exists for these (not repo-backed).
+// 400 pages * 100 = 40,000 entries is a backstop against a pathological
+// account, unreachable in practice.
+const MAX_PAGES = 400;
 
 const ENDPOINT = {
   followers: { xrpc: "app.bsky.graph.getFollowers", key: "followers" },
