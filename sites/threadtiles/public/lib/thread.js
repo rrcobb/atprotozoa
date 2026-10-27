@@ -96,7 +96,11 @@ export function gridDims(n, aspect = 1) {
 
 // Largest tile edge that keeps the canvas under maxEdge px on its long side.
 // maxEdge exists because browsers cap canvas dimensions (Safari/iOS far lower than desktop).
-export function fitTile(cols, rows, gap, want, maxEdge) {
+// maxPixels exists because browsers also cap canvas *area* (iOS Safari ~16.7M px, desktop far higher);
+// a 1000-tile grid blows past it long before it hits the edge limit.
+export function fitTile(cols, rows, gap, want, maxEdge, maxPixels = Infinity) {
   const room = Math.floor((maxEdge - gap * (Math.max(cols, rows) + 1)) / Math.max(cols, rows));
-  return Math.max(16, Math.min(want, room));
+  let t = Math.max(16, Math.min(want, room));
+  while (t > 16 && (cols * t + gap * (cols + 1)) * (rows * t + gap * (rows + 1)) > maxPixels) t--;
+  return t;
 }

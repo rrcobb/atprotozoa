@@ -29,3 +29,9 @@ test("grid sizing", () => {
   assert.equal(gridDims(0).cols, 0);
   assert.ok(fitTile(10, 10, 4, 400, 8192) * 10 + 44 <= 8192);
 });
+
+test("fitTile respects a pixel-area cap", () => {
+  const t = fitTile(36, 28, 4, 360, 16384, 16e6);
+  assert.ok((36 * t + 4 * 37) * (28 * t + 4 * 29) <= 16e6);
+  assert.ok(t >= 16);
+});
