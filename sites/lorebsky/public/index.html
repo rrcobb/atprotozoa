@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>lorebsky — read any Bluesky thread like a kernel mailing list — bisks.net</title>
+<meta name="description" content="Paste a Bluesky post and read its whole thread as a linux mailing-list archive: replies as emails, quoted parents, parent/prev/next navigation, thread overview." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://lorebsky.bisks.net/" />
+<meta property="og:title" content="lorebsky — read any Bluesky thread like a kernel mailing list" />
+<meta property="og:description" content="Replies as emails, quoted parents, [parent] [prev] [next] navigation and a thread overview tree. Any Bluesky thread, lore.kernel.org style." />
+<meta property="og:image" content="https://lorebsky.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A monospace mailing-list page: headers, quoted lines and a thread overview tree." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="lorebsky — read any Bluesky thread like a kernel mailing list" />
+<meta name="twitter:description" content="Replies as emails, quoted parents, [parent] [prev] [next] navigation and a thread overview tree." />
+<meta name="twitter:image" content="https://lorebsky.bisks.net/og.png" />
+<style>
+  :root { color-scheme: light; }
+  body { margin: 0; background: #fff; color: #000; font: 13px/1.35 ui-monospace, "DejaVu Sans Mono", Menlo, Consolas, monospace; }
+  .wrap { max-width: 92ch; margin: 0 auto; padding: 8px 10px 40px; }
+  a { color: #00e; }
+  a:visited { color: #551a8b; }
+  h1 { font-size: 15px; margin: 6px 0 2px; }
+  .sub { color: #555; margin: 0 0 8px; }
+  form { margin: 8px 0; display: flex; gap: 6px; flex-wrap: wrap; }
+  input[type=text] { flex: 1 1 36ch; font: inherit; padding: 2px 4px; border: 1px solid #888; }
+  button { font: inherit; cursor: pointer; }
+  .status { margin: 6px 0; color: #555; }
+  .status.err { color: #a00; }
+  .nav { background: #eee; border: 1px solid #ccc; padding: 3px 6px; margin: 8px 0; white-space: pre-wrap; }
+  .nav .off { color: #888; }
+  .mail { border: 1px solid #999; margin: 10px 0; padding: 0; background: #fcfcfc; }
+  .mail .hdr { background: #f0f0e8; border-bottom: 1px solid #bbb; padding: 4px 8px; white-space: pre-wrap; word-break: break-word; }
+  .mail .hdr b { display: inline-block; min-width: 12ch; color: #444; font-weight: normal; }
+  .mail .body { padding: 6px 8px; white-space: pre-wrap; word-break: break-word; margin: 0; font: inherit; }
+  .q1 { color: #060; }
+  .q2 { color: #a60; }
+  .att { color: #555; }
+  .sig { color: #777; }
+  .reply { margin-left: var(--indent, 0); }
+  .reply .mail { border-left: 3px solid #669; }
+  .ov { white-space: pre; overflow-x: auto; border: 1px solid #ccc; padding: 6px 8px; background: #fafafa; }
+  .ov .cur { background: #ffd; font-weight: bold; }
+  h2 { font-size: 13px; margin: 18px 0 4px; border-bottom: 1px solid #999; }
+  footer { margin-top: 28px; color: #666; border-top: 1px solid #ccc; padding-top: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>lorebsky <span class="sub">— bluesky thread archive, mailing-list edition</span></h1>
+  <p class="sub">paste a post URL (or <code>at://</code> URI) and the thread becomes a mailing list.</p>
+  <form id="f">
+    <input type="text" id="url" placeholder="https://bsky.app/profile/someone.bsky.social/post/3k…" autocomplete="off" spellcheck="false" />
+    <button type="submit" id="go">fetch thread</button>
+  </form>
+  <div id="status" class="status"></div>
+  <div id="nav" class="nav" style="display:none"></div>
+  <div id="msg"></div>
+  <div id="replies"></div>
+  <div id="overview"></div>
+  <footer>
+    <a href="#">index</a> · reads the public AppView, nothing is stored ·
+    <a id="share" href="#" target="_blank" rel="noopener">post this to bluesky</a> ·
+    <a href="https://rateyourbuild.bisks.net/site/lorebsky">rate this on rateyourbuild →</a>
+  </footer>
+</div>
+<script>
+(function () {
+  "use strict";
+  var API = "https://public.api.bsky.app/xrpc/";
+  var $ = function (id) { return document.getElementById(id); };
+  var nodes = {};      // uri -> {uri, post, parent, kids[]}
+  var rootUri = null;
+  var order = [];      // DFS order of uris
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function setStatus(t, err) { var s = $("status"); s.textContent = t; s.className = "status" + (err ? " err" : ""); }
+
+  function xrpc(method, params) {
+    var qs = new URLSearchParams(params).toString();
+    return fetch(API + method + "?" + qs).then(function (r) {
+      if (!r.ok) throw new Error(method + " " + r.status);
+      return r.json();
+    });
+  }
+
+  // "https://bsky.app/profile/h/post/rkey", "at://did/app.bsky.feed.post/rkey" → {actor, rkey}
+  function parseInput(raw) {
+    var s = (raw || "").trim().replace(/^@/, "");
+    var m = s.match(/^at:\/\/([^/]+)\/app\.bsky\.feed\.post\/([^/?#\s]+)/);
+    if (m) return { actor: m[1], rkey: m[2] };
+    m = s.match(/bsky\.app\/profile\/([^/\s?#]+)\/post\/([^/\s?#]+)/);
+    if (m) return { actor: m[1].replace(/^@/, ""), rkey: m[2] };
+    m = s.match(/^#?\/?([^/\s]+)\/([a-z0-9]{10,16})$/i);
+    if (m) return { actor: m[1].replace(/^@/, ""), rkey: m[2] };
+    return null;
+  }
+
+  function rkeyOf(uri) { return uri.split("/").pop(); }
+  function didOf(uri) { return uri.split("/")[2]; }
+
+  function build(thread) {
+    nodes = {};
+    var cur = thread, chain = [];
+    // walk up through parents to the root
+    while (cur && cur.$type === "app.bsky.feed.defs#threadViewPost") {
+      chain.unshift(cur);
+      cur = cur.parent;
+    }
+    var gone = cur ? (cur.$type === "app.bsky.feed.defs#blockedPost" ? "blocked" : "not found") : null;
+    function add(t, parentUri) {
+      var n = { uri: t.post.uri, post: t.post, parent: parentUri, kids: [] };
+      nodes[n.uri] = n;
+      (t.replies || []).forEach(function (r) {
+        if (r.$type === "app.bsky.feed.defs#threadViewPost") {
+          n.kids.push(add(r, n.uri).uri);
+        }
+      });
+      n.kids.sort(function (a, b) {
+        return new Date(nodes[a].post.record.createdAt) - new Date(nodes[b].post.record.createdAt);
+      });
+      return n;
+    }
+    // ancestors (no replies descended except along the chain)
+    for (var i = 0; i < chain.length - 1; i++) {
+      var t = chain[i];
+      nodes[t.post.uri] = { uri: t.post.uri, post: t.post, parent: i ? chain[i - 1].post.uri : null, kids: [chain[i + 1].post.uri] };
+    }
+    var focus = chain[chain.length - 1];
+    var fn = add(focus, chain.length > 1 ? chain[chain.length - 2].post.uri : null);
+    rootUri = chain[0].post.uri;
+    order = [];
+    (function walk(u) { order.push(u); nodes[u].kids.forEach(walk); })(rootUri);
+    return { focus: fn.uri, gone: gone };
+  }
+
+  function fmtDate(iso) {
+    var d = new Date(iso);
+    if (isNaN(d)) return String(iso);
+    return d.toUTCString().replace("GMT", "+0000");
+  }
+  function fromLine(a) {
+    var name = (a.displayName || a.handle).replace(/[<>]/g, "");
+    return name + " <" + a.handle + ">";
+  }
+  function subjectOf(uri) {
+    var r = nodes[rootUri].post.record.text || "(no subject)";
+    var line = r.split("\n")[0].trim() || "(no subject)";
+    if (line.length > 72) line = line.slice(0, 71) + "…";
+    return (uri === rootUri ? "" : "Re: ") + "[bsky] " + line;
+  }
+  function linkify(escaped) {
+    return escaped.replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"])/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+  }
+  function quoted(text, prefix) {
+    return String(text || "").split("\n").map(function (l) { return prefix + l; }).join("\n");
+  }
+  function embedLines(post) {
+    var out = [], e = post.embed;
+    if (!e) return out;
+    var media = e.media || e;
+    if (media.images) media.images.forEach(function (im, i) {
+      out.push('[attachment ' + (i + 1) + ': <a href="' + esc(im.fullsize) + '" target="_blank" rel="noopener">image</a>' + (im.alt ? " — " + esc(im.alt) : "") + "]");
+    });
+    if (media.external) out.push('[link: <a href="' + esc(media.external.uri) + '" target="_blank" rel="noopener noreferrer">' + esc(media.external.title || media.external.uri) + "</a>]");
+    if (media.$type && /video/.test(media.$type)) out.push("[attachment: video]");
+    var rec = e.record && (e.record.record || e.record);
+    if (rec && rec.uri && rec.uri.indexOf("/app.bsky.feed.post/") > 0) {
+      var q = rec.value && rec.value.text ? " — “" + esc(rec.value.text.slice(0, 140)) + "”" : "";
+      out.push('[quoted post: <a href="#/' + esc(didOf(rec.uri)) + "/" + esc(rkeyOf(rec.uri)) + '">' + esc(rec.uri) + "</a>" + q + "]");
+    }
+    return out;
+  }
+
+  function mail(n, opts) {
+    var p = n.post, par = n.parent ? nodes[n.parent] : null;
+    var h = "";
+    h += "<b>From:</b>" + esc(fromLine(p.author)) + "\n";
+    h += "<b>Date:</b>" + esc(fmtDate(p.record.createdAt)) + "\n";
+    h += "<b>Subject:</b>" + esc(subjectOf(n.uri)) + "\n";
+    h += "<b>Message-ID:</b>&lt;" + esc(rkeyOf(n.uri)) + "@" + esc(didOf(n.uri)) + "&gt;\n";
+    if (par) h += "<b>In-Reply-To:</b>&lt;" + esc(rkeyOf(par.uri)) + "@" + esc(didOf(par.uri)) + "&gt;\n";
+    h += "<b>Lists:</b>bsky.network\n";
+    h += '<b>Permalink:</b><a href="https://bsky.app/profile/' + esc(p.author.did) + "/post/" + esc(rkeyOf(n.uri)) + '" target="_blank" rel="noopener">bsky.app</a>' +
+      (opts.link ? ' · <a href="#/' + esc(didOf(n.uri)) + "/" + esc(rkeyOf(n.uri)) + '">[focus]</a>' : "");
+    var body = "";
+    if (par) {
+      var pa = par.post;
+      body += "On " + esc(fmtDate(pa.record.createdAt)) + ", " + esc(pa.author.displayName || pa.author.handle) + " wrote:\n";
+      var qt = String(pa.record.text || "").split("\n").map(function (l) {
+        var deep = /^>/.test(l);
+        return '<span class="' + (deep ? "q2" : "q1") + '">&gt; ' + esc(l) + "</span>";
+      }).join("\n");
+      body += qt + "\n\n";
+    }
+    body += linkify(esc(p.record.text || "")) + "\n";
+    var em = embedLines(p);
+    if (em.length) body += '\n<span class="att">' + em.join("\n") + "</span>\n";
+    body += '\n<span class="sig">-- \n' + (p.likeCount || 0) + " likes, " + (p.repostCount || 0) + " reposts, " + (p.replyCount || 0) + " replies</span>";
+    return '<div class="mail"><div class="hdr">' + h + '</div><pre class="body">' + body + "</pre></div>";
+  }
+
+  function href(u) { return "#/" + didOf(u) + "/" + rkeyOf(u); }
+  function navLink(label, u) {
+    return u ? '<a href="' + href(u) + '">' + label + "</a>" : '<span class="off">' + label + "</span>";
+  }
+
+  function render(focusUri) {
+    var n = nodes[focusUri];
+    var par = n.parent ? nodes[n.parent] : null;
+    var sibs = par ? par.kids : [];
+    var idx = sibs.indexOf(focusUri);
+    var prev = idx > 0 ? sibs[idx - 1] : null;
+    var next = idx >= 0 && idx < sibs.length - 1 ? sibs[idx + 1] : null;
+    var first = n.kids[0] || null;
+    var oi = order.indexOf(focusUri);
+    $("nav").style.display = "";
+    $("nav").innerHTML =
+      navLink("[parent]", n.parent) + " " + navLink("[root]", focusUri === rootUri ? null : rootUri) + " " +
+      navLink("[prev sibling]", prev) + " " + navLink("[next sibling]", next) + " " +
+      navLink("[first reply]", first) + " " +
+      navLink("[older in thread]", oi > 0 ? order[oi - 1] : null) + " " +
+      navLink("[newer in thread]", oi < order.length - 1 ? order[oi + 1] : null) +
+      "\n" + "message " + (oi + 1) + " of " + order.length + " in thread, " + n.kids.length + " direct " + (n.kids.length === 1 ? "reply" : "replies");
+    $("msg").innerHTML = mail(n, { link: false });
+
+    // every descendant as a full email, depth-first
+    var rh = "", count = 0;
+    (function walk(u, d) {
+      nodes[u].kids.forEach(function (k) {
+        count++;
+        rh += '<div class="reply" style="--indent:' + Math.min(d, 6) * 14 + 'px">' + mail(nodes[k], { link: true }) + "</div>";
+        walk(k, d + 1);
+      });
+    })(focusUri, 0);
+    $("replies").innerHTML = count ? "<h2>" + count + " " + (count === 1 ? "reply" : "replies") + " below this message</h2>" + rh : "";
+
+    // thread overview tree, lore style
+    var ov = "";
+    (function walk(u, prefix, last, top) {
+      var m = nodes[u], a = m.post.author;
+      var line = (top ? "" : prefix + (last ? "`- " : "|- ")) +
+        esc(a.displayName || a.handle) + "  " + esc(new Date(m.post.record.createdAt).toISOString().slice(0, 16).replace("T", " ")) +
+        "  " + esc(((m.post.record.text || "").split("\n")[0] || "").slice(0, 50));
+      ov += (u === focusUri ? '<span class="cur">' : "") + '<a href="' + href(u) + '">' + line + "</a>" + (u === focusUri ? "</span>" : "") + "\n";
+      var np = top ? "" : prefix + (last ? "   " : "|  ");
+      m.kids.forEach(function (k, i) { walk(k, np, i === m.kids.length - 1, false); });
+    })(rootUri, "", true, true);
+    $("overview").innerHTML = "<h2>thread overview: " + order.length + " messages</h2><div class=\"ov\">" + ov + "</div>";
+
+    document.title = subjectOf(focusUri) + " — lorebsky";
+    var shareText = "read this thread as a mailing list: " + location.href.split("#")[0] + href(focusUri);
+    $("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(shareText);
+    window.scrollTo(0, 0);
+  }
+
+  function load(actor, rkey) {
+    setStatus("fetching thread…");
+    var didP = actor.indexOf("did:") === 0 ? Promise.resolve(actor)
+      : xrpc("com.atproto.identity.resolveHandle", { handle: actor }).then(function (r) { return r.did; });
+    return didP.then(function (did) {
+      // 1000 / 1000 are getPostThread's own maximums for depth and parentHeight.
+      return xrpc("app.bsky.feed.getPostThread", { uri: "at://" + did + "/app.bsky.feed.post/" + rkey, depth: "1000", parentHeight: "1000" });
+    }).then(function (res) {
+      if (!res.thread || res.thread.$type !== "app.bsky.feed.defs#threadViewPost") throw new Error("post not found (deleted, or its author blocked the viewer)");
+      var b = build(res.thread);
+      setStatus(order.length + " messages" + (b.gone ? " (a parent was " + b.gone + ")" : ""));
+      render(b.focus);
+    }).catch(function (e) { setStatus("error: " + e.message, true); });
+  }
+
+  function route() {
+    var h = decodeURIComponent(location.hash.replace(/^#/, ""));
+    var p = parseInput(h);
+    if (!p) return;
+    var did = p.actor;
+    var match = Object.keys(nodes).filter(function (u) {
+      return rkeyOf(u) === p.rkey && (didOf(u) === did);
+    })[0];
+    if (match) { render(match); return; }
+    load(p.actor, p.rkey);
+  }
+
+  $("f").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var p = parseInput($("url").value);
+    if (!p) { setStatus("couldn't read that — paste a bsky.app post URL or an at:// URI", true); return; }
+    var want = "#/" + p.actor + "/" + p.rkey;
+    if (location.hash === want) route(); else location.hash = want;
+  });
+  window.addEventListener("hashchange", route);
+  route();
+})();
+</script>
+</body>
+</html>
