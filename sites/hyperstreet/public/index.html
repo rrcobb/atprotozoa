@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>hyperstreet — a cyberpunk metaverse made of atproto</title>
+<meta name="description" content="Walk a neon Street where every account active on atproto right now is a building with a sword forged from its DID. Everything is a plugin. Web, cardboard VR, in-page terminal, and a node CLI." />
+<meta property="og:title" content="hyperstreet — a cyberpunk metaverse made of atproto" />
+<meta property="og:description" content="Every account active on atproto right now is a building on one endless neon Street, carrying a sword forged from its DID. Everything is a plugin." />
+<meta property="og:url" content="https://hyperstreet.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://hyperstreet.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A neon street at night lined with glowing towers, each with a glowing sword on its facade, under the title hyperstreet." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="hyperstreet — a cyberpunk metaverse made of atproto" />
+<meta name="twitter:description" content="Every account active on atproto right now is a building on one endless neon Street, carrying a sword forged from its DID." />
+<meta name="twitter:image" content="https://hyperstreet.bisks.net/og.png" />
+<style>
+  :root { --bg:#07040d; --ink:#f3e9ff; --mute:#a08cba; --pink:#ff3cc8; --cyan:#3cdcff; --line:#2b1745; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 ui-monospace, "JetBrains Mono", Menlo, monospace; }
+  a { color: var(--cyan); }
+  header { padding: 14px 18px 4px; }
+  h1 { margin: 0; font-size: 22px; letter-spacing: .08em; color: var(--pink); text-shadow: 0 0 12px var(--pink); }
+  .sub { color: var(--mute); margin: 2px 0 0; }
+  main { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 14px; padding: 10px 18px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  #stage { position: relative; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: #000; }
+  canvas { display: block; width: 100%; height: min(62vh, 560px); touch-action: pan-y; cursor: grab; }
+  body.vr canvas { height: 70vh; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 0; }
+  button { background: #170a2a; color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--pink); }
+  button.on { border-color: var(--cyan); color: var(--cyan); }
+  .pad { display: none; position: absolute; bottom: 8px; left: 8px; right: 8px; justify-content: space-between; pointer-events: none; }
+  .pad > div { display: flex; gap: 6px; pointer-events: auto; }
+  .pad button { width: 52px; height: 52px; font-size: 20px; opacity: .8; user-select: none; touch-action: none; }
+  @media (pointer: coarse) { .pad { display: flex; } }
+  #info { position: absolute; top: 34px; left: 10px; max-width: 70%; background: rgba(8,4,16,.88); border: 1px solid var(--pink); border-radius: 4px; padding: 8px 10px; white-space: pre-wrap; font-size: 12px; }
+  #info.off { visibility: hidden; }
+  aside section { border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; margin-bottom: 12px; background: #0c0617; }
+  h2 { margin: 0 0 6px; font-size: 13px; color: var(--cyan); text-transform: uppercase; letter-spacing: .12em; }
+  #termout { height: 190px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; color: #d8c8ee; background: #05020a; padding: 6px; border-radius: 4px; }
+  #termin { width: 100%; margin-top: 6px; background: #05020a; color: var(--ink); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font: inherit; }
+  .plug { display: flex; gap: 8px; align-items: baseline; margin: 3px 0; }
+  .plug small { color: var(--mute); }
+  .plug .err { color: #ff6b6b; }
+  textarea { width: 100%; height: 150px; background: #05020a; color: var(--ink); border: 1px solid var(--line); border-radius: 4px; font: 12px/1.4 ui-monospace, monospace; padding: 6px; }
+  details summary { cursor: pointer; color: var(--pink); }
+  code, pre { background: #05020a; border-radius: 3px; padding: 1px 4px; }
+  pre { padding: 8px; overflow-x: auto; white-space: pre-wrap; }
+  p { margin: 6px 0; }
+  .mute { color: var(--mute); }
+  footer { padding: 6px 18px 24px; color: var(--mute); font-size: 12px; }
+  body.vr header, body.vr aside, body.vr footer, body.vr .bar:not(.keep) { display: none; }
+  body.vr main { grid-template-columns: 1fr; padding: 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>HYPERSTREET</h1>
+  <p class="sub">one road, looped. every account active on atproto right now is a building on it, carrying a sword forged from its DID.</p>
+</header>
+<main>
+  <div>
+    <div id="stage">
+      <canvas id="view" aria-label="first-person view of the Street"></canvas>
+      <div id="info" class="off"></div>
+      <div class="pad">
+        <div><button id="b-left" data-hold="left" aria-label="turn left">◀</button><button id="b-right" data-hold="right" aria-label="turn right">▶</button></div>
+        <div><button id="b-fwd" data-hold="fwd" aria-label="walk forward">▲</button><button id="b-back" data-hold="back" aria-label="walk back">▼</button></div>
+      </div>
+    </div>
+    <div class="bar keep">
+      <button id="cruise" class="on">cruise</button>
+      <button id="vr">cardboard VR</button>
+      <a id="share" href="#" target="_blank" rel="noopener"><button type="button">share on bluesky</button></a>
+      <span class="mute">drag or WASD / arrows to look and walk · click a building</span>
+    </div>
+  </div>
+
+  <aside>
+    <section>
+      <h2>terminal</h2>
+      <div id="termout" role="log"></div>
+      <input id="termin" autocomplete="off" spellcheck="false" placeholder="help · look · goto alice.bsky.social · duel bob.example" aria-label="terminal input" />
+    </section>
+
+    <section>
+      <h2>plugins</h2>
+      <div id="plugs"></div>
+      <details>
+        <summary>write a plugin</summary>
+        <p class="mute">Runs as JavaScript in your browser, with <code>world</code> in scope. Only run code you wrote or read. Hooks: <code>onEvent</code>, <code>drawEnt</code>, <code>drawOverlay</code>, <code>commands</code>.</p>
+        <textarea id="src" spellcheck="false"></textarea>
+        <div class="bar"><button id="runsrc">run plugin</button><button id="clearsrc">forget</button></div>
+        <div id="srcmsg" class="mute"></div>
+      </details>
+    </section>
+
+    <section>
+      <details>
+        <summary>how this is built (and what a professional would do)</summary>
+        <p><b>What a top professional would do that the brief didn't ask for.</b> Start with the contract, not the graphics. A metaverse that every client (VR headset, terminal, agent, browser) can enter is a stream plus a pure function: <code>world = f(stream)</code>. So the first artefact here is <code>world.js</code>, with no DOM, and the canvas, the terminal and the CLI are three projections of it. The second is the plugin interface, because "everything is buildable" is only true if the shipped features are written against the same interface you hand to others, so the swords, signs, sparks and follow bridges are all ordinary plugins.</p>
+        <p><b>The rawest material.</b> The Jetstream commit stream and the DID. A DID is the only thing in atproto that is both globally unique and un-spoofable, so it seeds everything: position on the Street, building colour, and the sword. Nobody chooses a sword; it falls out of their identity.</p>
+        <p><b>What it is not, yet.</b> Nothing here is written to anyone's PDS, so there are no persistent plots or shared plugin records. That is the next layer, and the shape of it is a <code>net.bisks.hyperstreet.plugin</code> record you publish and anyone's world can load.</p>
+      </details>
+    </section>
+
+    <section>
+      <h2>other doors</h2>
+      <p><b>CLI</b> (node 22+):</p>
+      <pre>curl -O https://hyperstreet.bisks.net/cli.mjs
+node cli.mjs</pre>
+      <p class="mute">same Street, same commands, same plugins, no graphics.</p>
+      <p><b>VR:</b> the cardboard button splits the view for a phone viewer and turns your head with the phone.</p>
+    </section>
+  </aside>
+</main>
+<footer>
+  data: bluesky Jetstream (public) · handles via public.api.bsky.app · <a href="https://rateyourbuild.bisks.net/site/hyperstreet">rate this on rateyourbuild →</a>
+</footer>
+<script type="module" src="main.js"></script>
+</body>
+</html>
