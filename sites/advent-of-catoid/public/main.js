@@ -152,6 +152,9 @@ $("answer-form").addEventListener("submit", (e) => {
         renderPuzzle();
         setFeedback(part === 1 ? "★ that's right! part two is unlocked." : "★★ that's right! both stars!", "ok");
         if (part === 2) $("answer-form").hidden = false;
+      } else if (guess === "nan") {
+        setFeedback("nyaaaan~ 🌈🐱 that is a cat, not a number. (day 3 part 2 is fixed, promise.)", "bad");
+        $("submit").disabled = false;
       } else {
         setFeedback("that's not it. the cat blinks slowly at you.", "bad");
         $("submit").disabled = false;
@@ -201,3 +204,21 @@ $("copylink").addEventListener("click", async () => {
 renderCalendar();
 const start = parseInt(location.hash.slice(1), 10);
 if (start >= 1 && start <= DAYS.length) go(start);
+
+// holiday spirit: a gentle snowfall of paws and flakes, skipped for reduced-motion
+if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  const snow = document.createElement("div");
+  snow.id = "snow";
+  snow.setAttribute("aria-hidden", "true");
+  const bits = ["❄", "❅", "❆", "🐾"];
+  for (let i = 0; i < 28; i++) {
+    const f = document.createElement("span");
+    f.textContent = bits[i % bits.length];
+    f.style.left = `${(i * 37) % 100}%`;
+    f.style.fontSize = `${10 + (i * 7) % 12}px`;
+    f.style.animationDuration = `${9 + (i * 5) % 11}s`;
+    f.style.animationDelay = `-${(i * 3) % 13}s`;
+    snow.append(f);
+  }
+  document.body.append(snow);
+}
