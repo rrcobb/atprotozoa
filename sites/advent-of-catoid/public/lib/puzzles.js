@@ -771,6 +771,98 @@ function gen30(r) {
 }
 
 // ---------- the calendar ----------
+
+// ---------- day 31: yarn knots ----------
+function d31reduce(s) {
+  const st = [];
+  for (const c of s) {
+    const t = st[st.length - 1];
+    if (t && t !== c && t.toLowerCase() === c.toLowerCase()) st.pop(); else st.push(c);
+  }
+  return st.length;
+}
+const d31p1 = (s) => d31reduce(s.trim());
+const d31p2 = (s) => {
+  const t = s.trim();
+  return Math.min(...[...LET].map((ch) => d31reduce(t.split(ch).join("").split(ch.toUpperCase()).join(""))));
+};
+
+// ---------- day 32: purr pattern (look-and-say) ----------
+function d32(s, rounds) {
+  let cur = s.trim();
+  for (let i = 0; i < rounds; i++) {
+    let out = [], j = 0;
+    while (j < cur.length) {
+      let k = j;
+      while (k < cur.length && cur[k] === cur[j]) k++;
+      out.push(k - j, cur[j]);
+      j = k;
+    }
+    cur = out.join("");
+  }
+  return cur.length;
+}
+
+// ---------- day 33: treat budget ----------
+function d33(s, k) {
+  const v = nums(s), target = 2020;
+  for (let i = 0; i < v.length; i++) for (let j = i + 1; j < v.length; j++) {
+    if (k === 2) { if (v[i] + v[j] === target) return v[i] * v[j]; continue; }
+    for (let m = j + 1; m < v.length; m++) if (v[i] + v[j] + v[m] === target) return v[i] * v[j] * v[m];
+  }
+  return -1;
+}
+
+// ---------- day 34: tuna tell-tale ----------
+function d34(s, w) {
+  const t = s.trim();
+  for (let i = w; i <= t.length; i++) if (new Set(t.slice(i - w, i)).size === w) return i;
+  return -1;
+}
+
+// ---------- day 35: cat tent triangles ----------
+const tri = (a, b, c) => a + b > c && a + c > b && b + c > a;
+function d35(s, columns) {
+  const rows = lines(s).map((l) => l.match(/\d+/g).map(Number));
+  let n = 0;
+  if (!columns) { for (const [a, b, c] of rows) if (tri(a, b, c)) n++; return n; }
+  for (let i = 0; i + 2 < rows.length; i += 3)
+    for (let c = 0; c < 3; c++) if (tri(rows[i][c], rows[i + 1][c], rows[i + 2][c])) n++;
+  return n;
+}
+
+// bonus days: generators
+function gen31(r) {
+  const out = [];
+  for (let i = 0; i < 20000; i++) {
+    const c = r.pick([...LET]);
+    out.push(r.chance(0.5) ? c : c.toUpperCase());
+  }
+  return out.join("");
+}
+function gen32(r) {
+  return Array.from({ length: 10 }, () => r.int(1, 3)).join("");
+}
+function gen33(r) {
+  // 200 values in 1..2019; plant one pair and one triple that hit 2020 so both parts have an answer
+  const v = Array.from({ length: 197 }, () => r.int(1, 2019));
+  const a = r.int(100, 1900); v.push(a, 2020 - a);
+  const x = r.int(100, 800), y = r.int(100, 800); v.push(x, y, 2020 - x - y);
+  return joinL(r.shuffle(v));
+}
+function gen34(r) {
+  const n = r.int(3000, 4000), a = [];
+  for (let i = 0; i < n; i++) a.push(LET[r.int(0, 25)]);
+  // a guaranteed run of 14 distinct letters so part 2 exists; part 1 always finds one earlier or equal
+  const at = r.int(1500, n - 20), run = r.shuffle([...LET]).slice(0, 14);
+  for (let i = 0; i < 14; i++) a[at + i] = run[i];
+  return a.join("");
+}
+function gen35(r) {
+  return joinL(Array.from({ length: 1500 }, () =>
+    Array.from({ length: 3 }, () => String(r.int(1, 999)).padStart(4, " ")).join("")));
+}
+
 export const DAYS = [
   {
     title: "Nap Sunbeams",
@@ -1047,6 +1139,51 @@ export const DAYS = [
     part2: ["The council reforms: now addition is evaluated before multiplication. Parentheses still go first. Sum of the results?"],
     example: "1 + 2 * 3 + 4 * 5 + 6\n2 * 3 + (4 * 5)",
     gen: gen30, p1: (s) => d30(s, false), p2: (s) => d30(s, true),
+  },
+  {
+    title: "Yarn Knots",
+    intro: [
+      "A strand of yarn is a string of letters. Neighbouring letters of the same type but opposite case (like `aA` or `Bb`) knot up and vanish; the strand closes up and it can happen again. How many letters are left when nothing more can vanish?",
+    ],
+    part2: ["Pick one letter type (both cases) and snip it out of the strand entirely before untangling. What is the shortest strand you can end up with?"],
+    example: "dabAcCaCBAcCcaDA",
+    gen: gen31, p1: d31p1, p2: d31p2,
+  },
+  {
+    title: "Purr Pattern",
+    intro: [
+      "A catoid purrs a digit sequence by describing the last one aloud: `211` is read \"one 2, two 1s\" and becomes `1221`. Starting from your input, apply this 40 times. How long is the result?",
+    ],
+    part2: ["Apply it 50 times instead. How long is the result now?"],
+    example: "1",
+    gen: gen32, p1: (s) => d32(s, 40), p2: (s) => d32(s, 50),
+  },
+  {
+    title: "Treat Budget",
+    intro: [
+      "The treat jar ledger lists amounts. Exactly two of them add up to 2020. Multiply those two together.",
+    ],
+    part2: ["Actually exactly three of them add up to 2020. Multiply those three together."],
+    example: "1721\n979\n366\n299\n675\n1456",
+    gen: gen33, p1: (s) => d33(s, 2), p2: (s) => d33(s, 3),
+  },
+  {
+    title: "Tuna Tell-Tale",
+    intro: [
+      "A stream of letters carries a start-of-message marker: the first run of 4 consecutive letters that are all different. How many characters have been read when the first marker is complete (i.e. the 1-based position of its last letter)?",
+    ],
+    part2: ["Real messages begin after 14 distinct letters in a row. What is the position now?"],
+    example: "mjqjpqmgbljsphdztnvjfqwrcgsmlb",
+    gen: gen34, p1: (s) => d34(s, 4), p2: (s) => d34(s, 14),
+  },
+  {
+    title: "Cat Tent Triangles",
+    intro: [
+      "Each line lists three side lengths for a cardboard tent panel. A panel only stands if every pair of sides is strictly longer than the third. How many listed panels are possible?",
+    ],
+    part2: ["The panels are really listed down the columns, three rows at a time: the first column of each group of three rows is one triangle, then the second, then the third. How many are possible now?"],
+    example: "5 10 25\n3 4 5\n 6 8 10\n101 301 501\n102 302 502\n103 303 503",
+    gen: gen35, p1: (s) => d35(s, false), p2: (s) => d35(s, true),
   },
 ];
 

@@ -28,6 +28,14 @@ test("known examples", () => {
   assert.deepStrictEqual(ex(30), ["97", "277"]);
 });
 
+test("bonus day examples", () => {
+  assert.deepStrictEqual(ex(31), ["10", "4"]);
+  assert.deepStrictEqual(ex(32), ["82350", "1166642"]);
+  assert.deepStrictEqual(ex(33), ["514579", "241861950"]);
+  assert.deepStrictEqual(ex(34), ["7", "19"]);
+  assert.deepStrictEqual(ex(35), ["2", "5"]);
+});
+
 test("code grid corners", () => {
   assert.strictEqual(codeAt(1, 1), 20151125);
   assert.strictEqual(codeAt(2, 2), 21629792);

@@ -57,11 +57,11 @@ function renderCalendar() {
     cal.append(b);
   });
   const total = totalStars();
-  $("stars").textContent = `★ ${total} / 60`;
-  const text = `I have ${total}/60 stars in Advent of Catoid 🐱⭐`;
+  $("stars").textContent = `★ ${total} / ${DAYS.length * 2}`;
+  const text = `I have ${total}/${DAYS.length * 2} stars in Advent of Catoid 🐱⭐`;
   $("sharestars").href = `https://bsky.app/intent/compose?text=${encodeURIComponent(`${text} ${SITE}`)}`;
   $("share").href = $("sharestars").href;
-  $("finale").hidden = total < 60;
+  $("finale").hidden = total < DAYS.length * 2;
 }
 
 function renderPuzzle() {
