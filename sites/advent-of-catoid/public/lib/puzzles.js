@@ -80,7 +80,8 @@ function d3filter(bits, keepMost) {
   for (let i = 0; i < bits[0].length && set.length > 1; i++) {
     const m = mostCommon(set, i);
     const want = keepMost ? m : m === "1" ? "0" : "1";
-    set = set.filter((b) => b[i] === want);
+    const next = set.filter((b) => b[i] === want);
+    if (next.length) set = next; // a unanimous column can't be filtered on its least common bit: skip it
   }
   return parseInt(set[0], 2);
 }
@@ -890,7 +891,7 @@ export const DAYS = [
       "The vet reads hairball diagnostics as binary strings. The gamma rate is built from the most common bit in each column (a tie counts as 1); the epsilon rate uses the least common bit in each column.",
       "Part 1: gamma × epsilon, both read as decimal numbers.",
     ],
-    part2: ["Now filter. For the oxygen rating, go column by column keeping only the strings whose bit matches the most common bit in that column (ties keep 1) until one string is left. For the CO₂ rating, keep the least common bit instead (ties keep 0). Multiply the two ratings, read as decimal."],
+    part2: ["Now filter. For the oxygen rating, go column by column keeping only the strings whose bit matches the most common bit in that column (ties keep 1) until one string is left. For the CO₂ rating, keep the least common bit instead (ties keep 0). A column where every remaining string agrees is skipped. Multiply the two ratings, read as decimal."],
     example: "00100\n11110\n10110\n10111\n10101\n01111\n00111\n11100\n10000\n11001\n00010\n01010",
     gen: gen3, p1: d3p1, p2: d3p2,
   },
