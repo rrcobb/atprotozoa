@@ -12,10 +12,14 @@ const SIZES: Record<string, { label: string; base: number }> = {
 };
 const CRUSTS: Record<string, number> = { hand_tossed: 0, thin: 0, pan: 1.5, stuffed: 2.5, gluten_free: 3 };
 const TOPPINGS: Record<string, number> = {
-  pepperoni: 1.5, sausage: 1.5, ham: 1.5, bacon: 1.75, chicken: 1.75, mushroom: 1,
+  pepperoni: 1.5, sausage: 1.5, beef: 1.75, ham: 1.5, bacon: 1.75, chicken: 1.75, mushroom: 1,
   onion: 1, green_pepper: 1, black_olive: 1, jalapeno: 1, pineapple: 1.25,
   extra_cheese: 1.25, spinach: 1, tomato: 1, anchovy: 1.5, banana_pepper: 1,
 };
+const CHEESES = ['none', 'light', 'normal', 'extra']; // extra costs more, none is just sauce and toppings
+const CHEESE_PRICE: Record<string, number> = { none: 0, light: 0, normal: 0, extra: 1.25 };
+const SAUCES = ['none', 'marinara', 'bbq', 'garlic_parmesan', 'alfredo', 'buffalo'];
+const HALVES = ['whole', 'left', 'right'];
 const SIDES: Record<string, number> = {
   garlic_bread: 5.99, cheesy_bread: 6.99, wings_8: 8.99, cinnamon_twists: 5.49,
   lava_cake: 4.99, soda_2l: 3.49,
@@ -27,7 +31,23 @@ const PIZZA_SCHEMA = {
   properties: {
     size: { type: 'string', enum: Object.keys(SIZES), default: 'large' },
     crust: { type: 'string', enum: Object.keys(CRUSTS), default: 'hand_tossed' },
-    toppings: { type: 'array', items: { type: 'string', enum: Object.keys(TOPPINGS) }, default: [] },
+    cheese: { type: 'string', enum: CHEESES, default: 'normal', description: 'Use "none" for no cheese.' },
+    sauce: { type: 'string', enum: SAUCES, default: 'marinara', description: 'Use "none" for no sauce.' },
+    toppings: {
+      type: 'array',
+      description: 'Each item is a topping name (whole pizza) or {topping, half} where half is whole, left or right. A half topping costs half price.',
+      items: {
+        oneOf: [
+          { type: 'string', enum: Object.keys(TOPPINGS) },
+          {
+            type: 'object',
+            properties: { topping: { type: 'string', enum: Object.keys(TOPPINGS) }, half: { type: 'string', enum: HALVES, default: 'whole' } },
+            required: ['topping'],
+          },
+        ],
+      },
+      default: [],
+    },
     quantity: { type: 'integer', minimum: 1, default: 1 },
   },
 };
@@ -38,7 +58,7 @@ const ORDER_PROPS = {
 };
 
 const TOOLS = [
-  { name: 'get_menu', description: 'List sizes, crusts, toppings and sides with prices.', inputSchema: { type: 'object', properties: {} } },
+  { name: 'get_menu', description: 'List sizes, crusts, cheese/sauce options, toppings (whole or half) and sides with prices.', inputSchema: { type: 'object', properties: {} } },
   {
     name: 'build_pizza',
     description: 'Validate one pizza configuration and return its price and a one-line description.',
@@ -66,14 +86,40 @@ const money = (n: number) => Math.round(n * 100) / 100;
 function pizza(a: any) {
   const size = a?.size ?? 'large';
   const crust = a?.crust ?? 'hand_tossed';
-  const toppings: string[] = a?.toppings ?? [];
+  const cheese = a?.cheese ?? 'normal';
+  const sauce = a?.sauce ?? 'marinara';
+  const raw: any[] = a?.toppings ?? [];
   const qty = Number.isInteger(a?.quantity) && a.quantity > 0 ? a.quantity : 1;
   if (!SIZES[size]) throw new Error(`unknown size "${size}"`);
   if (!(crust in CRUSTS)) throw new Error(`unknown crust "${crust}"`);
-  if (!Array.isArray(toppings) || toppings.length > MAX_TOPPINGS) throw new Error(`at most ${MAX_TOPPINGS} toppings`);
-  for (const t of toppings) if (!(t in TOPPINGS)) throw new Error(`unknown topping "${t}"`);
-  const each = SIZES[size].base + CRUSTS[crust] + toppings.reduce((s, t) => s + TOPPINGS[t], 0);
-  const desc = `${qty}× ${SIZES[size].label} ${crust.replace('_', ' ')}, ${toppings.length ? toppings.join(', ').replace(/_/g, ' ') : 'plain cheese'}`;
+  if (!CHEESES.includes(cheese)) throw new Error(`unknown cheese "${cheese}" (${CHEESES.join(', ')})`);
+  if (!SAUCES.includes(sauce)) throw new Error(`unknown sauce "${sauce}" (${SAUCES.join(', ')})`);
+  if (!Array.isArray(raw) || raw.length > MAX_TOPPINGS) throw new Error(`at most ${MAX_TOPPINGS} toppings`);
+  // "beef" / {topping:"beef", half:"left"} / "left:beef" / "beef:left" are all accepted.
+  const tops = raw.map((t) => {
+    let name: string, half = 'whole';
+    if (typeof t === 'string') {
+      const parts = t.split(':').map((x) => x.trim());
+      const h = parts.find((x) => HALVES.includes(x));
+      if (h) half = h;
+      name = parts.find((x) => !HALVES.includes(x)) ?? '';
+    } else {
+      name = String(t?.topping ?? '');
+      half = t?.half ?? 'whole';
+    }
+    if (!(name in TOPPINGS)) throw new Error(`unknown topping "${name}"`);
+    if (!HALVES.includes(half)) throw new Error(`unknown half "${half}" (${HALVES.join(', ')})`);
+    return { name, half };
+  });
+  const each = SIZES[size].base + CRUSTS[crust] + CHEESE_PRICE[cheese]
+    + tops.reduce((s, t) => s + TOPPINGS[t.name] * (t.half === 'whole' ? 1 : 0.5), 0);
+  const label = (t: { name: string; half: string }) => t.name.replace(/_/g, ' ') + (t.half === 'whole' ? '' : ` (${t.half} half)`);
+  const parts = [
+    cheese === 'normal' ? 'cheese' : cheese === 'none' ? 'no cheese' : `${cheese} cheese`,
+    sauce === 'none' ? 'no sauce' : `${sauce.replace(/_/g, ' ')} sauce`,
+    ...tops.map(label),
+  ];
+  const desc = `${qty}× ${SIZES[size].label} ${crust.replace('_', ' ')}, ${parts.join(', ')}`;
   return { desc, each: money(each), total: money(each * qty) };
 }
 
@@ -100,7 +146,7 @@ const STAGE_SECONDS = [0, 120, 600, 780, 1200];
 async function tool(name: string, a: any) {
   switch (name) {
     case 'get_menu':
-      return { sizes: SIZES, crusts: CRUSTS, toppings: TOPPINGS, sides: SIDES, note: 'Pretend menu. Nothing here can be really ordered.' };
+      return { sizes: SIZES, crusts: CRUSTS, cheeses: CHEESE_PRICE, sauces: SAUCES, halves: HALVES, toppings: TOPPINGS, sides: SIDES, note: 'Pretend menu. Nothing here can be really ordered.' };
     case 'build_pizza':
       return pizza(a);
     case 'price_order':
