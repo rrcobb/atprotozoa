@@ -2,7 +2,9 @@
 const GENRES = [
   { id: "td", name: "tower defense", sub: "pieces don't capture here — they <i>guard</i>. each attacks every square it could move to." },
   { id: "city", name: "city builder", title: "Chess City 2000", sub: "pieces are buildings. each one affects every square it could move to. grow the city to 2000 people." },
-  { id: null, name: "autobattler" }, { id: null, name: "roguelike" }, { id: null, name: "deckbuilder" },
+  { id: "autobattler", name: "autobattler", sub: "buy pieces, place them, and watch them fight on their own with real chess moves. three of a kind merge into a star. the tenth round brings the giant queen." },
+  { id: "balatro", name: "balatro", title: "Chess Balatro", sub: "play pieces as poker hands. pairs, flushes, back ranks. beat the blinds with jokers; the boss debuffs a piece type." },
+  { id: null, name: "roguelike" },
 ];
 const $ = (id) => document.getElementById(id);
 function show(id) {
