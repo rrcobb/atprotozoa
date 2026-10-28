@@ -4,9 +4,6 @@ const $ = (id) => document.getElementById(id);
 const cv = $("c"), ctx = cv.getContext("2d");
 const S = cv.width / N;
 
-// Genres: only tower defense is built so far.
-const GENRES = [["tower defense", true], ["roguelike", false], ["farming sim", false], ["bullet hell", false], ["deckbuilder", false]];
-$("genres").innerHTML = GENRES.map(([g, on]) => `<button ${on ? 'class="on"' : "disabled"}>${g}${on ? "" : " (soon)"}</button>`).join("");
 
 let shopSig = "", st, pick = "rook", sel = null, last = 0;
 
