@@ -5,6 +5,7 @@ const GENRES = [
   { id: "autobattler", name: "autobattler", sub: "buy pieces, place them, and watch them fight on their own with real chess moves. three of a kind merge into a star. the tenth round brings the giant queen." },
   { id: "balatro", name: "balatro", title: "Chess Balatro", sub: "play pieces as poker hands. pairs, flushes, back ranks. beat the blinds with jokers; the boss debuffs a piece type." },
   { id: "tactics", name: "tactics rpg", title: "Chess Tactics", sub: "a Final Fantasy Tactics-style party battle. move with real chess moves, strike what you could attack, and take down a dragon built from black pieces." },
+  { id: "stealth", name: "stealth", title: "Chess Solid", sub: "a Metal Gear Solid-style infiltration. you are a lone king; guards see every square they could capture. hide in crates, slip past patrols and reach the elevator." },
   { id: null, name: "soulslike" },
 ];
 const $ = (id) => document.getElementById(id);
