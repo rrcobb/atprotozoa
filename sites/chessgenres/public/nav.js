@@ -4,7 +4,8 @@ const GENRES = [
   { id: "city", name: "city builder", title: "Chess City 2000", sub: "pieces are buildings. each one affects every square it could move to. grow the city to 2000 people." },
   { id: "autobattler", name: "autobattler", sub: "buy pieces, place them, and watch them fight on their own with real chess moves. three of a kind merge into a star. the tenth round brings the giant queen." },
   { id: "balatro", name: "balatro", title: "Chess Balatro", sub: "play pieces as poker hands. pairs, flushes, back ranks. beat the blinds with jokers; the boss debuffs a piece type." },
-  { id: null, name: "roguelike" },
+  { id: "tactics", name: "tactics rpg", title: "Chess Tactics", sub: "a Final Fantasy Tactics-style party battle. move with real chess moves, strike what you could attack, and take down a dragon built from black pieces." },
+  { id: null, name: "soulslike" },
 ];
 const $ = (id) => document.getElementById(id);
 function show(id) {
