@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>THE LAST PERSON ON THE INTERNET</title>
+<meta name="description" content="A live single-elimination bracket of public AT Protocol DIDs. Every match is real, deterministic and replayable. There can only be one. Unfortunately.">
+<meta property="og:title" content="THE LAST PERSON ON THE INTERNET">
+<meta property="og:description" content="A zoomable single-elimination bracket of millions of DIDs, resolved deterministically in milliseconds. There can only be one. Unfortunately.">
+<meta property="og:image" content="https://lastperson.bisks.net/og.png">
+<meta property="og:url" content="https://lastperson.bisks.net/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://lastperson.bisks.net/og.png">
+<meta name="theme-color" content="#050505">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="bracket" tabindex="0" aria-label="Tournament bracket. Arrow keys pan, plus and minus zoom, 0 fits all, F jumps to the final."></canvas>
+
+<header id="hud">
+  <h1>THE LAST PERS<span onclick="var q=document.getElementById('q');q.value='@cee.wtf';q.dispatchEvent(new Event('input',{bubbles:true}));q.dispatchEvent(new Event('change',{bubbles:true}));q.focus()">O</span>N ON THE INTERNET</h1>
+  <div id="banner" class="banner"></div>
+  <div id="bigcount" class="bigcount" aria-live="off"></div>
+  <div id="remain" class="remain" aria-live="polite"></div>
+  <dl class="meta">
+    <div><dt>TOURNAMENT</dt><dd id="m-tid">#000001</dd></div>
+    <div><dt>STATUS</dt><dd id="m-status">INITIALISING</dd></div>
+    <div><dt>ROSTER</dt><dd id="m-roster">—</dd></div>
+    <div><dt>SEED COMMITMENT</dt><dd id="m-commit">—</dd></div>
+  </dl>
+</header>
+
+<section id="controls" aria-label="Playback and navigation">
+  <div class="row">
+    <button id="b-pause" type="button">PAUSE</button>
+    <button id="b-speed" type="button" aria-pressed="true">MAX SPEED</button>
+    <button id="b-replay" type="button">REPLAY</button>
+    <button id="b-step" type="button">STEP ROUND</button>
+  </div>
+  <div class="row">
+    <button id="b-fit" type="button">FIT ALL</button>
+    <button id="b-final" type="button">FINALS</button>
+    <button id="b-next" type="button">NEXT ▸</button>
+    <label class="chk"><input id="c-slow" type="checkbox"> FINAL-64 SLOWDOWN</label>
+  </div>
+  <form id="search" class="row" autocomplete="off">
+    <label class="sr" for="q">Search a DID</label>
+    <input id="q" name="q" type="text" placeholder="did:plc:… (or a handle)" spellcheck="false" autocapitalize="off">
+    <button type="submit">LOCATE</button>
+    <button id="b-rand" type="button" title="a random entrant">?</button>
+  </form>
+  <div class="row nav">
+    <button data-panel="source" type="button">SOURCE</button>
+    <button data-panel="archive" type="button">ARCHIVE</button>
+    <button data-panel="method" type="button">METHOD</button>
+  </div>
+</section>
+
+<section id="readout" aria-label="Live readout">
+  <div><span>MATCHES COMPUTED</span><b id="r-matches">0</b></div>
+  <div><span>SURVIVING</span><b id="r-surv">0</b></div>
+  <div><span>ROUND</span><b id="r-round">0 / 0</b></div>
+  <div><span>COMPUTE</span><b id="r-ms">—</b></div>
+  <div><span>RENDER</span><b id="r-fps">—</b></div>
+  <div><span>LOD</span><b id="r-lod">—</b></div>
+</section>
+
+<section id="champion" hidden>
+  <div class="ch-title">YOU HAVE WON THE INTERNET.</div>
+  <div class="ch-did" id="ch-did"></div>
+  <div class="ch-sub">THERE IS NOBODY LEFT TO CONGRATULATE YOU.</div>
+  <div class="ch-facts" id="ch-facts"></div>
+  <div class="row">
+    <button id="b-hold" type="button" aria-pressed="false">PAUSE RESTART</button>
+    <button id="b-verify" type="button">VERIFY REPLAY</button>
+    <a id="a-share" class="btn" target="_blank" rel="noopener">POST TO BLUESKY</a>
+    <button id="b-copy" type="button">COPY PERMALINK</button>
+  </div>
+  <div class="ch-count" id="ch-count" aria-live="polite"></div>
+</section>
+
+<aside id="panel-inspect" class="panel" hidden aria-label="Inspection">
+  <button class="x" type="button" data-close="inspect" aria-label="Close">×</button>
+  <h2>INSPECTION</h2>
+  <div id="inspect-body"></div>
+</aside>
+
+<aside id="panel-source" class="panel" hidden aria-label="Roster source">
+  <button class="x" type="button" data-close="source" aria-label="Close">×</button>
+  <h2>SOURCE</h2>
+  <fieldset>
+    <legend>ROSTER</legend>
+    <label class="chk"><input type="radio" name="mode" value="syn" checked> SYNTHETIC DEMO (did:example, no real accounts)</label>
+    <label class="chk"><input type="radio" name="mode" value="real"> INDEXED PUBLIC DIDS (real, partial)</label>
+  </fieldset>
+  <div id="src-syn">
+    <label for="n-syn">SYNTHETIC ENTRANTS</label>
+    <select id="n-syn">
+      <option value="1000">1,000</option>
+      <option value="100000">100,000</option>
+      <option value="1000000" selected>1,000,000</option>
+      <option value="10000000">10,000,000 (heavy: ~100 MB)</option>
+    </select>
+  </div>
+  <div id="src-real" hidden>
+    <p id="idx-status" class="note"></p>
+    <div class="row">
+      <button id="b-crawl" type="button">INDEX +50,000</button>
+      <button id="b-crawl-stop" type="button" disabled>STOP</button>
+      <button id="b-crawl-clear" type="button">CLEAR INDEX</button>
+    </div>
+    <p class="note">Walks <code>com.atproto.sync.listRepos</code> on the public relay: DIDs only, no profiles, posts or follows. Each click adds up to 50,000 active repos and resumes from the saved cursor. The index lives in this browser (IndexedDB).</p>
+  </div>
+  <div class="row"><button id="b-apply" type="button">START NEW CHAIN WITH THIS ROSTER</button></div>
+  <label for="s-hold">RESTART AFTER CHAMPION</label>
+  <select id="s-hold">
+    <option value="5">5 s</option>
+    <option value="12" selected>12 s</option>
+    <option value="30">30 s</option>
+    <option value="60">60 s</option>
+  </select>
+  <div class="row"><button id="b-bench" type="button">RUN BENCHMARK (100k · 1M · 10M)</button></div>
+  <pre id="bench-out" class="note"></pre>
+</aside>
+
+<aside id="panel-archive" class="panel" hidden aria-label="Archive">
+  <button class="x" type="button" data-close="archive" aria-label="Close">×</button>
+  <h2>ARCHIVE</h2>
+  <p class="note">Summaries of tournaments completed in this browser (latest 200). Full brackets are not stored: a synthetic tournament replays exactly from its seed and size; a real-roster tournament needs the same DID snapshot, which is not archived.</p>
+  <div id="archive-body"></div>
+  <div class="row"><button id="b-archive-clear" type="button">CLEAR ARCHIVE</button></div>
+</aside>
+
+<aside id="panel-method" class="panel" hidden aria-label="Method">
+  <button class="x" type="button" data-close="method" aria-label="Close">×</button>
+  <h2>METHOD</h2>
+  <div class="prose">
+    <p><b>What this is.</b> A fictional elimination of bracket entries. Nobody is being removed from anything; a DID is only a string in a list. The system knows nothing about anyone's posts, avatar, followers or popularity.</p>
+    <p><b>Roster.</b> Entrants are full DIDs, deduplicated and sorted by string order, then frozen. The snapshot id is the SHA-256 of that list. The synthetic roster uses the reserved <code>did:example</code> method and is always labelled as demo data. The real roster is whatever this browser has indexed from the relay's repo list: <i>indexed public DIDs</i>, not "all Bluesky users". A DID in that list may be a deactivated, migrated or non-Bluesky AT Protocol repo; only <code>active</code> repos are kept.</p>
+    <p><b>Bracket.</b> Entrants are placed by a seeded Fisher–Yates shuffle (not DID order). Each round pairs neighbours; an odd last survivor gets a bye, which is not a match. N entrants always play exactly N−1 matches and leave one champion. N = 0 has no champion; N = 1 wins unopposed.</p>
+    <p><b>Matches.</b> The winner of match (round, index) is picked from a hash of the tournament seed and that coordinate (<code>LP1</code>, a murmur3-finalizer chain, not cryptographic). Because a result depends only on its coordinate, any batch size or worker split gives bit-identical brackets. <code>Math.random</code> is never used.</p>
+    <p><b>Chaining.</b> Tournament 1's seed is SHA-256 of a published phrase. Tournament k+1's seed is SHA-256 of the algorithm version, previous seed, previous champion DID and previous tournament id. This is deterministic entertainment, not a lottery or a contest for prizes.</p>
+    <p><b>Simulation vs. playback.</b> All matches are computed first, in a worker, with no network calls. The picture then plays back the finished bracket as fast as frames can convey it; the status line says so. Max speed skips intermediate visual states, never matches.</p>
+    <p><b>Rendering.</b> One canvas, no per-entrant DOM. Zoomed out, a round's matches are aggregated into pixel-row bands (sampled, labelled AGGREGATED). Zoomed in you get real elbows, match nodes and truncated DIDs.</p>
+    <p><b>Verify.</b> VERIFY REPLAY recomputes the tournament from its seed with a different batch size and compares a checksum over every round's survivors.</p>
+    <p><b>Not included.</b> Sound; server-side or shared persistence; a complete real roster (millions of DIDs would take thousands of relay requests per visitor, so you index what you choose to). Benchmark numbers come from your own machine, in the SOURCE panel.</p>
+  </div>
+</aside>
+
+<footer id="foot">
+  <a href="https://rateyourbuild.bisks.net/site/lastperson">rate this on rateyourbuild →</a>
+  <span>deterministic entertainment · not a lottery</span>
+</footer>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>
