@@ -387,6 +387,8 @@ $("reset").addEventListener("click", () => {
   S.D = 0; S.theta = 0; S.modeOff = 0; S.bodyH = null; S.alt0 = 0; S.particles = []; S.near = []; S.far = []; S.time = 0;
   snapNext = true;
 });
+// A mouse-clicked button keeps focus, and Space would then re-press it instead of pausing.
+document.addEventListener("click", (e) => { const b = e.target instanceof Element && e.target.closest("button"); if (b && e.detail > 0) b.blur(); });
 function setPanel(open) {
   $("panel").hidden = !open; $("open").hidden = open; $("open").setAttribute("aria-expanded", String(open));
   if (open) $("hide").focus({ preventScroll: true }); else $("open").focus({ preventScroll: true });
@@ -394,8 +396,10 @@ function setPanel(open) {
 $("hide").addEventListener("click", () => setPanel(false));
 $("open").addEventListener("click", () => setPanel(true));
 addEventListener("keydown", (e) => {
-  if (e.target instanceof HTMLElement && /^(SELECT|INPUT|TEXTAREA)$/.test(e.target.tagName) && e.key !== "h") return;
-  if (e.code === "Space" && !(e.target instanceof HTMLButtonElement)) { e.preventDefault(); setRunning(!S.running); }
+  // Range sliders keep focus after a drag; they don't use Space, so it must still pause. Text fields and selects do use it.
+  const t = e.target, typing = t instanceof HTMLElement && (/^(SELECT|TEXTAREA)$/.test(t.tagName) || (t.tagName === "INPUT" && t.type !== "range" && t.type !== "checkbox"));
+  if (typing && e.key !== "h") return;
+  if (e.code === "Space" && !(t instanceof HTMLButtonElement)) { e.preventDefault(); setRunning(!S.running); }
   else if (e.key === "h" || e.key === "H") setPanel($("panel").hidden);
 });
 $("share").addEventListener("click", (e) => {
@@ -438,7 +442,7 @@ let snapNext = true, last = performance.now(), readT = 0;
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   const legs = simStep(S, dt, snapNext, hooks); snapNext = false;
-  for (const p of S.particles) { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy -= 40 * dt; }
+  if (S.running) for (const p of S.particles) { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy -= 40 * dt; }
   S.particles = S.particles.filter((p) => p.life > 0);
   draw(legs, dt);
   updateAudio();
