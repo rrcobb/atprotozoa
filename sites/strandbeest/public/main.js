@@ -5,7 +5,7 @@ import { PALETTES, mix, rgb } from "./lib/palettes.js";
 import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
 import { listFeeds, fetchPage } from "./lib/feeds.js";
 import { postUrl } from "./lib/post.js";
-import { signsInRange, signX, drawSign } from "./lib/signs.js";
+import { signsInRange, signX, drawSign, setImageScale } from "./lib/signs.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("scene"), ctx = canvas.getContext("2d");
@@ -338,7 +338,7 @@ function setStyle(v) {
 }
 el.style.addEventListener("change", () => setStyle(el.style.value));
 // ---- vehicle tuning --------------------------------------------------------
-const VEHICLE_DEFAULTS = { rigid: false, suspension: true, travel: 100, gravity: 100, stiff: 16, tilt: 100, bodyRate: 4, ride: 0, spacing: 100, phase: "jansen", parallel: true, rail: true, cranks: true, claws: 300 };
+const VEHICLE_DEFAULTS = { rigid: false, suspension: true, travel: 100, gravity: 100, stiff: 16, tilt: 100, bodyRate: 4, ride: 0, spacing: 100, phase: "jansen", parallel: true, rail: true, cranks: true, claws: 300, imgsize: 160 };
 const veh = {};
 const vRange = (id, key, outId, fmt, apply) => {
   const input = $(id), out = $(outId);
@@ -352,6 +352,7 @@ const vCheck = (id, key, apply) => {
 };
 vRange("travel", "travel", "travel-out", (v) => v + "%", (v) => { S.travel = v / 100; });
 vRange("claws", "claws", "claws-out", (v) => v + "%", (v) => { S.claws = v / 100; });
+vRange("imgsize", "imgsize", "imgsize-out", (v) => v + "%", (v) => { setImageScale(v / 100); });
 vRange("gravity", "gravity", "gravity-out", (v) => v + "%", (v) => { S.gravity = v / 100; });
 vRange("stiff", "stiff", "stiff-out", String, (v) => { S.stiff = v; });
 vRange("tilt", "tilt", "tilt-out", (v) => v + "%", (v) => { S.tilt = v / 100; });

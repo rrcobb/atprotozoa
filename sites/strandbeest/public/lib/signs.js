@@ -46,6 +46,11 @@ export function clip(lines, max = MAX_LINES) {
   return out;
 }
 
+// Image size multiplier set by the "Image size" slider. Boards with images widen
+// with it so the pictures grow instead of just being letterboxed in the same width.
+let imgScale = 1.6;
+export const setImageScale = (k) => { imgScale = k; };
+
 const images = new Map();
 function thumb(url) {
   let e = images.get(url);
@@ -59,9 +64,9 @@ const rgba = (c, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 
 // Lay a post out for scale s (cached on the post per scale step).
 function layout(ctx, post, s) {
-  const key = Math.round(s * 20);
+  const key = Math.round(s * 20) + ":" + Math.round(imgScale * 20);
   if (post._lay && post._lay.key === key) return post._lay;
-  const fs = 13 * s, lh = 17 * s, w = 300 * s, pad = 10 * s, inner = w - pad * 2;
+  const fs = 13 * s, lh = 17 * s, w = (post.images?.length ? 300 + Math.max(0, imgScale - 1) * 200 : 300) * s, pad = 10 * s, inner = w - pad * 2;
   ctx.font = `${fs}px ui-sans-serif, system-ui, sans-serif`;
   const m = (t) => ctx.measureText(t).width;
   let body = post.text ? post.text : post.link ? "🔗 " + post.link : "";
@@ -72,7 +77,7 @@ function layout(ctx, post, s) {
   const lines = clip(wrap(body, inner, m), Math.max(3, (imgs.length ? 6 : MAX_LINES) - tcount));
   const qlines = post.quote ? clip(wrap("↪ @" + post.quote.handle + ": " + post.quote.text, inner - 8 * s, m), 3) : [];
   // Two images side by side, three or four in a 2x2 grid.
-  const cell = imgs.length > 1 ? 70 * s : 110 * s, rows = Math.ceil(imgs.length / 2), imgH = imgs.length ? cell * rows + 4 * s * (rows - 1) : 0;
+  const cell = imgs.length > 1 ? 70 * s * imgScale : 130 * s * imgScale, rows = Math.ceil(imgs.length / 2), imgH = imgs.length ? cell * rows + 4 * s * (rows - 1) : 0;
   const tH = tcount ? tcount * lh + tlines.length * 4 * s + 4 * s : 0;
   const h = pad * 2 + lh * 1.2 + tH + lines.length * lh + (qlines.length ? qlines.length * lh + 8 * s : 0) + (imgH ? imgH + 6 * s : 0) + lh;
   return (post._lay = { key, fs, lh, w, h, pad, lines, qlines, imgH, tlines, cell, imgs });
