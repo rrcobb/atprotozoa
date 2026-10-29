@@ -8,6 +8,7 @@ const GENRES = [
   { id: "stealth", name: "stealth", title: "Chess Solid", sub: "a Metal Gear Solid-style infiltration. you are a lone king; guards see every square they could capture. hide in crates, slip past patrols and reach the elevator." },
   { id: "grand", name: "open world", title: "Grand Chess Auto", sub: "a GTA-style crime spree. steal pieces to drive, grab cash, dodge a wanted level that sends real chess cops after you." },
   { id: "idle", name: "idle clicker", title: "Chess Factory", sub: "stamp pawns, build machines, and climb the piece ladder until the factory manufactures the chess dragon at 1000 a second." },
+  { id: "flight", name: "flight sim", title: "Microsoft Chess Flight Simulator", sub: "pick an aircraft that flies like a piece, burn fuel per square, dodge drifting storms and land at the airport in the far corner." },
   { id: null, name: "soulslike" },
 ];
 const $ = (id) => document.getElementById(id);
