@@ -1,4 +1,4 @@
-import { N, ROUNDS, UNITS, makeUnit, tick, result, alive, mergeOnce, maxBoard, income, enemyTeam } from "./auto-logic.js";
+import { N, ROUNDS, UNITS, makeUnit, tick, result, alive, mergeOnce, maxBoard, income, enemyTeam, acceptsDraw } from "./auto-logic.js";
 
 const $ = (id) => document.getElementById(id);
 const cv = $("ac"), ctx = cv.getContext("2d");
@@ -7,7 +7,7 @@ const TICK_MS = 450;
 const BENCH = 8, SHOP = 5, REROLL = 1;
 const SELL = (p) => Math.max(1, Math.floor(UNITS[p.type].cost * (p.star === 1 ? 1 : p.star === 2 ? 3 : 9) / 2));
 
-let g, sel = null, battle = null, acc = 0, last = 0, ticks = 0, fx = [];
+let g, sel = null, battle = null, acc = 0, last = 0, ticks = 0, stalled = 0, fx = [];
 
 function rollShop() {
   const types = Object.keys(UNITS);
@@ -55,6 +55,7 @@ function ui() {
   $("aFight").disabled = !prep || !g.board.length;
   $("aFight").textContent = prep ? `fight round ${g.round}` : g.status === "fight" ? "fighting…" : "game over";
   $("aSell").disabled = !prep || !sel;
+  $("aDraw").disabled = g.status !== "fight" || !battle;
 }
 
 function setSel(s) { sel = s; ui(); }
@@ -115,19 +116,31 @@ $("aSell").addEventListener("click", () => {
   setSel(null);
 });
 $("aRestart").addEventListener("click", reset);
+$("aDraw").addEventListener("click", () => {
+  if (g.status !== "fight" || !battle) return;
+  if (acceptsDraw(battle)) endBattle("draw", "draw agreed.");
+  else setMsg("the enemy declines your draw offer — it thinks it's winning.");
+});
 
 $("aFight").addEventListener("click", () => {
   if (g.status !== "prep" || !g.board.length) return;
   battle = g.board.map((p) => makeUnit(p.type, p.star, 0, p.r, p.c)).concat(enemyTeam(g.round));
-  ticks = 0; acc = 0; sel = null; g.status = "fight";
+  ticks = 0; stalled = 0; acc = 0; sel = null; g.status = "fight";
   setMsg(g.round >= ROUNDS ? "the giant queen enters the board." : "fight!");
   ui();
 });
 
-function endBattle(res) {
-  const won = res === "player";
+function endBattle(res, why = "") {
+  const won = res === "player", drew = res === "draw";
   const left = alive(battle, won ? 0 : 1).length;
   battle = null;
+  if (drew) {
+    // A draw costs no hp, pays the plain income, and replays the same round.
+    const gain = income(g.round, false);
+    g.gold += gain; g.status = "prep"; rollShop();
+    setMsg(`draw${why ? " — " + why.replace(/\.$/, "") : ""}. no hp lost, +${gain} gold. round ${g.round} again.`);
+    ui(); return;
+  }
   if (!won) g.hp -= Math.max(1, left);
   g.gold += income(g.round, won);
   if (g.hp <= 0) { g.status = "over"; finish(false); return; }
@@ -184,9 +197,11 @@ function frame(ts) {
     acc += dt;
     while (battle && acc >= TICK_MS) {
       acc -= TICK_MS; ticks++;
-      for (const e of tick(battle)) if (e.kind === "hit") fx.push({ a: e.from, b: e.to, life: 1 });
-      const res = result(battle, ticks);
-      if (res) { endBattle(res); break; }
+      const evs = tick(battle);
+      stalled = evs.length ? 0 : stalled + 1;
+      for (const e of evs) if (e.kind === "hit") fx.push({ a: e.from, b: e.to, life: 1 });
+      const res = result(battle, ticks, stalled);
+      if (res) { endBattle(res, res === "draw" ? (stalled ? "stalemate, nobody can make progress." : "both sides wiped out or evenly matched.") : ""); break; }
     }
   }
   draw();

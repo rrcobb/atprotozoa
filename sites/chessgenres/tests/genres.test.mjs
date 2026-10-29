@@ -43,3 +43,15 @@ test("autobattler battle ends and merge works", () => {
   assert.equal(ps[0].star, 2);
   assert.ok(enemyTeam(10).some((u) => u.giant));
 });
+test("autobattler draws: mutual wipe, stalemate, even timeout, accepted offer", async () => {
+  const { acceptsDraw } = await import("../public/auto-logic.js");
+  const a = makeUnit("p", 1, 0, 4, 0), b = makeUnit("p", 1, 1, 3, 0);
+  a.hp = 0; b.hp = 0;
+  assert.equal(result([a, b], 1), "draw");
+  const x = makeUnit("p", 1, 0, 4, 0), y = makeUnit("p", 1, 1, 3, 0);
+  assert.equal(result([x, y], 5, 8), "draw");
+  assert.equal(result([x, y], 160), "draw");
+  assert.equal(acceptsDraw([x, y]), true);
+  y.hp *= 2;
+  assert.equal(acceptsDraw([x, y]), false);
+});

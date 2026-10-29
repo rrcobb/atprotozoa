@@ -90,14 +90,24 @@ export function tick(units) {
   return events;
 }
 
-// "player" | "enemy" | null while still going.
-export function result(units, ticks) {
+export const STALL_TICKS = 8; // a whole 8 ticks with nobody able to move or capture is a dead position, like chess
+
+// "player" | "enemy" | "draw" | null while still going. `stalled` = consecutive ticks with no events.
+export function result(units, ticks, stalled = 0) {
   const p = alive(units, 0), e = alive(units, 1);
-  if (!p.length && !e.length) return "enemy";
+  if (!p.length && !e.length) return "draw"; // mutual wipe-out
   if (!e.length) return "player";
   if (!p.length) return "enemy";
-  if (ticks >= MAX_TICKS) return p.reduce((s, u) => s + u.hp, 0) > e.reduce((s, u) => s + u.hp, 0) ? "player" : "enemy";
+  const ph = p.reduce((s, u) => s + u.hp, 0), eh = e.reduce((s, u) => s + u.hp, 0);
+  if (stalled >= STALL_TICKS) return "draw"; // stalemate: neither side can make progress
+  if (ticks >= MAX_TICKS) return ph === eh ? "draw" : ph > eh ? "player" : "enemy";
   return null;
+}
+
+// Would the enemy accept a draw offer right now? Like an engine: only if it isn't clearly ahead.
+export function acceptsDraw(units) {
+  const hp = (s) => alive(units, s).reduce((t, u) => t + u.hp, 0);
+  return hp(1) <= hp(0) * 1.15;
 }
 
 // Merge any three identical (type, star) pieces from a list of {type, star, ...}
