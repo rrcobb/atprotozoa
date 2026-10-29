@@ -15,11 +15,6 @@ async function call(session, method, params) {
   const qs = new URLSearchParams(params).toString();
   const url = `${session.pdsUrl.replace(/\/$/, "")}/xrpc/${method}${qs ? "?" + qs : ""}`;
   const res = await dpopFetch(session, url, { headers: { "atproto-proxy": APPVIEW_PROXY } });
-  if (res.status === 403 && method === "app.bsky.feed.getFeed") {
-    // The PDS audiences getFeed to the feed generator, so sessions granted
-    // before the scope became aud=* are refused until the user signs in again.
-    throw new Error("this feed needs a fresh permission: sign out and sign in again");
-  }
   if (!res.ok) throw new Error(`${method} failed (${res.status})`);
   return res.json();
 }
@@ -49,12 +44,26 @@ export async function listFeeds(session) {
   return out;
 }
 
+// getFeed through the user's PDS, so personalized feeds know who is asking. The PDS
+// refuses (403) when the session's grant doesn't cover the feed generator's audience;
+// the public AppView serves the same feeds without a viewer, so fall back to it.
+async function getFeed(session, params) {
+  try {
+    return await call(session, "app.bsky.feed.getFeed", params);
+  } catch (e) {
+    if (!/\(40[13]\)/.test(String(e.message))) throw e;
+    const r = await fetch(`${PUBLIC_API}/xrpc/app.bsky.feed.getFeed?${new URLSearchParams(params)}`);
+    if (!r.ok) throw new Error(`app.bsky.feed.getFeed failed (${r.status})`);
+    return r.json();
+  }
+}
+
 // One page of a feed. Returns { posts, cursor } — cursor is undefined at the end.
 export async function fetchPage(session, feedId, cursor) {
   const params = { limit: String(PAGE) };
   if (cursor) params.cursor = cursor;
   const j = feedId === FOLLOWING
     ? await call(session, "app.bsky.feed.getTimeline", params)
-    : await call(session, "app.bsky.feed.getFeed", { ...params, feed: feedId });
+    : await getFeed(session, { ...params, feed: feedId });
   return { posts: (j.feed || []).map((it) => simplify(it)).filter(Boolean), cursor: j.cursor };
 }
