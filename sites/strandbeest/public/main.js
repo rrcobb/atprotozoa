@@ -3,7 +3,7 @@ import { autotune } from "./lib/autotune.js";
 import { step as simStep, ground as simGround, pitchFor as simPitch } from "./lib/sim.js";
 import { PALETTES, mix, rgb } from "./lib/palettes.js";
 import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
-import { listFeeds, fetchPage } from "./lib/feeds.js";
+import { listFeeds, fetchPage, parseFeedInput } from "./lib/feeds.js";
 import { postUrl } from "./lib/post.js";
 import { signsInRange, signX, drawSign, setImageScale } from "./lib/signs.js";
 
@@ -465,9 +465,13 @@ requestAnimationFrame(frame);
 // Pages are fetched on demand as the walker approaches the end of what's loaded,
 // so a feed is read as far as the walk goes. When a feed runs out its signs
 // repeat from the top.
-const feed = { session: null, id: null, posts: [], seen: new Set(), cursor: undefined, done: true, loading: false, firstK: 0 };
+const feed = { session: null, id: null, posts: [], seen: new Set(), cursor: undefined, done: true, loading: false, firstK: 0, gen: 0 };
 const SIGN_LOOKAHEAD = 8; // fetch the next page when fewer than this many unseen signs remain
+const setStatus = (t) => { const el = $("feed-status"); if (el) el.textContent = t; };
+// Switching feeds bumps `gen`; any request still in flight for an older feed is
+// discarded when it lands, so it can't touch the new feed's state.
 function resetFeed(id) {
+  feed.gen++;
   feed.id = id; feed.posts = []; feed.seen = new Set(); feed.cursor = undefined; feed.done = !id; feed.loading = false;
   // first sign ahead of the walker's view
   feed.firstK = Math.max(0, Math.ceil((S.D + W / (S.zoom || 1) - 900) / 1100));
@@ -476,17 +480,19 @@ function resetFeed(id) {
 async function loadPage() {
   if (feed.loading || feed.done || !feed.session) return;
   feed.loading = true;
-  const id = feed.id;
+  const gen = feed.gen;
+  let again = false;
   try {
-    const { posts, cursor } = await fetchPage(feed.session, id, feed.cursor);
-    if (id !== feed.id) return; // feed changed mid-flight
+    const { posts, cursor } = await fetchPage(feed.session, feed.id, feed.cursor);
+    if (gen !== feed.gen) return; // feed changed mid-flight
     for (const p of posts) if (!feed.seen.has(p.uri)) { feed.seen.add(p.uri); feed.posts.push(p); }
     feed.cursor = cursor; feed.done = !cursor;
-    $("feed-status").textContent = feed.posts.length ? `${feed.posts.length} posts on signs ahead — click one to open it` : "nothing to read in that feed yet";
-    if (!feed.posts.length && cursor) { feed.loading = false; loadPage(); }
+    setStatus(feed.posts.length ? `${feed.posts.length} posts on signs ahead — click one to open it` : "nothing to read in that feed yet");
+    again = !feed.posts.length && !!cursor;
   } catch (e) {
-    if (id === feed.id) { feed.done = true; $("feed-status").textContent = "couldn't load that feed: " + e.message; }
-  } finally { feed.loading = false; }
+    if (gen === feed.gen) { feed.done = true; setStatus("couldn't load that feed: " + e.message); }
+  } finally { if (gen === feed.gen) feed.loading = false; }
+  if (again) loadPage();
 }
 function wantMorePosts() {
   const nextK = Math.max(feed.firstK, Math.ceil((S.D - 900) / 1100));
@@ -523,7 +529,11 @@ async function signedInView(session) {
   feed.session = session;
   $("feed-box").innerHTML = `<div class="frow"><span>@${esc(session.handle)}</span><a href="#" id="signout">sign out</a></div>
     <label class="row" for="feedsel"><span>Feed on the signs</span></label>
-    <select id="feedsel"><option value="">Off</option></select>
+    <div class="fsign"><button id="feedprev" type="button" aria-label="previous feed">‹</button>
+    <select id="feedsel" style="margin-top:0"><option value="">Off</option></select>
+    <button id="feednext" type="button" aria-label="next feed">›</button></div>
+    <div class="fsign"><input id="feedurl" type="text" placeholder="or paste a feed / list link" autocomplete="off" spellcheck="false" />
+    <button id="feedgo" type="button">Go</button></div>
     <button id="readpace" type="button" class="vreset">Slow to reading pace</button>
     <p class="fnote" id="feed-status">loading your feeds…</p>`;
   $("signout").addEventListener("click", async (e) => {
@@ -531,18 +541,37 @@ async function signedInView(session) {
   });
   $("readpace").addEventListener("click", () => { $("speed").value = 15; $("speed").dispatchEvent(new Event("input")); });
   const sel = $("feedsel");
-  sel.addEventListener("change", () => {
-    localStorage.setItem(FEED_KEY, sel.value);
-    $("feed-status").textContent = sel.value ? "loading posts…" : "";
-    resetFeed(sel.value || null);
-  });
+  const choose = (id) => {
+    if (id) localStorage.setItem(FEED_KEY, id);
+    setStatus(id ? "loading posts…" : "");
+    resetFeed(id || null);
+  };
+  sel.addEventListener("change", () => choose(sel.value));
+  const step = (d) => {
+    const n = sel.options.length;
+    sel.selectedIndex = (sel.selectedIndex + d + n) % n;
+    choose(sel.value);
+  };
+  $("feedprev").addEventListener("click", () => step(-1));
+  $("feednext").addEventListener("click", () => step(1));
+  const addCustom = async () => {
+    const text = $("feedurl").value;
+    if (!text.trim()) return;
+    try {
+      const id = await parseFeedInput(text);
+      let o = [...sel.options].find((x) => x.value === id);
+      if (!o) { o = document.createElement("option"); o.value = id; o.textContent = "Pasted: " + id.split("/").pop(); sel.appendChild(o); }
+      sel.value = id; $("feedurl").value = ""; choose(id);
+    } catch (e) { setStatus(e.message); }
+  };
+  $("feedgo").addEventListener("click", addCustom);
+  $("feedurl").addEventListener("keydown", (e) => { if (e.key === "Enter") addCustom(); });
   let feeds = [];
   try { feeds = await listFeeds(session); } catch { feeds = [{ id: "timeline", label: "Following" }]; }
   for (const f of feeds) { const o = document.createElement("option"); o.value = f.id; o.textContent = (f.pinned ? "★ " : "") + f.label; sel.appendChild(o); }
   const want = localStorage.getItem(FEED_KEY);
   sel.value = feeds.some((f) => f.id === want) ? want : "timeline"; // first sign-in lands on Following
-  $("feed-status").textContent = "";
-  sel.dispatchEvent(new Event("change"));
+  choose(sel.value);
 }
 (async () => {
   let session = null;

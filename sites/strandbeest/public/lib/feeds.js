@@ -26,19 +26,26 @@ export async function listFeeds(session) {
   try {
     const prefs = await call(session, "app.bsky.actor.getPreferences", {});
     const v2 = (prefs.preferences || []).find((p) => p.$type === "app.bsky.actor.defs#savedFeedsPrefV2");
-    items = (v2?.items || []).filter((i) => i.type === "feed");
+    items = (v2?.items || []).filter((i) => i.type === "feed" || i.type === "list");
   } catch { /* preferences unreadable: Following alone still works */ }
   if (!items.length) return out;
   const names = new Map();
   try {
     // getFeedGenerators is public; ask in batches of 25 (its documented max).
-    for (let i = 0; i < items.length; i += 25) {
-      const qs = items.slice(i, i + 25).map((f) => "feeds=" + encodeURIComponent(f.value)).join("&");
+    const gens = items.filter((f) => f.type === "feed");
+    for (let i = 0; i < gens.length; i += 25) {
+      const qs = gens.slice(i, i + 25).map((f) => "feeds=" + encodeURIComponent(f.value)).join("&");
       const r = await fetch(`${PUBLIC_API}/xrpc/app.bsky.feed.getFeedGenerators?${qs}`);
       if (!r.ok) continue;
       for (const g of (await r.json()).feeds || []) names.set(g.uri, g.displayName);
     }
   } catch { /* fall through with raw names */ }
+  await Promise.all(items.filter((f) => f.type === "list").map(async (f) => {
+    try {
+      const r = await fetch(`${PUBLIC_API}/xrpc/app.bsky.graph.getList?limit=1&list=${encodeURIComponent(f.value)}`);
+      if (r.ok) names.set(f.value, "List: " + ((await r.json()).list?.name || ""));
+    } catch { /* raw name */ }
+  }));
   items.sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
   for (const f of items) out.push({ id: f.value, label: names.get(f.value) || f.value.split("/").pop(), pinned: !!f.pinned });
   return out;
@@ -62,8 +69,29 @@ async function getFeed(session, params) {
 export async function fetchPage(session, feedId, cursor) {
   const params = { limit: String(PAGE) };
   if (cursor) params.cursor = cursor;
-  const j = feedId === FOLLOWING
-    ? await call(session, "app.bsky.feed.getTimeline", params)
-    : await getFeed(session, { ...params, feed: feedId });
+  let j;
+  if (feedId === FOLLOWING) j = await call(session, "app.bsky.feed.getTimeline", params);
+  else if (feedId.includes("/app.bsky.graph.list/")) {
+    // lists aren't in the granted scope; the public AppView serves them without a viewer
+    const r = await fetch(`${PUBLIC_API}/xrpc/app.bsky.feed.getListFeed?${new URLSearchParams({ ...params, list: feedId })}`);
+    if (!r.ok) throw new Error(`app.bsky.feed.getListFeed failed (${r.status})`);
+    j = await r.json();
+  } else j = await getFeed(session, { ...params, feed: feedId });
   return { posts: (j.feed || []).map((it) => simplify(it)).filter(Boolean), cursor: j.cursor };
+}
+
+// Turn whatever a person pastes into a feed id: an at:// feed/list uri, or a
+// bsky.app/profile/<handle|did>/feed/<rkey> (or /lists/<rkey>) link.
+export async function parseFeedInput(text) {
+  const t = text.trim();
+  if (/^at:\/\/[^/]+\/app\.bsky\.(feed\.generator|graph\.list)\/[^/]+$/.test(t)) return t;
+  const m = t.match(/profile\/([^/]+)\/(feed|lists)\/([^/?#]+)/);
+  if (!m) throw new Error("paste a bsky.app feed link or an at:// feed uri");
+  let did = m[1];
+  if (!did.startsWith("did:")) {
+    const r = await fetch(`${PUBLIC_API}/xrpc/com.atproto.identity.resolveHandle?handle=${encodeURIComponent(did)}`);
+    if (!r.ok) throw new Error("couldn't resolve @" + did);
+    did = (await r.json()).did;
+  }
+  return `at://${did}/${m[2] === "feed" ? "app.bsky.feed.generator" : "app.bsky.graph.list"}/${m[3]}`;
 }
