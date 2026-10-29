@@ -77,8 +77,14 @@ async function addHandle() {
 // ---- stream ----
 function setStatus(t) { statusEl.textContent = t; }
 
+// sandpaper: events are released one at a time, on request, so the feed crawls.
+const SLOW_MS = 3000;
+let slowQueue = [];
+setInterval(() => { const ev = slowQueue.shift(); if (ev) handle(ev); }, SLOW_MS);
+
 async function restart() {
   const my = ++gen;
+  slowQueue = [];
   if (ws) { try { ws.close(); } catch {} ws = null; }
   setStatus("resolving roster…");
   await Promise.all(roster.map(resolveEntry));
@@ -101,7 +107,7 @@ function connect(my, dids) {
   ws.onmessage = (m) => {
     let ev; try { ev = JSON.parse(m.data); } catch { return; }
     if (ev.time_us) lastCursor = ev.time_us;
-    handle(ev);
+    slowQueue.push(ev);
   };
   ws.onclose = () => {
     if (my !== gen) return;
@@ -240,10 +246,30 @@ $("reveal").addEventListener("change", () =>
 $("add-btn").addEventListener("click", addHandle);
 $("add-handle").addEventListener("keydown", (e) => { if (e.key === "Enter") addHandle(); });
 $("reset-btn").addEventListener("click", () => { roster = DEFAULT_ROSTER.map((handle) => ({ handle })); saveRoster(); renderRoster(); restart(); });
-$("restart").addEventListener("click", () => { feed.textContent = ""; seen = 0; restart(); });
-$("lookback").addEventListener("change", () => { feed.textContent = ""; seen = 0; restart(); });
+$("restart").addEventListener("click", () => { if (started) { feed.textContent = ""; seen = 0; restart(); } });
+$("lookback").addEventListener("change", () => { if (started) { feed.textContent = ""; seen = 0; restart(); } });
 $("secret").addEventListener("click", () => { const i = $("add-handle"); i.value = "@cee.wtf"; i.dispatchEvent(new Event("input", { bubbles: true })); i.focus(); });
 $("secret").style.cursor = "pointer";
 
+// ---- sandpaper gate: tick the box, sit through a countdown, then the stream starts ----
+let started = false;
+document.body.classList.add("sanded");
+setStatus("read the warning, tick the box, then start.");
+$("go").addEventListener("click", async () => {
+  if (started) return;
+  if (!$("ack").checked) { setStatus("read the warning and tick the box first."); return; }
+  $("go").disabled = true;
+  for (let n = 5; n > 0; n--) {
+    setStatus(`are you sure? starting in ${n}…`);
+    $("go").textContent = `reconsider (${n})`;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  started = true;
+  $("go").textContent = "watching";
+  restart();
+  setTimeout(showNag, 10 * 60 * 1000);
+});
+function showNag() { $("nag").hidden = false; }
+$("nagx").addEventListener("click", () => { $("nag").hidden = true; setTimeout(showNag, 5 * 60 * 1000); });
+
 renderRoster();
-restart();
