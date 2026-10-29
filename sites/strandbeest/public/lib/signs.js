@@ -65,11 +65,17 @@ function layout(ctx, post, s) {
   ctx.font = `${fs}px ui-sans-serif, system-ui, sans-serif`;
   const m = (t) => ctx.measureText(t).width;
   let body = post.text ? post.text : post.link ? "🔗 " + post.link : "";
-  const lines = clip(wrap(body, inner, m), post.image ? 6 : MAX_LINES);
+  const imgs = post.images || [];
+  // Thread context: each ancestor gets two lines, the post itself what's left of the board.
+  const tlines = (post.thread || []).map((t) => clip(wrap("@" + t.handle + ": " + (t.text || "🖼"), inner - 8 * s, m), 2));
+  const tcount = tlines.reduce((n, l) => n + l.length, 0);
+  const lines = clip(wrap(body, inner, m), Math.max(3, (imgs.length ? 6 : MAX_LINES) - tcount));
   const qlines = post.quote ? clip(wrap("↪ @" + post.quote.handle + ": " + post.quote.text, inner - 8 * s, m), 3) : [];
-  const imgH = post.image ? 110 * s : 0;
-  const h = pad * 2 + lh * 1.2 + lines.length * lh + (qlines.length ? qlines.length * lh + 8 * s : 0) + (imgH ? imgH + 6 * s : 0) + lh;
-  return (post._lay = { key, fs, lh, w, h, pad, lines, qlines, imgH });
+  // Two images side by side, three or four in a 2x2 grid.
+  const cell = imgs.length > 1 ? 70 * s : 110 * s, rows = Math.ceil(imgs.length / 2), imgH = imgs.length ? cell * rows + 4 * s * (rows - 1) : 0;
+  const tH = tcount ? tcount * lh + tlines.length * 4 * s + 4 * s : 0;
+  const h = pad * 2 + lh * 1.2 + tH + lines.length * lh + (qlines.length ? qlines.length * lh + 8 * s : 0) + (imgH ? imgH + 6 * s : 0) + lh;
+  return (post._lay = { key, fs, lh, w, h, pad, lines, qlines, imgH, tlines, cell, imgs });
 }
 
 // Draw one sign: a post in the ground and a board above the machine's height.
@@ -95,6 +101,13 @@ export function drawSign(ctx, post, x, groundY, s, retro, topLimit = 8) {
   ctx.fillText(h === head ? head : h + "…", left + L.pad, y);
   y += L.lh * 1.2;
   ctx.font = `${L.fs}px ui-sans-serif, system-ui, sans-serif`;
+  for (const tl of L.tlines) {
+    ctx.fillStyle = rgba(C.sub, 0.6); ctx.fillRect(left + L.pad, y, 2 * s, tl.length * L.lh);
+    ctx.fillStyle = rgba(C.sub);
+    for (const ln of tl) { ctx.fillText(ln, left + L.pad + 8 * s, y); y += L.lh; }
+    y += 4 * s;
+  }
+  if (L.tlines.length) y += 4 * s;
   ctx.fillStyle = rgba(C.ink);
   for (const ln of L.lines) { ctx.fillText(ln, left + L.pad, y); y += L.lh; }
   if (L.qlines.length) {
@@ -104,12 +117,15 @@ export function drawSign(ctx, post, x, groundY, s, retro, topLimit = 8) {
     for (const ln of L.qlines) { ctx.fillText(ln, left + L.pad + 8 * s, y); y += L.lh; }
     y += 4 * s;
   }
-  if (post.image) {
-    const im = thumb(post.image), iw = L.w - L.pad * 2;
-    if (im) {
-      const r = Math.min(iw / im.width, L.imgH / im.height), dw = im.width * r, dh = im.height * r;
-      ctx.drawImage(im, left + L.pad, y + 3 * s, dw, dh);
-    }
+  if (L.imgs.length) {
+    const iw = L.w - L.pad * 2, one = L.imgs.length === 1, cw = one ? iw : (iw - 4 * s) / 2;
+    L.imgs.forEach((url, i) => {
+      const im = thumb(url);
+      if (!im) return;
+      const cx = left + L.pad + (one ? 0 : (i % 2) * (cw + 4 * s)), cy = y + 3 * s + Math.floor(i / 2) * (L.cell + 4 * s);
+      const r = Math.min(cw / im.width, L.cell / im.height), dw = im.width * r, dh = im.height * r;
+      ctx.drawImage(im, cx, cy, dw, dh);
+    });
     y += L.imgH + 6 * s;
   }
   ctx.fillStyle = rgba(C.sub, 0.85); ctx.font = `${L.fs * 0.85}px ui-sans-serif, system-ui, sans-serif`;
