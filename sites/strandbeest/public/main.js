@@ -9,6 +9,7 @@ const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 // ---- state ---------------------------------------------------------------
 const S = {
   legs: 16, speed: 0.45, rough: 0.3, mode: "climb", style: "min", suspension: true, layout: "mirror",
+  rigid: false, travel: 1, stiff: 14, tilt: 1, bodyRate: 4, ride: 0, spacing: 1, phase: "jansen", parallel: true, rail: true, cranks: true,
   running: !reduceMotion, sound: false,
   D: 0, theta: 0, time: 0,
   roughS: 0.3, modeOff: 0,
@@ -17,7 +18,7 @@ const S = {
 };
 // World units between neighbouring leg pairs. Legs are ~150 units wide, so they
 // overlap; the pitch tightens at high counts to keep the whole machine on screen.
-const pitchFor = (pairs) => Math.min(26, 480 / Math.max(1, pairs - 1));
+const pitchFor = (pairs) => Math.min(26, 480 / Math.max(1, pairs - 1)) * S.spacing;
 const MAX_OMEGA = 7; // rad/s of crank at 100% speed
 const MAX_SUSPENSION = 60; // how far a leg's mount may slide to meet uneven ground (units)
 const TOP_LIMIT = 0.7; // max body tilt (slope)
@@ -46,11 +47,25 @@ function step(dt, snap) {
     n++; sx += x; sg += g; sxx += x * x; sxg += x * g;
   }
   const den = n * sxx - sx * sx;
-  const m = n > 1 && den > 1e-6 ? clamp((n * sxg - sx * sg) / den, -TOP_LIMIT, TOP_LIMIT) : 0;
-  const targetH = sg / n + SOLE_Y + 6;
+  // Rigid chassis: a stiff frame that never tilts, never slides its legs and
+  // rides on the highest ground under it, so no foot can be pushed into the earth.
+  const rigid = S.rigid, tiltOn = S.parallel && !rigid;
+  const lim = TOP_LIMIT * S.tilt;
+  const m = tiltOn && n > 1 && den > 1e-6 ? clamp((n * sxg - sx * sg) / den, -lim, lim) : 0;
+  let gRef = sg / n;
+  if (rigid || !tiltOn) {
+    // A level body must clear the highest ground under any leg, tilted or not.
+    let top = -Infinity;
+    for (let k = 0; k < pairs; k++) top = Math.max(top, ground(hipX(k, pairs) - 55));
+    gRef = rigid ? top : Math.max(gRef, top - (top - sg / n) * 0.5);
+  }
+  const targetH = gRef + SOLE_Y + 6 + S.ride;
   if (S.bodyH === null || snap) { S.bodyH = targetH; S.slope = m; S.cam = targetH; S.alt0 = S.alt0 || targetH; }
-  S.bodyH += (targetH - S.bodyH) * damp(4, dt);
-  S.slope += (m - S.slope) * damp(3, dt);
+  if (rigid) { S.bodyH = targetH; S.slope = m; }
+  else {
+    S.bodyH += (targetH - S.bodyH) * damp(S.bodyRate, dt);
+    S.slope += (m - S.slope) * damp(S.bodyRate * 0.75, dt);
+  }
   // Camera trails the body so climbs read as climbs; it never pins the machine.
   S.cam += (S.bodyH - S.cam) * damp(0.9, dt);
 
@@ -62,13 +77,14 @@ function step(dt, snap) {
       const mirror = S.layout === "mirror";
       const hx = hipX(k, pairs) + (mirror && side ? 5 : 0), line = S.bodyH + S.slope * (hx - S.D);
       const arr = side ? S.far : S.near;
-      const J = solveLeg(S.theta + k * ((Math.PI * 2) / 3) + (mirror ? 0 : side * Math.PI));
+      const J = solveLeg(S.theta + phaseOf(k, pairs) + (mirror ? 0 : side * Math.PI));
       const footX = hx + J.J5.x;
       // With suspension off every leg stays bolted to the rail at a fixed height.
-      const target = S.suspension ? clamp(ground(footX) + SOLE_Y - line, -MAX_SUSPENSION, MAX_SUSPENSION) : 0;
+      const travel = MAX_SUSPENSION * S.travel;
+      const target = S.suspension && !S.rigid ? clamp(ground(footX) + SOLE_Y - line, -travel, travel) : 0;
       let st = arr[k];
       if (!st) st = arr[k] = { off: target, planted: false };
-      st.off = snap ? target : st.off + (target - st.off) * damp(14, dt);
+      st.off = snap ? target : st.off + (target - st.off) * damp(S.stiff, dt);
       const hipH = line + st.off;
       const planted = J.J5.y > STANCE_Y;
       if (planted && !st.planted && S.running) touchdown(footX, hipH - J.J5.y, side);
@@ -82,6 +98,16 @@ function step(dt, snap) {
   for (const p of S.particles) { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy -= 40 * dt; }
   S.particles = S.particles.filter((p) => p.life > 0);
   return legs;
+}
+// Crank phase of pair k: how the shared shaft is timed along the machine.
+function phaseOf(k, pairs) {
+  switch (S.phase) {
+    case "wave": return (k * Math.PI * 2) / pairs;
+    case "alt": return k * Math.PI;
+    case "sync": return 0;
+    case "random": return hash(k * 53 + 7) * Math.PI;
+    default: return k * ((Math.PI * 2) / 3);
+  }
 }
 function arrLenFix(a, n) { if (a.length > n) a.length = n; }
 
@@ -245,7 +271,7 @@ function draw(legs, dt) {
   // machine: far side, rail, near side
   const lw = clamp(1.5 * Math.sqrt(z), 1, 2.6);
   for (const L of legs) if (L.side) drawLeg(L, P.legFar, lw * 0.85, P, z, sx, sy, false);
-  drawRail(legs, P, z, sx, sy, lw);
+  if (S.rail) drawRail(legs, P, z, sx, sy, lw);
   for (const L of legs) if (!L.side) drawLeg(L, P.leg, lw, P, z, sx, sy, true);
 
   drawClouds(P, z, ancX, ancY, sBot, retro, 1);
@@ -273,7 +299,7 @@ function drawLeg(L, color, lw, P, z, sx, sy, near) {
     const p = pt(J[name]); ctx.beginPath(); ctx.arc(p[0], p[1], name === "J5" ? r * 0.9 : name === "O" ? r * 1.25 : r, 0, 7); ctx.fill();
   }
   // crank circle
-  if (near) { ctx.strokeStyle = rgb(color, 0.35); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(px, py, 15 * z, 0, 7); ctx.stroke(); }
+  if (near && S.cranks) { ctx.strokeStyle = rgb(color, 0.35); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(px, py, 15 * z, 0, 7); ctx.stroke(); }
 }
 
 // The body rail sits above the legs, tilted with the terrain. Each near leg hangs
@@ -363,6 +389,38 @@ function setStyle(v) {
 }
 el.style.addEventListener("change", () => setStyle(el.style.value));
 $("suspension").addEventListener("change", (e) => { S.suspension = e.target.checked; });
+// ---- vehicle tuning --------------------------------------------------------
+const VEHICLE_DEFAULTS = { rigid: false, suspension: true, travel: 100, stiff: 14, tilt: 100, bodyRate: 4, ride: 0, spacing: 100, phase: "jansen", parallel: true, rail: true, cranks: true };
+const veh = {};
+const vRange = (id, key, outId, fmt, apply) => {
+  const input = $(id), out = $(outId);
+  const go = () => { apply(+input.value); out.textContent = fmt(+input.value); };
+  input.addEventListener("input", go); veh[key] = (v) => { input.value = v; go(); }; go();
+};
+const vCheck = (id, key, apply) => {
+  const input = $(id);
+  const go = () => { apply(input.checked); };
+  input.addEventListener("change", go); veh[key] = (v) => { input.checked = v; go(); };
+};
+vRange("travel", "travel", "travel-out", (v) => v + "%", (v) => { S.travel = v / 100; });
+vRange("stiff", "stiff", "stiff-out", String, (v) => { S.stiff = v; });
+vRange("tilt", "tilt", "tilt-out", (v) => v + "%", (v) => { S.tilt = v / 100; });
+vRange("bodyrate", "bodyRate", "bodyrate-out", String, (v) => { S.bodyRate = v; });
+vRange("ride", "ride", "ride-out", (v) => (v > 0 ? "+" : "") + v, (v) => { S.ride = v; });
+vRange("spacing", "spacing", "spacing-out", (v) => v + "%", (v) => { S.spacing = v / 100; });
+$("phase").addEventListener("change", (e) => { S.phase = e.target.value; });
+veh.phase = (v) => { $("phase").value = v; S.phase = v; };
+vCheck("parallel", "parallel", (v) => { S.parallel = v; });
+vCheck("railshow", "rail", (v) => { S.rail = v; });
+vCheck("cranks", "cranks", (v) => { S.cranks = v; });
+vCheck("suspension", "suspension", (v) => { S.suspension = v; });
+// A rigid chassis overrides suspension, tilt and body smoothing; grey those out.
+const rigidLocks = ["suspension", "travel", "stiff", "tilt", "bodyrate", "parallel"];
+vCheck("rigid", "rigid", (v) => {
+  S.rigid = v;
+  for (const id of rigidLocks) $(id).disabled = v;
+});
+$("vdefaults").addEventListener("click", () => { for (const k in VEHICLE_DEFAULTS) veh[k](VEHICLE_DEFAULTS[k]); });
 $("layout").addEventListener("change", (e) => { S.layout = e.target.value; });
 function setRunning(v) { S.running = v; el.pause.textContent = v ? "Pause" : "Resume"; }
 el.pause.addEventListener("click", () => setRunning(!S.running));
