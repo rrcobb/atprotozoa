@@ -28,7 +28,7 @@ const DAMPING = 0.3; // damping ratio of each leg's spring
 const CBODY = 2; // chassis damping per unit of the "body damping" control
 const SUBSTEP = 1 / 240; // keeps the stiffest springs stable under semi-implicit Euler
 const EPS = 1e-4;
-const TOP_LIMIT = 0.7; // max body tilt (slope)
+const TOP_LIMIT = 0.7; // max body tilt (slope) at the 100% setting; the slider goes to 500% (slope 3.5, ~74°)
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 export const ground = (S, x) => heightAt(x, S.mode, S.roughS) + S.modeOff;
