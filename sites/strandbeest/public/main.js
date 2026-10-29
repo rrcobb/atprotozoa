@@ -8,7 +8,7 @@ const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // ---- state ---------------------------------------------------------------
 const S = {
-  legs: 16, speed: 0.45, rough: 0.3, mode: "climb", style: "min", suspension: true, layout: "mirror",
+  legs: 16, speed: 0.45, rough: 0.3, mode: "climb", style: "min", suspension: true, gravity: 1,
   rigid: false, travel: 1, stiff: 14, tilt: 1, bodyRate: 4, ride: 0, spacing: 1, phase: "jansen", parallel: true, rail: true, cranks: true,
   running: !reduceMotion, sound: false,
   D: 0, theta: 0, time: 0,
@@ -21,6 +21,11 @@ const S = {
 const pitchFor = (pairs) => Math.min(26, 480 / Math.max(1, pairs - 1)) * S.spacing;
 const MAX_OMEGA = 7; // rad/s of crank at 100% speed
 const MAX_SUSPENSION = 60; // how far a leg's mount may slide to meet uneven ground (units)
+const G = 900; // gravity in world units/s^2 (a leg is ~150 units, call it ~1.5 m)
+const DAMPING = 0.3; // damping ratio of each leg's spring
+const REST = 0.2; // bounce on landing; only above BOUNCE_MIN so resting contact doesn't chatter
+const BOUNCE_MIN = 15;
+const SUBSTEP = 1 / 240; // keeps the stiffest spring (omega ~62) stable under explicit integration
 const TOP_LIMIT = 0.7; // max body tilt (slope)
 const ground = (x) => heightAt(x, S.mode, S.roughS) + S.modeOff;
 const damp = (rate, dt) => 1 - Math.exp(-rate * dt);
@@ -28,7 +33,7 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 const hipX = (k, pairs) => S.D + (k - (pairs - 1) / 2) * pitchFor(pairs) + 60;
 
-// One simulation step: crank phase, travel, body pose, per-leg suspension.
+// One simulation step: crank phase, travel, body pose, per-leg suspension and gravity.
 function step(dt, snap) {
   const pairs = S.legs / 2;
   if (S.running) {
@@ -72,24 +77,50 @@ function step(dt, snap) {
   const legs = [];
   for (let k = 0; k < pairs; k++) {
     for (const side of [0, 1]) {
-      // Mirrored (spider) layout: both sides of a pair share a phase, and the far
-      // leg sits a few units behind so the pair reads as a pair in profile.
-      const mirror = S.layout === "mirror";
-      const hx = hipX(k, pairs) + (mirror && side ? 5 : 0), line = S.bodyH + S.slope * (hx - S.D);
+      const hx = hipX(k, pairs), line = S.bodyH + S.slope * (hx - S.D);
       const arr = side ? S.far : S.near;
-      const J = solveLeg(S.theta + phaseOf(k, pairs) + (mirror ? 0 : side * Math.PI));
-      const footX = hx + J.J5.x;
-      // With suspension off every leg stays bolted to the rail at a fixed height.
+      // Opposite sides of a pair run half a cycle apart, so one foot is always down.
+      const J = solveLeg(S.theta + phaseOf(k, pairs) + side * Math.PI);
+      const footX = hx + J.J5.x, gh = ground(footX);
       const travel = MAX_SUSPENSION * S.travel;
-      const target = S.suspension && !S.rigid ? clamp(ground(footX) + SOLE_Y - line, -travel, travel) : 0;
+      const sprung = S.suspension && !S.rigid;
       let st = arr[k];
-      if (!st) st = arr[k] = { off: target, planted: false };
-      st.off = snap ? target : st.off + (target - st.off) * damp(S.stiff, dt);
+      if (!st) st = arr[k] = { off: 0, vy: 0, contact: false, planted: false, fy: J.J5.y };
+      let impact = 0;
+      if (sprung) {
+        // Each leg is a mass on a vertical slide: gravity pulls it down, a spring
+        // holds it to the rail, and the ground stops the foot. A swing foot falls
+        // until it lands; the landing speed is what you see, hear and kick up.
+        if (snap) { st.off = clamp(gh + SOLE_Y - line, -travel, travel); st.vy = 0; st.contact = true; }
+        const w = 2 + S.stiff, w2 = w * w, c = 2 * DAMPING * w, g = G * S.gravity;
+        const n = Math.max(1, Math.ceil(dt / SUBSTEP)), h = dt / n;
+        for (let i = 0; i < n; i++) {
+          st.vy += (-g - w2 * st.off - c * st.vy) * h;
+          st.off += st.vy * h;
+          if (st.off < -travel) { st.off = -travel; if (st.vy < 0) st.vy = 0; } // hanging at the end of its travel
+          const pen = gh - (line + st.off - J.J5.y);
+          if (pen > 0) {
+            st.off += pen;
+            if (st.vy < 0) { impact = Math.max(impact, -st.vy); st.vy = -st.vy > BOUNCE_MIN ? -st.vy * REST : 0; }
+          }
+          if (st.off > travel) { st.off = travel; if (st.vy > 0) st.vy = 0; } // bottomed out against the rail
+        }
+      } else st.off = 0; // bolted to the rail at a fixed height
       const hipH = line + st.off;
-      const planted = J.J5.y > STANCE_Y;
-      if (planted && !st.planted && S.running) touchdown(footX, hipH - J.J5.y, side);
-      st.planted = planted;
-      legs.push({ k, side, J, hx, line, hipH, off: st.off, footX, footH: hipH - J.J5.y });
+      const footH = hipH - J.J5.y, gap = footH - gh;
+      // The crank itself can drive the foot down onto the ground, not just gravity.
+      const descent = dt > 0 ? Math.max(0, (J.J5.y - st.fy) / dt) : 0;
+      st.fy = J.J5.y;
+      if (sprung) {
+        const down = gap < 0.5 || (st.contact && gap < 2);
+        if (down && !st.contact && S.running) touchdown(footX, footH, side, Math.max(impact, descent));
+        st.contact = down;
+      } else {
+        const planted = J.J5.y > STANCE_Y;
+        if (planted && !st.planted && S.running) touchdown(footX, footH, side, descent);
+        st.planted = planted;
+      }
+      legs.push({ k, side, J, hx, line, hipH, off: st.off, footX, footH });
     }
   }
   arrLenFix(S.near, pairs); arrLenFix(S.far, pairs);
@@ -112,10 +143,13 @@ function phaseOf(k, pairs) {
 function arrLenFix(a, n) { if (a.length > n) a.length = n; }
 
 let tickFn = null; // set by the sound module
-function touchdown(x, y, side) {
-  if (tickFn) tickFn(side);
+function touchdown(x, y, side, impact) {
+  if (tickFn) tickFn(side, impact);
   const a = altFrac();
-  if (a < 0.45 && S.particles.length < 160 && S.speed > 0.02 && hash(Math.floor(x * 13) + Math.floor(S.time * 31)) > -0.2) {
+  // Harder landings kick up more dust: one puff per ~40 units/s of impact.
+  const puffs = clamp(Math.round(impact / 40), 0, 4);
+  for (let i = 0; i < puffs && a < 0.45 && S.particles.length < 160 && S.speed > 0.02; i++) {
+    x += i * 3;
     S.particles.push({ x, y: y + 2, vx: 8 + hash(Math.floor(x * 7)) * 6 + 14, vy: 10 + Math.abs(hash(Math.floor(x * 3))) * 18, life: 1 + Math.abs(hash(Math.floor(x * 5))) * 1.2, max: 2.2 });
   }
 }
@@ -390,7 +424,7 @@ function setStyle(v) {
 el.style.addEventListener("change", () => setStyle(el.style.value));
 $("suspension").addEventListener("change", (e) => { S.suspension = e.target.checked; });
 // ---- vehicle tuning --------------------------------------------------------
-const VEHICLE_DEFAULTS = { rigid: false, suspension: true, travel: 100, stiff: 14, tilt: 100, bodyRate: 4, ride: 0, spacing: 100, phase: "jansen", parallel: true, rail: true, cranks: true };
+const VEHICLE_DEFAULTS = { rigid: false, suspension: true, travel: 100, gravity: 100, stiff: 14, tilt: 100, bodyRate: 4, ride: 0, spacing: 100, phase: "jansen", parallel: true, rail: true, cranks: true };
 const veh = {};
 const vRange = (id, key, outId, fmt, apply) => {
   const input = $(id), out = $(outId);
@@ -403,6 +437,7 @@ const vCheck = (id, key, apply) => {
   input.addEventListener("change", go); veh[key] = (v) => { input.checked = v; go(); };
 };
 vRange("travel", "travel", "travel-out", (v) => v + "%", (v) => { S.travel = v / 100; });
+vRange("gravity", "gravity", "gravity-out", (v) => v + "%", (v) => { S.gravity = v / 100; });
 vRange("stiff", "stiff", "stiff-out", String, (v) => { S.stiff = v; });
 vRange("tilt", "tilt", "tilt-out", (v) => v + "%", (v) => { S.tilt = v / 100; });
 vRange("bodyrate", "bodyRate", "bodyrate-out", String, (v) => { S.bodyRate = v; });
@@ -421,7 +456,6 @@ vCheck("rigid", "rigid", (v) => {
   for (const id of rigidLocks) $(id).disabled = v;
 });
 $("vdefaults").addEventListener("click", () => { for (const k in VEHICLE_DEFAULTS) veh[k](VEHICLE_DEFAULTS[k]); });
-$("layout").addEventListener("change", (e) => { S.layout = e.target.value; });
 function setRunning(v) { S.running = v; el.pause.textContent = v ? "Pause" : "Resume"; }
 el.pause.addEventListener("click", () => setRunning(!S.running));
 $("reset").addEventListener("click", () => {
@@ -463,11 +497,11 @@ function makeAudio() {
   const wg = c.createGain(); wg.gain.value = 0.02;
   wind.connect(bp).connect(wg).connect(master); wind.start();
   let last = 0;
-  tickFn = (side) => {
+  tickFn = (side, impact) => {
     if (!S.sound || c.currentTime - last < 0.012) return; last = c.currentTime;
     const o = c.createOscillator(), g = c.createGain(), t = c.currentTime;
     o.type = "square"; o.frequency.value = (side ? 520 : 680) + Math.random() * 60;
-    g.gain.setValueAtTime(0.05 / Math.sqrt(S.legs / 2), t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
+    g.gain.setValueAtTime((0.05 / Math.sqrt(S.legs / 2)) * clamp(0.3 + (impact || 0) / 150, 0.3, 1.5), t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04);
     o.connect(g).connect(master); o.start(t); o.stop(t + 0.05);
   };
   return { ctx: c, wg, bp };
