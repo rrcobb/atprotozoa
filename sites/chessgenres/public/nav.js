@@ -6,6 +6,7 @@ const GENRES = [
   { id: "balatro", name: "balatro", title: "Chess Balatro", sub: "play pieces as poker hands. pairs, flushes, back ranks. beat the blinds with jokers; the boss debuffs a piece type." },
   { id: "tactics", name: "tactics rpg", title: "Chess Tactics", sub: "a Final Fantasy Tactics-style party battle. move with real chess moves, strike what you could attack, and take down a dragon built from black pieces." },
   { id: "stealth", name: "stealth", title: "Chess Solid", sub: "a Metal Gear Solid-style infiltration. you are a lone king; guards see every square they could capture. hide in crates, slip past patrols and reach the elevator." },
+  { id: "grand", name: "open world", title: "Grand Chess Auto", sub: "a GTA-style crime spree. steal pieces to drive, grab cash, dodge a wanted level that sends real chess cops after you." },
   { id: null, name: "soulslike" },
 ];
 const $ = (id) => document.getElementById(id);
