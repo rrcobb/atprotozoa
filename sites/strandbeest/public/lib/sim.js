@@ -22,7 +22,8 @@ const K_STOP = 4000, C_STOP = 60; // end stops of the suspension slide
 // (MU_DIG), a foot sliding forward skims it (MU_SKIM). Without that asymmetry the
 // Jansen foot, which grazes the ground while still swinging forward just before it
 // plants, drags the machine back as hard as the planted feet push it on.
-const MU_DIG = 1.0, MU_SKIM = 0.2, K_FRIC = 300; // K_FRIC: viscous gain until it saturates at MU * normal force
+const MU_DIG = 1.0, // x the "claws" control (1 = bare sand grip)
+   MU_SKIM = 0.2, K_FRIC = 300; // K_FRIC: viscous gain until it saturates at MU * normal force
 const DRAG = 0.15; // /s, air drag on forward speed
 const DAMPING = 0.3; // damping ratio of each leg's spring
 const CBODY = 2; // chassis damping per unit of the "body damping" control
@@ -31,7 +32,7 @@ const EPS = 1e-4;
 const TOP_LIMIT = 0.7; // max body tilt (slope) at the 100% setting; the slider goes to 500% (slope 3.5, ~74°)
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
-export const ground = (S, x) => heightAt(x, S.mode, S.roughS) + S.modeOff;
+export const ground = (S, x) => heightAt(x, S.mode, S.roughS, S.steep) + S.modeOff;
 // World units between neighbouring leg pairs. Legs are ~150 units wide, so they
 // overlap; the pitch tightens at high counts to keep the whole machine on screen.
 export const pitchFor = (S, pairs) => Math.min(26, 480 / Math.max(1, pairs - 1)) * S.spacing;
@@ -62,6 +63,7 @@ function prep(S, list) {
 
 function substep(S, list, h, wc, sprung, travel, rest, inertia) {
   const N = list.length, mB = MB * N, g = G * S.gravity;
+  const claws = S.claws; // multiplies how hard a backward-sliding foot digs in
   const lockPitch = S.rigid || !S.parallel;
   const lim = lockPitch ? 0 : TOP_LIMIT * S.tilt;
   const w = 2 + S.stiff, w2 = w * w, c = 2 * DAMPING * w;
@@ -97,7 +99,7 @@ function substep(S, list, h, wc, sprung, travel, rest, inertia) {
       // zero, which is what drags the whole machine forward. The normal force
       // also leans back on an uphill face.
       const slip = S.vx + dJx; // foot's ground speed: >0 is sliding forward
-      Fx += (slip < 0 ? Math.min(-K_FRIC * slip, MU_DIG * Nf) : -Math.min(K_FRIC * slip, MU_SKIM * Nf)) - Nf * st.gs;
+      Fx += (slip < 0 ? Math.min(-K_FRIC * claws * slip, MU_DIG * claws * Nf) : -Math.min(K_FRIC * slip, MU_SKIM * Nf)) - Nf * st.gs;
     }
     Fy += Fb; T += Fb * st.dx;
   }

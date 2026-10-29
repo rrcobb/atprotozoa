@@ -20,15 +20,15 @@ export function noise(x, seed = 0) {
 const smooth = (t) => { t = Math.min(1, Math.max(0, t)); return t * t * (3 - 2 * t); };
 
 // The slow regional trend, separate from local slope.
-export function regional(x, mode) {
+export function regional(x, mode, steep = 1) {
   if (mode === "climb") {
     const p = x / CLIMB_PERIOD;
-    return PEAK.climb * Math.pow(0.5 - 0.5 * Math.cos(2 * Math.PI * p), 1.25);
+    return steep * PEAK.climb * Math.pow(0.5 - 0.5 * Math.cos(2 * Math.PI * p), 1.25);
   }
   if (mode === "wild") {
     const a1 = 0.5 - 0.5 * Math.cos((2 * Math.PI * x) / 15000);
     const a2 = 0.5 - 0.5 * Math.cos((2 * Math.PI * x) / 8300 + 1);
-    return PEAK.wild * smooth(x / 2500) * (0.55 * a1 + 0.45 * a2);
+    return steep * PEAK.wild * smooth(x / 2500) * (0.55 * a1 + 0.45 * a2);
   }
   return 0;
 }
@@ -39,8 +39,11 @@ const OCT = [
   [520, 35, 1], [1300, 60, 1], [3200, 90, 1],
 ];
 
-export function heightAt(x, mode = "climb", rough = 0.3) {
-  const E = regional(x, mode);
+// `steep` scales every altitude-driven height (the regional trend and the ridges
+// that grow with it), so it flattens or sharpens the mountains without touching
+// the small sand ripples underfoot.
+export function heightAt(x, mode = "climb", rough = 0.3, steep = 1) {
+  const E = regional(x, mode, steep);
   const e = Math.min(1, E / PEAK[mode] || 0) * (mode === "wild" ? 1.4 : 1);
   const rm = 0.3 + 1.4 * rough;
   let h = 0;

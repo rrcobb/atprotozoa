@@ -5,7 +5,7 @@ import { step } from "../public/lib/sim.js";
 const mk = (o = {}) => ({
   legs: 16, speed: 0.45, rough: 0.3, mode: "climb", suspension: true, gravity: 1,
   rigid: false, travel: 1, stiff: 14, tilt: 1, bodyRate: 4, ride: 0, spacing: 1, phase: "jansen", parallel: true,
-  running: true, D: 0, theta: 0, time: 0, roughS: 0.3, modeOff: 0, bodyH: null, cam: 0, alt0: 0, near: [], far: [], ...o,
+  running: true, D: 0, theta: 0, time: 0, roughS: 0.3, modeOff: 0, bodyH: null, cam: 0, alt0: 0, near: [], far: [], steep: 1, claws: 1, ...o,
 });
 function run(S, secs) {
   let legs, worst = 0, snap = true;
@@ -31,4 +31,11 @@ for (const [name, o] of [["full speed", { speed: 1 }],
 test("stops when speed is zero", () => {
   const S = mk(); run(S, 5); S.speed = 0; run(S, 3);
   assert.ok(Math.abs(S.vx) < 3, String(S.vx));
+});
+
+test("wild mountains are climbable at the default steepness and claw grip", () => {
+  const S = { legs: 16, speed: 0.45, rough: 0.3, roughS: 0.3, mode: "wild", suspension: true, gravity: 1, rigid: false, travel: 1, stiff: 16, tilt: 1, bodyRate: 4, ride: 0, spacing: 1, phase: "jansen", parallel: true, running: true, D: 0, theta: 0, time: 0, modeOff: 0, bodyH: null, near: [], far: [], steep: 0.7, claws: 3 };
+  let snap = true;
+  for (let i = 0; i < 60 * 120; i++) { step(S, 1 / 60, snap, null); snap = false; }
+  assert.ok(S.D > 8000, "walked " + S.D);
 });

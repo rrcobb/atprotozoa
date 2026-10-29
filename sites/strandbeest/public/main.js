@@ -13,7 +13,7 @@ const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // ---- state ---------------------------------------------------------------
 const S = {
-  legs: 16, speed: 0.45, rough: 0.3, mode: "climb", style: "atmos", suspension: true, gravity: 1,
+  legs: 16, speed: 0.45, rough: 0.3, mode: "climb", style: "atmos", suspension: true, gravity: 1, steep: 1, claws: 3,
   rigid: false, travel: 1, stiff: 16, tilt: 1, bodyRate: 4, ride: 0, spacing: 1, phase: "jansen", parallel: true, rail: true, cranks: true,
   running: !reduceMotion, sound: false,
   D: 0, theta: 0, time: 0,
@@ -310,10 +310,25 @@ function bindRange(id, outId, fmt, apply) {
 bindRange("legs", "legs-out", (v) => String(v), (v) => { S.legs = v; });
 bindRange("speed", "speed-out", (v) => v + "%", (v) => { S.speed = v / 100; });
 bindRange("rough", "rough-out", (v) => v + "%", (v) => { S.rough = v / 100; });
-el.mode.addEventListener("change", () => {
+// Changing the mountains under the machine would teleport the ground; carry the
+// difference in modeOff so it eases away instead.
+function reshape(fn) {
   const before = ground(S.D);
-  S.mode = el.mode.value;
-  S.modeOff += before - ground(S.D); // keep the ground under the machine continuous; it eases away
+  fn();
+  S.modeOff += before - ground(S.D);
+}
+const steepOut = $("steep-out");
+function setSteep(pct) { // pct: 20..150
+  $("steep").value = pct; steepOut.textContent = pct + "%";
+  reshape(() => { S.steep = pct / 100; });
+}
+$("steep").addEventListener("input", (e) => setSteep(+e.target.value));
+// Wild Mountains is steeper than a walker can scale at full height, so it starts
+// at 70% (with the default claws it climbs the whole range); the slider is free.
+const MODE_STEEP = { dunes: 100, climb: 100, wild: 70 };
+el.mode.addEventListener("change", () => {
+  reshape(() => { S.mode = el.mode.value; });
+  setSteep(MODE_STEEP[S.mode]);
 });
 function setStyle(v) {
   S.style = v; el.style.value = v; document.body.classList.remove("min", "atmos", "retro"); document.body.classList.add(v);
@@ -323,7 +338,7 @@ function setStyle(v) {
 }
 el.style.addEventListener("change", () => setStyle(el.style.value));
 // ---- vehicle tuning --------------------------------------------------------
-const VEHICLE_DEFAULTS = { rigid: false, suspension: true, travel: 100, gravity: 100, stiff: 16, tilt: 100, bodyRate: 4, ride: 0, spacing: 100, phase: "jansen", parallel: true, rail: true, cranks: true };
+const VEHICLE_DEFAULTS = { rigid: false, suspension: true, travel: 100, gravity: 100, stiff: 16, tilt: 100, bodyRate: 4, ride: 0, spacing: 100, phase: "jansen", parallel: true, rail: true, cranks: true, claws: 300 };
 const veh = {};
 const vRange = (id, key, outId, fmt, apply) => {
   const input = $(id), out = $(outId);
@@ -336,6 +351,7 @@ const vCheck = (id, key, apply) => {
   input.addEventListener("change", go); veh[key] = (v) => { input.checked = v; go(); };
 };
 vRange("travel", "travel", "travel-out", (v) => v + "%", (v) => { S.travel = v / 100; });
+vRange("claws", "claws", "claws-out", (v) => v + "%", (v) => { S.claws = v / 100; });
 vRange("gravity", "gravity", "gravity-out", (v) => v + "%", (v) => { S.gravity = v / 100; });
 vRange("stiff", "stiff", "stiff-out", String, (v) => { S.stiff = v; });
 vRange("tilt", "tilt", "tilt-out", (v) => v + "%", (v) => { S.tilt = v / 100; });
