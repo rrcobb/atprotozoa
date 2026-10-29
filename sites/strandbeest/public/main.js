@@ -296,7 +296,7 @@ el.mode.addEventListener("change", () => {
   S.modeOff += before - ground(S.D); // keep the ground under the machine continuous; it eases away
 });
 function setStyle(v) {
-  S.style = v; document.body.classList.remove("min", "atmos", "retro"); document.body.classList.add(v);
+  S.style = v; el.style.value = v; document.body.classList.remove("min", "atmos", "retro"); document.body.classList.add(v);
   $("crt").hidden = v !== "retro";
   document.documentElement.style.background = rgb(PALETTES[v].skyBot);
   resize();
