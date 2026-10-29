@@ -2,6 +2,10 @@ import { ridge, noise, hash } from "./lib/terrain.js";
 import { autotune } from "./lib/autotune.js";
 import { step as simStep, ground as simGround, pitchFor as simPitch } from "./lib/sim.js";
 import { PALETTES, mix, rgb } from "./lib/palettes.js";
+import { login, completeLoginIfCallback, getSession, clearSession } from "./lib/oauth.js";
+import { listFeeds, fetchPage } from "./lib/feeds.js";
+import { postUrl } from "./lib/post.js";
+import { signsInRange, signX, drawSign } from "./lib/signs.js";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("scene"), ctx = canvas.getContext("2d");
@@ -24,6 +28,7 @@ const pitchFor = (pairs) => simPitch(S, pairs);
 
 let tickFn = null; // set by the sound module
 const hooks = { touchdown };
+let signHits = [];
 function touchdown(x, y, side, impact) {
   if (tickFn) tickFn(side, impact);
   const a = altFrac();
@@ -166,6 +171,20 @@ function draw(legs, dt) {
       }
       ctx.stroke();
     }
+  }
+
+  // feed signs: posts planted along the route, boards above the machine's height
+  signHits = [];
+  if (feed.posts.length) {
+    const ss = clamp(z * 1.1, 0.75, 1.15);
+    for (const k of signsInRange(S.D - (ancX + 200) / z, S.D + (W - ancX + 200) / z)) {
+      if (k < feed.firstK) continue;
+      const post = feed.posts[(k - feed.firstK) % feed.posts.length];
+      const wx = signX(k);
+      const r = drawSign(ctx, post, sx(wx), sy(ground(wx)), ss, retro);
+      signHits.push({ ...r, post });
+    }
+    wantMorePosts();
   }
 
   // foot shadows + dust, under the machine
@@ -419,3 +438,94 @@ setStyle("atmos");
 setRunning(S.running);
 if (innerWidth <= 640) setPanel(false);
 requestAnimationFrame(frame);
+
+// ---- timeline signs --------------------------------------------------------
+// The signed-in user picks a feed; its posts become signs along the route.
+// Pages are fetched on demand as the walker approaches the end of what's loaded,
+// so a feed is read as far as the walk goes. When a feed runs out its signs
+// repeat from the top.
+const feed = { session: null, id: null, posts: [], seen: new Set(), cursor: undefined, done: true, loading: false, firstK: 0 };
+const SIGN_LOOKAHEAD = 8; // fetch the next page when fewer than this many unseen signs remain
+function resetFeed(id) {
+  feed.id = id; feed.posts = []; feed.seen = new Set(); feed.cursor = undefined; feed.done = !id; feed.loading = false;
+  // first sign ahead of the walker's view
+  feed.firstK = Math.max(0, Math.ceil((S.D + W / (S.zoom || 1) - 900) / 1100));
+  if (id) loadPage();
+}
+async function loadPage() {
+  if (feed.loading || feed.done || !feed.session) return;
+  feed.loading = true;
+  const id = feed.id;
+  try {
+    const { posts, cursor } = await fetchPage(feed.session, id, feed.cursor);
+    if (id !== feed.id) return; // feed changed mid-flight
+    for (const p of posts) if (!feed.seen.has(p.uri)) { feed.seen.add(p.uri); feed.posts.push(p); }
+    feed.cursor = cursor; feed.done = !cursor;
+    $("feed-status").textContent = feed.posts.length ? `${feed.posts.length} posts on signs ahead — click one to open it` : "nothing to read in that feed yet";
+    if (!feed.posts.length && cursor) { feed.loading = false; loadPage(); }
+  } catch (e) {
+    if (id === feed.id) { feed.done = true; $("feed-status").textContent = "couldn't load that feed: " + e.message; }
+  } finally { feed.loading = false; }
+}
+function wantMorePosts() {
+  const nextK = Math.max(feed.firstK, Math.ceil((S.D - 900) / 1100));
+  if (!feed.done && nextK - feed.firstK > feed.posts.length - SIGN_LOOKAHEAD) loadPage();
+}
+canvas.addEventListener("click", (e) => {
+  for (let i = signHits.length - 1; i >= 0; i--) {
+    const h = signHits[i];
+    if (e.clientX >= h.x && e.clientX <= h.x + h.w && e.clientY >= h.y && e.clientY <= h.y + h.h) { open(postUrl(h.post), "_blank", "noopener"); return; }
+  }
+});
+canvas.addEventListener("mousemove", (e) => {
+  canvas.style.cursor = signHits.some((h) => e.clientX >= h.x && e.clientX <= h.x + h.w && e.clientY >= h.y && e.clientY <= h.y + h.h) ? "pointer" : "";
+});
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const FEED_KEY = "strandbeest.feed";
+function signedOutView(msg) {
+  $("feed-box").innerHTML = `${msg ? `<p class="ferr">${esc(msg)}</p>` : ""}
+    <div class="fsign"><input id="handle" type="text" placeholder="your bluesky handle" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <button id="go" type="button">Sign in</button></div>
+    <p class="fnote">Sign in to walk past your timeline or any of your saved feeds as readable signs. Read-only: nothing is posted or changed.</p>`;
+  if (window.attachHandleTypeahead) window.attachHandleTypeahead($("handle"));
+  const go = async () => {
+    const h = $("handle").value.trim().replace(/^@/, "");
+    if (!h) return;
+    $("go").disabled = true;
+    try { await login(h); } catch (e) { signedOutView(e.message); }
+  };
+  $("go").addEventListener("click", go);
+  $("handle").addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+}
+async function signedInView(session) {
+  feed.session = session;
+  $("feed-box").innerHTML = `<div class="frow"><span>@${esc(session.handle)}</span><a href="#" id="signout">sign out</a></div>
+    <label class="row" for="feedsel"><span>Feed on the signs</span></label>
+    <select id="feedsel"><option value="">Off</option></select>
+    <button id="readpace" type="button" class="vreset">Slow to reading pace</button>
+    <p class="fnote" id="feed-status">loading your feeds…</p>`;
+  $("signout").addEventListener("click", async (e) => {
+    e.preventDefault(); await clearSession(); feed.session = null; resetFeed(null); signedOutView();
+  });
+  $("readpace").addEventListener("click", () => { $("speed").value = 15; $("speed").dispatchEvent(new Event("input")); });
+  const sel = $("feedsel");
+  sel.addEventListener("change", () => {
+    localStorage.setItem(FEED_KEY, sel.value);
+    $("feed-status").textContent = sel.value ? "loading posts…" : "";
+    resetFeed(sel.value || null);
+  });
+  let feeds = [];
+  try { feeds = await listFeeds(session); } catch { feeds = [{ id: "timeline", label: "Following" }]; }
+  for (const f of feeds) { const o = document.createElement("option"); o.value = f.id; o.textContent = (f.pinned ? "★ " : "") + f.label; sel.appendChild(o); }
+  const want = localStorage.getItem(FEED_KEY);
+  sel.value = feeds.some((f) => f.id === want) ? want : "timeline"; // first sign-in lands on Following
+  $("feed-status").textContent = "";
+  sel.dispatchEvent(new Event("change"));
+}
+(async () => {
+  let session = null;
+  try { session = (await completeLoginIfCallback()) || (await getSession()); }
+  catch (e) { signedOutView(e.message); return; }
+  if (session) signedInView(session); else signedOutView();
+})();
