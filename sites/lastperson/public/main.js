@@ -23,7 +23,7 @@ function el(tag, attrs = {}, ...kids) {
 
 const view = new BracketView($("bracket"));
 const S = {
-  mode: "syn", nSyn: 1_000_000, k: 1, seed: "", runId: 0, cancel: null,
+  mode: "real", nSyn: 1_000_000, k: 1, seed: "", runId: 0, cancel: null,
   roster: null, tour: null, checksum: "", computeMs: 0, matchesLive: 0,
   P: 0, paused: false, fast: true, slow: false,
   champShown: false, hold: false, holdLeft: 0, holdTotal: 12, archived: false,
@@ -397,6 +397,18 @@ function parseHash() {
   S.index = (await loadIndex()) || emptyIndex();
   const h = parseHash();
   if (h) { S.mode = "syn"; S.nSyn = h.n; if (h.d && isDid(h.d)) S.pendingDid = h.d; launch(h.t, h.s); }
-  else launch(1, await genesisSeed());
+  else {
+    // Default roster is real: first visit pulls ~10k active DIDs from the relay
+    // (10 pages of 1,000: enough for a first bracket without a long wait; the
+    // SOURCE panel grows the index). Falls back to the synthetic demo if the
+    // relay is unreachable.
+    if (!S.index.dids.length) {
+      $("m-roster").textContent = "INDEXING PUBLIC DIDS FROM THE RELAY…";
+      try { await crawl(S.index, 10_000, new AbortController().signal, (ix) => { $("m-roster").textContent = `INDEXING PUBLIC DIDS… ${fmt(ix.dids.length)}`; }); }
+      catch { /* relay unreachable: partial progress is kept, fallback below */ }
+    }
+    S.mode = S.index.dids.length >= 2 ? "real" : "syn";
+    launch(1, await genesisSeed());
+  }
   requestAnimationFrame(frame);
 })();
