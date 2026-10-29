@@ -8,7 +8,7 @@ const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // ---- state ---------------------------------------------------------------
 const S = {
-  legs: 16, speed: 0.45, rough: 0.3, mode: "climb", style: "min",
+  legs: 16, speed: 0.45, rough: 0.3, mode: "climb", style: "min", suspension: true, layout: "mirror",
   running: !reduceMotion, sound: false,
   D: 0, theta: 0, time: 0,
   roughS: 0.3, modeOff: 0,
@@ -56,12 +56,16 @@ function step(dt, snap) {
 
   const legs = [];
   for (let k = 0; k < pairs; k++) {
-    const hx = hipX(k, pairs), line = S.bodyH + S.slope * (hx - S.D);
     for (const side of [0, 1]) {
+      // Mirrored (spider) layout: both sides of a pair share a phase, and the far
+      // leg sits a few units behind so the pair reads as a pair in profile.
+      const mirror = S.layout === "mirror";
+      const hx = hipX(k, pairs) + (mirror && side ? 5 : 0), line = S.bodyH + S.slope * (hx - S.D);
       const arr = side ? S.far : S.near;
-      const J = solveLeg(S.theta + k * ((Math.PI * 2) / 3) + side * Math.PI);
+      const J = solveLeg(S.theta + k * ((Math.PI * 2) / 3) + (mirror ? 0 : side * Math.PI));
       const footX = hx + J.J5.x;
-      const target = clamp(ground(footX) + SOLE_Y - line, -MAX_SUSPENSION, MAX_SUSPENSION);
+      // With suspension off every leg stays bolted to the rail at a fixed height.
+      const target = S.suspension ? clamp(ground(footX) + SOLE_Y - line, -MAX_SUSPENSION, MAX_SUSPENSION) : 0;
       let st = arr[k];
       if (!st) st = arr[k] = { off: target, planted: false };
       st.off = snap ? target : st.off + (target - st.off) * damp(14, dt);
@@ -358,6 +362,8 @@ function setStyle(v) {
   resize();
 }
 el.style.addEventListener("change", () => setStyle(el.style.value));
+$("suspension").addEventListener("change", (e) => { S.suspension = e.target.checked; });
+$("layout").addEventListener("change", (e) => { S.layout = e.target.value; });
 function setRunning(v) { S.running = v; el.pause.textContent = v ? "Pause" : "Resume"; }
 el.pause.addEventListener("click", () => setRunning(!S.running));
 $("reset").addEventListener("click", () => {
