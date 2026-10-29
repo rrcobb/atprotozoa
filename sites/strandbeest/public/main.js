@@ -1,5 +1,5 @@
-import { solveLeg, SOLE_Y, STANCE_Y, STANCE_SPEED } from "./lib/linkage.js";
-import { heightAt, ridge, noise, hash, PEAK } from "./lib/terrain.js";
+import { ridge, noise, hash } from "./lib/terrain.js";
+import { step as simStep, ground as simGround, pitchFor as simPitch } from "./lib/sim.js";
 import { PALETTES, mix, rgb } from "./lib/palettes.js";
 
 const $ = (id) => document.getElementById(id);
@@ -8,141 +8,21 @@ const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // ---- state ---------------------------------------------------------------
 const S = {
-  legs: 16, speed: 0.45, rough: 0.3, mode: "climb", style: "min", suspension: true, gravity: 1,
+  legs: 16, speed: 0.45, rough: 0.3, mode: "climb", style: "atmos", suspension: true, gravity: 1,
   rigid: false, travel: 1, stiff: 14, tilt: 1, bodyRate: 4, ride: 0, spacing: 1, phase: "jansen", parallel: true, rail: true, cranks: true,
   running: !reduceMotion, sound: false,
   D: 0, theta: 0, time: 0,
   roughS: 0.3, modeOff: 0,
-  bodyH: null, slope: 0, cam: 0, zoom: null, alt0: 0,
+  bodyH: null, slope: 0, vx: 0, vy: 0, w: 0, ay: 0, al: 0, cam: 0, zoom: null, alt0: 0,
   near: [], far: [], particles: [],
 };
-// World units between neighbouring leg pairs. Legs are ~150 units wide, so they
-// overlap; the pitch tightens at high counts to keep the whole machine on screen.
-const pitchFor = (pairs) => Math.min(26, 480 / Math.max(1, pairs - 1)) * S.spacing;
-const MAX_OMEGA = 7; // rad/s of crank at 100% speed
-const MAX_SUSPENSION = 60; // how far a leg's mount may slide to meet uneven ground (units)
-const G = 900; // gravity in world units/s^2 (a leg is ~150 units, call it ~1.5 m)
-const DAMPING = 0.3; // damping ratio of each leg's spring
-const REST = 0.2; // bounce on landing; only above BOUNCE_MIN so resting contact doesn't chatter
-const BOUNCE_MIN = 15;
-const SUBSTEP = 1 / 240; // keeps the stiffest spring (omega ~62) stable under explicit integration
-const TOP_LIMIT = 0.7; // max body tilt (slope)
-const ground = (x) => heightAt(x, S.mode, S.roughS) + S.modeOff;
 const damp = (rate, dt) => 1 - Math.exp(-rate * dt);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
-
-const hipX = (k, pairs) => S.D + (k - (pairs - 1) / 2) * pitchFor(pairs) + 60;
-
-// One simulation step: crank phase, travel, body pose, per-leg suspension and gravity.
-function step(dt, snap) {
-  const pairs = S.legs / 2;
-  if (S.running) {
-    const w = S.speed * MAX_OMEGA * dt;
-    S.theta += w;
-    S.D += STANCE_SPEED * w; // planted feet and the world move together
-    S.time += dt;
-  }
-  S.roughS += (S.rough - S.roughS) * damp(4, dt);
-  S.modeOff *= Math.exp(-0.25 * dt);
-
-  // Fit a line through the ground under the stance feet -> body height and tilt.
-  let n = 0, sx = 0, sg = 0, sxx = 0, sxg = 0;
-  for (let k = 0; k < pairs; k++) {
-    const x = hipX(k, pairs) - S.D, g = ground(hipX(k, pairs) - 55);
-    n++; sx += x; sg += g; sxx += x * x; sxg += x * g;
-  }
-  const den = n * sxx - sx * sx;
-  // Rigid chassis: a stiff frame that never tilts, never slides its legs and
-  // rides on the highest ground under it, so no foot can be pushed into the earth.
-  const rigid = S.rigid, tiltOn = S.parallel && !rigid;
-  const lim = TOP_LIMIT * S.tilt;
-  const m = tiltOn && n > 1 && den > 1e-6 ? clamp((n * sxg - sx * sg) / den, -lim, lim) : 0;
-  let gRef = sg / n;
-  if (rigid || !tiltOn) {
-    // A level body must clear the highest ground under any leg, tilted or not.
-    let top = -Infinity;
-    for (let k = 0; k < pairs; k++) top = Math.max(top, ground(hipX(k, pairs) - 55));
-    gRef = rigid ? top : Math.max(gRef, top - (top - sg / n) * 0.5);
-  }
-  const targetH = gRef + SOLE_Y + 6 + S.ride;
-  if (S.bodyH === null || snap) { S.bodyH = targetH; S.slope = m; S.cam = targetH; S.alt0 = S.alt0 || targetH; }
-  if (rigid) { S.bodyH = targetH; S.slope = m; }
-  else {
-    S.bodyH += (targetH - S.bodyH) * damp(S.bodyRate, dt);
-    S.slope += (m - S.slope) * damp(S.bodyRate * 0.75, dt);
-  }
-  // Camera trails the body so climbs read as climbs; it never pins the machine.
-  S.cam += (S.bodyH - S.cam) * damp(0.9, dt);
-
-  const legs = [];
-  for (let k = 0; k < pairs; k++) {
-    for (const side of [0, 1]) {
-      const hx = hipX(k, pairs), line = S.bodyH + S.slope * (hx - S.D);
-      const arr = side ? S.far : S.near;
-      // Opposite sides of a pair run half a cycle apart, so one foot is always down.
-      const J = solveLeg(S.theta + phaseOf(k, pairs) + side * Math.PI);
-      const footX = hx + J.J5.x, gh = ground(footX);
-      const travel = MAX_SUSPENSION * S.travel;
-      const sprung = S.suspension && !S.rigid;
-      let st = arr[k];
-      if (!st) st = arr[k] = { off: 0, vy: 0, contact: false, planted: false, fy: J.J5.y };
-      let impact = 0;
-      if (sprung) {
-        // Each leg is a mass on a vertical slide: gravity pulls it down, a spring
-        // holds it to the rail, and the ground stops the foot. A swing foot falls
-        // until it lands; the landing speed is what you see, hear and kick up.
-        if (snap) { st.off = clamp(gh + SOLE_Y - line, -travel, travel); st.vy = 0; st.contact = true; }
-        const w = 2 + S.stiff, w2 = w * w, c = 2 * DAMPING * w, g = G * S.gravity;
-        const n = Math.max(1, Math.ceil(dt / SUBSTEP)), h = dt / n;
-        for (let i = 0; i < n; i++) {
-          st.vy += (-g - w2 * st.off - c * st.vy) * h;
-          st.off += st.vy * h;
-          if (st.off < -travel) { st.off = -travel; if (st.vy < 0) st.vy = 0; } // hanging at the end of its travel
-          const pen = gh - (line + st.off - J.J5.y);
-          if (pen > 0) {
-            st.off += pen;
-            if (st.vy < 0) { impact = Math.max(impact, -st.vy); st.vy = -st.vy > BOUNCE_MIN ? -st.vy * REST : 0; }
-          }
-          if (st.off > travel) { st.off = travel; if (st.vy > 0) st.vy = 0; } // bottomed out against the rail
-        }
-      } else st.off = 0; // bolted to the rail at a fixed height
-      const hipH = line + st.off;
-      const footH = hipH - J.J5.y, gap = footH - gh;
-      // The crank itself can drive the foot down onto the ground, not just gravity.
-      const descent = dt > 0 ? Math.max(0, (J.J5.y - st.fy) / dt) : 0;
-      st.fy = J.J5.y;
-      if (sprung) {
-        const down = gap < 0.5 || (st.contact && gap < 2);
-        if (down && !st.contact && S.running) touchdown(footX, footH, side, Math.max(impact, descent));
-        st.contact = down;
-      } else {
-        const planted = J.J5.y > STANCE_Y;
-        if (planted && !st.planted && S.running) touchdown(footX, footH, side, descent);
-        st.planted = planted;
-      }
-      legs.push({ k, side, J, hx, line, hipH, off: st.off, footX, footH });
-    }
-  }
-  arrLenFix(S.near, pairs); arrLenFix(S.far, pairs);
-
-  // dust
-  for (const p of S.particles) { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy -= 40 * dt; }
-  S.particles = S.particles.filter((p) => p.life > 0);
-  return legs;
-}
-// Crank phase of pair k: how the shared shaft is timed along the machine.
-function phaseOf(k, pairs) {
-  switch (S.phase) {
-    case "wave": return (k * Math.PI * 2) / pairs;
-    case "alt": return k * Math.PI;
-    case "sync": return 0;
-    case "random": return hash(k * 53 + 7) * Math.PI;
-    default: return k * ((Math.PI * 2) / 3);
-  }
-}
-function arrLenFix(a, n) { if (a.length > n) a.length = n; }
+const ground = (x) => simGround(S, x);
+const pitchFor = (pairs) => simPitch(S, pairs);
 
 let tickFn = null; // set by the sound module
+const hooks = { touchdown };
 function touchdown(x, y, side, impact) {
   if (tickFn) tickFn(side, impact);
   const a = altFrac();
@@ -422,7 +302,6 @@ function setStyle(v) {
   resize();
 }
 el.style.addEventListener("change", () => setStyle(el.style.value));
-$("suspension").addEventListener("change", (e) => { S.suspension = e.target.checked; });
 // ---- vehicle tuning --------------------------------------------------------
 const VEHICLE_DEFAULTS = { rigid: false, suspension: true, travel: 100, gravity: 100, stiff: 14, tilt: 100, bodyRate: 4, ride: 0, spacing: 100, phase: "jansen", parallel: true, rail: true, cranks: true };
 const veh = {};
@@ -449,8 +328,9 @@ vCheck("parallel", "parallel", (v) => { S.parallel = v; });
 vCheck("railshow", "rail", (v) => { S.rail = v; });
 vCheck("cranks", "cranks", (v) => { S.cranks = v; });
 vCheck("suspension", "suspension", (v) => { S.suspension = v; });
-// A rigid chassis overrides suspension, tilt and body smoothing; grey those out.
-const rigidLocks = ["suspension", "travel", "stiff", "tilt", "bodyrate", "parallel"];
+// A rigid chassis can't pitch, so the tilt controls have nothing to do; the
+// suspension still works under it.
+const rigidLocks = ["tilt", "parallel"];
 vCheck("rigid", "rigid", (v) => {
   S.rigid = v;
   for (const id of rigidLocks) $(id).disabled = v;
@@ -459,7 +339,7 @@ $("vdefaults").addEventListener("click", () => { for (const k in VEHICLE_DEFAULT
 function setRunning(v) { S.running = v; el.pause.textContent = v ? "Pause" : "Resume"; }
 el.pause.addEventListener("click", () => setRunning(!S.running));
 $("reset").addEventListener("click", () => {
-  S.D = 0; S.modeOff = 0; S.bodyH = null; S.alt0 = 0; S.particles = []; S.near = []; S.far = []; S.time = 0;
+  S.D = 0; S.theta = 0; S.modeOff = 0; S.bodyH = null; S.alt0 = 0; S.particles = []; S.near = []; S.far = []; S.time = 0;
   snapNext = true;
 });
 function setPanel(open) {
@@ -512,7 +392,9 @@ function updateAudio() { if (audio && S.sound) { audio.wg.gain.value = 0.015 + a
 let snapNext = true, last = performance.now(), readT = 0;
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  const legs = step(dt, snapNext); snapNext = false;
+  const legs = simStep(S, dt, snapNext, hooks); snapNext = false;
+  for (const p of S.particles) { p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy -= 40 * dt; }
+  S.particles = S.particles.filter((p) => p.life > 0);
   draw(legs, dt);
   updateAudio();
   readT += dt;
@@ -523,7 +405,7 @@ function frame(now) {
   }
   requestAnimationFrame(frame);
 }
-setStyle("min");
+setStyle("atmos");
 setRunning(S.running);
 if (innerWidth <= 640) setPanel(false);
 requestAnimationFrame(frame);
