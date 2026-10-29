@@ -1,4 +1,5 @@
 import { ridge, noise, hash } from "./lib/terrain.js";
+import { autotune } from "./lib/autotune.js";
 import { step as simStep, ground as simGround, pitchFor as simPitch } from "./lib/sim.js";
 import { PALETTES, mix, rgb } from "./lib/palettes.js";
 
@@ -9,7 +10,7 @@ const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 // ---- state ---------------------------------------------------------------
 const S = {
   legs: 16, speed: 0.45, rough: 0.3, mode: "climb", style: "atmos", suspension: true, gravity: 1,
-  rigid: false, travel: 1, stiff: 14, tilt: 1, bodyRate: 4, ride: 0, spacing: 1, phase: "jansen", parallel: true, rail: true, cranks: true,
+  rigid: false, travel: 1, stiff: 16, tilt: 1, bodyRate: 4, ride: 0, spacing: 1, phase: "jansen", parallel: true, rail: true, cranks: true,
   running: !reduceMotion, sound: false,
   D: 0, theta: 0, time: 0,
   roughS: 0.3, modeOff: 0,
@@ -303,7 +304,7 @@ function setStyle(v) {
 }
 el.style.addEventListener("change", () => setStyle(el.style.value));
 // ---- vehicle tuning --------------------------------------------------------
-const VEHICLE_DEFAULTS = { rigid: false, suspension: true, travel: 100, gravity: 100, stiff: 14, tilt: 100, bodyRate: 4, ride: 0, spacing: 100, phase: "jansen", parallel: true, rail: true, cranks: true };
+const VEHICLE_DEFAULTS = { rigid: false, suspension: true, travel: 100, gravity: 100, stiff: 16, tilt: 100, bodyRate: 4, ride: 0, spacing: 100, phase: "jansen", parallel: true, rail: true, cranks: true };
 const veh = {};
 const vRange = (id, key, outId, fmt, apply) => {
   const input = $(id), out = $(outId);
@@ -336,6 +337,15 @@ vCheck("rigid", "rigid", (v) => {
   for (const id of rigidLocks) $(id).disabled = v;
 });
 $("vdefaults").addEventListener("click", () => { for (const k in VEHICLE_DEFAULTS) veh[k](VEHICLE_DEFAULTS[k]); });
+$("autotune").addEventListener("click", (e) => {
+  const b = e.currentTarget, label = b.textContent;
+  b.disabled = true; b.textContent = "Tuning…";
+  setTimeout(() => { // let the label paint before the sim burst
+    const r = autotune(S); veh.stiff(r.stiff);
+    b.disabled = false; b.textContent = `Stiffness ${r.stiff} (lift ${Math.round(r.lift)}/${Math.round(r.ideal)})`;
+    setTimeout(() => { b.textContent = label; }, 4000);
+  }, 30);
+});
 function setRunning(v) { S.running = v; el.pause.textContent = v ? "Pause" : "Resume"; }
 el.pause.addEventListener("click", () => setRunning(!S.running));
 $("reset").addEventListener("click", () => {
