@@ -1,7 +1,7 @@
 // feeds.js — read-only Bluesky feed access for the signed-in user.
 // Everything goes through the user's own PDS with an atproto-proxy header,
 // which is how a DPoP session reaches app.bsky.* methods (same path the
-// official app uses). Scope: getTimeline, getFeed, getPreferences (read only).
+// official app uses). Scope: getTimeline, getFeed (aud=*: the PDS audiences it to the feed generator), getPreferences (read only).
 import { dpopFetch } from "./oauth.js";
 import { simplify } from "./post.js";
 
@@ -15,6 +15,11 @@ async function call(session, method, params) {
   const qs = new URLSearchParams(params).toString();
   const url = `${session.pdsUrl.replace(/\/$/, "")}/xrpc/${method}${qs ? "?" + qs : ""}`;
   const res = await dpopFetch(session, url, { headers: { "atproto-proxy": APPVIEW_PROXY } });
+  if (res.status === 403 && method === "app.bsky.feed.getFeed") {
+    // The PDS audiences getFeed to the feed generator, so sessions granted
+    // before the scope became aud=* are refused until the user signs in again.
+    throw new Error("this feed needs a fresh permission: sign out and sign in again");
+  }
   if (!res.ok) throw new Error(`${method} failed (${res.status})`);
   return res.json();
 }
