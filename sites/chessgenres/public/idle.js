@@ -63,7 +63,7 @@ function ui() {
   }
   // Rebuild the shop only when what is visible or affordable changes, so buttons keep focus.
   const s = [buyN, g.guild, ...LINES.map((l, i) => [visible(g, i), g.owned[l.id], g.speed[l.id],
-    buyBtn(l).n, g.owned[l.id] > 0 && g.gold >= speedCost(l.id, g.speed[l.id])].join())].join("|") + (g.gold >= guildCost(g.guild));
+    (b => b.n + ":" + b.ok)(buyBtn(l)), g.owned[l.id] > 0 && g.gold >= speedCost(l.id, g.speed[l.id])].join())].join("|") + (g.gold >= guildCost(g.guild));
   if (s !== sig) { sig = s; build(); }
   for (const l of LINES) {
     const el = $("r-" + l.id);
