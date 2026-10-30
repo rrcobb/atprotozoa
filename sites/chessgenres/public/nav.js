@@ -11,6 +11,7 @@ const GENRES = [
   { id: "flight", name: "flight sim", title: "Microsoft Chess Flight Simulator", sub: "pick an aircraft that flies like a piece, burn fuel per square, dodge drifting storms and land at the airport in the far corner." },
   { id: "rhythm", name: "rhythm", title: "Chess Chess Revolution", sub: "a Dance Dance Revolution-style rhythm game. the notes are the moves of a real game; hit each one in its piece's lane as it lands." },
   { id: "dating", name: "dating sim", title: "Chess Heart", sub: "a visual-novel dating sim. ten days, five pieces, and each one falls for a different way of moving. find out which, and confess before the board closes." },
+  { id: "bullet", name: "bullet hell", title: "Chess Bullet Hell", sub: "a top-down shmup. you are a king with a tiny hitbox; every enemy piece fires patterns shaped like its moves, and the giant queen is the final boss." },
   { id: null, name: "soulslike" },
 ];
 const $ = (id) => document.getElementById(id);
