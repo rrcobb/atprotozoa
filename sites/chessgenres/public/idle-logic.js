@@ -4,6 +4,17 @@
 // machines, speed upgrades and the next kind of piece.
 export const GOAL_RATE = 1000;      // dragons per second that count as "done"
 export const COST_GROWTH = 1.12;    // each machine bought makes the next dearer
+// Long Corvid hard mode: a flock raids the vault on a timer, machines get dearer
+// faster, and the dragon target is five times higher. Scarecrows blunt the raids.
+export const HARD_GOAL_RATE = 5000;
+export const HARD_COST_GROWTH = 1.15;
+export const CROW_EVERY = 40;       // seconds between raids
+export const CROW_THEFT = 0.3;      // share of gold carried off per raid
+export const SCARE_FACTOR = 0.6;    // each scarecrow tier multiplies theft by this
+export const MAX_SCARE = 6;
+export const goalRate = (g) => (g.hard ? HARD_GOAL_RATE : GOAL_RATE);
+export const theft = (g) => CROW_THEFT * SCARE_FACTOR ** g.scare;
+export const scareCost = (tier) => 2000 * 10 ** tier;
 export const MILESTONES = [25, 50, 100, 200, 400]; // owned counts that double a line
 
 export const LINES = [
@@ -16,9 +27,10 @@ export const LINES = [
   { id: "dragon", glyph: "🐉", label: "dragon assembler", cost: 1.5e10, value: 4e7 },
 ];
 
-export function newGame() {
+export function newGame(hard = false) {
   return {
     gold: 0, total: 0, t: 0, won: false,
+    hard, crow: 0, scare: 0, stolen: 0, raids: 0,
     owned: Object.fromEntries(LINES.map((l) => [l.id, 0])),
     made: Object.fromEntries(LINES.map((l) => [l.id, 0])),
     speed: Object.fromEntries(LINES.map((l) => [l.id, 0])), // doublings bought per line
@@ -27,7 +39,7 @@ export function newGame() {
 }
 
 const line = (id) => LINES.find((l) => l.id === id);
-export const machineCost = (id, owned) => Math.ceil(line(id).cost * COST_GROWTH ** owned);
+export const machineCost = (id, owned, hard = false) => Math.ceil(line(id).cost * (hard ? HARD_COST_GROWTH : COST_GROWTH) ** owned);
 export const speedCost = (id, tier) => line(id).cost * 25 * 6 ** tier;
 export const guildCost = (tier) => 2000 * 12 ** tier;
 export const guildMult = (g) => 1.5 ** g.guild;
@@ -47,18 +59,33 @@ export function visible(g, i) {
   return g.owned[LINES[i - 1].id] > 0 && g.total >= LINES[i].cost / 4;
 }
 
+// Advances the factory; in hard mode the clock is cut at every raid so a long
+// absence loses gold to each one. Returns how many raids happened.
 export function tick(g, dt) {
-  if (dt <= 0) return;
-  g.t += dt;
-  let earned = 0;
-  for (const l of LINES) {
-    const n = lineRate(g, l.id) * dt;
-    g.made[l.id] += n;
-    earned += n * l.value;
+  if (dt <= 0) return 0;
+  let left = dt, raids = 0;
+  while (left > 0) {
+    const step = g.hard ? Math.min(left, CROW_EVERY - g.crow) : left;
+    g.t += step; left -= step;
+    let earned = 0;
+    for (const l of LINES) {
+      const n = lineRate(g, l.id) * step;
+      g.made[l.id] += n;
+      earned += n * l.value;
+    }
+    earned *= guildMult(g);
+    g.gold += earned; g.total += earned;
+    if (g.hard) {
+      g.crow += step;
+      if (g.crow >= CROW_EVERY - 1e-9) {
+        g.crow = 0;
+        const lost = g.gold * theft(g);
+        g.gold -= lost; g.stolen += lost; g.raids++; raids++;
+      }
+    }
   }
-  earned *= guildMult(g);
-  g.gold += earned; g.total += earned;
-  if (lineRate(g, "dragon") >= GOAL_RATE) g.won = true;
+  if (lineRate(g, "dragon") >= goalRate(g)) g.won = true;
+  return raids;
 }
 
 // Stamping by hand makes pawns; it keeps up a little as the pawn press grows.
@@ -77,7 +104,7 @@ export function click(g) {
 export function buyMachines(g, id, n) {
   let bought = 0;
   while (bought < n) {
-    const c = machineCost(id, g.owned[id]);
+    const c = machineCost(id, g.owned[id], g.hard);
     if (g.gold < c) break;
     g.gold -= c; g.owned[id]++; bought++;
   }
@@ -89,6 +116,11 @@ export function buySpeed(g, id) {
   const c = speedCost(id, g.speed[id]);
   if (g.owned[id] < 1 || g.gold < c) return false;
   g.gold -= c; g.speed[id]++; return true;
+}
+export function buyScare(g) {
+  const c = scareCost(g.scare);
+  if (g.scare >= MAX_SCARE || g.gold < c) return false;
+  g.gold -= c; g.scare++; return true;
 }
 export function buyGuild(g) {
   const c = guildCost(g.guild);
@@ -111,8 +143,10 @@ export function load(text) {
   try {
     const o = JSON.parse(text);
     if (!o || typeof o !== "object") return base;
-    for (const k of ["gold", "total", "t", "guild"]) if (Number.isFinite(o[k])) base[k] = o[k];
-    base.won = !!o.won;
+    for (const k of ["gold", "total", "t", "guild", "crow", "scare", "stolen", "raids"]) if (Number.isFinite(o[k])) base[k] = o[k];
+    base.won = !!o.won; base.hard = !!o.hard;
+    base.scare = Math.min(MAX_SCARE, Math.max(0, Math.floor(base.scare)));
+    base.crow = Math.min(CROW_EVERY, Math.max(0, base.crow));
     for (const l of LINES) for (const f of ["owned", "made", "speed"]) {
       if (o[f] && Number.isFinite(o[f][l.id])) base[f][l.id] = o[f][l.id];
     }

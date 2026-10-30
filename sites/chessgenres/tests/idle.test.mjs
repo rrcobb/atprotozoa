@@ -71,3 +71,15 @@ test("greedy play reaches 1000 dragons/s in a play-session or two", () => {
   assert.ok(r.seconds > 30 * 60);
   assert.ok(r.seconds < 3 * 3600);
 });
+
+test("long corvid: crows raid on a timer and scarecrows blunt them", async () => {
+  const m = await import("../public/idle-logic.js");
+  const g = m.newGame(true); g.gold = 1000;
+  assert.equal(m.tick(g, 39), 0); assert.equal(g.gold, 1000);
+  assert.equal(m.tick(g, 1), 1); assert.equal(Math.round(g.gold), 700);
+  assert.equal(m.tick(g, 80), 2); assert.equal(g.raids, 3);
+  g.gold = 1e6; assert.ok(m.buyScare(g)); assert.ok(m.theft(g) < m.CROW_THEFT);
+  const e = m.newGame(); e.gold = 1000; m.tick(e, 500); assert.equal(e.gold, 1000); // normal mode: no crows
+  assert.ok(m.machineCost("pawn", 10, true) > m.machineCost("pawn", 10));
+  const h = m.load(m.save(g)); assert.equal(h.hard, true); assert.equal(h.scare, 1);
+});

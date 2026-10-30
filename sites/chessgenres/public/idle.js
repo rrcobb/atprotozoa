@@ -1,7 +1,9 @@
-import { LINES, GOAL_RATE, MILESTONES, newGame, tick, click, clickPower, buyMachines, buyMax, buySpeed, buyGuild, machineCost, speedCost, guildCost, guildMult, lineRate, goldPerSec, milestoneMult, visible, fmt, save, load } from "./idle-logic.js";
+import { LINES, goalRate, buyScare, scareCost, theft, MAX_SCARE, CROW_EVERY, MILESTONES, newGame, tick, click, clickPower, buyMachines, buyMax, buySpeed, buyGuild, machineCost, speedCost, guildCost, guildMult, lineRate, goldPerSec, milestoneMult, visible, fmt, save, load } from "./idle-logic.js";
 
 const $ = (id) => document.getElementById(id);
-const KEY = "chessgenres-idle-v1";
+const BASE = "chessgenres-idle-v1";
+// Long Corvid hard mode keeps its own save so the normal factory survives a visit.
+let KEY = localStorage.getItem(BASE + ":mode") === "corvid" ? BASE + "-corvid" : BASE;
 let g = load(localStorage.getItem(KEY) || ""), last = 0, buyN = 1, sig = "", floaters = [], lastSave = 0, shown = false;
 
 const cv = $("iFloor"), ctx = cv.getContext("2d");
@@ -9,20 +11,21 @@ const cv = $("iFloor"), ctx = cv.getContext("2d");
 // Credit time spent away. Idle games pay you for the hours you were gone, so
 // the whole gap counts.
 const away = g.t > 0 ? Math.max(0, (Date.now() - (Number(localStorage.getItem(KEY + ":at")) || Date.now())) / 1000) : 0;
+if (KEY !== BASE) g.hard = true;
 if (away > 5) {
-  const before = g.gold; tick(g, away);
-  $("iMsg").textContent = `welcome back — the factory ran for ${fmt(away / 60)} min and made ${fmt(g.gold - before)} gold.`;
+  const before = g.gold, r0 = g.raids; tick(g, away);
+  $("iMsg").textContent = `welcome back — the factory ran for ${fmt(away / 60)} min and made ${fmt(g.gold - before)} gold net${g.hard ? `, with ${g.raids - r0} crow raids` : ""}.`;
 }
 
 function buyBtn(l) {
   const own = g.owned[l.id];
   if (buyN === Infinity) {
     let n = 0, gold = g.gold, c;
-    while ((c = machineCost(l.id, own + n)) <= gold) { gold -= c; n++; }
-    return { n, label: n ? `buy ${n}` : "buy", cost: machineCost(l.id, own + n) , ok: n > 0 };
+    while ((c = machineCost(l.id, own + n, g.hard)) <= gold) { gold -= c; n++; }
+    return { n, label: n ? `buy ${n}` : "buy", cost: machineCost(l.id, own + n, g.hard) , ok: n > 0 };
   }
   let cost = 0;
-  for (let i = 0; i < buyN; i++) cost += machineCost(l.id, own + i);
+  for (let i = 0; i < buyN; i++) cost += machineCost(l.id, own + i, g.hard);
   return { n: buyN, label: `buy ${buyN}`, cost, ok: g.gold >= cost };
 }
 
@@ -54,15 +57,22 @@ function ui() {
   $("iDragon").textContent = fmt(lineRate(g, "dragon"));
   $("iClick").textContent = fmt(clickPower(g));
   $("iGuildMult").textContent = "×" + guildMult(g).toFixed(2);
-  const dr = lineRate(g, "dragon");
-  $("iGoal").textContent = g.won ? "the chess dragon is rolling off the line at 1000/s. you win. keep going if you like." : `goal: ${fmt(GOAL_RATE)} dragons per second (now ${fmt(dr)})`;
+  const dr = lineRate(g, "dragon"), goal = goalRate(g);
+  $("iGoal").textContent = g.won ? `the chess dragon is rolling off the line at ${fmt(goal)}/s. you win${g.hard ? ", crows and all" : ""}. keep going if you like.` : `goal: ${fmt(goal)} dragons per second (now ${fmt(dr)})`;
+  $("iMode").textContent = g.hard ? "back to the normal factory" : "long corvid hard mode";
+  $("iCrow").hidden = !g.hard;
+  if (g.hard) {
+    $("iCrowTxt").textContent = `🐦‍⬛ crows raid in ${Math.max(0, Math.ceil(CROW_EVERY - g.crow))}s and take ${Math.round(theft(g) * 100)}% of your gold · ${g.raids} raids, ${fmt(g.stolen)} stolen`;
+    $("iScare").textContent = g.scare >= MAX_SCARE ? "scarecrows maxed" : `scarecrow · ${fmt(scareCost(g.scare))}`;
+    $("iScare").disabled = g.scare >= MAX_SCARE || g.gold < scareCost(g.scare);
+  }
   $("iShare").hidden = !g.won;
   if (g.won) {
-    const txt = `My chess factory is manufacturing ${fmt(dr)} chess dragons per second (${fmt(g.total)} gold made).`;
+    const txt = `${g.hard ? "I beat Long Corvid hard mode: my" : "My"} chess factory is manufacturing ${fmt(dr)} chess dragons per second (${fmt(g.total)} gold made).`;
     $("iShareLink").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(txt + "\nhttps://chessgenres.bisks.net/#idle");
   }
   // Rebuild the shop only when what is visible or affordable changes, so buttons keep focus.
-  const s = [buyN, g.guild, ...LINES.map((l, i) => [visible(g, i), g.owned[l.id], g.speed[l.id],
+  const s = [buyN, g.guild, g.hard, ...LINES.map((l, i) => [visible(g, i), g.owned[l.id], g.speed[l.id],
     (b => b.n + ":" + b.ok)(buyBtn(l)), g.owned[l.id] > 0 && g.gold >= speedCost(l.id, g.speed[l.id])].join())].join("|") + (g.gold >= guildCost(g.guild));
   if (s !== sig) { sig = s; build(); }
   for (const l of LINES) {
@@ -77,6 +87,16 @@ $("iLines").addEventListener("click", (e) => {
   if (b.dataset.act === "m") buyMachines(g, id, buyN); else buySpeed(g, id);
   sig = ""; ui();
 });
+$("iScare").addEventListener("click", () => { buyScare(g); sig = ""; ui(); });
+$("iMode").addEventListener("click", () => {
+  persist();
+  KEY = g.hard ? BASE : BASE + "-corvid";
+  localStorage.setItem(BASE + ":mode", g.hard ? "normal" : "corvid");
+  g = load(localStorage.getItem(KEY) || ""); g.hard = KEY !== BASE;
+  floaters = []; sig = "";
+  $("iMsg").textContent = g.hard ? "long corvid: the crows are watching the vault. progress here saves separately." : "back in the normal factory.";
+  ui();
+});
 $("iGuild").addEventListener("click", () => { buyGuild(g); sig = ""; ui(); });
 $("iBuyN").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-n]"); if (!b) return;
@@ -89,7 +109,7 @@ $("iStamp").addEventListener("click", () => {
 });
 $("iReset").addEventListener("click", () => {
   if (!confirm("scrap the factory and start over?")) return;
-  g = newGame(); sig = ""; localStorage.removeItem(KEY); $("iMsg").textContent = "a fresh, empty factory."; ui();
+  g = newGame(g.hard); sig = ""; localStorage.removeItem(KEY); $("iMsg").textContent = "a fresh, empty factory."; ui();
 });
 
 // Spawn a few floating pieces per frame in proportion to what's being made,
@@ -125,10 +145,11 @@ function frame(ts) {
   if (!$("idle").hidden) { spawn(dt); draw(dt); ui(); }
   if (ts - lastSave > 3000) {
     lastSave = ts;
-    localStorage.setItem(KEY, save(g)); localStorage.setItem(KEY + ":at", String(Date.now()));
+    persist();
   }
   requestAnimationFrame(frame);
 }
-addEventListener("pagehide", () => { localStorage.setItem(KEY, save(g)); localStorage.setItem(KEY + ":at", String(Date.now())); });
+function persist() { localStorage.setItem(KEY, save(g)); localStorage.setItem(KEY + ":at", String(Date.now())); }
+addEventListener("pagehide", persist);
 ui();
 requestAnimationFrame(frame);
