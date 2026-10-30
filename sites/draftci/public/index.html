@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>draftci — CI for your bluesky drafts</title>
+<meta name="description" content="Run a pipeline on your draft before you post it: length, links, mentions, tone, leaks. Green build, then deploy.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://draftci.bisks.net/">
+<meta property="og:title" content="draftci — CI for your bluesky drafts">
+<meta property="og:description" content="Lint, test and build your post before you deploy it. Green build, then ship.">
+<meta property="og:image" content="https://draftci.bisks.net/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://draftci.bisks.net/og.png">
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --fg:#e6edf3; --dim:#8b949e; --ok:#3fb950; --warn:#d29922; --bad:#f85149; --acc:#58a6ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  main { max-width:760px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--dim); margin:0 0 20px; }
+  textarea { width:100%; min-height:150px; background:var(--panel); color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:12px; font:inherit; resize:vertical; }
+  textarea:focus { outline:2px solid var(--acc); outline-offset:0; }
+  .bar { display:flex; gap:10px; align-items:center; margin:10px 0 20px; flex-wrap:wrap; }
+  .count { color:var(--dim); margin-left:auto; }
+  .count.over { color:var(--bad); }
+  button, .btn { background:#238636; color:#fff; border:1px solid #2ea043; border-radius:6px; padding:7px 14px; font:inherit; cursor:pointer; text-decoration:none; display:inline-block; }
+  button.ghost { background:var(--panel); border-color:var(--line); color:var(--fg); }
+  button:disabled, .btn[aria-disabled="true"] { opacity:.45; cursor:not-allowed; }
+  .btn.ship { background:var(--acc); border-color:var(--acc); color:#04121f; }
+  #pipeline { list-style:none; margin:0; padding:0; border:1px solid var(--line); border-radius:6px; background:var(--panel); }
+  #pipeline li { display:grid; grid-template-columns:28px 190px 1fr; gap:8px; padding:10px 12px; border-top:1px solid var(--line); }
+  #pipeline li:first-child { border-top:0; }
+  .ico { text-align:center; }
+  .pending .ico { color:var(--dim); } .running .ico { color:var(--acc); animation:spin 1s linear infinite; display:inline-block; }
+  .pass .ico { color:var(--ok); } .warn .ico { color:var(--warn); } .fail .ico { color:var(--bad); }
+  .detail { color:var(--dim); } .fail .detail { color:var(--bad); } .warn .detail { color:var(--warn); }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #verdict { margin:16px 0; padding:12px; border-radius:6px; border:1px solid var(--line); background:var(--panel); }
+  #verdict[hidden] { display:none; }
+  #verdict.green { border-color:var(--ok); } #verdict.yellow { border-color:var(--warn); } #verdict.red { border-color:var(--bad); }
+  .row { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+  footer { margin-top:32px; color:var(--dim); font-size:13px; }
+  footer a { color:var(--dim); }
+  @media (max-width:560px) { #pipeline li { grid-template-columns:24px 1fr; } .detail { grid-column:2; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>draftci <small style="color:var(--dim);font-weight:normal">pipeline #<span id="runno">0</span></small></h1>
+  <p class="sub">CI, but for drafting bluesky posts before posting. Write it, push it through the pipeline, deploy on green.</p>
+
+  <label for="draft" class="sub" style="display:block;margin-bottom:6px">draft</label>
+  <textarea id="draft" placeholder="what are you about to say…" spellcheck="true"></textarea>
+  <div class="bar">
+    <button id="run">▶ run pipeline</button>
+    <button id="clear" class="ghost">clear</button>
+    <span class="count" id="count">0/300</span>
+  </div>
+
+  <ol id="pipeline"></ol>
+
+  <div id="verdict" hidden>
+    <div id="verdict-text"></div>
+    <div class="row">
+      <a id="ship" class="btn ship" target="_blank" rel="noopener" aria-disabled="true">🚀 deploy to bluesky</a>
+      <button id="copy" class="ghost">copy draft</button>
+      <a id="share" class="btn ghost" target="_blank" rel="noopener" style="background:var(--panel);border-color:var(--line);color:var(--fg)">share this build</a>
+    </div>
+  </div>
+
+  <footer>
+    drafts live in your browser only · mention checks ask the public Bluesky AppView ·
+    <a href="https://rateyourbuild.bisks.net/site/draftci">rate this on rateyourbuild →</a>
+  </footer>
+</main>
+<script type="module">
+import { STAGES, runPipeline, graphemeCount, MAX_GRAPHEMES } from "./lib/checks.js";
+
+const $ = (id) => document.getElementById(id);
+const draft = $("draft"), list = $("pipeline");
+const KEY = "draftci:draft", RUNKEY = "draftci:runs";
+const ICON = { pending: "○", running: "◌", pass: "✓", warn: "!", fail: "✗" };
+let runs = Number(localStorage.getItem(RUNKEY) || 0);
+$("runno").textContent = runs;
+
+draft.value = localStorage.getItem(KEY) || "";
+
+function renderPending() {
+  list.innerHTML = "";
+  for (const st of STAGES) setRow(st, { status: "pending", detail: "" });
+}
+function setRow(st, r) {
+  let li = document.getElementById("st-" + st.id);
+  if (!li) { li = document.createElement("li"); li.id = "st-" + st.id; li.innerHTML = '<span class="ico"></span><span class="nm"></span><span class="detail"></span>'; list.appendChild(li); }
+  li.className = r.status;
+  li.querySelector(".ico").textContent = ICON[r.status];
+  li.querySelector(".nm").textContent = st.name;
+  li.querySelector(".detail").textContent = r.detail || (r.status === "running" ? "running…" : "");
+}
+
+function updateCount() {
+  const n = graphemeCount(draft.value);
+  $("count").textContent = `${n}/${MAX_GRAPHEMES}`;
+  $("count").classList.toggle("over", n > MAX_GRAPHEMES);
+}
+
+// Normalize "@Alice.bsky.social " → "alice.bsky.social"
+const cache = new Map();
+async function handleExists(h) {
+  h = h.trim().replace(/^@/, "").toLowerCase();
+  if (cache.has(h)) return cache.get(h);
+  let ok;
+  try {
+    const r = await fetch("https://public.api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=" + encodeURIComponent(h));
+    if (r.status === 400 || r.status === 404) ok = false;
+    else if (r.ok) ok = true;
+    else throw new Error("appview " + r.status);
+  } catch (e) { throw new Error("couldn't reach the AppView to check @" + h); }
+  cache.set(h, ok);
+  return ok;
+}
+
+let busy = false;
+async function go() {
+  if (busy) return;
+  busy = true; $("run").disabled = true;
+  const text = draft.value;
+  localStorage.setItem(KEY, text);
+  runs++; localStorage.setItem(RUNKEY, runs); $("runno").textContent = runs;
+  renderPending();
+  $("verdict").hidden = true;
+  const { results, failed, warned } = await runPipeline(text, { handleExists }, (st, r) => setRow(st, r));
+  const v = $("verdict");
+  const nPass = results.filter((r) => r.status === "pass").length;
+  v.hidden = false;
+  v.className = failed ? "red" : warned ? "yellow" : "green";
+  $("verdict-text").textContent = failed
+    ? `✗ build failed — ${results.filter((r) => r.status === "fail").length} blocking. fix the draft and re-run.`
+    : warned ? `! build passed with warnings (${nPass}/${results.length} clean). deploy at your own risk.`
+    : `✓ build passed — ${nPass}/${results.length} checks green. ship it.`;
+  const ship = $("ship");
+  if (failed) { ship.removeAttribute("href"); ship.setAttribute("aria-disabled", "true"); }
+  else { ship.href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text); ship.setAttribute("aria-disabled", "false"); }
+  const badge = failed ? "failing ✗" : warned ? "passing with warnings !" : "passing ✓";
+  $("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(`my draft build is ${badge} (${nPass}/${results.length} checks) — CI for bluesky drafts: https://draftci.bisks.net/`);
+  busy = false; $("run").disabled = false;
+}
+
+$("ship").addEventListener("click", (e) => { if ($("ship").getAttribute("aria-disabled") === "true") e.preventDefault(); });
+$("run").addEventListener("click", go);
+$("clear").addEventListener("click", () => { draft.value = ""; localStorage.removeItem(KEY); updateCount(); renderPending(); $("verdict").hidden = true; draft.focus(); });
+$("copy").addEventListener("click", async () => { try { await navigator.clipboard.writeText(draft.value); $("copy").textContent = "copied ✓"; setTimeout(() => ($("copy").textContent = "copy draft"), 1200); } catch { draft.select(); } });
+draft.addEventListener("input", () => { updateCount(); localStorage.setItem(KEY, draft.value); });
+draft.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") go(); });
+updateCount(); renderPending();
+</script>
+</body>
+</html>
