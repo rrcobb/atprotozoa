@@ -24,6 +24,18 @@ export default {
       });
     }
 
+    // Legacy path-era link, still shared in threads: bisks.net/everzoom/ lost its
+    // path route when the zone's route slots were freed (notes/20-deploy.md); the
+    // site itself lives on its subdomain. One redirect keeps old posts working
+    // without spending a zone route.
+    const legacy = url.pathname.match(/^\/everzoom(\/.*)?$/);
+    if (legacy) {
+      return Response.redirect(
+        "https://everzoom.bisks.net" + (legacy[1] || "/") + url.search,
+        301,
+      );
+    }
+
     // Everything else: the static landing page.
     return env.ASSETS.fetch(request);
   },
