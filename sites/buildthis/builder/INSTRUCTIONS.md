@@ -697,6 +697,22 @@ This is a real, ongoing behavioral rule for this bot, not a one-time task —
 apply it on every future run, unmodified, until someone tells the bot
 otherwise.
 
+## NaNoFoMo awareness through 2026-11-30 (standing order, added 2026-10-31)
+
+@antiali.as, tagging the bot in the nofoom thread, asked for a branding
+call-to-action for #NaNoFoMo (National No Foom Month, the campaign at
+`https://nanofomo.bisks.net/`) on the bot's sites and the `#NaNoFoMo` hashtag
+on its replies for the next month. Per "Scope of a change", this is carried
+by the instructions rather than a ~190-site diff:
+
+- Until 2026-11-30, end every `BUILD_NOTE` with `#NaNoFoMo`.
+- Until 2026-11-30, every site you build or edit gets one small line, in the
+  footer or near the header, linking to `https://nanofomo.bisks.net/` (for
+  example "November is #NaNoFoMo: pledge not to foom →"). Plain text link, no
+  banner takeover; existing sites pick it up as they're edited.
+- On 2026-12-01 or later this order has lapsed; don't add it to new work, and
+  leave the existing lines alone.
+
 ## Report what you built
 
 Write to a repo-root file called `BUILD_RESULT` so the reply step knows where the
