@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>clipcount — how many paperclips is that, really?</title>
+<meta name="description" content="Type any number of paperclips and watch it turn into boxes, cartons, pallets, shipping containers and container ships, with real volume, mass and length.">
+<meta property="og:title" content="clipcount — a paperclip count visualizer">
+<meta property="og:description" content="From a handful of clips to container ships to the volume of the Sun. Type any number.">
+<meta property="og:image" content="https://clipcount.bisks.net/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A paperclip, a box of paperclips, a shipping container and a container ship in a row, growing.">
+<meta property="og:url" content="https://clipcount.bisks.net/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://clipcount.bisks.net/og.png">
+<style>
+  :root { --bg:#14181c; --panel:#1c2228; --ink:#eef1f4; --muted:#8b96a3; --steel:#b9c3cf; --accent:#ffb100; --line:#2b333b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 ui-monospace, "JetBrains Mono", Menlo, monospace; }
+  main { max-width: 920px; margin: 0 auto; padding: 28px 18px 60px; }
+  h1 { margin:0; font-size: 1.7rem; letter-spacing:-.02em; }
+  .sub { color: var(--muted); margin: 4px 0 22px; }
+  .panel { background: var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .entry { display:flex; gap:8px; flex-wrap:wrap; }
+  #count { flex:1 1 220px; font:inherit; font-size:1.3rem; padding:10px 12px; border-radius:8px; border:1px solid var(--line); background:#0f1316; color:var(--ink); min-width:0; }
+  #count:focus { outline:2px solid var(--accent); }
+  button { font:inherit; background:#0f1316; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:8px 12px; cursor:pointer; }
+  button:hover { border-color: var(--accent); }
+  .presets { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+  .presets button { font-size:.8rem; padding:5px 9px; color:var(--steel); }
+  input[type=range] { width:100%; accent-color: var(--accent); margin-top:12px; }
+  .lbl { color:var(--muted); font-size:.8rem; display:flex; justify-content:space-between; }
+  #err { color:#ff6b57; min-height:1.4em; margin:8px 0 0; font-size:.85rem; }
+  #big { font-size: clamp(1.4rem, 5vw, 2.4rem); font-weight:800; word-break:break-word; }
+  #big sup { font-size:.55em; }
+  #summary { color: var(--steel); margin-top:4px; }
+  .row { border-top:1px solid var(--line); padding:12px 0; }
+  .row:first-child { border-top:0; }
+  .rowhead { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; font-size:.9rem; margin-bottom:8px; }
+  .rowhead b { color: var(--accent); }
+  .rowhead span { color: var(--muted); }
+  .icons { display:flex; flex-wrap:wrap; gap:6px; align-items:flex-end; }
+  .icons svg { display:block; animation: pop .35s ease both; }
+  .more { color:var(--muted); align-self:center; margin-left:6px; font-size:.9rem; }
+  @keyframes pop { from { transform: translateY(8px) scale(.85); opacity:0; } to { transform:none; opacity:1; } }
+  @media (prefers-reduced-motion: reduce) { .icons svg { animation:none; } }
+  .facts { display:grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap:12px; }
+  .fact .k { color:var(--muted); font-size:.75rem; text-transform:uppercase; letter-spacing:.08em; }
+  .fact .v { font-size:1.15rem; font-weight:600; }
+  .fact .c { color:var(--steel); font-size:.85rem; }
+  sup { line-height:0; }
+  .share { display:flex; gap:8px; flex-wrap:wrap; }
+  .share a { color:var(--ink); text-decoration:none; border:1px solid var(--line); border-radius:8px; padding:8px 12px; background:#0f1316; }
+  .share a:hover { border-color: var(--accent); }
+  footer { color:var(--muted); font-size:.8rem; margin-top:24px; }
+  footer a { color:var(--steel); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>clipcount</h1>
+  <p class="sub">how many paperclips is that, really? type any number.</p>
+
+  <section class="panel">
+    <form class="entry" id="form" autocomplete="off">
+      <input id="count" inputmode="text" spellcheck="false" aria-label="number of paperclips" placeholder="e.g. 1,000,000 · 3 billion · 2^64-1 · 1e40" value="250">
+      <button type="submit">visualize</button>
+    </form>
+    <div id="err" role="status"></div>
+    <input id="slider" type="range" min="0" max="60" step="0.01" value="2.4" aria-label="paperclips, log scale">
+    <div class="lbl"><span>1</span><span>log scale</span><span>10<sup>60</sup></span></div>
+    <div class="presets" id="presets"></div>
+    <div style="margin-top:12px">
+      <div class="lbl"><span>chessboard: one clip on square 1, doubling every square</span><span id="sqlabel">square 8</span></div>
+      <input id="chess" type="range" min="1" max="64" step="1" value="8" aria-label="chessboard square">
+    </div>
+  </section>
+
+  <section class="panel" id="result">
+    <div id="big"></div>
+    <div id="summary"></div>
+    <div id="rows"></div>
+  </section>
+
+  <section class="panel" id="factspanel" hidden>
+    <div class="facts" id="facts"></div>
+    <p class="lbl" style="margin-top:12px;display:block">one clip: 32 mm long, 0.5 g of steel, about 0.44 cm³ of box once packed (90% fill). containers are filled to that density.</p>
+  </section>
+
+  <section class="share">
+    <a id="share" href="#" target="_blank" rel="noopener">post this to bluesky</a>
+    <a id="copy" href="#">copy link</a>
+  </section>
+
+  <footer>
+    <a href="https://rateyourbuild.bisks.net/site/clipcount">rate this on rateyourbuild →</a> ·
+    <a href="https://bisks.net/">more experiments</a>
+  </footer>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>
