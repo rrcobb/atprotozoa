@@ -164,6 +164,11 @@ const hosted = new Set(Object.keys(JSON.parse(readFileSync("fallback/sites.json"
 const deployedHosted = new Set(await deployedHostedSites());
 const routes = (await cf(`/zones/${ZONE_ID}/workers/routes`)) || [];
 const scripts = await listScripts();
+// Custom Domains bound to a Worker go when the Worker does, along with their
+// DNS record and certificate. --workers skips those Workers; --domain <name>
+// deletes one at a time and checks the hostname still answers afterwards.
+const domains = (await cf(`/accounts/${ACCOUNT_ID}/workers/domains`)) || [];
+const domainOf = new Map(domains.map((d) => [d.service, d.hostname]));
 const scriptRoutes = new Map(scripts.map((s) => [s.id, routes.filter((r) => r.script === s.id)]));
 
 // Hosted sites whose own route is still in place.
@@ -175,13 +180,15 @@ const notDeployed = pending.filter((x) => !deployedHosted.has(x.name));
 
 // Workers nothing routes to: a hosted site's old Worker, or an orphan.
 const siteOf = (id) => id.replace(/^atprotozoa-/, "");
-const unused = scripts.filter((s) => {
+const unusedAll = scripts.filter((s) => {
   if (!s.id.startsWith("atprotozoa-") || scriptRoutes.get(s.id).length) return false;
   if (s.id === FALLBACK || s.id === "atprotozoa-watchtower") return false;
   const name = siteOf(s.id);
   if (hosted.has(name)) return true;
   return !existsSync(`sites/${name}`) && !existsSync(name);
 });
+const unused = unusedAll.filter((s) => !domainOf.has(s.id));
+const withDomain = unusedAll.filter((s) => domainOf.has(s.id));
 
 const retired = scripts.filter((s) => {
   const name = siteOf(s.id);
@@ -195,6 +202,7 @@ if (mode === "--plan") {
     console.log(`  ${notDeployed.length} still routed, but the deployed fallback doesn't serve them yet: ${notDeployed.map((x) => x.name).join(" ")}`);
   }
   console.log(`${unused.length} Workers with no route that can be deleted (--workers): ${unused.map((s) => s.id).join(" ")}`);
+  console.log(`${withDomain.length} more that still hold a Custom Domain (--domain <name>, one at a time): ${withDomain.map((s) => domainOf.get(s.id)).join(" ")}`);
   console.log(`${retired.length} retired stubs still deployed (--retired): ${retired.map((s) => s.id).join(" ")}`);
   console.log(`account: ${scripts.length} Workers`);
 } else if (mode === "--routes") {
@@ -209,6 +217,27 @@ if (mode === "--plan") {
       return { name: s.id, ok: true };
     }),
   );
+} else if (mode === "--domain") {
+  const host = args.find((a) => !a.startsWith("--"));
+  const s = withDomain.find((x) => domainOf.get(x.id) === host);
+  if (!s) {
+    console.error(`${host} is not a Custom Domain on an unused Worker`);
+    process.exit(1);
+  }
+  await cf(`/accounts/${ACCOUNT_ID}/workers/scripts/${s.id}?force=true`, { method: "DELETE" });
+  const name = host.replace(/\.bisks\.net$/, "");
+  let result = "never answered";
+  for (let i = 0; i < 30; i++) {
+    await sleep(2000);
+    try {
+      const p = await probe(name);
+      result = `${p.status} fallback=${p.fallback}`;
+      if (p.fallback && p.status === 200) break;
+    } catch (err) {
+      result = err.cause?.code || err.message;
+    }
+  }
+  console.log(`deleted ${s.id}; ${host}: ${result}`);
 } else if (mode === "--retired") {
   console.log(`retiring ${retired.length} Workers`);
   report(

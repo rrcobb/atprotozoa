@@ -170,7 +170,11 @@ Worker's hostname check ran.
    fallback to answer, and compares status and body hash of `/` against the old
    Worker. On a mismatch it puts the route back.
 4. `node audit/cf-cutover.mjs --workers` then deletes the old Workers, which no
-   longer have routes. This is the step that frees cap.
+   longer have routes. This is the step that frees cap. It skips any Worker
+   that still holds a Custom Domain (29 of the migrated sites did): deleting
+   the Worker takes the Custom Domain's DNS record and certificate with it, so
+   those go one at a time with `--domain <hostname>`, which reports whether the
+   hostname still answers afterwards.
 
 Run `node audit/cf-cutover.mjs` with no flag to see what each step would touch.
 Edits pushed to a migrated site between steps 2 and 3 deploy to fallback but
