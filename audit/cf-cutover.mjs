@@ -15,9 +15,11 @@
 // Putting it back is a single API call, so step 2 is the reversible one.
 // Deleting the Worker afterwards is not reversible, and stays a separate step.
 //
-// A site is only cut over when the last-deployed commit (the tag deploy.yml
-// moves after a green run) already lists it in fallback/sites.json, so fallback
-// is known to have its files.
+// A site is only cut over when the deployed fallback already lists it
+// (https://fallback.bisks.net/hosted.json), so fallback is known to have its
+// files. Not the last-deployed tag: one site that can't deploy keeps every run
+// red and the tag still, and while the account is over the Worker cap a new
+// site with server code is exactly that.
 //
 // Usage:
 //   node audit/cf-cutover.mjs                    # plan: what each step would touch
@@ -32,7 +34,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 
 const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || "83803d427e6fd1a7d6408ed63e0a9191";
@@ -85,16 +86,10 @@ async function listScripts() {
   return all;
 }
 
-function hostedAt(ref) {
-  try {
-    const out = execFileSync("git", ["show", `${ref}:fallback/sites.json`], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    return Object.keys(JSON.parse(out).sites);
-  } catch {
-    return [];
-  }
+// The sites the deployed fallback serves right now.
+async function deployedHostedSites() {
+  const res = await fetch("https://fallback.bisks.net/hosted.json", { headers: { "cache-control": "no-cache" } });
+  return res.ok ? await res.json() : [];
 }
 
 async function probe(name) {
@@ -159,8 +154,7 @@ function report(results) {
 }
 
 const hosted = new Set(Object.keys(JSON.parse(readFileSync("fallback/sites.json", "utf8")).sites));
-execFileSync("git", ["fetch", "-q", "origin", "tag", "last-deployed", "--force"]);
-const deployedHosted = new Set(hostedAt("last-deployed"));
+const deployedHosted = new Set(await deployedHostedSites());
 const routes = (await cf(`/zones/${ZONE_ID}/workers/routes`)) || [];
 const scripts = await listScripts();
 const scriptRoutes = new Map(scripts.map((s) => [s.id, routes.filter((r) => r.script === s.id)]));
@@ -191,7 +185,7 @@ if (mode === "--plan") {
   console.log(`${hosted.size} hosted sites`);
   console.log(`  ${ready.length} still routed to their old Worker, ready to cut over (--routes)`);
   if (notDeployed.length) {
-    console.log(`  ${notDeployed.length} still routed, but not in the last-deployed fallback yet: ${notDeployed.map((x) => x.name).join(" ")}`);
+    console.log(`  ${notDeployed.length} still routed, but the deployed fallback doesn't serve them yet: ${notDeployed.map((x) => x.name).join(" ")}`);
   }
   console.log(`${unused.length} Workers with no route that can be deleted (--workers): ${unused.map((s) => s.id).join(" ")}`);
   console.log(`${retired.length} retired stubs still deployed (--retired): ${retired.map((s) => s.id).join(" ")}`);

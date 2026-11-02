@@ -171,6 +171,12 @@ export default {
     const url = new URL(request.url);
     const name = siteFor(url.hostname);
     if (name) return serve(request, env, url, name, SITES[name]);
+    // The list this deployed version hosts. audit/cf-cutover.mjs reads it
+    // before removing a site's own route, so it never cuts a site over to a
+    // fallback that doesn't have its files yet.
+    if (url.hostname === "fallback" + ZONE && url.pathname === "/hosted.json") {
+      return Response.json(Object.keys(SITES), { headers: { "cache-control": "no-store" } });
+    }
     return notFound(url);
   },
 };

@@ -128,8 +128,9 @@ Those sites are now **hosted**: they have no `wrangler.toml`, and the
   copy.
 - **`fallback/src/index.ts` maps the hostname**: `<name>.bisks.net/<path>` is
   served from `/<name>/<path>`, and the asset router's own redirects get the
-  `/<name>` taken back off. Responses carry `x-bisks-host: fallback`. Unknown
-  hostnames still get the "nothing here" page.
+  `/<name>` taken back off. Responses carry `x-bisks-host: fallback`, and
+  `https://fallback.bisks.net/hosted.json` lists the sites the deployed version
+  serves. Unknown hostnames still get the "nothing here" page.
 - **`fallback` already held the `*.bisks.net/*` route**, which is why it hosts:
   it existed before the cap stopped new Workers, and a hosted site needs no
   route of its own. Explicit routes beat the wildcard, so sites with their own
@@ -164,9 +165,10 @@ Worker's hostname check ran.
    site's `wrangler.toml` and `src/` and records it in `fallback/sites.json`.
    Push; CI deploys fallback with the site in it.
 3. The old Worker still holds the site's explicit route and keeps serving. Once
-   the deploy is green, `node audit/cf-cutover.mjs --routes` removes each such
-   route, waits for fallback to answer, and compares status and body hash of
-   `/` against the old Worker. On a mismatch it puts the route back.
+   fallback has deployed with the site (`hosted.json` lists it),
+   `node audit/cf-cutover.mjs --routes` removes each such route, waits for
+   fallback to answer, and compares status and body hash of `/` against the old
+   Worker. On a mismatch it puts the route back.
 4. `node audit/cf-cutover.mjs --workers` then deletes the old Workers, which no
    longer have routes. This is the step that frees cap.
 
