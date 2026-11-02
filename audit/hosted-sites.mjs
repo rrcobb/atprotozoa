@@ -41,8 +41,13 @@ function smallestGroup() {
   for (const o of Object.values(manifest.sites)) if (size.has(o.group)) size.set(o.group, size.get(o.group) + 1);
   return [...size].sort((a, b) => a[1] - b[1] || a[0] - b[0])[0][0];
 }
+// A directory needs a public/ to count. The build box can hold leftover
+// sites/<name>/ directories with only gitignored files in them (node_modules
+// from an abandoned build), which git never commits; listing those put four
+// nonexistent sites in the manifest on 2026-11-02 and failed CI's check.
 const hosted = readdirSync("sites", { withFileTypes: true })
   .filter((e) => e.isDirectory() && !existsSync(join("sites", e.name, "wrangler.toml")))
+  .filter((e) => existsSync(join("sites", e.name, "public")))
   .map((e) => e.name)
   .sort();
 
