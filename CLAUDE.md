@@ -10,10 +10,10 @@ It intentionally runs looser than a shared production codebase.
   across sites. See `notes/10-architecture.md` and `notes/00-vision.md`.
 - **One site = one directory = one subdomain.** `sites/<name>` →
   `<name>.bisks.net`. A site with no server code has no `wrangler.toml` and is
-  served by `fallback/` ("Hosted sites" in `notes/20-deploy.md`); the account
-  is over Cloudflare's 500-Worker cap, so a new Worker can't be created. A site
-  that needs server code is its own Worker, `atprotozoa-<name>`, claimed with a
-  plain route (`zone_name`), not `custom_domain = true`. Don't add `bisks.net/<name>`
+  served by `fallback/` ("Hosted sites" in `notes/20-deploy.md`), which keeps
+  the account under Cloudflare's 500-Worker cap. A site that needs server code
+  is its own Worker, `atprotozoa-<name>`, claimed with a plain route
+  (`zone_name`), not `custom_domain = true`. Don't add `bisks.net/<name>`
   path routes: the zone has a 1000-route cap (`notes/20-deploy.md`). Sites
   built during the path-mounting era still strip a mount prefix; see
   `notes/40-new-site-playbook.md` before editing one.

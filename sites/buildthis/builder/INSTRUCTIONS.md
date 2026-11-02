@@ -321,33 +321,36 @@ here; write `BUILD_NOTE` alone (no `BUILD_REACTION`) for an actual decline (see
   grants) and the one gotcha that breaks login if missed: scope is declared
   in *two* files (`client-metadata.json` and `oauth.js`'s `SCOPE` constant)
   and they must match exactly, or the PDS rejects the login.
-- **New site = one directory = one subdomain, and no Worker.** A new site gets
-  its own `<newname>.bisks.net` hostname and is **hosted**: `public/`,
-  `site.json` and `package.json`, with **no `wrangler.toml` and no `src/`**.
-  The shared `fallback` Worker serves it. Cloudflare caps the account at 500
-  Workers, the account is far over that, and creating a new Worker fails at
-  deploy (`code: 10037`) — so a new site with a `wrangler.toml` never goes
-  live. See "Hosted sites" in `notes/20-deploy.md` and
+- **New site = one directory = one subdomain, hosted unless it needs server
+  code.** A new site gets its own `<newname>.bisks.net` hostname. By default
+  it is **hosted**: `public/`, `site.json` and `package.json`, with **no
+  `wrangler.toml` and no `src/`**, and the shared `fallback` Worker serves it.
+  Everything that runs in the page — OAuth and atproto writes included — works
+  on a hosted site. Cloudflare caps the account at 500 Workers, so a Worker is
+  for a site that needs one. See "Hosted sites" in `notes/20-deploy.md` and
   `notes/40-new-site-playbook.md`.
 
-  For a new standalone idea: `cp -r` the closest existing site, then rename
-  (`package.json` `"name": "@atprotozoa/<newname>"`) and **delete any
-  `wrangler.toml` and `src/` you copied**. Then run
-  `node audit/hosted-sites.mjs --apply`, which lists the site in
-  `fallback/sites.json` (the harness also runs it, but run it yourself so the
-  check passes before you finish). If the closest site had server code, build
-  the browser-side version of the idea: everything that runs in the page,
-  OAuth and atproto writes included, works on a hosted site.
+  For a hosted site: `cp -r` the closest existing site, rename (`package.json`
+  `"name": "@atprotozoa/<newname>"`), **delete any `wrangler.toml` and `src/`
+  you copied**, and run `node audit/hosted-sites.mjs --apply`, which lists the
+  site in `fallback/sites.json` (the harness runs it too, but run it yourself
+  so the check passes before you finish).
+
+  Give the site its own Worker only when it needs server code: a per-result
+  share route that rewrites OG tags, a proxy for an API the browser can't call,
+  KV. Copy a site that has a `wrangler.toml`, set
+  `name = "atprotozoa-<newname>"` + `main = "src/index.ts"` + a single route
+  `{ pattern = "<newname>.bisks.net/*", zone_name = "bisks.net" }`
+  (`zone_name`, *not* `custom_domain = true`), and serve the rest from the
+  `ASSETS` binding with no mount-prefix stripping.
 
   Build the idea in `public/`. Any absolute URL the site writes about itself —
   OG tags, share links, OAuth redirect URIs — is
   `https://<newname>.bisks.net/...` with no path prefix.
 
-  **Editing an existing site that has its own Worker** (it has a
-  `wrangler.toml`) works as before: its Worker exists, so redeploying it is
-  fine. Don't give a hosted site a `wrangler.toml` or `src/` — that would be a
-  new Worker, which fails, and `audit/hosted-sites.mjs` fails the push on a
-  hosted site with a `src/`.
+  A hosted site with a `src/` fails the push (`audit/hosted-sites.mjs`): its
+  code would never run. If you add server code to a hosted site, give it a
+  `wrangler.toml` as above.
 - **Write `sites/<newname>/site.json`.** This is what puts the site on the apex
   gallery, which is GENERATED from these manifests — do **not** hand-edit
   `apex/public/index.html`'s card list, it gets overwritten and CI fails the
@@ -383,8 +386,8 @@ here; write `BUILD_NOTE` alone (no `BUILD_REACTION`) for an actual decline (see
   intent-compose link at minimum, a generated share-card image + `navigator.share`
   when there's a per-user result worth showing off, and a per-result unfurl page
   (a tiny Worker route, not the static shell) once a site is the kind that gets
-  passed around — but only on a site that already has its own Worker; a new
-  site is hosted and can't have one (see above). See `notes/45-sharing-and-virality.md` for the concrete recipe
+  passed around; that route is server code, so the site gets its own Worker
+  (see above). See `notes/45-sharing-and-virality.md` for the concrete recipe
   and `sites/didscope` for the reference implementation. Skip it only for sites
   with no shareable "result" (a pure utility/tool page) — that's the exception,
   treat inclusion as the default.

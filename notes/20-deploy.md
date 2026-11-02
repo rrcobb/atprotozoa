@@ -87,7 +87,14 @@ A limit increase was requested on 2026-09-17 via the
 [Limit Increase Request Form](https://forms.gle/eX6pXvit1wBv77Yw5). Cloudflare
 never answered, and its limits page now points accounts that want more than 500
 Workers at Workers for Platforms instead. The fix taken was to stop giving every
-site a Worker: see [Hosted sites](#hosted-sites).
+site a Worker: see [Hosted sites](#hosted-sites). Moving 592 sites onto
+fallback on 2026-11-02 brought the account to **216 Workers**.
+
+New sites default to hosted, but nothing enforces it: a site that gets a
+`wrangler.toml` it doesn't need still deploys and works, and costs a slot.
+That's deliberate — a builder mistake should cost a slot, not a broken site.
+When the count gets close to 500 again, rerun the sweep: `migrate-to-host.mjs
+--all`, then `cf-cutover.mjs --routes` and `--workers`.
 
 Assets-only sites (`wrangler.toml` with no `main`) still count as Workers, so
 dropping `main` frees nothing. Only removing the Worker does.

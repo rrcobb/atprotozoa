@@ -10,10 +10,9 @@ two shapes:
   `src/`. The `fallback` Worker serves it. Everything that runs in the browser —
   which is most sites — fits here, OAuth included.
 - **Its own Worker**, `atprotozoa-<name>`, for a site that needs server code: a
-  share route that rewrites OG tags, an API proxy, KV. The account is over
-  Cloudflare's 500-Worker cap, so this only works while there are free slots —
-  `node audit/cf-workers.mjs` shows the count. See "Hosted sites" and "The
-  500-Worker cap" in `notes/20-deploy.md`.
+  share route that rewrites OG tags, an API proxy, KV. Cloudflare caps the
+  account at 500 Workers; `node audit/cf-workers.mjs` shows the count. See
+  "Hosted sites" and "The 500-Worker cap" in `notes/20-deploy.md`.
 
 ## Steps
 
