@@ -14,23 +14,31 @@ atprotozoa/
 │   ├── src/index.ts
 │   ├── public/             # generated landing/gallery page
 │   └── wrangler.toml
-└── sites/                  # ~200 of these, one per experiment
-    ├── trigrams/           # the first one → trigrams.bisks.net
+├── fallback/               # *.bisks.net catch-all; serves the hosted sites
+│   ├── src/index.ts
+│   ├── sites.json          # which sites it hosts
+│   └── wrangler.toml
+└── sites/                  # ~800 of these, one per experiment
+    ├── trigrams/           # has server code → its own Worker
     │   ├── src/index.ts
     │   ├── public/
     │   ├── site.json
     │   └── wrangler.toml
+    ├── nofoom/             # static → hosted by fallback, no wrangler.toml
+    │   ├── public/
+    │   └── site.json
     └── <next-site>/        # copy an existing site, rename, edit
 ```
 
 ## Why Cloudflare Workers (not Pages)
 
-Each site is a **Worker with static assets** (the `assets` binding), not a Pages
-project. Reasons:
+Sites are served by **Workers with static assets** (the `assets` binding), not
+Pages projects. Reasons:
 
-- **One Worker per site, one hostname per site.** A Worker maps cleanly to
-  `<name>.bisks.net` via a plain Route on the shared zone. Pages gives one
-  project per repo connection, which fights the "tons of tiny sites" goal.
+- **One hostname per site.** A Worker maps cleanly to `<name>.bisks.net` via a
+  plain Route on the shared zone. Pages gives one project per repo connection
+  and caps an account at 100 projects, which fights the "tons of tiny sites"
+  goal.
 - **A frontend-first server surface.** The browser should own ephemeral state and
   can connect directly to Jetstream for live atproto data. User-owned durable
   data belongs in atproto records when possible. Workers still handle static
@@ -42,8 +50,13 @@ project. Reasons:
   instead (notes/11-durable-objects.md).
 - **Closer to the mino.mobi model** (a shared OAuth worker + many surfaces).
 
-A fully static site still ships as a Worker: `public/` via the assets binding, and
-a trivial (or absent) fetch handler. The overhead is one `wrangler.toml`.
+A fully static site does **not** get a Worker of its own. It has no
+`wrangler.toml`, and the `fallback` Worker serves its `public/` at
+`<name>.bisks.net`, alongside every other such site. That started in November
+2026, when the account's Worker count hit Cloudflare's 500 cap and new Workers
+stopped being created; see "Hosted sites" in `notes/20-deploy.md`. A site that
+needs server code (an OAuth callback, a share route, KV) is still its own
+Worker.
 
 ## Anatomy of a site
 

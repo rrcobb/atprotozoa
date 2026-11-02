@@ -63,38 +63,34 @@ those drift, a deploy can fail locally and succeed in CI. See the next section.
 
 ## The 500-Worker cap
 
-Cloudflare's Workers Paid plan allows 500 Workers per account. This repo is one
-Worker per site, so the count tracks the number of experiments: **679 as of
-2026-09-17, 179 over the cap.**
+Cloudflare's Workers Paid plan allows 500 Workers per account. Until November
+2026 this repo was one Worker per site, and the account reached **799 Workers on
+2026-11-02, 299 over the cap.**
 
-Nothing is broken by that, and nothing has been for weeks. The account passed
-500 on 2026-08-20 and kept creating Workers at the usual 5-10/day for another
-month. Every site serves, and every site redeploys. The cap applies only to
-**creating** a Worker that does not exist yet.
+Over the cap, existing Workers keep serving and redeploying. **Creating** a
+Worker that does not exist yet fails:
 
-### It depends on the wrangler version
+```
+A request to the Cloudflare API (/accounts/…/workers/scripts/atprotozoa-<name>/assets-upload-session) failed.
+  You have exceeded the limit of 500 Workers on your account. [code: 10037]
+```
 
-Creating a new Worker over the cap fails on old wrangler and succeeds on new:
+The account passed 500 on 2026-08-20 and kept creating Workers for two more
+months, because newer wrangler created scripts through the Workers Assets upload
+path, which skipped the check (4.134.0 succeeded where 4.114.0 got 10037, same
+credentials, 2026-09-17). That stopped between 2026-10-29 (strandbeest, the last
+new Worker) and 2026-10-31: since then wrangler 4.134.0 and 4.156.1 both get
+10037 on that same assets-upload path. Nine new sites piled up undeployed before
+anyone noticed.
 
-| wrangler | creating a new Worker over the cap |
-| --- | --- |
-| 4.114.0 | fails, `code: 10037` |
-| 4.134.0 | succeeds |
+A limit increase was requested on 2026-09-17 via the
+[Limit Increase Request Form](https://forms.gle/eX6pXvit1wBv77Yw5). Cloudflare
+never answered, and its limits page now points accounts that want more than 500
+Workers at Workers for Platforms instead. The fix taken was to stop giving every
+site a Worker: see [Hosted sites](#hosted-sites).
 
-Both were tried against this account on 2026-09-17 with the same credentials,
-minutes apart. Newer wrangler provisions a new script through the Workers
-Assets upload path rather than the legacy `PUT /workers/scripts/:name`, and that
-path does not hit the same check. Calling the legacy API directly returns 10037
-regardless of which token you use — the account's OAuth session and the CI API
-token behave identically, so this is **not** a credentials difference.
-
-This is what made it confusing: `sites/listbot` would not deploy locally
-(wrangler 4.114.0) but deployed cleanly through CI (`pnpm dlx`, 4.134.0) a
-minute later. The natural reading is "CI has more permission than I do," and
-that reading is wrong.
-
-The repo now pins `^4.134.0`, so the local path works too. If a local deploy of
-a *new* site ever fails with 10037 again, check the wrangler version first.
+Assets-only sites (`wrangler.toml` with no `main`) still count as Workers, so
+dropping `main` frees nothing. Only removing the Worker does.
 
 ### The error often does not name the cap
 
@@ -108,22 +104,75 @@ account API returns the same misleading 10000 for scope problems. Treat a bare
 
 `node audit/cf-workers.mjs` inventories the account against the cap, classifies
 every Worker against the repo, and flags routes left behind by a deleted Worker
-(routes are a zone resource, so they can strand the way DO namespaces did).
+(routes are a zone resource, so they can strand the way DO namespaces did). A
+Worker whose site is now hosted shows as HOSTED; those are the ones that are
+safe to delete, via `audit/cf-cutover.mjs`.
 
-There is deliberately no `--prune`. The DO and custom-domain caps were held by
-leftovers that outlived their bindings, so a safe delete set could be derived.
-This one is not: all 674 site Workers map to live site directories. Deleting one
-deletes a site.
+## Hosted sites
 
-A limit increase was requested from Cloudflare on 2026-09-17 via the
-[Limit Increase Request Form](https://forms.gle/eX6pXvit1wBv77Yw5); the limits
-doc says the cap is adjustable. That is the right fix — the alternatives
-(migrating static sites to Pages, or collapsing many sites into one
-multi-tenant Worker) either fight the deploy pipeline or give up the
-per-site isolation that makes a build-on-demand bot safe to run.
+Most sites never needed a Worker of their own: theirs only handed every request
+to the `ASSETS` binding, sometimes after stripping a path-era mount prefix. On
+2026-11-02, 592 of the 803 site Workers were that, or had no Worker code at all.
+Those sites are now **hosted**: they have no `wrangler.toml`, and the
+`fallback` Worker serves them.
 
-Note that assets-only sites (`wrangler.toml` with no `main`) still count: all 70
-of them appear in the account's script list, so dropping `main` frees nothing.
+- **A hosted site is `sites/<name>/` with `public/` and no `wrangler.toml`.**
+  It still has its own `site.json`, its own `<name>.bisks.net` hostname, and so
+  its own origin, cookies and localStorage. OAuth works as before.
+- **`fallback/sites.json` lists them**, with two per-site options: `prefix`
+  (the old mount prefix to strip, for migrated path-era sites) and `spa`
+  (`not_found_handling = "single-page-application"`).
+- **`fallback/build.mjs` assembles the assets**: each listed site's `public/`
+  goes to `fallback/.build/<name>/`. `wrangler.toml` runs it as the `[build]`
+  command, so `wrangler deploy` and `wrangler dev` always start from a fresh
+  copy.
+- **`fallback/src/index.ts` maps the hostname**: `<name>.bisks.net/<path>` is
+  served from `/<name>/<path>`, and the asset router's own redirects get the
+  `/<name>` taken back off. Responses carry `x-bisks-host: fallback`. Unknown
+  hostnames still get the "nothing here" page.
+- **`fallback` already held the `*.bisks.net/*` route**, which is why it hosts:
+  it existed before the cap stopped new Workers, and a hosted site needs no
+  route of its own. Explicit routes beat the wildcard, so sites with their own
+  Worker are untouched.
+
+`run_worker_first = true` on fallback is load-bearing. `.build/` holds every
+hosted site side by side; without it the asset router would serve
+`a.bisks.net/b/index.html` (site b's page, on site a's origin) before the
+Worker's hostname check ran.
+
+### Keeping it in sync
+
+- `node audit/hosted-sites.mjs` checks that `fallback/sites.json` lists exactly
+  the site directories with no `wrangler.toml`, and that each has
+  `public/index.html` and no `src/` (code in a hosted site would never run). It
+  runs in `deploy.yml`'s `check` job. `--apply` adds new hosted sites and drops
+  gone ones; `box-build.sh` runs it before every build push, the same as the
+  gallery.
+- `deploy.yml` maps a change under a hosted site to a `fallback` deploy, so
+  editing `sites/<name>/public/` redeploys fallback.
+
+### Moving a site onto fallback
+
+1. `node audit/migrate-to-host.mjs` classifies every site with a
+   `wrangler.toml`. A site is eligible only when fallback reproduces what its
+   Worker does: a standard `wrangler.toml` (one `<name>.bisks.net/*` route,
+   assets from `./public`, no bindings, vars, crons or live Durable Object
+   classes), Worker code that only passes requests to `ASSETS` or strips a
+   mount prefix, and no `_headers` / `_redirects`. `--list` gives the reason
+   for each site it keeps.
+2. `node audit/migrate-to-host.mjs --apply <names>` (or `--all`) deletes the
+   site's `wrangler.toml` and `src/` and records it in `fallback/sites.json`.
+   Push; CI deploys fallback with the site in it.
+3. The old Worker still holds the site's explicit route and keeps serving. Once
+   the deploy is green, `node audit/cf-cutover.mjs --routes` removes each such
+   route, waits for fallback to answer, and compares status and body hash of
+   `/` against the old Worker. On a mismatch it puts the route back.
+4. `node audit/cf-cutover.mjs --workers` then deletes the old Workers, which no
+   longer have routes. This is the step that frees cap.
+
+Run `node audit/cf-cutover.mjs` with no flag to see what each step would touch.
+Edits pushed to a migrated site between steps 2 and 3 deploy to fallback but
+aren't visible until the cutover, since the old Worker is still answering.
 
 ## Routes
 
