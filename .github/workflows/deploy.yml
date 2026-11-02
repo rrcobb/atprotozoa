@@ -92,35 +92,56 @@ jobs:
           # watchtower/wrangler.toml). Globbing rather than listing them means a
           # new one deploys without editing this file; fallback/ was added by
           # hand and silently never deployed until this was generalised.
+          #
+          # hosts/<n> are the host Workers for the hosted sites (notes/20-deploy.md,
+          # "Hosted sites").
           all_dirs() {
             for d in */; do
               [ "$d" = "sites/" ] && continue
               if [ -f "${d}wrangler.toml" ]; then echo "${d%/}"; fi
             done
-            for d in sites/*/; do
+            for d in sites/*/ hosts/*/; do
               if [ -f "${d}wrangler.toml" ]; then echo "${d%/}"; fi
             done
           }
+
+          # Hosted site name → its group, from fallback/sites.json. One
+          # "<name> <group>" line each.
+          node -e 'const s = require("./fallback/sites.json").sites; for (const n in s) console.log(n, s[n].group)' > "$RUNNER_TEMP/groups.txt"
 
           # Map a list of changed file paths (on stdin) to the deployable dirs
           # they belong to, keeping only dirs that still have a wrangler.toml —
           # which is also what filters out notes/, audit/ and the like, so this
           # doesn't need to know their names.
           #
-          # A hosted site (sites/<name> with no wrangler.toml) is served by
-          # fallback/, so a change to one deploys fallback. That includes the
-          # push that migrates a site, since it deletes the wrangler.toml.
+          # A hosted site (sites/<name> with no wrangler.toml) deploys the host
+          # Worker for its group. That includes the push that migrates a site,
+          # since it deletes the wrangler.toml. The shared host code
+          # (hosts/src, hosts/build.mjs) and the manifest deploy every host.
           changed_dirs() {
-            sed -n -E -e 's#^(sites/[^/]+)/.*#\1#p' -e t -e 's#^([^/]+)/.*#\1#p' \
+            while IFS= read -r f; do
+              case "$f" in
+                sites/*/*) d="${f#sites/}"; echo "sites/${d%%/*}" ;;
+                hosts/[0-9]*/*) d="${f#hosts/}"; echo "hosts/${d%%/*}" ;;
+                hosts/*) echo ALLHOSTS ;;
+                fallback/sites.json) echo fallback; echo ALLHOSTS ;;
+                */*) echo "${f%%/*}" ;;
+              esac
+            done \
               | sort -u \
               | while IFS= read -r d; do
                   # `&& echo` alone makes the loop's exit status that of the
                   # LAST test, so a push touching only notes/ or .github/ exits
                   # non-zero under `set -e` and fails the job. Always end true.
-                  if [ -f "$d/wrangler.toml" ]; then
+                  if [ "$d" = ALLHOSTS ]; then
+                    for h in hosts/*/; do
+                      if [ -f "${h}wrangler.toml" ]; then echo "${h%/}"; fi
+                    done
+                  elif [ -f "$d/wrangler.toml" ]; then
                     echo "$d"
                   elif [ "${d#sites/}" != "$d" ] && [ -d "$d" ]; then
-                    echo fallback
+                    g=$(awk -v n="${d#sites/}" '$1 == n { print $2 }' "$RUNNER_TEMP/groups.txt")
+                    if [ -n "$g" ]; then echo "hosts/$g"; fi
                   fi
                 done \
               | sort -u

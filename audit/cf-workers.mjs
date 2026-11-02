@@ -111,6 +111,13 @@ function repoSites() {
   for (const name of ROOT_WORKERS) {
     if (existsSync(new URL(`./${name}/wrangler.toml`, repoRoot))) sites.set(name, name);
   }
+  // hosts/<n>/ deploys atprotozoa-host-<n>, a host Worker for hosted sites.
+  const hostsDir = new URL("./hosts/", repoRoot);
+  if (existsSync(hostsDir)) {
+    for (const n of readdirSync(hostsDir)) {
+      if (existsSync(new URL(`./${n}/wrangler.toml`, hostsDir))) sites.set(`host-${n}`, `hosts/${n}`);
+    }
+  }
   return sites;
 }
 
