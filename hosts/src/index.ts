@@ -17,6 +17,10 @@ import manifest from "../../fallback/sites.json";
 interface Env {
   ASSETS: { fetch: (req: Request) => Promise<Response> };
   GROUP: string;
+  // Analytics Engine dataset bisks_hosted_requests: one data point per
+  // request, keyed by site. sites/stats reads it, since Cloudflare's per-Worker
+  // analytics can only count a whole host, not the sites inside it.
+  VISITS?: { writeDataPoint: (p: { blobs: string[]; doubles: number[]; indexes: string[] }) => void };
 }
 
 interface SiteOptions {
@@ -103,7 +107,11 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const name = siteFor(url.hostname, env.GROUP);
-    if (name) return serve(request, env, url, name, SITES[name]);
-    return notFound();
+    if (!name) return notFound();
+    const res = await serve(request, env, url, name, SITES[name]);
+    // doubles: [requests, errors]. A 5xx counts as an error, matching what the
+    // per-Worker numbers count for sites with their own Worker.
+    env.VISITS?.writeDataPoint({ blobs: [name], doubles: [1, res.status >= 500 ? 1 : 0], indexes: [name] });
+    return res;
   },
 };

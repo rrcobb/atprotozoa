@@ -1,5 +1,6 @@
 // stats — per-site request counts for the fleet, from Cloudflare's GraphQL
-// Analytics API, served CORS-open so any site can show its own traffic.
+// Analytics API (sites with their own Worker) and Analytics Engine (hosted
+// sites), served CORS-open so any site can show its own traffic.
 //
 // Why a Worker and not a fetch from each site: the Analytics API needs an
 // account-scoped token, which no site (and no bot build) may hold. This one
@@ -39,6 +40,8 @@ const ROLLUP_KEY = "stats:all";
 // Object.prototype. Null-prototype objects below; the prefix bump refetches.
 const DAY_PREFIX = "day2:";
 const SCRIPT_PREFIX = "atprotozoa-";
+const HOST_SCRIPT = /^host-\d+$/;
+const HOSTED_DATASET = "bisks_hosted_requests";
 const GQL = "https://api.cloudflare.com/client/v4/graphql";
 // Each page is one script per row per day, so 2000 covers one day of the fleet
 // with room to grow. Fetching per day is what keeps a query under the cap.
@@ -96,11 +99,47 @@ async function fetchDay(env: Env, day: string): Promise<DayCounts> {
     const name = r.dimensions.scriptName.startsWith(SCRIPT_PREFIX)
       ? r.dimensions.scriptName.slice(SCRIPT_PREFIX.length)
       : r.dimensions.scriptName;
+    // A host Worker's count is the sum of its sites, which come in per site
+    // from fetchHostedDay below.
+    if (HOST_SCRIPT.test(name)) continue;
     const cur = out[name] || { requests: 0, errors: 0 };
     cur.requests += r.sum.requests;
     cur.errors += r.sum.errors;
     out[name] = cur;
   }
+  for (const [name, c] of Object.entries(await fetchHostedDay(env, day))) {
+    const cur = out[name] || { requests: 0, errors: 0 };
+    cur.requests += c.requests;
+    cur.errors += c.errors;
+    out[name] = cur;
+  }
+  return out;
+}
+
+// Hosted sites (notes/20-deploy.md, "Hosted sites") share four host Workers,
+// so the per-Worker numbers above can't tell them apart. Each host writes one
+// Analytics Engine data point per request instead, with the site name as
+// blob1 and [requests, errors] as doubles. _sample_interval undoes Analytics
+// Engine's sampling, so these sums are request counts like the ones above.
+async function fetchHostedDay(env: Env, day: string): Promise<DayCounts> {
+  const next = isoDay(new Date(Date.parse(day) + 86400e3));
+  const sql = `
+    SELECT blob1 AS name,
+           SUM(_sample_interval * double1) AS requests,
+           SUM(_sample_interval * double2) AS errors
+    FROM ${HOSTED_DATASET}
+    WHERE timestamp >= toDateTime('${day} 00:00:00') AND timestamp < toDateTime('${next} 00:00:00')
+    GROUP BY name
+    FORMAT JSON`;
+  const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.ACCOUNT_ID}/analytics_engine/sql`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.CF_ANALYTICS_TOKEN}` },
+    body: sql,
+  });
+  if (!res.ok) throw new Error(`analytics engine ${day}: ${res.status} ${await res.text()}`);
+  const j = (await res.json()) as { data?: Array<{ name: string; requests: number | string; errors: number | string }> };
+  const out: DayCounts = Object.create(null);
+  for (const r of j.data ?? []) out[r.name] = { requests: Number(r.requests), errors: Number(r.errors) };
   return out;
 }
 

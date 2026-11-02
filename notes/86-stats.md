@@ -43,7 +43,17 @@ day, still accumulating.
 
 Cloudflare's request total for the site's Worker: every request the Worker
 answered, assets and API calls alike, bots and crawlers included. It is not
-unique visitors and not pageviews. A site that serves a firehose proxy or
+unique visitors and not pageviews.
+
+Hosted sites (no Worker of their own; "Hosted sites" in `notes/20-deploy.md`)
+share four host Workers, whose per-Worker totals can't be split by site. Each
+host instead writes one Analytics Engine data point per request to the
+`bisks_hosted_requests` dataset (site name in `blob1`, `[requests, errors]` in
+the doubles), and the stats Worker sums those per day with a second query to
+the Analytics Engine SQL API, weighted by `_sample_interval`. The same token
+covers both. The `host-<n>` Workers' own totals are dropped from the table, so
+each request counts once, under its site. Hosted-site counts start
+2026-11-02, when the hosts went live; that day is partial for them. A site that serves a firehose proxy or
 polls itself will dwarf the rest (spoonternet did 1.2M requests in the week
 this was built, next highest was 37k).
 
