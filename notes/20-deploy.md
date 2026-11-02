@@ -120,44 +120,59 @@ safe to delete, via `audit/cf-cutover.mjs`.
 Most sites never needed a Worker of their own: theirs only handed every request
 to the `ASSETS` binding, sometimes after stripping a path-era mount prefix. On
 2026-11-02, 592 of the 803 site Workers were that, or had no Worker code at all.
-Those sites are now **hosted**: they have no `wrangler.toml`, and the
-`fallback` Worker serves them.
+Those sites are now **hosted**: they have no `wrangler.toml`, and four shared
+host Workers serve them, behind `fallback`.
 
 - **A hosted site is `sites/<name>/` with `public/` and no `wrangler.toml`.**
   It still has its own `site.json`, its own `<name>.bisks.net` hostname, and so
   its own origin, cookies and localStorage. OAuth works as before.
-- **`fallback/sites.json` lists them**, with two per-site options: `prefix`
-  (the old mount prefix to strip, for migrated path-era sites) and `spa`
+- **`fallback/sites.json` lists them**, each with a `group` (which host serves
+  it) and two optional settings: `prefix` (the old mount prefix to strip, for
+  migrated path-era sites) and `spa`
   (`not_found_handling = "single-page-application"`).
-- **`fallback/build.mjs` assembles the assets**: each listed site's `public/`
-  goes to `fallback/.build/<name>/`. `wrangler.toml` runs it as the `[build]`
-  command, so `wrangler deploy` and `wrangler dev` always start from a fresh
-  copy.
-- **`fallback/src/index.ts` maps the hostname**: `<name>.bisks.net/<path>` is
-  served from `/<name>/<path>`, and the asset router's own redirects get the
-  `/<name>` taken back off. Responses carry `x-bisks-host: fallback`, and
+- **`hosts/<n>/` is the host Worker `atprotozoa-host-<n>`** for group n. All
+  four share `hosts/src/index.ts` and `hosts/build.mjs`; each `wrangler.toml`
+  sets `GROUP` and runs `node ../build.mjs <n>` as its `[build]` command, which
+  copies the group's sites' `public/` into `hosts/<n>/.build/<name>/`. The
+  Worker maps `<name>.bisks.net/<path>` to `/<name>/<path>`, takes the `/<name>`
+  back off the asset router's redirects, and answers 404 for any site outside
+  its group. Responses carry `x-bisks-host: fallback` and `x-bisks-group`.
+- **`fallback` routes.** It holds `*.bisks.net/*`, looks the hostname up in
+  `fallback/sites.json`, and passes the request unchanged to `HOST_<group>`, a
+  service binding. Anything else gets the "nothing here" page.
   `https://fallback.bisks.net/hosted.json` lists the sites the deployed version
-  serves. Unknown hostnames still get the "nothing here" page.
-- **`fallback` already held the `*.bisks.net/*` route**, which is why it hosts:
-  it existed before the cap stopped new Workers, and a hosted site needs no
-  route of its own. Explicit routes beat the wildcard, so sites with their own
-  Worker are untouched.
+  routes. Explicit routes beat the wildcard, so sites with their own Worker
+  never reach it.
 
-`run_worker_first = true` on fallback is load-bearing. `.build/` holds every
-hosted site side by side; without it the asset router would serve
+The groups exist so a push redeploys one host, not every hosted site, and a bad
+host deploy reaches only its 148 or so sites. New sites go to the smallest
+group. To add a group, deploy `hosts/<n+1>/` first, then add its binding to
+`fallback/wrangler.toml`; a binding to a Worker that doesn't exist yet fails the
+fallback deploy.
+
+`run_worker_first = true` on each host is load-bearing. `.build/` holds a whole
+group side by side; without it the asset router would serve
 `a.bisks.net/b/index.html` (site b's page, on site a's origin) before the
 Worker's hostname check ran.
+
+To run a hosted site locally, run its host directly:
+`pnpm dlx wrangler dev --cwd hosts/<group> --host <name>.bisks.net`. `--host`
+matters: local dev otherwise rewrites every request to `bisks.net`. Use
+`--cwd`, not `-c`: with `-c` the build command runs from the repo root and
+can't find `../build.mjs`.
 
 ### Keeping it in sync
 
 - `node audit/hosted-sites.mjs` checks that `fallback/sites.json` lists exactly
-  the site directories with no `wrangler.toml`, and that each has
-  `public/index.html` and no `src/` (code in a hosted site would never run). It
-  runs in `deploy.yml`'s `check` job. `--apply` adds new hosted sites and drops
-  gone ones; `box-build.sh` runs it before every build push, the same as the
-  gallery.
-- `deploy.yml` maps a change under a hosted site to a `fallback` deploy, so
-  editing `sites/<name>/public/` redeploys fallback.
+  the site directories with no `wrangler.toml`, each with a group that has a
+  `hosts/<group>/`, and that each has `public/index.html` and no `src/` (code in
+  a hosted site would never run). It runs in `deploy.yml`'s `check` job.
+  `--apply` adds new hosted sites to the smallest group and drops gone ones;
+  `box-build.sh` runs it before every build push, the same as the gallery.
+- `deploy.yml` maps a change under a hosted site to its group's host, so
+  editing `sites/<name>/public/` redeploys one host. A change to
+  `fallback/sites.json` or the shared host code redeploys all four (and
+  fallback, for the manifest).
 
 ### Moving a site onto fallback
 
@@ -170,7 +185,8 @@ Worker's hostname check ran.
    for each site it keeps.
 2. `node audit/migrate-to-host.mjs --apply <names>` (or `--all`) deletes the
    site's `wrangler.toml` and `src/` and records it in `fallback/sites.json`.
-   Push; CI deploys fallback with the site in it.
+   Run `node audit/hosted-sites.mjs --apply` to give each a group, and push;
+   CI deploys the hosts and fallback with the site in them.
 3. The old Worker still holds the site's explicit route and keeps serving. Once
    fallback has deployed with the site (`hosted.json` lists it),
    `node audit/cf-cutover.mjs --routes` removes each such route, waits for

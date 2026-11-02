@@ -14,17 +14,21 @@ atprotozoa/
 │   ├── src/index.ts
 │   ├── public/             # generated landing/gallery page
 │   └── wrangler.toml
-├── fallback/               # *.bisks.net catch-all; serves the hosted sites
+├── fallback/               # *.bisks.net catch-all; routes hosted sites to hosts/
 │   ├── src/index.ts
-│   ├── sites.json          # which sites it hosts
+│   ├── sites.json          # the hosted sites, and each one's group
 │   └── wrangler.toml
+├── hosts/                  # host Workers, one per group of hosted sites
+│   ├── src/index.ts        # shared by all groups
+│   ├── build.mjs
+│   └── 1/ … 4/wrangler.toml
 └── sites/                  # ~800 of these, one per experiment
     ├── trigrams/           # has server code → its own Worker
     │   ├── src/index.ts
     │   ├── public/
     │   ├── site.json
     │   └── wrangler.toml
-    ├── nofoom/             # static → hosted by fallback, no wrangler.toml
+    ├── nofoom/             # static → hosted, no wrangler.toml
     │   ├── public/
     │   └── site.json
     └── <next-site>/        # copy an existing site, rename, edit
@@ -51,8 +55,9 @@ Pages projects. Reasons:
 - **Closer to the mino.mobi model** (a shared OAuth worker + many surfaces).
 
 A fully static site does **not** get a Worker of its own. It has no
-`wrangler.toml`, and the `fallback` Worker serves its `public/` at
-`<name>.bisks.net`, alongside every other such site. That started in November
+`wrangler.toml`; one of four shared host Workers (`hosts/`) serves its
+`public/` at `<name>.bisks.net`, alongside about 150 other such sites, and
+`fallback` routes each request to the right one. That started in November
 2026, when the account's Worker count hit Cloudflare's 500 cap and new Workers
 stopped being created; see "Hosted sites" in `notes/20-deploy.md`. A site that
 needs server code (an OAuth callback, a share route, KV) is still its own

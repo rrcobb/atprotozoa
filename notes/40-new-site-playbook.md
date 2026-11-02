@@ -7,7 +7,7 @@ A site is a directory under `sites/`, served at `<name>.bisks.net`. It comes in
 two shapes:
 
 - **Hosted (the default).** `public/` and `site.json`, no `wrangler.toml`, no
-  `src/`. The `fallback` Worker serves it. Everything that runs in the browser —
+  `src/`. A shared host Worker serves it (`hosts/`, behind `fallback`). Everything that runs in the browser —
   which is most sites — fits here, OAuth included.
 - **Its own Worker**, `atprotozoa-<name>`, for a site that needs server code: a
   share route that rewrites OG tags, an API proxy, KV. Cloudflare caps the
@@ -49,9 +49,10 @@ two shapes:
    state advances on the next request instead.
 
 4. **Run it locally.** Own Worker: `cd sites/<newname> && pnpm dlx wrangler dev`.
-   Hosted: `pnpm dlx wrangler dev --cwd fallback --host <newname>.bisks.net`
-   (`--host` matters: local dev otherwise rewrites every request to `bisks.net`
-   and fallback can't tell which site you mean). Then open `localhost:8787`.
+   Hosted: `pnpm dlx wrangler dev --cwd hosts/<group> --host <newname>.bisks.net`,
+   with the group from `fallback/sites.json` (`--host` matters: local dev
+   otherwise rewrites every request to `bisks.net` and the host can't tell
+   which site you mean). Then open `localhost:8787`.
 
 5. **Check local paths.** `pnpm check:imports` from the repo root walks every
    site's `public/` for `<script src>` / `<link href>` / module `import`
@@ -85,7 +86,7 @@ two shapes:
    never created, and the dead link sat on the front page for three days.
 
 7. **Deploy.** Push to `main` and let CI deploy. A hosted site's push deploys
-   `fallback`.
+   its group's host Worker, and `fallback` when the site is new.
 
 ## Why a route and not a Custom Domain
 

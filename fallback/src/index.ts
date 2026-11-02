@@ -1,4 +1,5 @@
-// Fallback Worker for *.bisks.net: the shared host, and the 404 for the rest.
+// Fallback Worker for *.bisks.net: the router for hosted sites, and the 404
+// for everything else.
 //
 // The zone has a wildcard DNS record and an ACM wildcard cert, so ANY
 // subdomain — including typos and hostnames nobody ever created — resolves and
@@ -7,14 +8,12 @@
 //
 // Two kinds of hostname land here:
 //
-// 1. Hosted sites. Most sites never needed a Worker of their own: theirs only
-//    handed the request to ASSETS. Since the account hit Cloudflare's
-//    500-Worker cap (notes/20-deploy.md, "Hosted sites"), those sites have no
-//    wrangler.toml and are served from here instead. fallback/sites.json lists
-//    them; build.mjs copies each one's public/ into .build/<name>/, and this
-//    Worker maps <name>.bisks.net/<path> to /<name>/<path> in that assets
-//    directory. Each site keeps its own hostname, so its own origin, cookies
-//    and localStorage — sharing a Worker doesn't share an origin.
+// 1. Hosted sites: sites with no Worker of their own (notes/20-deploy.md,
+//    "Hosted sites"). fallback/sites.json lists them, each with a group, and
+//    hosts/<group>/ (atprotozoa-host-<group>) serves that group's files. This
+//    Worker passes the request to that host over a service binding, unchanged.
+//    Splitting the sites across hosts means a push redeploys one group, and a
+//    bad host deploy reaches only its own group.
 //
 // 2. Everything else: a "nothing here" page with a 404.
 //
@@ -24,20 +23,14 @@
 
 import manifest from "../sites.json";
 
-interface Env {
-  ASSETS: { fetch: (req: Request) => Promise<Response> };
+interface Fetcher {
+  fetch: (req: Request) => Promise<Response>;
 }
 
-interface SiteOptions {
-  // Path-era mount prefix the site's old Worker stripped ("/<name>" or
-  // "/games/<name>"), so old <name>.bisks.net/<name>/... links keep working.
-  prefix?: string;
-  // not_found_handling = "single-page-application": unmatched paths serve
-  // the site's index.html with a 200.
-  spa?: boolean;
-}
+// HOST_1 … HOST_n, one service binding per hosts/<n>/ (wrangler.toml).
+type Env = Record<string, Fetcher>;
 
-const SITES: Record<string, SiteOptions> = manifest.sites;
+const SITES: Record<string, { group: number }> = manifest.sites;
 const ZONE = ".bisks.net";
 
 const HTML = `<!doctype html>
@@ -115,65 +108,17 @@ function siteFor(hostname: string): string | null {
   return Object.hasOwn(SITES, name) ? name : null;
 }
 
-async function serve(request: Request, env: Env, url: URL, name: string, opts: SiteOptions): Promise<Response> {
-  let path = url.pathname;
-
-  // URL parsing already resolved "." and ".." segments, so the path can't climb
-  // out of /<name>/ as written. Encoded separators and dots could still decode
-  // into one further down, so refuse them outright. No site uses them.
-  if (/%2e|%2f|%5c|\\/i.test(path)) return notFound(url);
-
-  if (opts.prefix) {
-    const p = opts.prefix;
-    if (path === p) {
-      const to = new URL(url);
-      to.pathname = p + "/";
-      return Response.redirect(to.toString(), 308);
-    }
-    if (path.startsWith(p + "/")) path = path.slice(p.length) || "/";
-  }
-
-  const base = `/${name}`;
-  const assetUrl = new URL(url);
-  assetUrl.pathname = base + path;
-  if (!assetUrl.pathname.startsWith(base + "/")) return notFound(url);
-
-  let res = await env.ASSETS.fetch(new Request(assetUrl, request));
-
-  if (res.status === 404 && opts.spa && (request.method === "GET" || request.method === "HEAD")) {
-    // base + "/", not "/index.html": the asset router answers index.html with
-    // a redirect to the directory.
-    const index = new URL(assetUrl);
-    index.pathname = base + "/";
-    res = await env.ASSETS.fetch(new Request(index, request));
-  }
-
-  // The asset router's own redirects (/about.html → /about, /dir → /dir/)
-  // name the path inside .build/, which carries the /<name> folder. Take it
-  // back off so the browser stays on the site's real paths.
-  const out = new Response(res.body, res);
-  const location = res.headers.get("location");
-  if (location && res.status >= 300 && res.status < 400) {
-    const to = new URL(location, assetUrl);
-    if (to.origin === assetUrl.origin && (to.pathname === base || to.pathname.startsWith(base + "/"))) {
-      to.pathname = to.pathname.slice(base.length) || "/";
-      out.headers.set("location", to.pathname + to.search + to.hash);
-    }
-  }
-  // Says which Worker answered. audit/cf-cutover.mjs waits for it after
-  // removing a site's own route, to know the hostname has switched over.
-  out.headers.set("x-bisks-host", "fallback");
-  return out;
-}
-
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const name = siteFor(url.hostname);
-    if (name) return serve(request, env, url, name, SITES[name]);
-    // The list this deployed version hosts. audit/cf-cutover.mjs reads it
-    // before removing a site's own route, so it never cuts a site over to a
-    // fallback that doesn't have its files yet.
+    if (name) {
+      const host = env[`HOST_${SITES[name].group}`];
+      if (host) return host.fetch(request);
+    }
+    // The list this deployed version routes. audit/cf-cutover.mjs reads it
+    // before removing a site's own route, so it never cuts a site over before
+    // fallback knows about it.
     if (url.hostname === "fallback" + ZONE && url.pathname === "/hosted.json") {
       return Response.json(Object.keys(SITES), { headers: { "cache-control": "no-store" } });
     }

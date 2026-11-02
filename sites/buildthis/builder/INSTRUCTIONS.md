@@ -324,7 +324,7 @@ here; write `BUILD_NOTE` alone (no `BUILD_REACTION`) for an actual decline (see
 - **New site = one directory = one subdomain, hosted unless it needs server
   code.** A new site gets its own `<newname>.bisks.net` hostname. By default
   it is **hosted**: `public/`, `site.json` and `package.json`, with **no
-  `wrangler.toml` and no `src/`**, and the shared `fallback` Worker serves it.
+  `wrangler.toml` and no `src/`**, and a shared host Worker serves it.
   Everything that runs in the page — OAuth and atproto writes included — works
   on a hosted site. Cloudflare caps the account at 500 Workers, so a Worker is
   for a site that needs one. See "Hosted sites" in `notes/20-deploy.md` and
