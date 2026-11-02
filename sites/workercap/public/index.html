@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>799 Workers, 500 allowed — the Cloudflare Worker limit in seven steps</title>
-<meta name="description" content="Cloudflare allows 500 Workers for each account. This account has 799. The page shows diagrams of the setup before the change, the setup after the change, and three Cloudflare limits." />
-<meta property="og:title" content="799 Workers, 500 allowed" />
-<meta property="og:description" content="The Cloudflare Workers limit in seven steps. Before: one Worker for each site. After: 216 Workers." />
+<title>How bisks.net serves 803 sites with a 500-Worker limit</title>
+<meta name="description" content="bisks.net has 803 small sites. Cloudflare allows 500 Workers for each account. This page shows how the sites were served, why 799 Workers was possible, and how 4 shared Workers replaced 592 of them." />
+<meta property="og:title" content="799 Workers, a limit of 500" />
+<meta property="og:description" content="803 sites, 799 Workers, a limit of 500. Four shared Workers now serve 592 of the sites." />
 <meta property="og:url" content="https://workercap.bisks.net/" />
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://workercap.bisks.net/og.png" />
@@ -14,8 +14,8 @@
 <meta property="og:image:height" content="630" />
 <meta property="og:image:alt" content="A bar chart: 799 Workers before, a line at the limit of 500, 216 Workers after." />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="799 Workers, 500 allowed" />
-<meta name="twitter:description" content="The Cloudflare Workers limit in seven steps." />
+<meta name="twitter:title" content="799 Workers, a limit of 500" />
+<meta name="twitter:description" content="803 sites, 799 Workers, a limit of 500. Four shared Workers now serve 592 of the sites." />
 <meta name="twitter:image" content="https://workercap.bisks.net/og.png" />
 <style>
   :root {
@@ -29,9 +29,10 @@
   main { max-width: 760px; margin: 0 auto; padding: 40px 20px 20px; }
   h1 { font: 700 34px/1.15 var(--mono); margin: 0 0 10px; letter-spacing: -0.5px; }
   .lede { color: var(--dim); margin: 0 0 8px; }
-  section.step { border-top: 2px solid var(--ink); margin-top: 38px; padding-top: 14px; }
+  section { border-top: 2px solid var(--ink); margin-top: 38px; padding-top: 14px; }
   .n { font: 700 13px var(--mono); letter-spacing: 1px; color: var(--dim); text-transform: uppercase; }
   h2 { font: 700 22px/1.25 var(--mono); margin: 4px 0 10px; }
+  h3 { font: 700 17px/1.3 var(--mono); margin: 22px 0 8px; }
   p { margin: 0 0 12px; }
   code { font-family: var(--mono); font-size: 0.9em; background: #efede4; padding: 1px 5px; border-radius: 3px; }
   pre { background: #efede4; padding: 12px 14px; overflow-x: auto; font: 13.5px/1.5 var(--mono); border-left: 4px solid var(--bad); margin: 0 0 12px; }
@@ -54,31 +55,21 @@
 </head>
 <body>
 <main>
-  <div class="n">explainer · infra</div>
-  <h1>799 Workers,<br>500 allowed.</h1>
-  <p class="lede">This repository has 803 small sites. A Cloudflare account can have a maximum of 500 Workers. This page has seven steps. The steps show the setup before the change, the problem, the solution, and the setup after the change.</p>
+  <div class="n">explainer · infrastructure</div>
+  <h1>How bisks.net serves 803 sites with a limit of 500 Workers</h1>
+  <p class="lede">bisks.net has more Cloudflare Workers than Cloudflare allows. This page explains what bisks.net is, how it was built, why the limit did not stop it for two months, and the change that fixed it.</p>
 
-  <section class="step">
-    <div class="n">Step 1 · the limit</div>
-    <h2>One account can have 500 Workers.</h2>
-    <p>A Worker is one script that runs on Cloudflare. The Workers Paid plan limits an account to <b>500</b> Workers. Cloudflare counts a Worker that serves static files in the same way as a Worker that runs code.</p>
-    <figure>
-      <svg viewBox="0 0 700 120" role="img" aria-label="A bar that shows the maximum of 500 Workers">
-        <text x="20" y="28" font-size="14" fill="#66645c">limit: 500 Workers for each account</text>
-        <rect x="20" y="42" width="660" height="34" fill="#fff" stroke="#1c1c1a" stroke-width="2"/>
-        <rect x="20" y="42" width="660" height="34" fill="#e08a1e" opacity=".25"/>
-        <text x="350" y="65" font-size="16" font-weight="700" text-anchor="middle" fill="#1c1c1a">500 Workers</text>
-        <text x="20" y="104" font-size="12" fill="#66645c">0</text>
-        <text x="680" y="104" font-size="12" text-anchor="end" fill="#66645c">500</text>
-      </svg>
-      <figcaption>fig 1 — the maximum number of Workers</figcaption>
-    </figure>
+  <section>
+    <h2>What bisks.net is</h2>
+    <p>bisks.net is a collection of small web sites. Each site is a toy, a game, a chart, or a tool. Most of them use public Bluesky data.</p>
+    <p>A person posts an idea on Bluesky and tags <b>@buildthis.bisks.net</b>. A bot writes the site. The bot saves it in one GitHub repository. GitHub then deploys it. Each site gets its own address, for example <code>workercap.bisks.net</code>. On 2026-11-02 the repository had 803 sites.</p>
+    <p>Almost all of the sites are static files. A static file is a file that the server sends without change: HTML, JavaScript, or an image. The visitor's browser runs the code.</p>
   </section>
 
-  <section class="step">
-    <div class="n">Step 2 · before the change</div>
-    <h2>Each site had its own Worker.</h2>
-    <p>Each folder in <code>sites/</code> had a <code>wrangler.toml</code> file. Each deploy made a Worker with the name <code>atprotozoa-&lt;site&gt;</code>. Each Worker had a route for the hostname of its site. The Worker sent each request to a set of static files.</p>
+  <section>
+    <h2>The first architecture: one Worker for each site</h2>
+    <p>The sites run on Cloudflare. A <b>Worker</b> is a small program that runs on Cloudflare's network. It receives a web request and sends back a response.</p>
+    <p>Each site had its own Worker. A route connected the hostname of the site to its Worker. The Worker sent each request to the static files of the site. Each deploy created the Worker <code>atprotozoa-&lt;site&gt;</code> if it did not exist.</p>
     <figure>
       <svg viewBox="0 0 700 250" role="img" aria-label="Three hostnames each go to their own Worker. Each Worker goes to its own files">
         <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#1c1c1a"/></marker></defs>
@@ -113,17 +104,18 @@
             <line x1="190" y1="119" x2="248" y2="119"/><line x1="420" y1="119" x2="498" y2="119"/>
             <line x1="190" y1="179" x2="248" y2="179"/><line x1="420" y1="179" x2="498" y2="179"/>
           </g>
-          <text x="350" y="228" text-anchor="middle" fill="#66645c">The same pattern repeats for each site</text>
+          <text x="350" y="228" text-anchor="middle" fill="#66645c">The same pattern repeats for all 803 sites</text>
         </g>
       </svg>
-      <figcaption>fig 2 — one site, one Worker, one route</figcaption>
+      <figcaption>fig 1 — each site had its own Worker</figcaption>
     </figure>
-    <p>Most of those Workers had the same ten lines of code. The code sends the request to the set of files. 592 sites needed no other function.</p>
+    <p>This design keeps sites separate. A change to one site cannot break another site. But most of these Workers were the same ten lines of code. The code passes the request to the files. 592 of the 803 sites needed nothing more.</p>
   </section>
 
-  <section class="step">
-    <div class="n">Step 3 · the problem</div>
-    <h2>The account had 799 Workers.</h2>
+  <section>
+    <h2>The Cloudflare limit: 500 Workers, and an account with 799</h2>
+    <p>The Cloudflare Workers Paid plan allows <b>500</b> Workers for each account. Cloudflare counts a Worker that only sends static files in the same way as a Worker that runs code.</p>
+    <p>On 2026-11-02 the account had <b>799</b> Workers. That is 299 more than the limit.</p>
     <figure>
       <svg viewBox="0 0 700 150" role="img" aria-label="A bar of 799 Workers. A line at 500 shows the limit.">
         <rect x="20" y="40" width="660" height="34" fill="#fff" stroke="#1c1c1a" stroke-width="1"/>
@@ -137,23 +129,35 @@
         <text x="556" y="62" font-size="15" text-anchor="middle" font-weight="700" fill="#fff">299 more than the limit</text>
         <text x="680" y="116" font-size="13" text-anchor="end" font-weight="700">799 Workers · 2026-11-02</text>
       </svg>
-      <figcaption>fig 3 — the account on 2026-11-02</figcaption>
+      <figcaption>fig 2 — Workers on the account, 2026-11-02</figcaption>
     </figure>
-    <p>Above 500, the existing Workers continue to serve and deploy. A request to create a new Worker fails with this error:</p>
+    <h3>Why 799 was possible</h3>
+    <p>The limit does not remove Workers that already exist. The 500 Workers that existed first, and all later ones, kept serving visitors. No visitor saw an error.</p>
+    <p>The limit also did not apply to every way of creating a Worker. Wrangler is the Cloudflare deploy tool. Newer versions of wrangler create a Worker through an upload path for static files. Until October 2026, that path did not check the limit. Older versions used a path that did check it. The same credentials failed with one version and succeeded with the other.</p>
+    <p>Between 2026-10-29 and 2026-10-31, the check began to apply to the upload path. Then every new Worker failed with this error:</p>
     <pre>You have exceeded the limit of 500 Workers
 on your account. [code: 10037]</pre>
+    <p>Nine new sites could not deploy before anyone saw the problem.</p>
     <ol class="tl">
-      <li><b>2026-08-20</b> — the account goes above 500 Workers. Deploys continue to work. Newer wrangler versions use an upload path that does not do the check.</li>
-      <li><b>2026-09-17</b> — a request to increase the limit goes to Cloudflare. Cloudflare does not answer. For more than 500 Workers, Cloudflare recommends Workers for Platforms.</li>
-      <li><b>2026-10-29</b> — strandbeest is the last new Worker.</li>
-      <li><b>2026-10-31</b> — the upload path returns error 10037. Nine new sites cannot deploy.</li>
+      <li><b>2026-08-20</b> — The account goes above 500 Workers. Deploys continue to work.</li>
+      <li><b>2026-09-17</b> — A request to increase the limit goes to Cloudflare. Cloudflare does not answer. For more than 500 Workers, Cloudflare recommends Workers for Platforms, a different product.</li>
+      <li><b>2026-10-29</b> — strandbeest is the last new Worker to deploy.</li>
+      <li><b>2026-10-31</b> — The upload path returns error 10037 for new Workers.</li>
     </ol>
+    <h3>Two earlier limits of the same kind</h3>
+    <p>The Worker limit was the third limit that the sites reached. Each limit applies to a different Cloudflare resource.</p>
+    <table>
+      <tr><th>limit</th><th>value</th><th>what happened</th></tr>
+      <tr><td>Custom Domains per zone</td><td class="num">100</td><td>The limit was reached in July 2026. New sites deployed with no DNS record. Sites now use plain routes. Only the apex domain keeps a Custom Domain.</td></tr>
+      <tr><td>Routes per zone</td><td class="num">1000</td><td>The limit was reached on 2026-09-25. New sites got a Worker and no route (error 10073). Removal of 293 old path routes made room.</td></tr>
+      <tr><td>Workers per account</td><td class="num">500</td><td>The account has 799. New Workers fail with error 10037.</td></tr>
+    </table>
   </section>
 
-  <section class="step">
-    <div class="n">Step 4 · the solution</div>
-    <h2>One Worker can do the same job for many sites.</h2>
-    <p>The <code>fallback</code> Worker already had the wildcard route <code>*.bisks.net/*</code>. It reads the hostname. It finds the folder for that hostname. It sends the files from that folder. A site with no server code needs a folder. It does not need a Worker.</p>
+  <section>
+    <h2>The new architecture: shared Workers for sites with no code</h2>
+    <p>A site with only static files does not need its own Worker. One Worker can serve many sites. It reads the hostname of the request, finds the folder for that site, and sends the file from that folder.</p>
+    <p>A Worker named <code>fallback</code> already had the wildcard route <code>*.bisks.net/*</code>. It receives each request that no other Worker claims. It now sends the request to one of four <b>host</b> Workers. Each host Worker holds the files of about 148 sites.</p>
     <figure>
       <svg viewBox="0 0 700 270" role="img" aria-label="Three hostnames go to one fallback Worker. The Worker reads the hostname and sends files from one of many folders">
         <defs><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#1c1c1a"/></marker></defs>
@@ -182,25 +186,18 @@ on your account. [code: 10037]</pre>
           <text x="350" y="250" text-anchor="middle" fill="#66645c">592 folders, 1 Worker</text>
         </g>
       </svg>
-      <figcaption>fig 4 — how a hosted site works</figcaption>
+      <figcaption>fig 3 — one Worker serves many sites</figcaption>
     </figure>
     <p>Each hosted site keeps its own hostname. Thus each site keeps its own origin, cookies, localStorage, and OAuth login.</p>
-  </section>
-
-  <section class="step">
-    <div class="n">Step 5 · the migration</div>
-    <h2>Four actions for each site. Each action has a check.</h2>
+    <p>There are four host Workers, not one, for two reasons. A push to one site deploys only the host of that site. And a bad deploy reaches 148 sites, not 592.</p>
+    <h3>How the 592 sites moved</h3>
     <ol class="tl">
-      <li><b>classify</b> — <code>migrate-to-host.mjs</code> finds sites where the Worker only sends requests to the set of files. A site with a binding, a cron trigger, or custom code keeps its Worker.</li>
-      <li><b>host</b> — delete the <code>wrangler.toml</code> file and the <code>src/</code> folder of the site. Add the site to <code>fallback/sites.json</code>. Push the change. The fallback Worker deploys with the site files.</li>
-      <li><b>cut over</b> — <code>cf-cutover.mjs --routes</code> removes the old route. It waits until the fallback Worker answers. It compares the status code and a hash of <code>/</code>. If they are different, it restores the route.</li>
-      <li><b>delete</b> — <code>cf-cutover.mjs --workers</code> deletes the old Worker. This makes one Worker available again. The script deletes Workers with a Custom Domain one at a time. The deletion also deletes the DNS record.</li>
+      <li><b>classify</b> — <code>migrate-to-host.mjs</code> finds sites where the Worker only sends requests to the files. A site with a binding, a cron trigger, or custom code keeps its Worker.</li>
+      <li><b>host</b> — Delete the <code>wrangler.toml</code> file and the <code>src/</code> folder of the site. Add the site to <code>fallback/sites.json</code>. Push the change.</li>
+      <li><b>cut over</b> — <code>cf-cutover.mjs --routes</code> removes the old route. It waits until the new Worker answers. It compares the status code and a hash of <code>/</code>. If they are different, it restores the route.</li>
+      <li><b>delete</b> — <code>cf-cutover.mjs --workers</code> deletes the old Worker. This frees one place under the limit. A Worker with a Custom Domain goes one at a time, because its deletion also deletes the DNS record.</li>
     </ol>
-  </section>
-
-  <section class="step">
-    <div class="n">Step 6 · after the change</div>
-    <h2>216 Workers for 803 sites.</h2>
+    <h3>The result</h3>
     <figure>
       <svg viewBox="0 0 700 220" role="img" aria-label="Two bars: 799 before, 216 after. A line at 500 shows the limit.">
         <!-- scale: 799 -> 560px => 0.7 px per Worker; 500 -> 350px; 216 -> 151px -->
@@ -212,32 +209,20 @@ on your account. [code: 10037]</pre>
         <text x="270" y="96" font-size="14" font-weight="700">216</text>
         <line x1="460" y1="10" x2="460" y2="124" stroke="#1c1c1a" stroke-width="3" stroke-dasharray="6 4"/>
         <text x="460" y="144" font-size="13" text-anchor="middle" font-weight="700">limit 500</text>
-        <text x="20" y="190" font-size="13" fill="#66645c">284 Workers available · space for 284 sites with server code</text>
+        <text x="20" y="190" font-size="13" fill="#66645c">284 Workers free · room for 284 more sites with server code</text>
       </svg>
-      <figcaption>fig 5 — Workers on the account</figcaption>
+      <figcaption>fig 4 — Workers on the account</figcaption>
     </figure>
     <table>
       <tr><th>group</th><th>sites</th><th>served by</th></tr>
-      <tr><td>hosted</td><td class="num">592</td><td>the shared <code>fallback</code> Worker</td></tr>
-      <tr><td>own Worker</td><td class="num">211</td><td>one Worker for each site: share routes, KV, proxies, custom code</td></tr>
+      <tr><td>hosted</td><td class="num">592</td><td>4 host Workers and the <code>fallback</code> Worker</td></tr>
+      <tr><td>own Worker</td><td class="num">211</td><td>1 Worker for each site: share routes, KV storage, proxies, custom code</td></tr>
     </table>
-    <p>Four host Workers (<code>atprotozoa-host-1</code> to <code>-4</code>) split the hosted sites into groups of 148 sites. A push to one site deploys only its group of 148 sites. The other 444 sites do not change.</p>
+    <p>The account has 216 Workers: 211 site Workers, 4 host Workers, and <code>fallback</code>. That leaves room for 284 more sites with server code.</p>
+    <p>A new site is now a folder with <code>public/</code> and <code>site.json</code>. The wildcard route covers it. It uses no Worker and no route. A site with server code gets its own Worker and one route.</p>
   </section>
 
-  <section class="step">
-    <div class="n">Step 7 · other limits</div>
-    <h2>Two other limits apply to the zone.</h2>
-    <p>The zone has two more limits. Each limit stopped deploys before the Worker limit did.</p>
-    <table>
-      <tr><th>limit</th><th>value</th><th>effect</th></tr>
-      <tr><td>Workers per account</td><td class="num">500</td><td>The account has 799. New Workers fail with error 10037.</td></tr>
-      <tr><td>Routes per zone</td><td class="num">1000</td><td>The limit was reached on 2026-09-25. New sites got a Worker and no route (error 10073). Removal of 293 legacy path routes made room.</td></tr>
-      <tr><td>Custom Domains per zone</td><td class="num">100</td><td>The limit was reached in July 2026. New subdomains deployed with no DNS record. Sites now use plain routes. The apex keeps its Custom Domain.</td></tr>
-    </table>
-    <p>A new site today is a folder with <code>public/</code> and <code>site.json</code>. The wildcard route covers it. It uses no Worker and no route. A site with server code uses one Worker and one route.</p>
-  </section>
-
-  <p><a class="share" href="https://bsky.app/intent/compose?text=799%20Workers%2C%20500%20allowed%3A%20the%20Cloudflare%20Worker%20limit%20in%20seven%20steps.%20https%3A%2F%2Fworkercap.bisks.net%2F" target="_blank" rel="noopener">post this to bluesky →</a></p>
+  <p><a class="share" href="https://bsky.app/intent/compose?text=803%20sites%2C%20799%20Workers%2C%20a%20limit%20of%20500.%20How%20bisks.net%20fixed%20it%3A%20https%3A%2F%2Fworkercap.bisks.net%2F" target="_blank" rel="noopener">post this to bluesky →</a></p>
 </main>
 <footer>
   <p>The numbers are from notes/20-deploy.md on 2026-11-02.</p>

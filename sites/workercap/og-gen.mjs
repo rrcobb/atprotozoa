@@ -7,8 +7,8 @@ import { fileURLToPath } from "node:url";
 const k = 0.95; // px per Worker: 799 -> 759px
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
 <rect width="1200" height="630" fill="#fbfaf6"/>
-<text x="60" y="110" font-family="JetBrains Mono" font-weight="700" font-size="58" fill="#1c1c1a">799 Workers, 500 allowed.</text>
-<text x="60" y="160" font-family="JetBrains Mono" font-size="24" fill="#66645c">the Cloudflare Worker limit in seven steps</text>
+<text x="60" y="110" font-family="JetBrains Mono" font-weight="700" font-size="58" fill="#1c1c1a">799 Workers, limit 500</text>
+<text x="60" y="160" font-family="JetBrains Mono" font-size="24" fill="#66645c">how bisks.net serves 803 sites</text>
 <text x="60" y="262" font-family="JetBrains Mono" font-weight="700" font-size="26" fill="#1c1c1a">before</text>
 <rect x="200" y="232" width="${799 * k}" height="46" fill="#c7392b" opacity=".85"/>
 <text x="${200 + 799 * k - 14}" y="264" text-anchor="end" font-family="JetBrains Mono" font-weight="700" font-size="28" fill="#fff">799</text>
