@@ -108,10 +108,17 @@ async function cutOver(name, route) {
   const before = await probe(name);
   if (before.fallback) return { name, ok: true, note: "already served by fallback" };
   await cf(`/zones/${ZONE_ID}/workers/routes/${route.id}`, { method: "DELETE" });
-  let after = null;
+  // From here on, any outcome but a match puts the route back — including a
+  // probe that throws (immortals hit "fetch failed" here on 2026-11-02 and
+  // was left without its route).
+  let after = { fallback: false, status: 0, hash: "" };
   for (let i = 0; i < 30; i++) {
     await sleep(2000);
-    after = await probe(name);
+    try {
+      after = await probe(name);
+    } catch {
+      continue;
+    }
     if (after.fallback) break;
   }
   if (after.fallback && after.status === before.status && after.hash === before.hash) {
