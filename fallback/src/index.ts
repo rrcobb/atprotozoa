@@ -1,19 +1,44 @@
-// Fallback Worker for unclaimed *.bisks.net hostnames.
+// Fallback Worker for *.bisks.net: the shared host, and the 404 for the rest.
 //
 // The zone has a wildcard DNS record and an ACM wildcard cert, so ANY
 // subdomain — including typos and hostnames nobody ever created — resolves and
-// completes TLS. Without something on the wildcard route those requests hit a
-// raw Cloudflare error page (522/1016). This Worker is that something.
+// completes TLS. This Worker holds the `*.bisks.net/*` route, so it answers
+// every hostname no site claimed with a more specific route of its own.
 //
-// It only ever runs for hostnames no real site claimed: Cloudflare matches the
+// Two kinds of hostname land here:
+//
+// 1. Hosted sites. Most sites never needed a Worker of their own: theirs only
+//    handed the request to ASSETS. Since the account hit Cloudflare's
+//    500-Worker cap (notes/20-deploy.md, "Hosted sites"), those sites have no
+//    wrangler.toml and are served from here instead. fallback/sites.json lists
+//    them; build.mjs copies each one's public/ into .build/<name>/, and this
+//    Worker maps <name>.bisks.net/<path> to /<name>/<path> in that assets
+//    directory. Each site keeps its own hostname, so its own origin, cookies
+//    and localStorage — sharing a Worker doesn't share an origin.
+//
+// 2. Everything else: a "nothing here" page with a 404.
+//
+// Real sites with their own Worker never reach this: Cloudflare matches the
 // most specific route first, so `trigrams.bisks.net/*` goes straight to
-// atprotozoa-trigrams and never touches this. That's deliberate — the fallback
-// must not sit in the path of real sites, so it can't take them down.
-//
-// Deliberately static and boring: no remote scripts, no user input, no proxying.
-// This zone was flagged by Safe Browsing once already (see notes/20-deploy.md),
-// and a wildcard means anyone can conjure a hostname under it — so whatever
-// answers on those hostnames should be obviously inert.
+// atprotozoa-trigrams.
+
+import manifest from "../sites.json";
+
+interface Env {
+  ASSETS: { fetch: (req: Request) => Promise<Response> };
+}
+
+interface SiteOptions {
+  // Path-era mount prefix the site's old Worker stripped ("/<name>" or
+  // "/games/<name>"), so old <name>.bisks.net/<name>/... links keep working.
+  prefix?: string;
+  // not_found_handling = "single-page-application": unmatched paths serve
+  // the site's index.html with a 200.
+  spa?: boolean;
+}
+
+const SITES: Record<string, SiteOptions> = manifest.sites;
+const ZONE = ".bisks.net";
 
 const HTML = `<!doctype html>
 <html lang="en">
@@ -67,24 +92,85 @@ function escapeHtml(s: string): string {
   });
 }
 
+function notFound(url: URL): Response {
+  const body = HTML.replace("__HOST__", escapeHtml(url.hostname));
+  return new Response(body, {
+    status: 404,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      // Short cache: a hostname that's 404 today may be a real site tomorrow
+      // once someone deploys it, and we don't want that stuck in caches.
+      "cache-control": "public, max-age=60",
+      "x-robots-tag": "noindex",
+    },
+  });
+}
+
+// <name>.bisks.net → <name>, for a single label only. Object.hasOwn rather
+// than `in`, so "constructor.bisks.net" can't match a prototype property.
+function siteFor(hostname: string): string | null {
+  if (!hostname.endsWith(ZONE)) return null;
+  const name = hostname.slice(0, -ZONE.length);
+  if (!/^[a-z0-9-]+$/.test(name)) return null;
+  return Object.hasOwn(SITES, name) ? name : null;
+}
+
+async function serve(request: Request, env: Env, url: URL, name: string, opts: SiteOptions): Promise<Response> {
+  let path = url.pathname;
+
+  // URL parsing already resolved "." and ".." segments, so the path can't climb
+  // out of /<name>/ as written. Encoded separators and dots could still decode
+  // into one further down, so refuse them outright. No site uses them.
+  if (/%2e|%2f|%5c|\\/i.test(path)) return notFound(url);
+
+  if (opts.prefix) {
+    const p = opts.prefix;
+    if (path === p) {
+      const to = new URL(url);
+      to.pathname = p + "/";
+      return Response.redirect(to.toString(), 308);
+    }
+    if (path.startsWith(p + "/")) path = path.slice(p.length) || "/";
+  }
+
+  const base = `/${name}`;
+  const assetUrl = new URL(url);
+  assetUrl.pathname = base + path;
+  if (!assetUrl.pathname.startsWith(base + "/")) return notFound(url);
+
+  let res = await env.ASSETS.fetch(new Request(assetUrl, request));
+
+  if (res.status === 404 && opts.spa && (request.method === "GET" || request.method === "HEAD")) {
+    // base + "/", not "/index.html": the asset router answers index.html with
+    // a redirect to the directory.
+    const index = new URL(assetUrl);
+    index.pathname = base + "/";
+    res = await env.ASSETS.fetch(new Request(index, request));
+  }
+
+  // The asset router's own redirects (/about.html → /about, /dir → /dir/)
+  // name the path inside .build/, which carries the /<name> folder. Take it
+  // back off so the browser stays on the site's real paths.
+  const out = new Response(res.body, res);
+  const location = res.headers.get("location");
+  if (location && res.status >= 300 && res.status < 400) {
+    const to = new URL(location, assetUrl);
+    if (to.origin === assetUrl.origin && (to.pathname === base || to.pathname.startsWith(base + "/"))) {
+      to.pathname = to.pathname.slice(base.length) || "/";
+      out.headers.set("location", to.pathname + to.search + to.hash);
+    }
+  }
+  // Says which Worker answered. audit/cf-cutover.mjs waits for it after
+  // removing a site's own route, to know the hostname has switched over.
+  out.headers.set("x-bisks-host", "fallback");
+  return out;
+}
+
 export default {
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-
-    // Bare hostname with nothing else: send them to the gallery rather than
-    // showing an error, since a guessed subdomain usually means they wanted
-    // the site index.
-    const body = HTML.replace("__HOST__", escapeHtml(url.hostname));
-
-    return new Response(body, {
-      status: 404,
-      headers: {
-        "content-type": "text/html; charset=utf-8",
-        // Short cache: a hostname that's 404 today may be a real site tomorrow
-        // once someone deploys it, and we don't want that stuck in caches.
-        "cache-control": "public, max-age=60",
-        "x-robots-tag": "noindex",
-      },
-    });
+    const name = siteFor(url.hostname);
+    if (name) return serve(request, env, url, name, SITES[name]);
+    return notFound(url);
   },
 };

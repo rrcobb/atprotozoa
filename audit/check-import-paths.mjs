@@ -24,7 +24,10 @@ function listSiteDirs() {
   const dirs = [];
   for (const name of readdirSync(path.join(REPO_ROOT, "sites"))) {
     const dir = path.join(REPO_ROOT, "sites", name);
-    if (existsSync(path.join(dir, "wrangler.toml"))) dirs.push({ name, dir });
+    // Hosted sites (no wrangler.toml, served by fallback/) count too.
+    if (existsSync(path.join(dir, "wrangler.toml")) || existsSync(path.join(dir, "public"))) {
+      dirs.push({ name, dir });
+    }
   }
   const apex = path.join(REPO_ROOT, "apex");
   if (existsSync(path.join(apex, "wrangler.toml"))) {
@@ -43,6 +46,12 @@ function sitePrefix({ name, dir }) {
   if (existsSync(idx)) {
     const m = readFileSync(idx, "utf8").match(/const\s+PREFIX\s*=\s*"([^"]*)"/);
     if (m) return m[1];
+  }
+  // A hosted site has no Worker of its own; fallback strips the prefix
+  // recorded for it in fallback/sites.json, if any.
+  if (!existsSync(path.join(dir, "wrangler.toml"))) {
+    const { sites } = JSON.parse(readFileSync(path.join(REPO_ROOT, "fallback", "sites.json"), "utf8"));
+    return sites[name]?.prefix || "";
   }
   const toml = readFileSync(path.join(dir, "wrangler.toml"), "utf8");
   if (/custom_domain\s*=\s*true/.test(toml)) return "";

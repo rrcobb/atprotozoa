@@ -444,6 +444,11 @@ if [ -n "$CHANGED" ]; then
   # bisks.net/lexicons/ and the NSID stops resolving to anything readable.
   # Idempotent; a failure here must never block a build's push.
   node audit/build-lexicons.mjs --apply >/dev/null 2>&1 || true
+  # And fallback/sites.json, which lists the hosted sites (no wrangler.toml)
+  # that fallback serves. deploy.yml checks it; a new hosted site missing from
+  # it fails the push, and if it somehow shipped it would answer "nothing here".
+  # Idempotent; a failure here must never block a build's push.
+  node audit/hosted-sites.mjs --apply >/dev/null 2>&1 || true
   if [ -n "$(git status --porcelain)" ]; then
     git add -A
     git commit -q -m "buildthis: ${BUILT_NAME:-build} (@${AUTHOR:-someone})"

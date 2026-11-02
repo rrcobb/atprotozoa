@@ -2,12 +2,13 @@ name = "atprotozoa-fallback"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 
-# Catch-all for unclaimed *.bisks.net hostnames.
+# Catch-all for *.bisks.net, and the shared host for sites without a Worker of
+# their own (fallback/sites.json; see "Hosted sites" in notes/20-deploy.md).
 #
 # The zone has a wildcard DNS record and an ACM wildcard cert, so every possible
 # subdomain resolves and completes TLS whether or not a site exists behind it.
-# This route answers the ones nothing else claims, with a plain 404 instead of a
-# raw Cloudflare error.
+# This route answers the ones no other route claims: a hosted site's files, or
+# a plain 404 instead of a raw Cloudflare error.
 #
 # A wildcard route does NOT lose to a Custom Domain. Deploying this while 36
 # sites were still bound via `custom_domain = true` took steamtags.bisks.net
@@ -21,3 +22,16 @@ compatibility_date = "2025-01-01"
 routes = [
   { pattern = "*.bisks.net/*", zone_name = "bisks.net" },
 ]
+
+# build.mjs copies each hosted site's public/ into .build/<name>/.
+[build]
+command = "node build.mjs"
+
+# run_worker_first must stay true. .build/ holds every hosted site side by
+# side, so without it the asset router would answer a.bisks.net/b/index.html
+# with site b's page on site a's origin, before the Worker's hostname mapping
+# ever ran.
+[assets]
+directory = "./.build"
+binding = "ASSETS"
+run_worker_first = true

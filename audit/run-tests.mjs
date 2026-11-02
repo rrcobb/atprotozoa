@@ -32,7 +32,6 @@ function testFiles(name) {
 }
 
 const sites = readdirSync("sites")
-  .filter((n) => existsSync(`sites/${n}/wrangler.toml`))
   .filter(hasTests)
   .sort();
 

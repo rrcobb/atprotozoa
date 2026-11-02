@@ -52,7 +52,7 @@ async function head(url) {
 }
 
 const names = readdirSync(sitesDir)
-  .filter((n) => existsSync(new URL(`./${n}/wrangler.toml`, sitesDir)))
+  .filter((n) => existsSync(new URL(`./${n}/public/index.html`, sitesDir)))
   .sort();
 
 // Almost every site is at <name>.bisks.net, but not all — the games cluster

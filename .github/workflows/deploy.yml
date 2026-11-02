@@ -59,6 +59,11 @@ jobs:
       - name: lexicon registry matches the sites
         run: node audit/build-lexicons.mjs
 
+      # fallback/sites.json lists the sites fallback serves (the ones with no
+      # wrangler.toml). A hosted site missing from it answers "nothing here".
+      - name: hosted-site manifest matches the sites
+        run: node audit/hosted-sites.mjs
+
   # Work out which deployable dirs changed. Each is a top-level unit: "apex" or
   # "sites/<name>". Outputs chunk objects ({i, dirs}) for the matrix — one dir
   # per matrix job would exceed GitHub's 256-job matrix cap on a deploy_all
@@ -101,6 +106,10 @@ jobs:
           # they belong to, keeping only dirs that still have a wrangler.toml —
           # which is also what filters out notes/, audit/ and the like, so this
           # doesn't need to know their names.
+          #
+          # A hosted site (sites/<name> with no wrangler.toml) is served by
+          # fallback/, so a change to one deploys fallback. That includes the
+          # push that migrates a site, since it deletes the wrangler.toml.
           changed_dirs() {
             sed -n -E -e 's#^(sites/[^/]+)/.*#\1#p' -e t -e 's#^([^/]+)/.*#\1#p' \
               | sort -u \
@@ -108,8 +117,13 @@ jobs:
                   # `&& echo` alone makes the loop's exit status that of the
                   # LAST test, so a push touching only notes/ or .github/ exits
                   # non-zero under `set -e` and fails the job. Always end true.
-                  if [ -f "$d/wrangler.toml" ]; then echo "$d"; fi
-                done
+                  if [ -f "$d/wrangler.toml" ]; then
+                    echo "$d"
+                  elif [ "${d#sites/}" != "$d" ] && [ -d "$d" ]; then
+                    echo fallback
+                  fi
+                done \
+              | sort -u
           }
 
           # Diff from the last commit that deployed successfully (the

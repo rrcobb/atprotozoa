@@ -1,24 +1,24 @@
 // Inventory Workers on the account against the 500-Worker cap.
 //
-// Background: the account sits above Cloudflare's 500-Worker limit (679 as of
-// 2026-09-17) and has for weeks with nothing breaking. Existing Workers serve
-// and redeploy normally; only CREATING a new one can fail, with:
+// Background: the account sits above Cloudflare's 500-Worker limit (799 on
+// 2026-11-02). Existing Workers serve and redeploy normally; CREATING a new one
+// fails, with:
 //
 //   You have exceeded the limit of 500 Workers on your account. [code: 10037]
 //
-// And even that depends on the wrangler version: 4.134.0 creates a new Worker
-// on this account fine, 4.114.0 gets 10037 for the same deploy. Keep wrangler
-// current. See 'The 500-Worker cap' in notes/20-deploy.md for the full story.
+// Until 2026-10-29 newer wrangler versions got around that; since 2026-10-31
+// every version gets 10037. The way out is moving sites onto fallback/ (state
+// HOSTED below). See 'The 500-Worker cap' and 'Hosted sites' in
+// notes/20-deploy.md.
 //
 // The failure does not always name the cap. `wrangler kv namespace create` has
 // reported a bare "Authentication error [code: 10000]" and then succeeded on a
 // plain retry, which sends you looking at auth instead.
 //
-// Unlike cf-durable-objects.mjs and cf-custom-domains.mjs, this tool has no
-// --prune. Those caps were occupied by leftovers that outlived their bindings,
-// so there was something safe to derive and delete. This one is not: every
-// Worker on the account maps to a live site directory (see "Retiring" below).
-// Deleting one deletes a site, which is a product decision, not a cleanup.
+// This tool has no --prune. Deleting a LIVE Worker deletes a site, which is a
+// product decision, not a cleanup. The Workers that are safe to delete are the
+// HOSTED ones, whose site fallback now serves; audit/cf-cutover.mjs removes
+// those, checking each site before and after.
 //
 // Usage:
 //   node audit/cf-workers.mjs              # inventory
@@ -114,24 +114,52 @@ function repoSites() {
   return sites;
 }
 
-// A site directory is a retirement stub if it has no wrangler.toml, or ships a
-// RETIRED.md. sites/catsofatproto is the standing example and must not be
-// revived (notes/20-deploy.md).
+// A site directory is a retirement stub if it ships a RETIRED.md.
+// sites/catsofatproto is the standing example and must not be revived
+// (notes/20-deploy.md).
 function isRetiredStub(dir) {
-  const d = new URL(`./${dir}/`, repoRoot);
-  if (existsSync(new URL("./RETIRED.md", d))) return true;
-  return !existsSync(new URL("./wrangler.toml", d));
+  return existsSync(new URL(`./${dir}/RETIRED.md`, repoRoot));
 }
 
-function classify(script, sites) {
+// Sites served by fallback/ rather than a Worker of their own. A Worker named
+// for one of them is left over from before the migration (audit/cf-cutover.mjs
+// removes it).
+const hosted = new Set(
+  Object.keys(JSON.parse(readFileSync(new URL("./fallback/sites.json", repoRoot), "utf8")).sites),
+);
+
+// A Worker's name doesn't always match its directory (chatcontrol deploys as
+// atprotozoa-chatcontrol2), so read the name each wrangler.toml declares.
+function workerNames(sites) {
+  const names = new Map(); // script id -> site
+  for (const [site, dir] of sites) {
+    const toml = new URL(`./${dir}/wrangler.toml`, repoRoot);
+    if (!existsSync(toml)) continue;
+    const m = readFileSync(toml, "utf8").match(/^name\s*=\s*"([^"]+)"/m);
+    if (m) names.set(m[1], site);
+  }
+  return names;
+}
+
+function classify(script, sites, names) {
   const id = script.id;
   if (!id.startsWith("atprotozoa-")) {
     return { state: "FOREIGN", reason: "not an atprotozoa-* Worker", site: null };
   }
-  const site = id.replace(/^atprotozoa-/, "");
+  const site = names.get(id) || id.replace(/^atprotozoa-/, "");
   const dir = sites.get(site);
   if (!dir) {
     return { state: "ORPHAN", reason: `no sites/${site} and not a root Worker`, site };
+  }
+  if (hosted.has(site)) {
+    const routed = (script.routes || []).length > 0;
+    return {
+      state: "HOSTED",
+      reason: routed
+        ? `${dir} is hosted by fallback, but this Worker still holds its route`
+        : `${dir} is hosted by fallback; this Worker is unused`,
+      site,
+    };
   }
   if (isRetiredStub(dir)) {
     return { state: "RETIRED", reason: `${dir} is a retirement stub but is still deployed`, site };
@@ -175,11 +203,12 @@ async function danglingRoutes(scriptIds) {
 }
 
 const sites = repoSites();
+const names = workerNames(sites);
 const now = Date.now();
 
 const rows = scripts
   .map((s) => {
-    const c = classify(s, sites);
+    const c = classify(s, sites, names);
     const ageDays = Math.floor((now - Date.parse(s.modified_on)) / 86400000);
     return {
       ...c,
@@ -194,9 +223,9 @@ const rows = scripts
 
 // Site directories with no deployed Worker. These are the free headroom: a
 // directory that never deployed is not consuming a slot, and is also a site
-// that silently is not live.
+// that silently is not live. Hosted sites are expected to have none.
 const deployed = new Set(rows.filter((r) => r.site).map((r) => r.site));
-const undeployed = [...sites.keys()].filter((n) => !deployed.has(n));
+const undeployed = [...sites.keys()].filter((n) => !deployed.has(n) && !hosted.has(n));
 
 const byState = {};
 for (const r of rows) (byState[r.state] ||= []).push(r);
@@ -219,7 +248,7 @@ if (JSON_OUT) {
 
 // Print the states that need a human look in full; LIVE is the bulk and only
 // gets a count, since listing 675 healthy sites buries everything else.
-for (const state of ["FOREIGN", "ORPHAN", "RETIRED"]) {
+for (const state of ["FOREIGN", "ORPHAN", "RETIRED", "HOSTED"]) {
   const list = byState[state] || [];
   if (!list.length) continue;
   console.log(`\n=== ${state} (${list.length}) ===`);
@@ -260,11 +289,10 @@ console.log(
 
 if (over > 0) {
   console.log(
-    `\nThe account is ${over} over the ${CAP} cap and has been for weeks without\n` +
-      "anything breaking: existing Workers serve and redeploy fine. Creating a\n" +
-      "NEW Worker is the only blocked operation, and only on old wrangler —\n" +
-      "4.134.0 creates one here, 4.114.0 gets 10037. Keep wrangler current and\n" +
-      "see 'The 500-Worker cap' in notes/20-deploy.md.",
+    `\nThe account is ${over} over the ${CAP} cap. Existing Workers serve and\n` +
+      "redeploy, but creating a new one fails with 10037 on every wrangler\n" +
+      "version since 2026-10-31. Move sites onto fallback/ to get under it:\n" +
+      "see 'Hosted sites' in notes/20-deploy.md.",
   );
 }
 
