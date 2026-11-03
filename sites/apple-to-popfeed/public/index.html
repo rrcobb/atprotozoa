@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>apple music → popfeed</title>
+<meta name="description" content="import your apple music play history into your atproto account as fm.teal.alpha.feed.play records, so popfeed music can show it. runs in your browser." />
+<meta property="og:title" content="apple music → popfeed" />
+<meta property="og:description" content="import your apple music play history into your atproto account. runs in your browser." />
+<meta property="og:url" content="https://apple-to-popfeed.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://apple-to-popfeed.bisks.net/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="https://apple-to-popfeed.bisks.net/og.png" />
+<style>
+  :root { --bg:#14100f; --card:#1f1917; --fg:#f4ece8; --dim:#9a8d87; --acc:#fa5c7c; --ok:#7bd88f; --err:#ff8a8a; --border:#3a2f2b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif; padding:2rem 1.25rem 4rem; display:flex; justify-content:center; }
+  .wrap { width:100%; max-width:640px; }
+  h1 { margin:0 0 .25rem; font-size:1.7rem; }
+  .sub { color:var(--dim); margin:0 0 1.5rem; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:1rem 1.1rem; margin-bottom:1rem; }
+  .card h2 { margin:0 0 .5rem; font-size:1rem; }
+  ol { margin:.25rem 0 0; padding-left:1.2rem; color:var(--dim); }
+  ol b, ol code { color:var(--fg); }
+  input[type=text], select { background:#0f0b0a; color:var(--fg); border:1px solid var(--border); border-radius:8px; padding:.55rem .7rem; font:inherit; }
+  input[type=text] { width:100%; }
+  button { background:var(--acc); color:#1a0a0e; border:0; border-radius:8px; padding:.6rem 1rem; font:inherit; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.4; cursor:default; }
+  button.ghost { background:transparent; color:var(--dim); border:1px solid var(--border); font-weight:400; }
+  .row { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; margin-top:.6rem; }
+  .drop { border:2px dashed var(--border); border-radius:12px; padding:1.6rem 1rem; text-align:center; color:var(--dim); cursor:pointer; }
+  .drop.over { border-color:var(--acc); color:var(--fg); }
+  #status { min-height:1.4em; color:var(--dim); }
+  #status.err { color:var(--err); } #status.ok { color:var(--ok); }
+  .bar { height:8px; background:#0f0b0a; border-radius:4px; overflow:hidden; margin:.6rem 0; }
+  .bar > div { height:100%; width:0; background:var(--acc); }
+  .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:.5rem; text-align:center; }
+  .stats b { display:block; font-size:1.3rem; }
+  .stats span { color:var(--dim); font-size:.8rem; }
+  ul.top { margin:.5rem 0 0; padding-left:1.1rem; color:var(--dim); }
+  [hidden] { display:none !important; }
+  footer { color:var(--dim); font-size:.85rem; margin-top:1.5rem; }
+  footer a { color:var(--dim); }
+  .who { color:var(--dim); } .who b { color:var(--fg); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>apple m<span id="secret" style="cursor:pointer">u</span>sic → popfeed</h1>
+  <p class="sub">turn your apple music data export into plays on your atproto account. everything is parsed in your browser; only the plays are sent, straight to your PDS.</p>
+
+  <div class="card">
+    <h2>1 · get your export from apple</h2>
+    <ol>
+      <li>go to <b><a href="https://privacy.apple.com/account" style="color:var(--acc)">privacy.apple.com</a></b> and sign in.</li>
+      <li>choose <b>Request a copy of your data</b> and tick <b>Apple Media Services information</b>.</li>
+      <li>apple emails you in up to 7 days. download the zip(s).</li>
+      <li>drop them below. the file that matters is <code>Apple Music - Play History Daily Tracks.csv</code> (or <code>Apple Music Play Activity.csv</code>) inside "Apple Music Activity".</li>
+    </ol>
+  </div>
+
+  <div class="card" id="signinCard">
+    <h2>2 · sign in</h2>
+    <div id="signedOut">
+      <input type="text" id="handle" placeholder="you.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" />
+      <div class="row"><button id="signinBtn">sign in with atproto</button></div>
+    </div>
+    <div id="signedIn" hidden>
+      <span class="who">signed in as <b id="whoHandle"></b></span>
+      <button class="ghost" id="signoutBtn" style="margin-left:.5rem">sign out</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3 · pick your files</h2>
+    <label class="drop" id="drop" for="file">drop the zip or csv here, or click to choose<input type="file" id="file" multiple accept=".zip,.csv" hidden /></label>
+    <div class="row">
+      <label for="tz" style="color:var(--dim)">your timezone when you listened</label>
+      <select id="tz"></select>
+    </div>
+    <p class="sub" style="margin:.5rem 0 0;font-size:.85rem">the daily-tracks file only has dates and hours, so plays are spread across the hours listed. the timezone shifts them to the right moment.</p>
+  </div>
+
+  <div class="card" id="previewCard" hidden>
+    <h2>4 · ready to import</h2>
+    <div class="stats"><div><b id="nPlays">0</b><span>plays</span></div><div><b id="nTracks">0</b><span>tracks</span></div><div><b id="nRange">–</b><span>range</span></div></div>
+    <ul class="top" id="top"></ul>
+    <div class="bar"><div id="barFill"></div></div>
+    <div class="row"><button id="importBtn" disabled>import to my account</button><button class="ghost" id="stopBtn" hidden>pause</button></div>
+  </div>
+
+  <div id="status"></div>
+  <div class="row" id="shareRow" hidden><a id="shareLink" target="_blank" rel="noopener" style="color:var(--acc)">tell bluesky you moved your history →</a></div>
+
+  <footer>
+    plays are written as <code>fm.teal.alpha.feed.play</code> records (teal's listen format, which popfeed music reads). re-importing a file skips plays already there. big histories can hit your PDS's hourly write limit; the import waits and carries on.
+    <br /><a href="https://rateyourbuild.bisks.net/site/apple-to-popfeed">rate this on rateyourbuild →</a>
+    · <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a>
+  </footer>
+</div>
+<script src="lib/handle-typeahead.js"></script>
+<script type="module">
+import { login, getSession, clearSession, completeLoginIfCallback, dpopFetch } from "./lib/oauth.js";
+import { playsFromCSV, withKeys, toRecord, readZip } from "./lib/apple.js";
+
+const COLL = "fm.teal.alpha.feed.play";
+const $ = (id) => document.getElementById(id);
+const els = { status: $("status"), handle: $("handle"), file: $("file"), drop: $("drop"), tz: $("tz") };
+if (window.attachHandleTypeahead) window.attachHandleTypeahead(els.handle);
+
+let session = null;
+let plays = []; // keyed plays ready to write
+let stop = false;
+
+function setStatus(msg, cls = "") { els.status.textContent = msg; els.status.className = cls; }
+
+// secret prefill link
+$("secret").addEventListener("click", () => {
+  els.handle.value = "@cee.wtf";
+  els.handle.dispatchEvent(new Event("input", { bubbles: true }));
+  els.handle.dispatchEvent(new Event("change", { bubbles: true }));
+  els.handle.focus();
+});
+
+// timezone choices: whole-hour offsets plus the browser's own
+const here = -new Date().getTimezoneOffset();
+for (let m = -12 * 60; m <= 14 * 60; m += 30) {
+  if (m % 60 && m !== here) continue;
+  const o = document.createElement("option");
+  o.value = m;
+  const a = Math.abs(m);
+  o.textContent = `UTC${m < 0 ? "−" : "+"}${Math.floor(a / 60)}${a % 60 ? ":" + String(a % 60).padStart(2, "0") : ""}` + (m === here ? " (this device)" : "");
+  if (m === here) o.selected = true;
+  els.tz.appendChild(o);
+}
+
+function renderSignin() {
+  $("signedOut").hidden = !!session;
+  $("signedIn").hidden = !session;
+  if (session) $("whoHandle").textContent = "@" + session.handle;
+  $("importBtn").disabled = !session || !plays.length;
+}
+
+$("signinBtn").addEventListener("click", async () => {
+  const h = els.handle.value.trim().replace(/^@/, "");
+  if (!h) return setStatus("type your handle first", "err");
+  try { setStatus("redirecting to your PDS…"); await login(h); }
+  catch (e) { setStatus("sign-in failed: " + e.message, "err"); }
+});
+els.handle.addEventListener("keydown", (e) => { if (e.key === "Enter") $("signinBtn").click(); });
+$("signoutBtn").addEventListener("click", async () => { await clearSession(); session = null; renderSignin(); });
+
+// --- reading files ----------------------------------------------------------
+async function collectCSVs(name, buf, out, depth = 0) {
+  if (/\.csv$/i.test(name)) { out.push({ name, text: new TextDecoder().decode(buf) }); return; }
+  if (!/\.zip$/i.test(name) || depth > 3) return;
+  for (const f of await readZip(buf)) {
+    // only the music files; skip the many other CSVs in a media-services export
+    if (/\.zip$/i.test(f.name)) await collectCSVs(f.name, await f.bytes(), out, depth + 1);
+    else if (/Apple Music.*(Play History Daily Tracks|Play Activity)\.csv$/i.test(f.name)) await collectCSVs(f.name, await f.bytes(), out, depth);
+  }
+}
+
+async function handleFiles(fileList) {
+  const files = [...fileList];
+  if (!files.length) return;
+  plays = [];
+  $("previewCard").hidden = true;
+  $("shareRow").hidden = true;
+  try {
+    setStatus("reading…");
+    const csvs = [];
+    for (const f of files) await collectCSVs(f.name, await f.arrayBuffer(), csvs);
+    if (!csvs.length) return setStatus("didn't find an Apple Music play history CSV in those files. look for \"Play History Daily Tracks.csv\" in the Apple Music Activity folder.", "err");
+    const offset = parseInt(els.tz.value, 10);
+    // if the export has both kinds, the activity file is the exact one; use daily only when it's all there is
+    let daily = [], activity = [];
+    for (const c of csvs) {
+      const r = playsFromCSV(c.text, offset);
+      if (r.kind === "daily") daily.push(...r.plays);
+      else if (r.kind === "activity") activity.push(...r.plays);
+    }
+    const chosen = activity.length ? activity : daily;
+    if (!chosen.length) return setStatus("those CSVs had no plays in them.", "err");
+    chosen.sort((a, b) => (a.playedTime < b.playedTime ? -1 : 1));
+    plays = withKeys(chosen);
+    showPreview(activity.length ? "play activity" : "daily tracks");
+  } catch (e) { setStatus("couldn't read that: " + e.message, "err"); }
+}
+
+function showPreview(kind) {
+  const tracks = new Map(), artists = new Map();
+  for (const p of plays) {
+    tracks.set(p.track + "|" + p.artist, 1);
+    artists.set(p.artist || "unknown", (artists.get(p.artist || "unknown") || 0) + 1);
+  }
+  $("nPlays").textContent = plays.length.toLocaleString();
+  $("nTracks").textContent = tracks.size.toLocaleString();
+  $("nRange").textContent = plays[0].playedTime.slice(0, 4) + "–" + plays[plays.length - 1].playedTime.slice(0, 4);
+  $("top").replaceChildren(...[...artists].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([a, n]) => {
+    const li = document.createElement("li"); li.textContent = `${a} · ${n.toLocaleString()} plays`; return li;
+  }));
+  $("barFill").style.width = "0";
+  $("previewCard").hidden = false;
+  setStatus(`parsed ${kind}. ${session ? "ready when you are." : "sign in to import."}`);
+  renderSignin();
+}
+
+els.file.addEventListener("change", () => handleFiles(els.file.files));
+els.tz.addEventListener("change", () => { if (els.file.files.length) handleFiles(els.file.files); });
+["dragenter", "dragover"].forEach((t) => els.drop.addEventListener(t, (e) => { e.preventDefault(); els.drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((t) => els.drop.addEventListener(t, (e) => { e.preventDefault(); els.drop.classList.remove("over"); }));
+els.drop.addEventListener("drop", (e) => handleFiles(e.dataTransfer.files));
+
+// --- writing ----------------------------------------------------------------
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Existing keys, so a re-run (or resume after a rate-limit stop) skips what's there.
+// Pages to exhaustion: the only way to know every play already written.
+async function existingKeys() {
+  const have = new Set();
+  let cursor = "";
+  do {
+    const u = `${session.pdsUrl}/xrpc/com.atproto.repo.listRecords?repo=${encodeURIComponent(session.did)}&collection=${COLL}&limit=100` + (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+    const r = await dpopFetch(session, u);
+    if (!r.ok) throw new Error("couldn't list existing plays (" + r.status + ")");
+    const j = await r.json();
+    for (const rec of j.records) have.add(rec.uri.split("/").pop());
+    cursor = j.cursor || "";
+    setStatus(`checking what's already on your account… ${have.size.toLocaleString()}`);
+  } while (cursor);
+  return have;
+}
+
+async function writeBatch(batch) {
+  for (;;) {
+    const r = await dpopFetch(session, `${session.pdsUrl}/xrpc/com.atproto.repo.applyWrites`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        repo: session.did,
+        validate: false, // the PDS doesn't carry teal's lexicon
+        writes: batch.map((p) => ({ $type: "com.atproto.repo.applyWrites#create", collection: COLL, rkey: p.rkey, value: toRecord(p) })),
+      }),
+    });
+    if (r.ok) return;
+    if (r.status === 429) {
+      const reset = parseInt(r.headers.get("ratelimit-reset") || "", 10);
+      const wait = Math.max(5, isFinite(reset) ? reset - Math.floor(Date.now() / 1000) + 2 : 300);
+      for (let s = wait; s > 0 && !stop; s--) {
+        setStatus(`your PDS asked us to slow down. resuming in ${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s…`);
+        await sleep(1000);
+      }
+      if (stop) return "stopped";
+      continue;
+    }
+    let msg = r.status + "";
+    try { msg = (await r.json()).message || msg; } catch {}
+    throw new Error(msg);
+  }
+}
+
+$("importBtn").addEventListener("click", async () => {
+  if (!session || !plays.length) return;
+  stop = false;
+  $("importBtn").disabled = true;
+  $("stopBtn").hidden = false;
+  try {
+    const have = await existingKeys();
+    const todo = plays.filter((p) => !have.has(p.rkey));
+    const skipped = plays.length - todo.length;
+    let done = 0;
+    for (let i = 0; i < todo.length && !stop; i += 100) {
+      const batch = todo.slice(i, i + 100);
+      if ((await writeBatch(batch)) === "stopped") break;
+      done += batch.length;
+      $("barFill").style.width = ((done / todo.length) * 100).toFixed(1) + "%";
+      setStatus(`imported ${done.toLocaleString()} of ${todo.length.toLocaleString()}` + (skipped ? ` (${skipped.toLocaleString()} already there)` : ""));
+    }
+    if (stop) setStatus(`paused after ${done.toLocaleString()}. pick the same files and import again to continue.`);
+    else {
+      setStatus(`done: ${done.toLocaleString()} plays written` + (skipped ? `, ${skipped.toLocaleString()} were already there` : "") + ".", "ok");
+      const text = `just moved ${plays.length.toLocaleString()} apple music plays onto my atproto account\nhttps://apple-to-popfeed.bisks.net/`;
+      $("shareLink").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+      $("shareRow").hidden = false;
+    }
+  } catch (e) {
+    setStatus("import stopped: " + e.message + " (run it again to carry on)", "err");
+  } finally {
+    $("stopBtn").hidden = true;
+    $("importBtn").disabled = false;
+  }
+});
+$("stopBtn").addEventListener("click", () => { stop = true; });
+
+(async () => {
+  try { session = (await completeLoginIfCallback()) || (await getSession()); }
+  catch (e) { setStatus("sign-in failed: " + e.message, "err"); }
+  renderSignin();
+})();
+</script>
+</body>
+</html>
