@@ -222,3 +222,32 @@ export function parseRoom(text) {
   const key = (t.match(/rwk1_[A-Za-z0-9_-]+/) || [""])[0];
   return m ? { x: Number(m[1]), y: Number(m[2]), key } : null;
 }
+
+// ---- picking a cell to build on, from Room World's room list (/grid) ----
+
+// Cells that border a built room and are empty: the only ones `build` accepts.
+// Nearest the origin first, so new rooms cluster instead of sprawling.
+export function frontier(rooms) {
+  const taken = new Set(rooms.map((r) => r.x + "," + r.y));
+  const out = new Map();
+  for (const r of rooms) {
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const x = r.x + dx, y = r.y + dy, k = x + "," + y;
+      if (!taken.has(k) && !out.has(k)) out.set(k, { x, y });
+    }
+  }
+  return [...out.values()].sort((a, b) => a.x * a.x + a.y * a.y - (b.x * b.x + b.y * b.y));
+}
+
+// One of the nearest few free cells. Two visitors pressing the button together would
+// otherwise both ask for the single nearest cell and one of them would lose it, so the
+// choice spreads over 5 (a handful is enough for a collision to be rare).
+export function pickCell(rooms, rng = Math.random) {
+  const cells = frontier(rooms);
+  if (!cells.length) return null;
+  return cells[Math.floor(rng() * Math.min(5, cells.length))];
+}
+
+export function findRoom(rooms, x, y) {
+  return rooms.find((r) => r.x === x && r.y === y) || null;
+}

@@ -52,3 +52,21 @@ test("parseRoom reads the build answer or a bare cell", () => {
   assert.equal(parseRoom(""), null);
   assert.equal(parseRoom("hello"), null);
 });
+
+import { frontier, pickCell, findRoom } from "../public/grow.js";
+test("frontier lists empty cells next to built rooms, nearest the origin first", () => {
+  const rooms = [{ x: 0, y: 0 }, { x: 1, y: 0 }];
+  const f = frontier(rooms).map((c) => c.x + "," + c.y);
+  assert.deepEqual(f.slice(0, 3).sort(), ["-1,0", "0,-1", "0,1"]);
+  assert.ok(!f.includes("0,0") && !f.includes("1,0"));
+  assert.equal(new Set(f).size, f.length);
+  assert.equal(f.length, 6);
+});
+test("pickCell stays among the nearest five and returns null for an empty world", () => {
+  const rooms = [{ x: 0, y: 0 }];
+  const c = pickCell(rooms, () => 0.99);
+  assert.ok(Math.abs(c.x) + Math.abs(c.y) === 1);
+  assert.equal(pickCell([]), null);
+  assert.deepEqual(findRoom(rooms, 0, 0), rooms[0]);
+  assert.equal(findRoom(rooms, 5, 5), null);
+});

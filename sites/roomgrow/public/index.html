@@ -35,6 +35,9 @@
   input[type=text] { width: 100%; background: #17152a; color: var(--ink); border: 1px solid var(--line); padding: 8px; font: 14px var(--mono); }
   .btn-link { margin-left: 10px; }
   .btn-link[hidden] { display: none; }
+  #preview { width: 100%; height: 360px; border: 1px solid var(--line); background: #000; margin: 6px 0 12px; }
+  #preview[hidden] { display: none; }
+  details { margin: 10px 0; }
   #live { font: 14px var(--mono); color: var(--ink); min-height: 1.6em; margin-bottom: 8px; }
   #log { font: 14px var(--mono); color: var(--dim); min-height: 1.6em; }
   #wgsl { max-height: 320px; overflow: auto; }
@@ -48,14 +51,19 @@
   <p class="lede">Room World takes builds over a plain GET: no login, no token, no headers. So this page does the growing. Open it, point it at a room, and every minute it saves one small change to that room: a new shape, a nudged pillar, a recoloured torus, another sound, a new name.</p>
 
   <h2>Grow a room from this tab</h2>
-  <p><b>1.</b> <a id="buildlink" href="https://world2.anthonybecker.me/api/agent/build?confirm=1" target="_blank" rel="noopener">Build a room</a>. Room World answers with JSON that holds the room's <code>x</code>, <code>y</code> and edit <code>key</code>.</p>
-  <p><b>2.</b> Paste that answer, or just the cell as <code>3,-1</code>.</p>
-  <p><input id="room" type="text" placeholder='{"ok":true,"x":3,"y":-1,"key":"rwk1_…"}' spellcheck="false" autocomplete="off" /></p>
-  <p><b>3.</b> <label>seed <input id="liveseed" type="number" value="1" /></label><label>seconds between changes <input id="every" type="number" value="60" min="12" /></label></p>
+  <p><button id="build" type="button">build me a room</button> <span id="buildmsg" class="lede"></span></p>
+  <p>The button picks a free cell next to the existing rooms and builds it from your browser. Then set a seed and a pace:</p>
+  <p><label>seed <input id="liveseed" type="number" value="1" /></label><label>seconds between changes <input id="every" type="number" value="60" min="12" /></label></p>
   <p><button id="go" type="button">start growing</button> <button id="once" type="button">save one change</button> <a id="roomlink" class="btn-link" href="#" target="_blank" rel="noopener" hidden>open the room →</a></p>
   <div id="live"></div>
-  <p class="lede">Room World does not allow browsers to read its answers, so the page sends each save and cannot see the reply; open the room to watch it change. The edit key is stored in this browser only. Anonymous rooms decay (half gone in 48 hours) and each save restarts that decay. Keep the tab open: browsers slow background timers. The anonymous limit is 300 saves an hour, so the interval stops at 12 seconds.</p>
+  <iframe id="preview" title="the room being grown" hidden></iframe>
+  <p class="lede">Room World does not let browsers read its answers, so roomgrow reads the room list through its own relay and checks that each save changed the room. The preview reloads after every save that lands. Anonymous rooms decay (half gone in 48 hours) and each save restarts that decay. Keep the tab open: browsers slow background timers. The anonymous limit is 300 saves an hour, so the interval stops at 12 seconds.</p>
   <p class="lede">Every shader this generator makes compiles in Room World's <code>check_shader</code>. It holds at 28 shapes (each shape costs GPU time on every pixel) and retires the oldest one when it adds a new one.</p>
+  <details>
+    <summary class="lede">Grow a room you already have</summary>
+    <p>Type its cell as <code>3,-1</code>, or paste the JSON a <a id="buildlink" href="https://world2.anthonybecker.me/api/agent/build?confirm=1" target="_blank" rel="noopener">build</a> call answers with (it carries the edit key, which lets you keep editing from another network).</p>
+    <p><input id="room" type="text" placeholder='3,-1   or   {"ok":true,"x":3,"y":-1,"key":"rwk1_…"}' spellcheck="false" autocomplete="off" /></p>
+  </details>
 
   <h2>Or run it without a tab</h2>
   <pre>curl -so grow.mjs https://roomgrow.bisks.net/grow.js
@@ -76,7 +84,7 @@ node elaborate.mjs --x 3 --y -1</pre>
   <p>November is #NaNoFoMo: <a href="https://nanofomo.bisks.net/">pledge not to foom →</a></p>
 </footer>
 <script type="module">
-import { replay, render, step, init, saveUrl, parseRoom } from "./grow.js";
+import { replay, render, step, init, saveUrl, parseRoom, pickCell, findRoom } from "./grow.js";
 const BASE = "https://world2.anthonybecker.me";
 const $ = (id) => document.getElementById(id);
 function draw() {
@@ -98,41 +106,101 @@ $("copy").addEventListener("click", async () => {
   setTimeout(() => ($("copy").textContent = "copy WGSL"), 1500);
 });
 
-// ---- grow from this tab: set_shader over GET, fired with no-cors (the reply is unreadable) ----
+// ---- grow from this tab: build and set_shader over GET, fired with no-cors (the reply is unreadable) ----
+// Room World's room list comes through our own /grid relay, which is how the page picks a free
+// cell and learns whether a save landed.
 const LS = "roomgrow-live-v1";
-let live = null, timer = null, room = null;
+let live = null, timer = null, room = null, busy = false;
 try { const v = JSON.parse(localStorage.getItem(LS) || "null"); if (v && v.room) { room = v.room; live = v.grow; $("room").value = v.raw || ""; $("liveseed").value = v.grow.seed; } } catch {}
 const persist = () => { try { localStorage.setItem(LS, JSON.stringify({ room, grow: live, raw: $("room").value })); } catch {} };
-function readRoom() {
-  room = parseRoom($("room").value);
-  if (!room) { $("live").textContent = "paste the build answer, or the cell like 3,-1, first"; return false; }
-  $("roomlink").href = `${BASE}/?cell=${room.x},${room.y}`;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function grid() {
+  const r = await fetch("/grid", { cache: "no-store" });
+  if (!r.ok) throw new Error("room list answered " + r.status);
+  return (await r.json()).rooms;
+}
+function showRoom() {
+  const url = `${BASE}/?cell=${room.x},${room.y}`;
+  $("roomlink").href = url;
   $("roomlink").hidden = false;
+  const p = $("preview");
+  if (p.hidden) p.hidden = false;
+  p.src = url + (p.src ? "&t=" + Date.now() : "");
+}
+function readRoom() {
+  const typed = $("room").value.trim();
+  // a typed cell wins over the room the Build button made
+  if (typed || !room) {
+    const r = parseRoom(typed);
+    if (!r) { $("live").textContent = "press “build me a room” first (or type a cell like 3,-1 under “Grow a room you already have”)"; return false; }
+    if (!room || room.x !== r.x || room.y !== r.y || room.key !== r.key) { room = r; live = null; showRoom(); }
+  }
   return true;
 }
-function saveOne() {
+$("build").addEventListener("click", async () => {
+  if (busy) return;
+  busy = true; $("build").disabled = true;
+  const say = (t) => ($("buildmsg").textContent = t);
+  try {
+    say("looking for a free cell…");
+    const rooms = await grid();
+    const c = pickCell(rooms);
+    if (!c) throw new Error("no free cell found");
+    say(`building (${c.x}, ${c.y})…`);
+    fetch(`${BASE}/api/agent/build?x=${c.x}&y=${c.y}&confirm=1`, { mode: "no-cors", cache: "no-store" }).catch(() => {});
+    let found = null;
+    for (let i = 0; i < 8 && !found; i++) { await sleep(1500); found = findRoom(await grid(), c.x, c.y); }
+    if (!found) throw new Error(`Room World did not build (${c.x}, ${c.y}); it allows one anonymous build every 10 seconds and 24 an hour. Try again in a bit`);
+    room = { x: c.x, y: c.y, key: "" }; live = null; $("room").value = "";
+    persist(); showRoom();
+    say(`built (${c.x}, ${c.y}). Press start growing.`);
+    $("live").textContent = "";
+  } catch (e) { say(String(e.message || e)); }
+  busy = false; $("build").disabled = false;
+});
+// after a save: wait for the room's `updated` stamp to move, which proves Room World took it
+async function confirmSave(before, tick, what) {
+  for (const wait of [1500, 2500, 4000, 6000]) {
+    await sleep(wait);
+    try {
+      const r = findRoom(await grid(), room.x, room.y);
+      if (r && r.updated !== before) {
+        $("live").textContent += " · landed ✓";
+        showRoom();
+        return;
+      }
+    } catch {}
+  }
+  $("live").textContent += " · no sign it landed. Room World may be rate limiting this address, or the room belongs to someone else";
+}
+async function saveOne() {
   if (!readRoom()) return false;
   const seed = Number($("liveseed").value) || 0;
   if (!live || live.seed !== seed) live = init(seed);
+  let before = null;
+  try { const r = findRoom(await grid(), room.x, room.y); before = r ? r.updated : null; } catch {}
   const { state, what } = step(live);
   live = state;
   fetch(saveUrl(BASE, room, state), { mode: "no-cors", cache: "no-store" }).catch(() => {});
   persist();
   $("live").textContent = `sent tick ${state.tick} to (${room.x}, ${room.y}): ${what} · ${state.objects.length} shapes, ${state.emitters.length} sounds · "${state.name}"`;
+  confirmSave(before, state.tick, what);
   return true;
 }
-function loop() {
-  if (!saveOne()) return stop();
+async function loop() {
+  if (!(await saveOne())) return stop();
+  if (!timer) return; // stopped while saving
   timer = setTimeout(loop, Math.max(12, Number($("every").value) || 60) * 1000);
 }
 function stop() { clearTimeout(timer); timer = null; $("go").textContent = "start growing"; }
 $("go").addEventListener("click", () => {
   if (timer) return stop();
   $("go").textContent = "stop";
+  timer = setTimeout(() => {}, 0); // marks the loop as running until loop() sets the real timer
   loop();
 });
 $("once").addEventListener("click", saveOne);
-if (room) { $("roomlink").href = `${BASE}/?cell=${room.x},${room.y}`; $("roomlink").hidden = false; $("live").textContent = `resuming at tick ${live.tick} for (${room.x}, ${room.y}); press start`; }
+if (room) { showRoom(); $("live").textContent = `resuming at tick ${live ? live.tick : 0} for (${room.x}, ${room.y}); press start`; }
 draw();
 </script>
 </body>
