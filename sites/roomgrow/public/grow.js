@@ -197,3 +197,28 @@ fn shade(ro: vec3f, rd: vec3f, tmin: f32, tmax: f32) -> Hit {
 }
 `;
 }
+
+// The URL that saves a state into a room over a plain GET: no token, no headers, no JSON body.
+// GET calls that change the world need confirm=1. The edit key (from the build answer) lets the
+// same visitor keep editing from another address; it is left out when there is none.
+export function saveUrl(base, room, state) {
+  const q = [`x=${room.x}`, `y=${room.y}`, "confirm=1", `name=${encodeURIComponent(state.name)}`];
+  if (room.key) q.push("key=" + encodeURIComponent(room.key));
+  if (state.emitters.length) q.push("audio=" + encodeURIComponent(JSON.stringify(state.emitters)));
+  q.push("wgsl=" + encodeURIComponent(render(state)));
+  return `${base}/api/agent/set_shader?${q.join("&")}`;
+}
+
+// Pulls x, y and the edit key out of whatever the visitor pastes: the JSON that build answers,
+// or two numbers like "3 -1" / "3,-1".
+export function parseRoom(text) {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  try {
+    const j = JSON.parse(t);
+    if (Number.isInteger(j.x) && Number.isInteger(j.y)) return { x: j.x, y: j.y, key: typeof j.key === "string" ? j.key : "" };
+  } catch {}
+  const m = t.match(/(-?\d+)\D+?(-?\d+)/);
+  const key = (t.match(/rwk1_[A-Za-z0-9_-]+/) || [""])[0];
+  return m ? { x: Number(m[1]), y: Number(m[2]), key } : null;
+}

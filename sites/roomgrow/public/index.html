@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>roomgrow: a script that keeps elaborating a Room World room</title>
-<meta name="description" content="A Node script that adds one small change to a Room World room every minute: a shape, a nudged pillar, another sound. Replay any seed here and paste it into the shader editor." />
+<title>roomgrow: grow a Room World room from this tab</title>
+<meta name="description" content="This page adds one small change to a Room World room every minute: a shape, a nudged pillar, another sound. No login, no install. Replay any seed and paste it into the shader editor." />
 <meta property="og:title" content="roomgrow" />
-<meta property="og:description" content="A script that keeps elaborating a Room World room, one change a minute." />
+<meta property="og:description" content="Grow a Room World room from your tab, one change a minute." />
 <meta property="og:url" content="https://roomgrow.bisks.net/" />
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://roomgrow.bisks.net/og.png" />
@@ -15,7 +15,7 @@
 <meta property="og:image:alt" content="roomgrow: tick 1, tick 2, tick 3 and so on, each adding a shape to a room" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="roomgrow" />
-<meta name="twitter:description" content="A script that keeps elaborating a Room World room, one change a minute." />
+<meta name="twitter:description" content="Grow a Room World room from your tab, one change a minute." />
 <meta name="twitter:image" content="https://roomgrow.bisks.net/og.png" />
 <style>
   :root { --bg: #0e0d14; --ink: #e8e6f0; --dim: #9a97ab; --line: #2b2940; --acc: #8f7bff; --mono: ui-monospace, Menlo, Consolas, monospace; }
@@ -32,6 +32,10 @@
   input[type=number] { width: 80px; background: #17152a; color: var(--ink); border: 1px solid var(--line); padding: 4px 6px; font: 14px var(--mono); }
   input[type=range] { width: 100%; margin: 10px 0; }
   button, .btn { background: var(--acc); color: #0e0d14; border: 0; padding: 8px 14px; font: 700 14px var(--mono); cursor: pointer; text-decoration: none; display: inline-block; }
+  input[type=text] { width: 100%; background: #17152a; color: var(--ink); border: 1px solid var(--line); padding: 8px; font: 14px var(--mono); }
+  .btn-link { margin-left: 10px; }
+  .btn-link[hidden] { display: none; }
+  #live { font: 14px var(--mono); color: var(--ink); min-height: 1.6em; margin-bottom: 8px; }
   #log { font: 14px var(--mono); color: var(--dim); min-height: 1.6em; }
   #wgsl { max-height: 320px; overflow: auto; }
   footer { max-width: 760px; margin: 30px auto 0; padding: 18px 20px 40px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; }
@@ -41,14 +45,23 @@
 <body>
 <main>
   <h1>roomgrow</h1>
-  <p class="lede">A script that elaborates one <a href="https://world2.anthonybecker.me/">Room World</a> room for as long as it runs. Every minute it makes one small change: a new shape, a nudged pillar, a recoloured torus, another sound, a new name. Each draft is compiled with the room's <code>check_shader</code> first, so a bad roll never reaches the room.</p>
+  <p class="lede">Room World takes builds over a plain GET: no login, no token, no headers. So this page does the growing. Open it, point it at a room, and every minute it saves one small change to that room: a new shape, a nudged pillar, a recoloured torus, another sound, a new name.</p>
 
-  <h2>Run it</h2>
+  <h2>Grow a room from this tab</h2>
+  <p><b>1.</b> <a id="buildlink" href="https://world2.anthonybecker.me/api/agent/build?confirm=1" target="_blank" rel="noopener">Build a room</a>. Room World answers with JSON that holds the room's <code>x</code>, <code>y</code> and edit <code>key</code>.</p>
+  <p><b>2.</b> Paste that answer, or just the cell as <code>3,-1</code>.</p>
+  <p><input id="room" type="text" placeholder='{"ok":true,"x":3,"y":-1,"key":"rwk1_…"}' spellcheck="false" autocomplete="off" /></p>
+  <p><b>3.</b> <label>seed <input id="liveseed" type="number" value="1" /></label><label>seconds between changes <input id="every" type="number" value="60" min="12" /></label></p>
+  <p><button id="go" type="button">start growing</button> <button id="once" type="button">save one change</button> <a id="roomlink" class="btn-link" href="#" target="_blank" rel="noopener" hidden>open the room →</a></p>
+  <div id="live"></div>
+  <p class="lede">Room World does not allow browsers to read its answers, so the page sends each save and cannot see the reply; open the room to watch it change. The edit key is stored in this browser only. Anonymous rooms decay (half gone in 48 hours) and each save restarts that decay. Keep the tab open: browsers slow background timers. The anonymous limit is 300 saves an hour, so the interval stops at 12 seconds.</p>
+  <p class="lede">Every shader this generator makes compiles in Room World's <code>check_shader</code>. It holds at 28 shapes (each shape costs GPU time on every pixel) and retires the oldest one when it adds a new one.</p>
+
+  <h2>Or run it without a tab</h2>
   <pre>curl -so grow.mjs https://roomgrow.bisks.net/grow.js
 curl -so elaborate.mjs https://roomgrow.bisks.net/elaborate.txt
-RW_TOKEN=rw1.xxxx node elaborate.mjs --x 3 --y -1</pre>
-  <p>Needs Node 18 or newer. Leave out <code>--x</code> and <code>--y</code> and it builds a new room on the nearest free cell. Make a token under <b>Agent access</b> in Room World; with one, the room is written to your Bluesky repo and stays. Without one the script works anonymously, the room decays, and each save restarts that decay. It keeps its place in <code>roomgrow-state.json</code>, so restarting carries on. Other options: <code>--interval 30</code>, <code>--seed 7</code>, <code>--once</code>, <code>--dry-run</code>.</p>
-  <p>It holds at 28 shapes (every shape costs GPU time on every pixel). After that it retires the oldest one when it adds a new one, and it stops adding when viewers report the room costs more than 6 ms per megapixel.</p>
+node elaborate.mjs --x 3 --y -1</pre>
+  <p>Needs Node 18 or newer. Leave out <code>--x</code> and <code>--y</code> and it builds a new room on the nearest free cell. Set <code>RW_TOKEN=rw1.xxxx</code> (made under <b>Agent access</b> in Room World) and the room is written to your Bluesky repo and stays. It checks each draft with <code>check_shader</code> first, stops adding shapes when viewers report more than 6 ms per megapixel, and keeps its place in <code>roomgrow-state.json</code>. Other options: <code>--interval 30</code>, <code>--seed 7</code>, <code>--once</code>, <code>--dry-run</code>.</p>
 
   <h2>Replay a seed</h2>
   <p>The same generator runs here. Pick a seed and a tick, then paste the shader into <b>Edit this room → Custom WGSL</b> in Room World.</p>
@@ -63,7 +76,8 @@ RW_TOKEN=rw1.xxxx node elaborate.mjs --x 3 --y -1</pre>
   <p>November is #NaNoFoMo: <a href="https://nanofomo.bisks.net/">pledge not to foom →</a></p>
 </footer>
 <script type="module">
-import { replay, render, step, init } from "./grow.js";
+import { replay, render, step, init, saveUrl, parseRoom } from "./grow.js";
+const BASE = "https://world2.anthonybecker.me";
 const $ = (id) => document.getElementById(id);
 function draw() {
   const seed = Number($("seed").value) || 0, n = Math.max(0, Math.min(400, Number($("tickn").value) || 0));
@@ -83,6 +97,42 @@ $("copy").addEventListener("click", async () => {
   catch { const r = document.createRange(); r.selectNodeContents($("wgsl")); getSelection().removeAllRanges(); getSelection().addRange(r); $("copy").textContent = "selected: press copy"; }
   setTimeout(() => ($("copy").textContent = "copy WGSL"), 1500);
 });
+
+// ---- grow from this tab: set_shader over GET, fired with no-cors (the reply is unreadable) ----
+const LS = "roomgrow-live-v1";
+let live = null, timer = null, room = null;
+try { const v = JSON.parse(localStorage.getItem(LS) || "null"); if (v && v.room) { room = v.room; live = v.grow; $("room").value = v.raw || ""; $("liveseed").value = v.grow.seed; } } catch {}
+const persist = () => { try { localStorage.setItem(LS, JSON.stringify({ room, grow: live, raw: $("room").value })); } catch {} };
+function readRoom() {
+  room = parseRoom($("room").value);
+  if (!room) { $("live").textContent = "paste the build answer, or the cell like 3,-1, first"; return false; }
+  $("roomlink").href = `${BASE}/?cell=${room.x},${room.y}`;
+  $("roomlink").hidden = false;
+  return true;
+}
+function saveOne() {
+  if (!readRoom()) return false;
+  const seed = Number($("liveseed").value) || 0;
+  if (!live || live.seed !== seed) live = init(seed);
+  const { state, what } = step(live);
+  live = state;
+  fetch(saveUrl(BASE, room, state), { mode: "no-cors", cache: "no-store" }).catch(() => {});
+  persist();
+  $("live").textContent = `sent tick ${state.tick} to (${room.x}, ${room.y}): ${what} · ${state.objects.length} shapes, ${state.emitters.length} sounds · "${state.name}"`;
+  return true;
+}
+function loop() {
+  if (!saveOne()) return stop();
+  timer = setTimeout(loop, Math.max(12, Number($("every").value) || 60) * 1000);
+}
+function stop() { clearTimeout(timer); timer = null; $("go").textContent = "start growing"; }
+$("go").addEventListener("click", () => {
+  if (timer) return stop();
+  $("go").textContent = "stop";
+  loop();
+});
+$("once").addEventListener("click", saveOne);
+if (room) { $("roomlink").href = `${BASE}/?cell=${room.x},${room.y}`; $("roomlink").hidden = false; $("live").textContent = `resuming at tick ${live.tick} for (${room.x}, ${room.y}); press start`; }
 draw();
 </script>
 </body>

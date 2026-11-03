@@ -31,3 +31,24 @@ test("render emits a shade function with every object", () => {
   assert.match(w, /fn shade\(ro: vec3f, rd: vec3f, tmin: f32, tmax: f32\) -> Hit/);
   assert.equal((w.match(/best = vec2f\(d,/g) || []).length, s.objects.length);
 });
+
+import { saveUrl, parseRoom } from "../public/grow.js";
+
+test("saveUrl is a confirm=1 GET with the room, key and encoded shader", () => {
+  const s = replay(1, 5);
+  const u = new URL(saveUrl("https://w.example", { x: 3, y: -1, key: "rwk1_abc" }, s));
+  assert.equal(u.pathname, "/api/agent/set_shader");
+  assert.equal(u.searchParams.get("confirm"), "1");
+  assert.equal(u.searchParams.get("x"), "3");
+  assert.equal(u.searchParams.get("y"), "-1");
+  assert.equal(u.searchParams.get("key"), "rwk1_abc");
+  assert.equal(u.searchParams.get("wgsl"), render(s));
+});
+
+test("parseRoom reads the build answer or a bare cell", () => {
+  assert.deepEqual(parseRoom('{"ok":true,"x":3,"y":-1,"key":"rwk1_x"}'), { x: 3, y: -1, key: "rwk1_x" });
+  assert.deepEqual(parseRoom("3,-1"), { x: 3, y: -1, key: "" });
+  assert.deepEqual(parseRoom("-2 5"), { x: -2, y: 5, key: "" });
+  assert.equal(parseRoom(""), null);
+  assert.equal(parseRoom("hello"), null);
+});
