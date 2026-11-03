@@ -70,3 +70,12 @@ test("pickCell stays among the nearest five and returns null for an empty world"
   assert.deepEqual(findRoom(rooms, 0, 0), rooms[0]);
   assert.equal(findRoom(rooms, 5, 5), null);
 });
+
+import { renderDuo, duoSaveUrl, DUO_EMITTERS } from "../public/duo.js";
+test("duo shader defines shade and the saved URL carries it with five sounds", () => {
+  assert.match(renderDuo(), /fn shade\(/);
+  assert.ok(DUO_EMITTERS.length <= MAX_EMITTERS);
+  const u = duoSaveUrl("https://x.test", { x: 1, y: -2, key: "" });
+  assert.match(u, /set_shader\?x=1&y=-2&confirm=1/);
+  assert.ok(u.includes("audio="));
+});

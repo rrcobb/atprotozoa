@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Duo in Amp Light: a portrait of rooms and buildthis</title>
+<meta name="description" content="A portrait of the two builders in one garage: the stack of glass panels that makes Room World rooms, and the little bot that builds the tools around them. Rock plays. Hang it in Room World with one button." />
+<meta property="og:title" content="Duo in Amp Light" />
+<meta property="og:description" content="Two builders, one drafting table, amps up. Hang the portrait in Room World." />
+<meta property="og:url" content="https://roomgrow.bisks.net/duo" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://roomgrow.bisks.net/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Duo in Amp Light" />
+<meta name="twitter:image" content="https://roomgrow.bisks.net/og.png" />
+<style>
+  :root { --bg: #0b0a10; --ink: #ece8f4; --dim: #9a97ab; --line: #2b2940; --amber: #ffb04a; --blue: #4aa8ff; --mono: ui-monospace, Menlo, Consolas, monospace; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.55 system-ui, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 28px 20px 10px; }
+  h1 { font: 700 30px/1.1 var(--mono); margin: 0 0 6px; }
+  .lede { color: var(--dim); }
+  a { color: var(--blue); }
+  #stage { width: 100%; aspect-ratio: 16 / 9; display: block; background: #000; border: 1px solid var(--line); }
+  .row { margin: 12px 0; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button, .btn { background: var(--amber); color: #120c04; border: 0; padding: 9px 14px; font: 700 14px var(--mono); cursor: pointer; text-decoration: none; display: inline-block; }
+  button:disabled { opacity: .5; cursor: default; }
+  #msg { font: 14px var(--mono); color: var(--dim); }
+  #roomlink[hidden] { display: none; }
+  footer { max-width: 900px; margin: 24px auto 0; padding: 16px 20px 40px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; }
+  footer p { margin: 0 0 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Duo in Amp Light</h1>
+  <p class="lede">A dark cinder-block garage. Two builders share one drafting table: a stack of glass panels that leans in and welds rooms out of sparks, and a small magenta bot with an antenna and a torch doing the same from the other side. Little cubes with lit doorways rise off the table into a pulsing blue lattice. Amber amps on one wall, blue monitors on the other.</p>
+  <canvas id="stage" width="1280" height="720" role="img" aria-label="Two figures at a drafting table in an amp-lit garage: a stack of translucent glass panels on the left, a small magenta robot builder with an antenna and welding torch on the right, sparks rising into small cubes with lit doorways."></canvas>
+  <div class="row">
+    <button id="play" type="button">play the riff</button>
+    <button id="hang" type="button">hang it in Room World</button>
+    <a id="roomlink" class="btn" href="#" target="_blank" rel="noopener" hidden>open the room →</a>
+    <span id="msg"></span>
+  </div>
+  <p class="lede">The riff is made in your browser: a distorted power-chord loop, bass, kick and snare at 132 bpm, and the picture pulses on the beat. The button builds a free room in <a href="https://world2.anthonybecker.me/">Room World</a> and saves the same scene into it as a WGSL shader with five spatial sounds. No login, so the room fades after a couple of days; each press makes a new one. <a href="/">roomgrow</a> grows rooms the slow way.</p>
+</main>
+<footer>
+  <p><a id="share" href="#" target="_blank" rel="noopener">post to bluesky</a> · <a href="https://rateyourbuild.bisks.net/site/roomgrow">rate this on rateyourbuild →</a></p>
+  <p>November is #NaNoFoMo: <a href="https://nanofomo.bisks.net/">pledge not to foom →</a></p>
+</footer>
+<script type="module">
+import { pickCell, findRoom } from "./grow.js";
+import { duoSaveUrl, DUO_NAME } from "./duo.js";
+const BASE = "https://world2.anthonybecker.me";
+const $ = (id) => document.getElementById(id);
+const cv = $("stage"), g = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+const BPM = 132, BEAT = 60 / BPM;
+let audio = null, t0 = 0;
+const beatPhase = () => (audio ? ((audio.currentTime - t0) / BEAT) % 1 : (performance.now() / 1000 / BEAT) % 1);
+
+// ---- the picture ----
+function panel(cx, cy, w, h, a) {
+  g.fillStyle = `rgba(110,230,230,${a})`; g.strokeStyle = "rgba(190,255,255,.8)"; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(cx - w / 2, cy); g.lineTo(cx, cy - h); g.lineTo(cx + w / 2, cy); g.lineTo(cx, cy + h * 0.5); g.closePath(); g.fill(); g.stroke();
+}
+function draw(ms) {
+  const t = ms / 1000, ph = beatPhase(), pulse = Math.pow(1 - ph, 3);
+  g.clearRect(0, 0, W, H);
+  g.fillStyle = "#08070c"; g.fillRect(0, 0, W, H);
+  // cinder-block wall
+  g.strokeStyle = "rgba(255,255,255,.05)"; g.lineWidth = 2;
+  for (let y = 0; y < H * 0.72; y += 48) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); for (let x = ((y / 48) % 2) * 60; x < W; x += 120) { g.beginPath(); g.moveTo(x, y); g.lineTo(x, y + 48); g.stroke(); } }
+  const floor = g.createLinearGradient(0, H * 0.72, 0, H); floor.addColorStop(0, "#14101a"); floor.addColorStop(1, "#050408");
+  g.fillStyle = floor; g.fillRect(0, H * 0.72, W, H * 0.28);
+  // amber amps (left) and blue monitors (right), glowing on the beat
+  for (let i = 0; i < 3; i++) {
+    const ax = 60 + (i % 2) * 40, ay = H * 0.72 - 110 - i * 115;
+    g.fillStyle = "#2a1a08"; g.fillRect(ax, ay, 190, 105);
+    g.fillStyle = `rgba(255,176,74,${0.55 + 0.4 * pulse})`; g.shadowColor = "#ffb04a"; g.shadowBlur = 30 * pulse + 8;
+    g.beginPath(); g.arc(ax + 95, ay + 52, 34, 0, 7); g.fill(); g.shadowBlur = 0;
+    g.fillStyle = "#120c04"; g.beginPath(); g.arc(ax + 95, ay + 52, 14, 0, 7); g.fill();
+    const mx = W - 250 + (i % 2) * 40, my = H * 0.72 - 90 - i * 100;
+    g.fillStyle = "#0a1626"; g.fillRect(mx, my, 190, 82);
+    g.fillStyle = `rgba(74,168,255,${0.5 + 0.35 * Math.sin(t * 3 + i)})`; g.shadowColor = "#4aa8ff"; g.shadowBlur = 18;
+    g.fillRect(mx + 8, my + 8, 174, 66); g.shadowBlur = 0;
+  }
+  // blue lattice overhead
+  g.strokeStyle = `rgba(74,168,255,${0.35 + 0.5 * pulse})`; g.lineWidth = 1.5;
+  for (let i = -6; i <= 6; i++) { g.beginPath(); g.moveTo(W / 2 + i * 70, 40); g.lineTo(W / 2 + i * 40, 250); g.stroke(); }
+  for (let j = 0; j < 4; j++) { const y = 40 + j * 70; g.beginPath(); g.moveTo(W / 2 - 480 + j * 50, y); g.lineTo(W / 2 + 480 - j * 50, y); g.stroke(); }
+  // drafting table
+  const ty = H * 0.62;
+  g.fillStyle = "#3a2a14"; g.beginPath(); g.moveTo(W / 2 - 190, ty); g.lineTo(W / 2 + 190, ty); g.lineTo(W / 2 + 230, ty + 40); g.lineTo(W / 2 - 230, ty + 40); g.fill();
+  g.fillStyle = "#24190b"; g.fillRect(W / 2 - 200, ty + 40, 14, 130); g.fillRect(W / 2 + 186, ty + 40, 14, 130);
+  g.strokeStyle = "rgba(74,168,255,.7)"; g.lineWidth = 1;
+  for (let i = 0; i < 5; i++) { g.beginPath(); g.moveTo(W / 2 - 150 + i * 60, ty + 6); g.lineTo(W / 2 - 150 + i * 60, ty + 34); g.stroke(); }
+  // left figure: stacked glass panels, leaning toward the table
+  for (let i = 0; i < 7; i++) {
+    const lean = i * i * 3 + Math.sin(t * 0.9 + i * 0.5) * 4;
+    panel(W / 2 - 330 + lean, H * 0.72 - 20 - i * 52, 190 - i * 14, 40, 0.16 + 0.04 * i);
+  }
+  g.fillStyle = "#ffb04a"; g.fillRect(W / 2 - 252, H * 0.72 - 20 - 6 * 52 - 70, 12, 20);
+  // right figure: the builder
+  const bob = Math.sin(t * 2.2) * 5, bx = W / 2 + 330;
+  g.fillStyle = "#c13fa8"; g.fillRect(bx - 70, H * 0.72 - 200 + bob, 140, 190);
+  g.fillStyle = "#d44fba"; g.fillRect(bx - 62, H * 0.72 - 300 + bob, 124, 90);
+  g.fillStyle = "#ffb04a"; g.shadowColor = "#ffb04a"; g.shadowBlur = 14;
+  g.beginPath(); g.arc(bx - 24, H * 0.72 - 256 + bob, 12, 0, 7); g.arc(bx + 24, H * 0.72 - 256 + bob, 12, 0, 7); g.fill();
+  g.fillRect(bx - 3, H * 0.72 - 345 + bob, 6, 45);
+  g.beginPath(); g.arc(bx, H * 0.72 - 352 + bob, 9 + 7 * pulse, 0, 7); g.fill(); g.shadowBlur = 0;
+  g.strokeStyle = "#c13fa8"; g.lineWidth = 16; g.lineCap = "round";
+  const wx = W / 2 + 120, wy = ty - 12;
+  g.beginPath(); g.moveTo(bx - 60, H * 0.72 - 150 + bob); g.lineTo(wx + 40, wy - 30); g.lineTo(wx, wy); g.stroke(); g.lineCap = "butt";
+  // sparks off the weld point turning into little room-cubes with lit doors
+  for (let i = 0; i < 18; i++) {
+    const u = (t * 0.45 + i / 18) % 1, sx = wx - u * (260 - (i % 5) * 20) - Math.sin(i * 7) * 30, sy = wy - Math.sin(u * 3.14) * (220 + (i % 4) * 40) - u * 60;
+    if (u < 0.45) { g.fillStyle = `rgba(255,${180 + (i % 3) * 25},80,${1 - u})`; g.fillRect(sx, sy, 5, 5); }
+    else {
+      const s = 10 + (u - 0.45) * 30; g.fillStyle = `rgba(74,168,255,${1.1 - u * 0.5})`; g.fillRect(sx - s / 2, sy - s / 2, s, s);
+      g.fillStyle = "#ffb04a"; g.fillRect(sx - s / 8, sy, s / 4, s / 2.4);
+    }
+  }
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+// ---- the riff: Em power chords, a bass line, kick and snare, scheduled a bar ahead ----
+function startAudio() {
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  const master = ac.createGain(); master.gain.value = 0.5; master.connect(ac.destination);
+  const dist = ac.createWaveShaper(); const curve = new Float32Array(1024);
+  for (let i = 0; i < 1024; i++) { const x = (i / 512) - 1; curve[i] = Math.tanh(x * 6); }
+  dist.curve = curve; dist.oversample = "4x";
+  const cab = ac.createBiquadFilter(); cab.type = "lowpass"; cab.frequency.value = 3200;
+  dist.connect(cab); cab.connect(master);
+  const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  const noise = (() => { const b = ac.createBuffer(1, ac.sampleRate, ac.sampleRate), d = b.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; return b; })();
+  function env(node, t, a, len, peak) { node.gain.setValueAtTime(0, t); node.gain.linearRampToValueAtTime(peak, t + a); node.gain.exponentialRampToValueAtTime(0.0008, t + len); }
+  function chord(root, t, len) {
+    for (const m of [root, root + 7, root + 12]) {
+      const o = ac.createOscillator(), v = ac.createGain(); o.type = "sawtooth"; o.frequency.value = hz(m); o.detune.value = (Math.random() - 0.5) * 12;
+      env(v, t, 0.005, len, 0.16); o.connect(v); v.connect(dist); o.start(t); o.stop(t + len + 0.05);
+    }
+  }
+  function bass(m, t, len) {
+    const o = ac.createOscillator(), v = ac.createGain(); o.type = "triangle"; o.frequency.value = hz(m - 12);
+    env(v, t, 0.005, len, 0.5); o.connect(v); v.connect(master); o.start(t); o.stop(t + len + 0.05);
+  }
+  function kick(t) {
+    const o = ac.createOscillator(), v = ac.createGain(); o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+    env(v, t, 0.002, 0.25, 0.9); o.connect(v); v.connect(master); o.start(t); o.stop(t + 0.3);
+  }
+  function snare(t) {
+    const s = ac.createBufferSource(), v = ac.createGain(), f = ac.createBiquadFilter(); s.buffer = noise; f.type = "highpass"; f.frequency.value = 1500;
+    env(v, t, 0.002, 0.18, 0.5); s.connect(f); f.connect(v); v.connect(master); s.start(t); s.stop(t + 0.2);
+  }
+  function hat(t) {
+    const s = ac.createBufferSource(), v = ac.createGain(), f = ac.createBiquadFilter(); s.buffer = noise; f.type = "highpass"; f.frequency.value = 7000;
+    env(v, t, 0.001, 0.05, 0.18); s.connect(f); f.connect(v); v.connect(master); s.start(t); s.stop(t + 0.06);
+  }
+  // E5, E5, G5, E5 / A5, E5, D5 ... two bars of a 4/4 riff on 8th notes
+  const riff = [40, 40, 43, 40, 45, 40, 38, 40, 40, 40, 43, 40, 47, 45, 43, 38];
+  let step = 0, next = ac.currentTime + 0.1;
+  t0 = next;
+  const eighth = BEAT / 2;
+  function pump() {
+    while (next < ac.currentTime + 0.6) {
+      const i = step % 16, root = riff[i];
+      chord(root + 12, next, eighth * 0.9); bass(root, next, eighth * 0.95);
+      hat(next);
+      if (i % 4 === 0) kick(next);
+      if (i % 4 === 2 && i % 8 !== 0) snare(next);
+      if (i === 6 || i === 14) kick(next);
+      next += eighth; step++;
+    }
+  }
+  pump();
+  const timer = setInterval(pump, 200);
+  return { ac, stop() { clearInterval(timer); ac.close(); }, get currentTime() { return ac.currentTime; } };
+}
+$("play").addEventListener("click", () => {
+  if (audio) { audio.stop(); audio = null; $("play").textContent = "play the riff"; return; }
+  audio = startAudio(); $("play").textContent = "stop the riff";
+});
+
+// ---- hang it in Room World: build a free cell over GET, then save the duo shader into it ----
+async function grid() {
+  const r = await fetch("/grid", { cache: "no-store" });
+  if (!r.ok) throw new Error("room list answered " + r.status);
+  return (await r.json()).rooms;
+}
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let busy = false;
+$("hang").addEventListener("click", async () => {
+  if (busy) return;
+  busy = true; $("hang").disabled = true;
+  const say = (m) => ($("msg").textContent = m);
+  try {
+    say("looking for a free cell…");
+    const c = pickCell(await grid());
+    if (!c) throw new Error("no free cell found");
+    say(`building (${c.x}, ${c.y})…`);
+    fetch(`${BASE}/api/agent/build?x=${c.x}&y=${c.y}&confirm=1`, { mode: "no-cors", cache: "no-store" }).catch(() => {});
+    let found = null;
+    for (let i = 0; i < 8 && !found; i++) { await sleep(1500); found = findRoom(await grid(), c.x, c.y); }
+    if (!found) throw new Error(`Room World did not build (${c.x}, ${c.y}); it allows one anonymous build every 10 seconds and 24 an hour. Try again in a bit`);
+    say("hanging the portrait…");
+    fetch(duoSaveUrl(BASE, c), { mode: "no-cors", cache: "no-store" }).catch(() => {});
+    let landed = false;
+    for (const wait of [1500, 2500, 4000, 6000]) {
+      await sleep(wait);
+      const r = findRoom(await grid(), c.x, c.y);
+      if (r && r.updated !== found.updated) { landed = true; break; }
+    }
+    const url = `${BASE}/?cell=${c.x},${c.y}`;
+    $("roomlink").href = url; $("roomlink").hidden = false;
+    $("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(`"${DUO_NAME}": rooms and @buildthis.bisks.net as a duo, hung in Room World at (${c.x}, ${c.y}) ${url} · portrait: https://roomgrow.bisks.net/duo`);
+    say(landed ? `hung at (${c.x}, ${c.y}) ✓` : `sent to (${c.x}, ${c.y}), but no sign it landed; Room World may be rate limiting this address`);
+  } catch (e) { say(String(e.message || e)); }
+  busy = false; $("hang").disabled = false;
+});
+$("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(`"${DUO_NAME}": rooms and @buildthis.bisks.net as a duo, amps up https://roomgrow.bisks.net/duo`);
+</script>
+</body>
+</html>
