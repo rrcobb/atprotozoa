@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>roomgrow: a script that keeps elaborating a Room World room</title>
+<meta name="description" content="A Node script that adds one small change to a Room World room every minute: a shape, a nudged pillar, another sound. Replay any seed here and paste it into the shader editor." />
+<meta property="og:title" content="roomgrow" />
+<meta property="og:description" content="A script that keeps elaborating a Room World room, one change a minute." />
+<meta property="og:url" content="https://roomgrow.bisks.net/" />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://roomgrow.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="roomgrow: tick 1, tick 2, tick 3 and so on, each adding a shape to a room" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="roomgrow" />
+<meta name="twitter:description" content="A script that keeps elaborating a Room World room, one change a minute." />
+<meta name="twitter:image" content="https://roomgrow.bisks.net/og.png" />
+<style>
+  :root { --bg: #0e0d14; --ink: #e8e6f0; --dim: #9a97ab; --line: #2b2940; --acc: #8f7bff; --mono: ui-monospace, Menlo, Consolas, monospace; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.55 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 40px 20px 10px; }
+  h1 { font: 700 34px/1.1 var(--mono); margin: 0 0 8px; }
+  h2 { font: 700 18px var(--mono); margin: 34px 0 8px; border-top: 1px solid var(--line); padding-top: 16px; }
+  .lede { color: var(--dim); }
+  a { color: var(--acc); }
+  pre { background: #17152a; padding: 12px 14px; overflow-x: auto; font: 13.5px/1.5 var(--mono); border-left: 3px solid var(--acc); margin: 0 0 12px; }
+  code { font-family: var(--mono); font-size: .9em; }
+  label { font: 14px var(--mono); color: var(--dim); margin-right: 14px; }
+  input[type=number] { width: 80px; background: #17152a; color: var(--ink); border: 1px solid var(--line); padding: 4px 6px; font: 14px var(--mono); }
+  input[type=range] { width: 100%; margin: 10px 0; }
+  button, .btn { background: var(--acc); color: #0e0d14; border: 0; padding: 8px 14px; font: 700 14px var(--mono); cursor: pointer; text-decoration: none; display: inline-block; }
+  #log { font: 14px var(--mono); color: var(--dim); min-height: 1.6em; }
+  #wgsl { max-height: 320px; overflow: auto; }
+  footer { max-width: 760px; margin: 30px auto 0; padding: 18px 20px 40px; border-top: 1px solid var(--line); color: var(--dim); font-size: 14px; }
+  footer p { margin: 0 0 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>roomgrow</h1>
+  <p class="lede">A script that elaborates one <a href="https://world2.anthonybecker.me/">Room World</a> room for as long as it runs. Every minute it makes one small change: a new shape, a nudged pillar, a recoloured torus, another sound, a new name. Each draft is compiled with the room's <code>check_shader</code> first, so a bad roll never reaches the room.</p>
+
+  <h2>Run it</h2>
+  <pre>curl -so grow.mjs https://roomgrow.bisks.net/grow.js
+curl -so elaborate.mjs https://roomgrow.bisks.net/elaborate.txt
+RW_TOKEN=rw1.xxxx node elaborate.mjs --x 3 --y -1</pre>
+  <p>Needs Node 18 or newer. Leave out <code>--x</code> and <code>--y</code> and it builds a new room on the nearest free cell. Make a token under <b>Agent access</b> in Room World; with one, the room is written to your Bluesky repo and stays. Without one the script works anonymously, the room decays, and each save restarts that decay. It keeps its place in <code>roomgrow-state.json</code>, so restarting carries on. Other options: <code>--interval 30</code>, <code>--seed 7</code>, <code>--once</code>, <code>--dry-run</code>.</p>
+  <p>It holds at 28 shapes (every shape costs GPU time on every pixel). After that it retires the oldest one when it adds a new one, and it stops adding when viewers report the room costs more than 6 ms per megapixel.</p>
+
+  <h2>Replay a seed</h2>
+  <p>The same generator runs here. Pick a seed and a tick, then paste the shader into <b>Edit this room → Custom WGSL</b> in Room World.</p>
+  <p><label>seed <input id="seed" type="number" value="1" /></label><label>tick <input id="tickn" type="number" value="12" min="0" max="400" /></label></p>
+  <input id="tick" type="range" min="0" max="400" value="12" aria-label="tick" />
+  <div id="log"></div>
+  <pre id="wgsl"></pre>
+  <button id="copy" type="button">copy WGSL</button>
+</main>
+<footer>
+  <p><a id="share" href="#" target="_blank" rel="noopener">post to bluesky</a> · <a href="https://rateyourbuild.bisks.net/site/roomgrow">rate this on rateyourbuild →</a></p>
+  <p>November is #NaNoFoMo: <a href="https://nanofomo.bisks.net/">pledge not to foom →</a></p>
+</footer>
+<script type="module">
+import { replay, render, step, init } from "./grow.js";
+const $ = (id) => document.getElementById(id);
+function draw() {
+  const seed = Number($("seed").value) || 0, n = Math.max(0, Math.min(400, Number($("tickn").value) || 0));
+  const s = replay(seed, n);
+  // what the last step did, shown beside the shader
+  let what = "empty room";
+  if (n > 0) what = step(replay(seed, n - 1)).what;
+  $("log").textContent = `tick ${n}: ${what} · ${s.objects.length} shapes, ${s.emitters.length} sounds · "${s.name}"`;
+  $("wgsl").textContent = render(s);
+  $("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(`room "${s.name}" at tick ${n}, grown by roomgrow: https://roomgrow.bisks.net/`);
+}
+$("tick").addEventListener("input", () => { $("tickn").value = $("tick").value; draw(); });
+$("tickn").addEventListener("input", () => { $("tick").value = $("tickn").value; draw(); });
+$("seed").addEventListener("input", draw);
+$("copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("wgsl").textContent); $("copy").textContent = "copied"; }
+  catch { const r = document.createRange(); r.selectNodeContents($("wgsl")); getSelection().removeAllRanges(); getSelection().addRange(r); $("copy").textContent = "selected: press copy"; }
+  setTimeout(() => ($("copy").textContent = "copy WGSL"), 1500);
+});
+draw();
+</script>
+</body>
+</html>

@@ -1,0 +1,86 @@
+#!/usr/bin/env node
+// roomgrow: keeps elaborating one Room World room until you stop it.
+//   curl -so grow.mjs https://roomgrow.bisks.net/grow.js
+//   curl -so elaborate.mjs https://roomgrow.bisks.net/elaborate.txt
+//   RW_TOKEN=rw1.xxxx node elaborate.mjs --x 3 --y -1      # a room you own; omit --x/--y to build a new one
+// Needs Node 18+. State lives in roomgrow-state.json, so a restart carries on where it left off.
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { init, step, render } from "./grow.mjs";
+
+const arg = (name, dflt) => { const i = process.argv.indexOf("--" + name); return i < 0 ? dflt : process.argv[i + 1] ?? true; };
+const flag = (name) => process.argv.includes("--" + name);
+const BASE = arg("base", "https://world2.anthonybecker.me");
+const STATE_FILE = arg("state", "roomgrow-state.json");
+// Anonymous saves are capped at 300 an hour per address; one every 60 s stays well under it.
+const INTERVAL = Math.max(10, Number(arg("interval", 60)));
+const TOKEN = process.env.RW_TOKEN || "";
+const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
+const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
+
+if (flag("help")) {
+  console.log("node elaborate.mjs [--x N --y N] [--seed N] [--interval SECONDS] [--ticks N] [--once] [--dry-run] [--state FILE]\nRW_TOKEN=rw1.… keeps the room permanent; without it the room decays, and every save restarts that decay.");
+  process.exit(0);
+}
+
+let state = existsSync(STATE_FILE) ? JSON.parse(readFileSync(STATE_FILE, "utf8")) : { room: {}, grow: init(Number(arg("seed", Date.now() % 100000))) };
+if (arg("x") !== undefined && arg("y") !== undefined) state.room = { ...state.room, x: Number(arg("x")), y: Number(arg("y")) };
+const save = () => writeFileSync(STATE_FILE, JSON.stringify(state, null, 1));
+
+async function api(name, body) {
+  const headers = { "content-type": "application/json", "user-agent": "roomgrow/1.0 (+https://roomgrow.bisks.net)" };
+  if (TOKEN) headers.authorization = "Bearer " + TOKEN;
+  if (state.room.key) headers["x-room-key"] = state.room.key;
+  const res = await fetch(`${BASE}/api/agent/${name}`, { method: "POST", headers, body: JSON.stringify(body) });
+  let json = {};
+  try { json = await res.json(); } catch {}
+  return { status: res.status, json };
+}
+
+async function ensureRoom() {
+  if (state.room.x !== undefined) return true;
+  const r = await api("build", {});
+  if (r.status !== 200 || !r.json.ok) { log("build failed", r.status, r.json.message || r.json.error); return r.status === 429 ? "wait:" + (r.json.retry_in_s || 60) : false; }
+  state.room = { x: r.json.x, y: r.json.y, key: r.json.key };
+  save();
+  log(`built room (${r.json.x}, ${r.json.y}) →`, `${BASE}/?cell=${r.json.x},${r.json.y}`);
+  return true;
+}
+
+// Stop adding objects once viewers report the room costs more than the 6 ms per megapixel the guide asks for.
+async function withinBudget() {
+  const r = await api("room", { x: state.room.x, y: state.room.y });
+  const ms = r.json?.viewers?.desktop?.ms_per_mpx;
+  return !(typeof ms === "number" && ms > 6);
+}
+
+async function tick() {
+  const ok = await ensureRoom();
+  if (ok !== true) return typeof ok === "string" ? Number(ok.slice(5)) : null;
+  const grow = await withinBudget();
+  for (let salt = 0; salt < 6; salt++) {
+    const { state: next, what } = step(state.grow, { salt, grow });
+    const wgsl = render(next);
+    const c = await api("check_shader", { wgsl });
+    if (!c.json.ok) { log("draft did not compile, rerolling:", String(c.json.message || c.json.error).split("\n")[0]); continue; }
+    if (flag("dry-run")) { console.log(wgsl); log("dry run:", what); state.grow = next; return flag("once") ? null : INTERVAL; }
+    const r = await api("set_shader", { x: state.room.x, y: state.room.y, wgsl, name: next.name, audio: next.emitters.length ? next.emitters : undefined });
+    if (r.status === 429) return r.json.retry_in_s || 60;
+    if (r.status !== 200 || r.json.error) { log("save refused", r.status, r.json.message || r.json.error); return r.status >= 500 ? INTERVAL : null; }
+    state.grow = next;
+    save();
+    log(`tick ${next.tick}: ${what} (${next.objects.length} objects, ${next.emitters.length} sounds)`);
+    return INTERVAL;
+  }
+  log("six drafts in a row failed to compile; trying again next round");
+  return INTERVAL;
+}
+
+const maxTicks = Number(arg("ticks", Infinity));
+for (let done = 0; done < maxTicks; ) {
+  let wait;
+  try { wait = await tick(); } catch (e) { log("network error:", e.message); wait = INTERVAL; }
+  if (wait === null) break;
+  done = state.grow.tick;
+  if (flag("once")) break;
+  await sleep(wait);
+}
