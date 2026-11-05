@@ -8,5 +8,5 @@ const col = i => i < 45 ? "#4a86e8" : i < 47 ? "#f2c14e" : "#e5484d";
 const dots = seats.map((s, i) => `<circle cx="${s.x.toFixed(1)}" cy="${s.y.toFixed(1)}" r="17" fill="${col(i)}"/>`).join("");
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630"><rect width="1200" height="630" fill="#12131a"/>${dots}
 <text x="600" y="470" text-anchor="middle" font-family="sans-serif" font-weight="700" font-size="64" fill="#e8e9ee">rectum-diagram</text>
-<text x="600" y="520" text-anchor="middle" font-family="sans-serif" font-size="28" fill="#8d92a3">the senate, as a diagram. click a seat to flip it.</text></svg>`;
+<text x="600" y="520" text-anchor="middle" font-family="sans-serif" font-size="28" fill="#8d92a3">election analysis by goose colonoscopy.</text></svg>`;
 writeFileSync(new URL("./public/og.png", import.meta.url), new Resvg(svg).render().asPng());

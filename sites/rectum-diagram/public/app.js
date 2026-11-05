@@ -1,4 +1,5 @@
-// Senate hemicycle toy. Seats are [state, party] pairs; clicking cycles D -> R -> I.
+// Senate hemicycle toy, examined by goose colonoscopy. Seats are [state, party] pairs; clicking cycles D -> R -> I.
+// A goose-tipped scope travels the seats in order; seats whose party differs from the loaded preset are "polyps".
 const REGIONS = {
   "New England": ["CT", "ME", "MA", "NH", "RI", "VT"],
   "Mid-Atlantic": ["NJ", "NY", "PA", "DE", "MD"],
@@ -42,11 +43,13 @@ seatsGeom.sort((p, q) => q.a - p.a || p.rad - q.rad);
 let seats = []; // [{state, party}] in state order
 let sortMode = "party";
 let spot = "";
+let depth = 0; // seats the scope has passed, 0 = scope not inserted
+let timer = null;
 
 function load(name) {
   const m = PRESETS[name]();
   seats = [];
-  for (const st of STATE_ORDER) for (const p of m[st]) seats.push({ state: st, party: p });
+  for (const st of STATE_ORDER) [...m[st]].forEach((p) => seats.push({ state: st, party: p, base: p }));
   draw();
 }
 
@@ -61,6 +64,13 @@ function draw() {
   const NS = "http://www.w3.org/2000/svg";
   svg.replaceChildren();
   const seq = ordered();
+  if (depth > 0) { // the scope tube, drawn under the seats
+    const path = document.createElementNS(NS, "path");
+    const pts = seq.slice(0, depth).map((_, i) => `${i ? "L" : "M"}${seatsGeom[i].x.toFixed(1)} ${seatsGeom[i].y.toFixed(1)}`);
+    path.setAttribute("d", pts.join(" "));
+    path.setAttribute("class", "tube");
+    svg.append(path);
+  }
   seq.forEach((seat, i) => {
     const g = seatsGeom[i];
     const c = document.createElementNS(NS, "circle");
@@ -69,13 +79,24 @@ function draw() {
     c.setAttribute("r", 15);
     c.setAttribute("fill", COLORS[seat.party]);
     const inSpot = spot && REGION_OF[seat.state] === spot;
-    c.setAttribute("class", "seat" + (spot ? (inSpot ? " hl" : " dim") : ""));
+    const unseen = depth > 0 && i >= depth;
+    const polyp = depth > 0 && i < depth && seat.party !== seat.base;
+    c.setAttribute("class", "seat" + (spot ? (inSpot ? " hl" : " dim") : unseen ? " dim" : "") + (polyp ? " polyp" : ""));
     const t = document.createElementNS(NS, "title");
     t.textContent = `${seat.state} — ${{ D: "Democratic", R: "Republican", I: "Independent" }[seat.party]} (click to flip)`;
     c.append(t);
     c.addEventListener("click", () => { seat.party = NEXT[seat.party]; draw(); });
     svg.append(c);
   });
+  if (depth > 0) {
+    const tip = document.createElementNS(NS, "text");
+    tip.setAttribute("class", "goose");
+    tip.setAttribute("x", seatsGeom[depth - 1].x.toFixed(1));
+    tip.setAttribute("y", (seatsGeom[depth - 1].y + 9).toFixed(1));
+    tip.textContent = "🪿";
+    svg.append(tip);
+  }
+  report(seq);
   const n = { D: 0, R: 0, I: 0 };
   for (const s of seats) n[s.party]++;
   const mk = (cls, y, txt) => {
@@ -95,9 +116,44 @@ function draw() {
     for (const s of rs) c[s.party]++;
     rt.textContent = `· ${spot}: ${c.D} D, ${c.I} I, ${c.R} R`;
   } else rt.textContent = "";
-  const text = `the senate as a diagram: ${n.D} D, ${n.I} I, ${n.R} R${spot ? ` (${spot}: ${rs_r(spot)} R)` : ""} https://rectum-diagram.bisks.net/`;
+  const text = `the senate, examined by goose colonoscopy${depth ? ` (depth ${depth}/100)` : ""}: ${n.D} D, ${n.I} I, ${n.R} R${spot ? ` (${spot}: ${rs_r(spot)} R)` : ""} https://rectum-diagram.bisks.net/`;
   document.getElementById("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
 }
+const PARTY = { D: "Democratic", R: "Republican", I: "Independent" };
+// Findings for the seats the scope has passed so far.
+function report(seq) {
+  const el = document.getElementById("report");
+  if (depth === 0) { el.textContent = "scope not inserted. drag the depth slider, or begin the exam."; return; }
+  const seen = seq.slice(0, depth), cur = seen[depth - 1];
+  const polyps = seen.filter((x) => x.party !== x.base);
+  const lines = [`depth ${depth}/100 — ${cur.state}, ${PARTY[cur.party]}.`];
+  const regionR = seats.filter((x) => REGION_OF[x.state] === REGION_OF[cur.state] && x.party === "R").length;
+  if (cur.party !== cur.base) lines.push(`polyp: this seat was ${PARTY[cur.base]} at prep, now ${PARTY[cur.party]}. biopsy recommended.`);
+  else if (cur.party === "R" && regionR === 1) lines.push(`foreign body: the only Republican tissue in ${REGION_OF[cur.state]}.`);
+  else if (regionR === 0) lines.push(`${REGION_OF[cur.state]} looks clear of Republican tissue. mucosa pink and healthy.`);
+  else lines.push("healthy mucosa. nothing to see here.");
+  if (depth === 100) {
+    const ne = seats.filter((x) => REGION_OF[x.state] === "New England" && x.party === "R").length;
+    lines.push(`exam complete. ${polyps.length} polyp${polyps.length === 1 ? "" : "s"} found. New England: ${ne ? ne + " Republican seat" + (ne === 1 ? "" : "s") + " remain" : "no Republican seats remain"}. the goose is withdrawn. honk.`);
+  }
+  el.textContent = lines.join(" ");
+}
+function setDepth(v) {
+  depth = Math.max(0, Math.min(100, v));
+  document.getElementById("depth").value = depth;
+  draw();
+}
+function stopExam() {
+  clearInterval(timer); timer = null;
+  document.getElementById("exam").textContent = depth === 100 ? "repeat exam" : "begin exam";
+}
+document.getElementById("depth").addEventListener("input", (e) => { stopExam(); setDepth(+e.target.value); });
+document.getElementById("exam").addEventListener("click", () => {
+  if (timer) { stopExam(); return; }
+  if (depth >= 100) setDepth(0);
+  document.getElementById("exam").textContent = "pause";
+  timer = setInterval(() => { setDepth(depth + 1); if (depth >= 100) stopExam(); }, 80);
+});
 const rs_r = (r) => seats.filter((s) => REGION_OF[s.state] === r && s.party === "R").length;
 
 const sel = document.getElementById("region");
@@ -111,5 +167,5 @@ for (const m of ["party", "state"]) {
     draw();
   });
 }
-document.getElementById("preset").addEventListener("change", (e) => load(e.target.value));
+document.getElementById("preset").addEventListener("change", (e) => { stopExam(); depth = 0; document.getElementById("depth").value = 0; load(e.target.value); });
 load("119");
