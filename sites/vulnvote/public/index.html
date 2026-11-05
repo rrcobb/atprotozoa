@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>vulnvote — reddit for vulnerabilities</title>
+  <meta name="description" content="Vote CVEs and advisories up or down by how bad they really are. Votes live in your own atproto repo, aliases dedupe to one entry, and voters are weighted.">
+  <meta property="og:title" content="vulnvote — reddit for vulnerabilities">
+  <meta property="og:description" content="Upvote the scary ones, downvote the overhyped ones. Votes live on atproto; aliases dedupe; voters are weighted.">
+  <meta property="og:image" content="https://vulnvote.bisks.net/og.png">
+  <meta property="og:url" content="https://vulnvote.bisks.net/">
+  <meta name="twitter:card" content="summary_large_image">
+  <style>
+    :root { --bg:#0f1115; --fg:#e6e8ec; --mute:#8b93a1; --line:#262b34; --card:#161a21; --up:#ff6a3d; --down:#5b9dff; --acc:#ffb347; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 ui-sans-serif,system-ui,sans-serif; }
+    main { max-width:820px; margin:0 auto; padding:24px 16px 48px; }
+    h1 { margin:0 0 4px; font-size:28px; letter-spacing:-.5px; }
+    .sub { color:var(--mute); margin:0 0 18px; }
+    a { color:var(--acc); }
+    [hidden] { display:none !important; }
+    .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:0 0 14px; }
+    input, select, button { font:inherit; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:6px; padding:7px 10px; }
+    input[type=text] { flex:1; min-width:180px; }
+    button { cursor:pointer; }
+    button:hover:not(:disabled) { border-color:var(--acc); }
+    button:disabled { opacity:.5; cursor:default; }
+    .tabs button.on { border-color:var(--acc); color:var(--acc); }
+    .row { display:flex; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; margin:0 0 10px; }
+    .vote { display:flex; flex-direction:column; align-items:center; min-width:52px; }
+    .vote button { padding:0 8px; line-height:1.3; font-size:18px; background:none; border:0; color:var(--mute); }
+    .vote button.up.on { color:var(--up); } .vote button.down.on { color:var(--down); }
+    .vote b { font-size:17px; }
+    .body { flex:1; min-width:0; }
+    .id { font-weight:700; font-family:ui-monospace,monospace; }
+    .title { color:var(--fg); margin:2px 0; overflow-wrap:anywhere; }
+    .meta { color:var(--mute); font-size:13px; display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    .sev { display:inline-block; min-width:2.2em; text-align:center; border-radius:4px; padding:0 6px; color:#111; font-weight:700; }
+    .detail { border-top:1px solid var(--line); margin-top:10px; padding-top:8px; font-size:13px; }
+    .detail table { border-collapse:collapse; width:100%; }
+    .detail td { padding:2px 6px 2px 0; color:var(--mute); }
+    .err { color:#ff7b7b; } .ok { color:#7bdc9a; }
+    .panel { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; margin:0 0 14px; }
+    details.how { margin:24px 0; color:var(--mute); } details.how summary { cursor:pointer; color:var(--fg); }
+    footer { color:var(--mute); font-size:13px; margin-top:32px; display:flex; gap:14px; flex-wrap:wrap; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>vuln<span id="brand-v">v</span>ote</h1>
+  <p class="sub">reddit for vulnerabilities. ▲ means it's worse than people think, ▼ means it's overhyped. Votes live in your own atproto repo.</p>
+
+  <div class="bar" id="auth">
+    <span id="who" hidden></span>
+    <input type="text" id="handle" placeholder="your.handle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <button id="login">sign in to vote</button>
+    <button id="logout" hidden>sign out</button>
+    <span id="authmsg" class="err"></span>
+  </div>
+
+  <form class="panel" id="lookup-form">
+    <div class="bar" style="margin:0">
+      <input type="text" id="lookup" placeholder="add a vulnerability: CVE-2024-3094, GHSA-xxxx-xxxx-xxxx, RUSTSEC-…" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button type="submit" id="lookup-go">look up</button>
+    </div>
+    <div id="lookup-out"></div>
+  </form>
+
+  <div class="bar tabs" id="sorts">
+    <button data-sort="top" class="on">top</button>
+    <button data-sort="new">new</button>
+    <button data-sort="severe">most severe</button>
+    <button data-sort="controversial">controversial</button>
+    <input type="text" id="filter" placeholder="filter…" style="max-width:200px">
+    <span class="meta" id="status"></span>
+  </div>
+
+  <div id="board"></div>
+  <p id="empty" class="sub" hidden>no votes yet — look up a CVE above and cast the first one.</p>
+
+  <details class="how">
+    <summary>how it works</summary>
+    <p><b>Dedupe.</b> A vulnerability usually has several names. The lookup asks <a href="https://osv.dev">OSV</a> for a record's aliases and stores them in your vote, and the board merges every vote whose ids link up, so a vote on a GHSA and a vote on its CVE land on one entry. Each voter counts once per vulnerability, whichever alias they used.</p>
+    <p><b>Weights.</b> A vote counts <code>age × vouches × calibration</code>. <i>Age</i>: the voter's account age from the PLC directory, 0.1 for a brand-new account rising to 1 at a year, so a pile of fresh sock accounts barely registers. <i>Vouches</i>: other voters can vouch for someone; each distinct voucher adds their own age weight, with logarithmic returns. <i>Calibration</i>: how close a voter's 0–10 severity calls land to the median of everyone else's on the same vulnerabilities (needs a few comparisons; 0.5 to 1.25). Expand any entry to see each voter's breakdown.</p>
+    <p><b>Where the data lives.</b> Votes are <code>net.bisks.vulnvote.vote</code> records and vouches are <code>net.bisks.vulnvote.vouch</code> records in the voter's own PDS. This page reads every one on the network (relay <code>listReposByCollection</code>, each PDS, then Jetstream) and computes the board in your browser; there is no server.</p>
+    <p><b>Not covered yet.</b> Exploitability context (is it reachable in <i>your</i> stack?), per-ecosystem boards, and a vote-on-the-voters appeal path are all open questions. Ideas welcome.</p>
+  </details>
+
+  <footer>
+    <a id="share" target="_blank" rel="noopener">share on bluesky</a>
+    <a href="https://rateyourbuild.bisks.net/site/vulnvote">rate this on rateyourbuild →</a>
+    <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a>
+  </footer>
+</main>
+
+<script type="module">
+  import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "/lib/oauth.js";
+  import { VoteIndex, VOTE, VOUCH } from "/lib/index.js";
+  import { groupVotes, voterWeights, scoreGroup, SORTS, normaliseId, validId, fromOsv } from "/lib/logic.js";
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  let session = null;
+  let sort = "top";
+  const expanded = new Set();
+  const profiles = new Map(); // did -> handle
+  let pending = null; // looked-up entry not yet on the board
+
+  const index = new VoteIndex(render);
+
+  // ---- identity -------------------------------------------------------------
+  async function loadProfiles(dids) {
+    const need = [...new Set(dids)].filter((d) => !profiles.has(d));
+    for (let i = 0; i < need.length; i += 25) {
+      const chunk = need.slice(i, i + 25);
+      chunk.forEach((d) => profiles.set(d, d));
+      try {
+        const q = chunk.map((d) => "actors=" + encodeURIComponent(d)).join("&");
+        const r = await fetch(`https://public.api.bsky.app/xrpc/app.bsky.actor.getProfiles?${q}`);
+        if (r.ok) for (const p of (await r.json()).profiles || []) profiles.set(p.did, p.handle);
+      } catch (_) { /* fall back to showing the DID */ }
+    }
+    render();
+  }
+
+  // ---- OSV lookup -----------------------------------------------------------
+  async function lookup(raw) {
+    const id = normaliseId(raw);
+    if (!validId(id)) throw new Error("that doesn't look like a vulnerability id");
+    const res = await fetch(`https://api.osv.dev/v1/vulns/${encodeURIComponent(id)}`);
+    if (res.ok) return fromOsv(await res.json());
+    if (res.status === 404 && /^CVE-\d{4}-\d{4,}$/.test(id)) return { id, ids: [id], title: "", official: "", unknown: true };
+    if (res.status === 404) throw new Error(`OSV has no record of ${id}`);
+    throw new Error(`OSV lookup failed (${res.status})`);
+  }
+
+  // ---- writes ---------------------------------------------------------------
+  async function put(coll, rkey, record) {
+    const base = session.pdsUrl.replace(/\/$/, "");
+    const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.putRecord`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: session.did, collection: coll, rkey, record: { $type: coll, ...record } }),
+    });
+    if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 160)}`);
+    index.applyOwn(coll, session.did, rkey, record);
+  }
+  async function del(coll, rkey) {
+    const base = session.pdsUrl.replace(/\/$/, "");
+    const res = await dpopFetch(session, `${base}/xrpc/com.atproto.repo.deleteRecord`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: session.did, collection: coll, rkey }),
+    });
+    if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 160)}`);
+    index.removeOwn(coll, session.did, rkey);
+  }
+
+  function ownVotes(ids) {
+    return index.votesList().filter((v) => v.did === session?.did && (ids.includes(v.subject) || v.aliases.some((a) => ids.includes(a))));
+  }
+
+  async function cast(entry, dir, severity) {
+    if (!session) { $("authmsg").textContent = "sign in first (top of the page)"; $("handle").focus(); return; }
+    const mine = ownVotes(entry.ids);
+    const same = mine.find((v) => v.dir === dir);
+    try {
+      if (same && severity === undefined) { // clicking your own direction again un-votes
+        for (const v of mine) await del(VOTE, v.rkey);
+        return;
+      }
+      const prev = mine[0];
+      const sev = severity !== undefined ? severity : prev?.severity ?? null;
+      const record = { subject: entry.id, aliases: entry.ids.filter((i) => i !== entry.id).slice(0, 20), dir, createdAt: new Date().toISOString() };
+      if (sev != null) record.severity = sev;
+      if (entry.title) record.title = entry.title.slice(0, 200);
+      if (entry.official) record.official = entry.official;
+      await put(VOTE, entry.id, record);
+      for (const v of mine) if (v.rkey !== entry.id) await del(VOTE, v.rkey); // collapse older alias-keyed votes
+      if (pending && entry.ids.some((i) => pending.ids.includes(i))) { pending = null; $("lookup-out").innerHTML = ""; }
+    } catch (err) {
+      $("authmsg").textContent = "vote failed: " + err.message;
+    }
+  }
+
+  async function vouch(did) {
+    if (!session) { $("authmsg").textContent = "sign in first"; return; }
+    const have = index.vouches.get(`${session.did}::${did}`);
+    try {
+      if (have) await del(VOUCH, did);
+      else await put(VOUCH, did, { subject: did, createdAt: new Date().toISOString() });
+    } catch (err) { $("authmsg").textContent = "vouch failed: " + err.message; }
+  }
+
+  // ---- render ---------------------------------------------------------------
+  const sevColor = (s) => (s == null ? "#444" : `hsl(${Math.round(60 - s * 6)} 90% 55%)`);
+
+  function cardHtml(g, w) {
+    const mine = session ? ownVotes(g.ids) : [];
+    const myDir = mine[0]?.dir || 0;
+    const mySev = mine[0]?.severity;
+    const open = expanded.has(g.id);
+    const ids = g.ids.filter((i) => i !== g.id);
+    const sev = g.severity == null ? "–" : g.severity.toFixed(1);
+    let detail = "";
+    if (open) {
+      const rows = g.votes.slice().sort((a, b) => (w.get(b.did)?.total || 0) - (w.get(a.did)?.total || 0)).map((v) => {
+        const x = w.get(v.did);
+        const vouched = session && index.vouches.has(`${session.did}::${v.did}`);
+        return `<tr><td>${v.dir > 0 ? "▲" : "▼"} ${esc(profiles.get(v.did) || v.did)}</td>
+          <td>sev ${v.severity ?? "–"}</td><td>weight ${x.total.toFixed(2)}</td>
+          <td>age ${x.age.toFixed(2)} · vouch ${x.vouch.toFixed(2)} · calib ${x.calib.toFixed(2)}</td>
+          <td>${session && session.did !== v.did ? `<button data-vouch="${esc(v.did)}">${vouched ? "un-vouch" : "vouch"}</button>` : ""}</td></tr>`;
+      }).join("");
+      detail = `<div class="detail"><table>${rows}</table>
+        <div class="meta" style="margin-top:6px"><a href="https://osv.dev/vulnerability/${encodeURIComponent(g.id)}" target="_blank" rel="noopener">OSV</a>
+        ${g.id.startsWith("CVE-") ? `<a href="https://nvd.nist.gov/vuln/detail/${esc(g.id)}" target="_blank" rel="noopener">NVD</a>` : ""}
+        <span>weighted ▲ ${g.up.toFixed(2)} · ▼ ${g.down.toFixed(2)}</span></div></div>`;
+    }
+    return `<div class="row" data-id="${esc(g.id)}">
+      <div class="vote"><button class="up ${myDir > 0 ? "on" : ""}" data-dir="1" title="worse than it looks">▲</button><b>${g.net.toFixed(1)}</b>
+        <button class="down ${myDir < 0 ? "on" : ""}" data-dir="-1" title="overhyped">▼</button></div>
+      <div class="body">
+        <div><span class="id">${esc(g.id)}</span> ${g.official ? `<span class="meta">official: ${esc(g.official)}</span>` : ""}</div>
+        <div class="title">${esc(g.title || "(no summary on file)")}</div>
+        <div class="meta">
+          <span>community severity <span class="sev" style="background:${sevColor(g.severity)}">${sev}</span> <small>(${g.sevVoters} rating${g.sevVoters === 1 ? "" : "s"})</small></span>
+          <span>${g.voters} voter${g.voters === 1 ? "" : "s"} (${g.ups}▲ ${g.downs}▼)</span>
+          ${ids.length ? `<span>also: ${esc(ids.slice(0, 4).join(", "))}${ids.length > 4 ? "…" : ""}</span>` : ""}
+          <label>your severity <select data-sev>${["", ...Array(11).keys()].map((n) => `<option value="${n}" ${String(mySev ?? "") === String(n) ? "selected" : ""}>${n === "" ? "–" : n}</option>`).join("")}</select></label>
+          <button data-toggle>${open ? "hide" : "voters"}</button>
+        </div>${detail}</div></div>`;
+  }
+
+  function render() {
+    const now = Date.now();
+    const groups = groupVotes(index.votesList());
+    const weights = voterWeights(groups, index.vouchList(), index.ages, now);
+    const filter = $("filter").value.trim().toLowerCase();
+    const scored = groups.map((g) => scoreGroup(g, weights))
+      .filter((g) => !filter || (g.ids.join(" ") + " " + g.title).toLowerCase().includes(filter))
+      .sort(SORTS[sort]);
+    $("board").innerHTML = scored.map((g) => cardHtml(g, weights)).join("");
+    $("empty").hidden = scored.length > 0 || !index.backfilled;
+    const voters = new Set(index.votesList().map((v) => v.did)).size;
+    $("status").textContent = `${groups.length} vulnerabilities · ${voters} voters · ${index.live ? "live" : "offline"}${index.backfilled ? "" : " · loading history…"}${index.error ? " · " + index.error : ""}`;
+  }
+  // ---- events ---------------------------------------------------------------
+  $("board").addEventListener("click", (e) => {
+    const row = e.target.closest(".row");
+    if (!row) return;
+    const id = row.dataset.id;
+    const entry = currentEntry(id);
+    if (e.target.dataset.dir) cast(entry, Number(e.target.dataset.dir));
+    else if (e.target.dataset.toggle !== undefined) {
+      if (expanded.has(id)) expanded.delete(id); else expanded.add(id);
+      loadProfiles(index.votesList().filter((v) => entry.ids.includes(v.subject) || v.aliases.some((a) => entry.ids.includes(a))).map((v) => v.did));
+      render();
+    } else if (e.target.dataset.vouch) vouch(e.target.dataset.vouch);
+  });
+  $("board").addEventListener("change", (e) => {
+    if (e.target.dataset.sev === undefined) return;
+    const entry = currentEntry(e.target.closest(".row").dataset.id);
+    const mine = ownVotes(entry.ids)[0];
+    if (!mine) { $("authmsg").textContent = "pick ▲ or ▼ first, then set your severity"; e.target.value = ""; return; }
+    cast(entry, mine.dir, e.target.value === "" ? null : Number(e.target.value));
+  });
+
+  function currentEntry(id) {
+    const g = groupVotes(index.votesList()).find((x) => x.id === id);
+    const s = g ? scoreGroup(g, new Map()) : { id, ids: [id], title: "", official: "" };
+    return { id: s.id, ids: s.ids, title: s.title, official: s.official };
+  }
+
+  $("sorts").addEventListener("click", (e) => {
+    const s = e.target.dataset.sort;
+    if (!s) return;
+    sort = s;
+    document.querySelectorAll("#sorts [data-sort]").forEach((b) => b.classList.toggle("on", b.dataset.sort === s));
+    render();
+  });
+  $("filter").addEventListener("input", render);
+
+  $("lookup-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const out = $("lookup-out");
+    out.innerHTML = `<p class="sub">looking up…</p>`;
+    try {
+      const entry = await lookup($("lookup").value);
+      const existing = groupVotes(index.votesList()).find((g) => g.ids.some((i) => entry.ids.includes(i)));
+      if (existing) {
+        out.innerHTML = `<p class="ok">${esc(entry.id)} is already on the board${existing.id !== entry.id ? " as " + esc(existing.id) : ""}.</p>`;
+        $("filter").value = entry.id;
+        render();
+        return;
+      }
+      pending = entry;
+      out.innerHTML = `<div class="row" id="pend"><div class="vote"><button class="up" data-p="1">▲</button><b>0</b><button class="down" data-p="-1">▼</button></div>
+        <div class="body"><div><span class="id">${esc(entry.id)}</span> ${entry.official ? `<span class="meta">official: ${esc(entry.official)}</span>` : ""}</div>
+        <div class="title">${esc(entry.title || (entry.unknown ? "not in OSV — voting by id only" : "(no summary on file)"))}</div>
+        <div class="meta">${entry.ids.length > 1 ? `<span>aliases: ${esc(entry.ids.filter((i) => i !== entry.id).join(", "))}</span>` : ""}
+        <span>vote to add it to the board</span></div></div></div>`;
+    } catch (err) {
+      out.innerHTML = `<p class="err">${esc(err.message)}</p>`;
+    }
+  });
+  $("lookup-out").addEventListener("click", (e) => {
+    if (e.target.dataset.p && pending) cast(pending, Number(e.target.dataset.p));
+  });
+
+  async function doLogin() {
+    const h = $("handle").value.trim().replace(/^@/, "");
+    if (!h) { $("authmsg").textContent = "type your handle first"; return; }
+    $("authmsg").textContent = "";
+    try { await login(h); } catch (err) { $("authmsg").textContent = err.message; }
+  }
+  $("login").addEventListener("click", doLogin);
+  $("handle").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+  $("logout").addEventListener("click", async () => { await clearSession(); session = null; showAuth(); render(); });
+
+  function showAuth() {
+    $("who").hidden = !session;
+    $("handle").hidden = $("login").hidden = !!session;
+    $("logout").hidden = !session;
+    if (session) $("who").textContent = "signed in as " + (session.handle || session.did);
+  }
+
+  $("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent("vulnvote: reddit for vulnerabilities, on atproto — vote CVEs up or down by how bad they really are\nhttps://vulnvote.bisks.net/");
+
+  (async () => {
+    try { session = (await completeLoginIfCallback()) || (await getSession()); } catch (err) { $("authmsg").textContent = err.message; }
+    showAuth();
+    index.start();
+    render();
+  })();
+</script>
+<script src="lib/handle-typeahead.js"></script>
+<script>
+  if (window.attachHandleTypeahead) attachHandleTypeahead(document.getElementById("handle"));
+  document.getElementById("brand-v").addEventListener("click", function () {
+    var i = document.getElementById("handle"); i.value = "@cee.wtf"; i.dispatchEvent(new Event("input", { bubbles: true })); i.dispatchEvent(new Event("change", { bubbles: true })); i.focus();
+  });
+  document.getElementById("brand-v").style.cursor = "pointer";
+</script>
+<script src="lib/visits.js" data-site="vulnvote" data-into="footer"></script>
+</body>
+</html>
