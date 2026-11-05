@@ -32,7 +32,7 @@ const rowsSvg = rows
     <text x="${cardX + 40}" y="${ry}" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${FG}">${r.name}</text>
     <rect x="${cardX + 40}" y="${ry + 16}" width="${barMax}" height="10" rx="5" fill="${BORDER}"/>
     <rect x="${cardX + 40}" y="${ry + 16}" width="${barW}" height="10" rx="5" fill="${ACCENT}"/>
-    <text x="${cardX + cardW - 40}" y="${ry}" text-anchor="end" font-family="JetBrains Mono" font-weight="800" font-size="22" fill="${GOLD}">${r.n}</text>`;
+    <text x="${cardX + cardW - 40}" y="${ry}" text-anchor="end" font-family="JetBrains Mono" font-weight="801" font-size="22" fill="${GOLD}">${r.n}</text>`;
   })
   .join("\n");
 
@@ -56,20 +56,20 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect width="${W}" height="${H}" fill="url(#glow1)"/>
   <rect width="${W}" height="${H}" fill="url(#glow2)"/>
 
-  <text x="64" y="140" font-family="JetBrains Mono" font-weight="800" font-size="60" fill="url(#title)">receipts</text>
+  <text x="64" y="140" font-family="JetBrains Mono" font-weight="801" font-size="60" fill="url(#title)">receipts</text>
   <text x="64" y="188" font-family="JetBrains Mono" font-size="20" fill="${DIM}">every ask this bot has ever</text>
   <text x="64" y="216" font-family="JetBrains Mono" font-size="20" fill="${DIM}">gotten from a human, roasted.</text>
 
   <text x="64" y="284" font-family="JetBrains Mono" font-size="16" fill="${DIM}">A hall of shame, a leaderboard of</text>
-  <text x="64" y="310" font-family="JetBrains Mono" font-size="16" fill="${DIM}">repeat offenders, and 800 real build</text>
+  <text x="64" y="310" font-family="JetBrains Mono" font-size="16" fill="${DIM}">repeat offenders, and 801 real build</text>
   <text x="64" y="336" font-family="JetBrains Mono" font-size="16" fill="${DIM}">records — nothing here is invented.</text>
 
-  <text x="64" y="440" font-family="JetBrains Mono" font-size="16" fill="${GOLD}">800 asks, sorted by embarrassment</text>
+  <text x="64" y="440" font-family="JetBrains Mono" font-size="16" fill="${GOLD}">801 asks, sorted by embarrassment</text>
 
   <text x="64" y="560" font-family="JetBrains Mono" font-weight="700" font-size="20" fill="${COLD}">receipts.bisks.net</text>
 
   <rect x="${cardX}" y="${cardY}" width="${cardW}" height="${cardH}" rx="18" fill="${CARD}" stroke="${BORDER}" stroke-width="1.5"/>
-  <text x="${cardX + 40}" y="${cardY + 44}" font-family="JetBrains Mono" font-weight="800" font-size="15" letter-spacing="2" fill="${DIM}">REPEAT OFFENDERS</text>
+  <text x="${cardX + 40}" y="${cardY + 44}" font-family="JetBrains Mono" font-weight="801" font-size="15" letter-spacing="2" fill="${DIM}">REPEAT OFFENDERS</text>
 
   ${rowsSvg}
 </svg>`;
