@@ -14,16 +14,16 @@ export const OFFLINE_EFFICIENCY = 0.5;
 
 // tps = tokens per second at one unit of the tier.
 export const GPUS = [
-  { id: "t4", name: "T4", blurb: "16 GB of regret", cost: 15, tps: 0.5 },
-  { id: "a10g", name: "A10G", blurb: "the workhorse nobody loves", cost: 100, tps: 4 },
-  { id: "l40s", name: "L40S", blurb: "ada lovelace says hi", cost: 1100, tps: 32 },
-  { id: "a100", name: "A100 40GB", blurb: "the one everyone trained on", cost: 12e3, tps: 260 },
-  { id: "a100x", name: "A100 80GB", blurb: "twice the memory, same attitude", cost: 130e3, tps: 2200 },
-  { id: "h100", name: "H100", blurb: "allocation by lottery", cost: 1.4e6, tps: 19e3 },
-  { id: "h200", name: "H200", blurb: "an H100 with a bigger tank", cost: 15e6, tps: 165e3 },
-  { id: "b200", name: "B200", blurb: "blackwell, liquid cooled", cost: 170e6, tps: 1.5e6 },
-  { id: "gb300", name: "GB300 NVL72", blurb: "a rack that weighs a car", cost: 2e9, tps: 14e6 },
-  { id: "rubin", name: "Rubin Ultra", blurb: "announced, shipped, already late", cost: 25e9, tps: 140e6 },
+  { id: "t4", name: "Tiny-4", blurb: "16 GB of regret", cost: 15, tps: 0.5 },
+  { id: "a10g", name: "Workhorse 10G", blurb: "the workhorse nobody loves", cost: 100, tps: 4 },
+  { id: "l40s", name: "Lovelace-S", blurb: "a countess says hi", cost: 1100, tps: 32 },
+  { id: "a100", name: "Centurion 40GB", blurb: "the one everyone trained on", cost: 12e3, tps: 260 },
+  { id: "a100x", name: "Centurion 80GB", blurb: "twice the memory, same attitude", cost: 130e3, tps: 2200 },
+  { id: "h100", name: "Hopper-C", blurb: "allocation by lottery", cost: 1.4e6, tps: 19e3 },
+  { id: "h200", name: "Hopper-CC", blurb: "a Hopper-C with a bigger tank", cost: 15e6, tps: 165e3 },
+  { id: "b200", name: "Blackbarrow", blurb: "dark, dense, liquid cooled", cost: 170e6, tps: 1.5e6 },
+  { id: "gb300", name: "Grace-Barrow Rack", blurb: "a rack that weighs a car", cost: 2e9, tps: 14e6 },
+  { id: "rubin", name: "Ruby Ultra", blurb: "announced, shipped, already late", cost: 25e9, tps: 140e6 },
 ];
 export const GPU_GROWTH = 1.15;
 
@@ -425,7 +425,7 @@ export function pull(s, n = 1, rng = Math.random) {
 
 // --- NG+ ----------------------------------------------------------------------------
 
-// Reachable around the GB300 era: a product decision about when a run has told its story.
+// Reachable around the Grace-Barrow era: a product decision about when a run has told its story.
 export const NG_THRESHOLD = 5e9;
 export const ngReady = (s) => s.lifetime >= NG_THRESHOLD;
 
@@ -455,8 +455,8 @@ export const ACHIEVEMENTS = [
   { id: "wcdonalds", name: "wcdonalds", desc: "rack your first GPU. it's wearing a disguise. nothing to see here", test: (s) => gpuTotal(s) >= 1 },
   { id: "fleet10", name: "a small fleet", desc: "10 GPUs", test: (s) => gpuTotal(s) >= 10 },
   { id: "fleet100", name: "hyperscaler-adjacent", desc: "100 GPUs", test: (s) => gpuTotal(s) >= 100 },
-  { id: "h100", name: "won the lottery", desc: "get an H100 allocation", test: (s) => owned(s, "h100") >= 1 },
-  { id: "rubin", name: "already late", desc: "rack a Rubin Ultra", test: (s) => owned(s, "rubin") >= 1 },
+  { id: "h100", name: "won the lottery", desc: "get a Hopper-C allocation", test: (s) => owned(s, "h100") >= 1 },
+  { id: "rubin", name: "already late", desc: "rack a Ruby Ultra", test: (s) => owned(s, "rubin") >= 1 },
   { id: "served1k", name: "kilotoken", desc: "serve 1,000 tokens", test: (s) => s.lifetime >= 1e3 },
   { id: "served1m", name: "megatoken", desc: "serve a million tokens", test: (s) => s.lifetime >= 1e6 },
   { id: "served1b", name: "gigatoken", desc: "serve a billion tokens", test: (s) => s.lifetime >= 1e9 },

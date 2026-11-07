@@ -6,7 +6,7 @@ import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const W = 1200, H = 630;
-const rows = [["T4", "×12", "6 tok/s"], ["H100", "×4", "76K tok/s"], ["B200", "×1", "1.5M tok/s"]];
+const rows = [["Tiny-4", "×12", "6 tok/s"], ["Hopper-C", "×4", "76K tok/s"], ["Blackbarrow", "×1", "1.5M tok/s"]];
 const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
   <defs>
     <radialGradient id="g" cx="50%" cy="0%" r="80%"><stop offset="0" stop-color="#0d2a5c"/><stop offset="1" stop-color="#040814"/></radialGradient>

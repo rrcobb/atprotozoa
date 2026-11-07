@@ -186,7 +186,7 @@ function renderFleet() {
     const each = g.tps * G.servingModel(state).q * G.globalMult(state) * G.coverage(state);
     rows.push(`<div class="row"><div class="t"><span class="glasses" title="totally a different company">🥸</span> <b>${esc(g.name)}</b> ×${have}</div><div class="d">${esc(g.blurb)} · ${G.fmt(each)} tok/s each</div><div class="btns">${btn("gpu", g.id, "rack one", cost)}</div></div>`);
   }
-  setHtml("p-fleet", rows.join("") + (total ? "" : `<div class="sub">click the big button, then rack your first T4.</div>`));
+  setHtml("p-fleet", rows.join("") + (total ? "" : `<div class="sub">click the big button, then rack your first Tiny-4.</div>`));
 }
 
 function renderRegions() {
