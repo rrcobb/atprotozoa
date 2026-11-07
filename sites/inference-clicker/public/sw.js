@@ -5,13 +5,14 @@
 // (the player's PDS, plc.directory) are never intercepted because DPoP-bound
 // fetches have to reach the network untouched.
 
-const CACHE = "inference-clicker-v1";
+const CACHE = "inference-clicker-v2";
 const PRECACHE = [
   "/",
   "/style.css",
   "/manifest.json",
   "/lib/app.js",
   "/lib/game.js",
+  "/lib/cast.js",
   "/lib/pds.js",
   "/lib/oauth.js",
   "/lib/oauth-jwt.js",

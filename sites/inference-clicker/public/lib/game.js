@@ -2,7 +2,9 @@
 // owns rendering; this file owns state, costs, production and the random
 // events, so tests/game.test.mjs can drive it under node with a seeded rng.
 
-export const VERSION = 1;
+import { CAST, RARITIES, charById, MAX_CHAR_LEVEL } from "./cast.js";
+
+export const VERSION = 2;
 
 // Offline earnings: a product decision, not a safety cap. The page is a PWA you
 // close and reopen; eight hours is "a night's sleep or a work day" of idle
@@ -74,7 +76,12 @@ export function newState(now = Date.now()) {
     nextGen: 1,
     down: {}, // regionId -> seconds of outage left
     boost: 0, // seconds of viral demand left
-    stats: { outages: 0, failovers: 0, viral: 0 },
+    stats: { outages: 0, failovers: 0, viral: 0, regressions: 0 },
+    ng: 0, // completed NG+ cycles
+    chars: {}, // cast id -> copies pulled
+    pulls: 0,
+    pity: { sr: 0, ssr: 0 }, // pulls since the last epic-or-better / legendary
+    ach: {}, // achievement id -> unlock time (ms)
   };
 }
 
@@ -105,28 +112,52 @@ export function loadState(raw, now = Date.now()) {
   s.training = t && Number.isFinite(t.remaining) && Number.isFinite(t.total) && Number.isFinite(t.gen) ? { gen: t.gen, remaining: t.remaining, total: t.total } : null;
   s.down = {};
   s.boost = 0;
-  s.stats = { outages: num(o.stats?.outages, 0), failovers: num(o.stats?.failovers, 0), viral: num(o.stats?.viral, 0) };
+  s.stats = { outages: num(o.stats?.outages, 0), failovers: num(o.stats?.failovers, 0), viral: num(o.stats?.viral, 0), regressions: num(o.stats?.regressions, 0) };
+  s.ng = Math.max(0, Math.floor(num(o.ng, 0)));
+  s.chars = {};
+  for (const c of CAST) if (o.chars && o.chars[c.id] > 0) s.chars[c.id] = Math.floor(o.chars[c.id]);
+  s.pulls = Math.max(0, Math.floor(num(o.pulls, 0)));
+  s.pity = { sr: Math.max(0, Math.floor(num(o.pity?.sr, 0))), ssr: Math.max(0, Math.floor(num(o.pity?.ssr, 0))) };
+  s.ach = {};
+  for (const a of ACHIEVEMENTS) if (o.ach && Number.isFinite(o.ach[a.id])) s.ach[a.id] = o.ach[a.id];
   return s;
 }
 
 export const level = (s, id) => s.upgrades[id] || 0;
 export const owned = (s, id) => s.gpus[id] || 0;
 
+// --- cast perks, achievements and NG+ ------------------------------------------
+
+export const charLevel = (s, id) => Math.min(MAX_CHAR_LEVEL, s.chars[id] || 0);
+// Sum of one perk over everything pulled, level-scaled.
+export function castSum(s, key) {
+  let t = 0;
+  for (const c of CAST) if (c.perk[key]) t += c.perk[key] * charLevel(s, c.id);
+  return t;
+}
+export const achCount = (s) => Object.keys(s.ach).length;
+export const achMult = (s) => 1 + 0.01 * achCount(s); // +1% tokens/s per trophy
+export const ngMult = (s) => 1 + s.ng; // NG+: ×2, ×3, ... tokens/s and click power
+export const ngCostMult = (s) => 1 + 0.25 * s.ng; // ...and everything costs more
+export const ngOutageMult = (s) => 1 + 0.3 * s.ng; // ...and the regions are flakier
+export const failMult = (s) => Math.max(0.25, 1 + castSum(s, "fail")) * ngOutageMult(s);
+
 export function gpuCost(s, g) {
-  return Math.ceil(g.cost * Math.pow(GPU_GROWTH, owned(s, g.id)));
+  return Math.ceil(g.cost * ngCostMult(s) * Math.pow(GPU_GROWTH, owned(s, g.id)));
 }
 export function upgradeCost(s, u) {
-  return Math.ceil(u.cost * Math.pow(u.growth, level(s, u.id)));
+  return Math.ceil(u.cost * ngCostMult(s) * Math.pow(u.growth, level(s, u.id)));
 }
 export function replicaCost(s, r) {
   const have = s.regions[r.id]?.replicas || 0;
-  return Math.ceil(Math.max(500, r.cost * 0.1) * Math.pow(4, have));
+  return Math.ceil(Math.max(500, r.cost * 0.1) * ngCostMult(s) * Math.pow(4, have));
 }
-export function trainingCost(gen) {
-  return Math.ceil(3000 * Math.pow(4, gen - 1));
+export function trainingCost(gen, s) {
+  return Math.ceil(3000 * (s ? ngCostMult(s) : 1) * Math.pow(4, gen - 1));
 }
 export function trainingSeconds(s, gen) {
-  return 30 * Math.pow(1.25, gen - 1) * Math.pow(0.8, level(s, "cluster"));
+  const speed = Math.max(0.25, 1 + castSum(s, "train"));
+  return (30 * Math.pow(1.25, gen - 1) * Math.pow(0.8, level(s, "cluster"))) / speed;
 }
 export const trend = (gen) => 1 + 0.5 * gen;
 export function qualityRange(s) {
@@ -159,7 +190,7 @@ export function rawCapacity(s) {
 }
 
 export function globalMult(s) {
-  return (1 + 0.2 * level(s, "kvcache")) * Math.pow(1.15, level(s, "spec")) * Math.pow(1.25, level(s, "quant"));
+  return ngMult(s) * achMult(s) * (1 + castSum(s, "tps")) * (1 + 0.2 * level(s, "kvcache")) * Math.pow(1.15, level(s, "spec")) * Math.pow(1.25, level(s, "quant"));
 }
 
 export function coverage(s) {
@@ -178,7 +209,7 @@ export function tps(s, { ignoreEvents = false } = {}) {
 }
 
 export function clickPower(s) {
-  return Math.pow(2, level(s, "batching")) * servingModel(s).q * (1 + 0.2 * level(s, "kvcache")) + 0.05 * tps(s);
+  return Math.pow(2, level(s, "batching")) * servingModel(s).q * (1 + 0.2 * level(s, "kvcache")) * ngMult(s) * (1 + castSum(s, "click")) + 0.05 * tps(s);
 }
 
 export function click(s) {
@@ -209,7 +240,7 @@ export function buyUpgrade(s, id) {
 }
 export function buyRegion(s, id) {
   const r = REGIONS.find((x) => x.id === id);
-  if (!r || s.regions[id] || !spend(s, r.cost)) return false;
+  if (!r || s.regions[id] || !spend(s, Math.ceil(r.cost * ngCostMult(s)))) return false;
   s.regions[id] = { replicas: 0 };
   return true;
 }
@@ -223,7 +254,7 @@ export function buyReplica(s, id) {
 export function startTraining(s) {
   if (s.training) return false;
   const gen = s.nextGen;
-  if (!spend(s, trainingCost(gen))) return false;
+  if (!spend(s, trainingCost(gen, s))) return false;
   const total = trainingSeconds(s, gen);
   s.training = { gen, remaining: total, total };
   return true;
@@ -244,6 +275,7 @@ function finishTraining(s, rng) {
   s.models.push(m);
   s.nextGen = gen + 1;
   s.training = null;
+  if (q < prevLatest.q) s.stats.regressions++;
   const verdict = q < prevLatest.q ? "worse than the last one. it happens." : q > prevBest ? "a new best." : "better than the last one, short of the best.";
   return { kind: q < prevLatest.q ? "bad" : "good", text: `${m.name} finished training: ${q.toFixed(2)}× — ${verdict}` };
 }
@@ -262,7 +294,7 @@ export function step(s, dt, rng = Math.random) {
       }
       continue;
     }
-    if (rng() < r.fail * dt) {
+    if (rng() < r.fail * dt * failMult(s)) {
       let absorbed = false;
       for (let i = 0; i < reg.replicas && !absorbed; i++) absorbed = rng() < failoverChance(s);
       if (absorbed) {
@@ -279,7 +311,7 @@ export function step(s, dt, rng = Math.random) {
   if (s.boost > 0) {
     s.boost -= dt;
     if (s.boost <= 0) events.push({ kind: "info", text: "the viral post cooled off." });
-  } else if (tps(s, { ignoreEvents: true }) > 0 && rng() < dt / 240) {
+  } else if (tps(s, { ignoreEvents: true }) > 0 && rng() < (dt / 240) * (1 + castSum(s, "viral"))) {
     s.boost = 20;
     s.stats.viral++;
     events.push({ kind: "good", text: "someone quote-posted you. demand ×2.5 for 20s." });
@@ -291,6 +323,7 @@ export function step(s, dt, rng = Math.random) {
     s.training.remaining -= dt;
     if (s.training.remaining <= 0) events.push(finishTraining(s, rng));
   }
+  events.push(...checkAchievements(s));
   return events;
 }
 
@@ -308,6 +341,7 @@ export function offline(s, seconds, rng = Math.random) {
   const gained = tps(s, { ignoreEvents: true }) * secs * OFFLINE_EFFICIENCY;
   s.tokens += gained;
   s.lifetime += gained;
+  events.push(...checkAchievements(s));
   return { gained, seconds: secs, events };
 }
 
@@ -332,10 +366,129 @@ export function toRecord(s, now = Date.now()) {
     savedAt: new Date(now).toISOString(),
     lifetimeTokens: Math.min(Number.MAX_SAFE_INTEGER, Math.floor(s.lifetime)), // integer-only, clamped to a safe int
     models: s.models.length,
+    ng: s.ng,
     data: JSON.stringify(s),
   };
 }
+// "Furthest along": an NG+ cycle outranks any amount of lifetime in an earlier one.
+export const progress = (s) => s.ng * 1e18 + s.lifetime;
 export function fromRecord(rec) {
   if (!rec || typeof rec.data !== "string") return null;
   return loadState(rec.data);
+}
+
+// --- gacha ------------------------------------------------------------------------
+
+// Priced as ~15 minutes of current output (500 floor), so a pull stays a
+// meaningful spend at every stage of the game. A ten-pull is nine pulls' price.
+export const PULL_SECONDS = 900;
+export const PULL_MIN_COST = 500;
+export const SR_PITY = 10; // an epic or better at least this often
+export const SSR_PITY = 60; // a legendary at least this often
+export function pullCost(s, n = 1) {
+  const one = Math.ceil(Math.max(PULL_MIN_COST, tps(s, { ignoreEvents: true }) * PULL_SECONDS));
+  return n >= 10 ? one * 9 : one * n;
+}
+
+function pickWeighted(pool, rng) {
+  const total = pool.reduce((t, r) => t + r.weight, 0);
+  let x = rng() * total;
+  for (const r of pool) { x -= r.weight; if (x < 0) return r; }
+  return pool[pool.length - 1];
+}
+
+function rollOne(s, rng) {
+  s.pity.sr++;
+  s.pity.ssr++;
+  let r;
+  if (s.pity.ssr >= SSR_PITY) r = RARITIES[3];
+  else if (s.pity.sr >= SR_PITY) r = pickWeighted(RARITIES.slice(2), rng);
+  else r = pickWeighted(RARITIES, rng);
+  if (r.id === "SSR") s.pity.ssr = 0;
+  if (r.id === "SR" || r.id === "SSR") s.pity.sr = 0;
+  const pool = CAST.filter((c) => c.rarity === r.id);
+  const c = pool[Math.min(pool.length - 1, Math.floor(rng() * pool.length))];
+  const had = s.chars[c.id] || 0;
+  s.chars[c.id] = had + 1;
+  s.pulls++;
+  return { id: c.id, isNew: had === 0, level: Math.min(MAX_CHAR_LEVEL, had + 1), maxed: had >= MAX_CHAR_LEVEL };
+}
+
+// Returns the results, or null when it can't be afforded.
+export function pull(s, n = 1, rng = Math.random) {
+  const cost = pullCost(s, n);
+  if (!spend(s, cost)) return null;
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(rollOne(s, rng));
+  return out;
+}
+
+// --- NG+ ----------------------------------------------------------------------------
+
+// Reachable around the GB300 era: a product decision about when a run has told its story.
+export const NG_THRESHOLD = 5e9;
+export const ngReady = (s) => s.lifetime >= NG_THRESHOLD;
+
+// Wipe the company, keep the people: cast, pity, trophies and lifetime stats carry over.
+export function ngPlus(s, now = Date.now()) {
+  if (!ngReady(s)) return false;
+  const fresh = newState(now);
+  fresh.ng = s.ng + 1;
+  fresh.chars = s.chars;
+  fresh.pulls = s.pulls;
+  fresh.pity = s.pity;
+  fresh.ach = s.ach;
+  fresh.stats = s.stats;
+  Object.assign(s, fresh);
+  return true;
+}
+
+// --- achievements -------------------------------------------------------------------
+
+const gpuTotal = (s) => GPUS.reduce((n, g) => n + owned(s, g.id), 0);
+const castOwned = (s, f = () => true) => CAST.filter((c) => s.chars[c.id] && f(c)).length;
+
+export const ACHIEVEMENTS = [
+  { id: "coldstart", name: "cold start", desc: "serve your first prompt", test: (s) => s.clicks >= 1 },
+  { id: "clicks100", name: "carpal tunnel", desc: "100 clicks", test: (s) => s.clicks >= 100 },
+  { id: "clicks1000", name: "repetitive strain inference", desc: "1,000 clicks", test: (s) => s.clicks >= 1000 },
+  { id: "wcdonalds", name: "wcdonalds", desc: "rack your first GPU. it's wearing a disguise. nothing to see here", test: (s) => gpuTotal(s) >= 1 },
+  { id: "fleet10", name: "a small fleet", desc: "10 GPUs", test: (s) => gpuTotal(s) >= 10 },
+  { id: "fleet100", name: "hyperscaler-adjacent", desc: "100 GPUs", test: (s) => gpuTotal(s) >= 100 },
+  { id: "h100", name: "won the lottery", desc: "get an H100 allocation", test: (s) => owned(s, "h100") >= 1 },
+  { id: "rubin", name: "already late", desc: "rack a Rubin Ultra", test: (s) => owned(s, "rubin") >= 1 },
+  { id: "served1k", name: "kilotoken", desc: "serve 1,000 tokens", test: (s) => s.lifetime >= 1e3 },
+  { id: "served1m", name: "megatoken", desc: "serve a million tokens", test: (s) => s.lifetime >= 1e6 },
+  { id: "served1b", name: "gigatoken", desc: "serve a billion tokens", test: (s) => s.lifetime >= 1e9 },
+  { id: "served1t", name: "teratoken", desc: "serve a trillion tokens", test: (s) => s.lifetime >= 1e12 },
+  { id: "region3", name: "multi-region", desc: "operate in three regions", test: (s) => Object.keys(s.regions).length >= 3 },
+  { id: "regionall", name: "follow the sun", desc: "open every region", test: (s) => REGIONS.every((r) => s.regions[r.id]) },
+  { id: "replicas", name: "belt and suspenders", desc: "fully replicate a region", test: (s) => Object.values(s.regions).some((r) => r.replicas >= MAX_REPLICAS) },
+  { id: "outage10", name: "five nines, spiritually", desc: "suffer 10 outages", test: (s) => s.stats.outages >= 10 },
+  { id: "outage50", name: "post-mortem enjoyer", desc: "suffer 50 outages", test: (s) => s.stats.outages >= 50 },
+  { id: "failover5", name: "nobody noticed", desc: "5 failovers", test: (s) => s.stats.failovers >= 5 },
+  { id: "viral3", name: "main character", desc: "go viral 3 times", test: (s) => s.stats.viral >= 3 },
+  { id: "regress", name: "it happens", desc: "train a model that's worse than the last", test: (s) => s.stats.regressions >= 1 },
+  { id: "zoo", name: "model zoo", desc: "train five models", test: (s) => s.models.length >= 6 },
+  { id: "maxed", name: "maxed out", desc: "max any upgrade", test: (s) => UPGRADES.some((u) => level(s, u.id) >= u.max) },
+  { id: "pull1", name: "gacha-curious", desc: "make your first pull", test: (s) => s.pulls >= 1 },
+  { id: "pull50", name: "whale-adjacent", desc: "50 pulls", test: (s) => s.pulls >= 50 },
+  { id: "legend", name: "legendary hire", desc: "pull a legendary", test: (s) => castOwned(s, (c) => c.rarity === "SSR") >= 1 },
+  { id: "baddie", name: "bad crowd", desc: "pull a baddie", test: (s) => castOwned(s, (c) => c.bad) >= 1 },
+  { id: "villain", name: "villain origin story", desc: "have three baddies on payroll", test: (s) => castOwned(s, (c) => c.bad) >= 3 },
+  { id: "dupe", name: "constellations", desc: "pull the same person five times", test: (s) => CAST.some((c) => (s.chars[c.id] || 0) >= MAX_CHAR_LEVEL) },
+  { id: "roster", name: "gotta pull 'em all", desc: "complete the roster", test: (s) => castOwned(s) >= CAST.length },
+  { id: "ng1", name: "new game plus", desc: "start NG+", test: (s) => s.ng >= 1 },
+  { id: "ng3", name: "groundhog day", desc: "start NG+3", test: (s) => s.ng >= 3 },
+];
+
+// Returns log events for anything newly unlocked.
+export function checkAchievements(s, now = Date.now()) {
+  const events = [];
+  for (const a of ACHIEVEMENTS) {
+    if (s.ach[a.id] || !a.test(s)) continue;
+    s.ach[a.id] = now;
+    events.push({ kind: "info", text: `🏆 achievement: ${a.name} (+1% tokens/s)` });
+  }
+  return events;
 }

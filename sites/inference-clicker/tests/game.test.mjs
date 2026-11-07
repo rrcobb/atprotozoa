@@ -89,3 +89,59 @@ test("fmt", () => {
   assert.equal(G.fmt(2.5e9), "2.50B");
   assert.equal(G.fmt(12), "12");
 });
+
+test("pulls cost tokens, hit pity, and level duplicates", () => {
+  const s = G.newState(0);
+  assert.equal(G.pull(s, 1), null);
+  s.tokens = 1e6;
+  const r = G.pull(s, 10, () => 0); // always the first roll: commons only until pity
+  assert.equal(r.length, 10);
+  assert.equal(s.pulls, 10);
+  assert.ok(r.slice(0, 9).every((x) => x.id === "intern"));
+  assert.notEqual(r[9].id, "intern"); // 10th pull is epic or better
+  assert.equal(s.pity.sr, 0);
+  assert.equal(G.charLevel(s, "intern"), 5);
+  assert.equal(G.pullCost(s, 10), G.pullCost(s, 1) * 9);
+});
+
+test("baddies add tokens/s and outages; good cast cut outages", () => {
+  const s = G.newState(0);
+  s.gpus.a10g = 10;
+  const base = G.tps(s);
+  s.chars.ransom = 1;
+  assert.ok(G.tps(s) > base * 1.11);
+  assert.ok(G.failMult(s) > 1.09);
+  s.chars.sre = 5;
+  assert.ok(G.failMult(s) < 1);
+});
+
+test("achievements unlock once and add 1% each", () => {
+  const s = G.newState(0);
+  s.gpus.t4 = 1;
+  s.clicks = 1;
+  const ev = G.checkAchievements(s, 5);
+  assert.ok(ev.some((e) => /wcdonalds/.test(e.text)));
+  assert.equal(G.checkAchievements(s, 6).length, 0);
+  assert.equal(s.ach.wcdonalds, 5);
+  assert.ok(Math.abs(G.achMult(s) - (1 + 0.01 * G.achCount(s))) < 1e-9);
+});
+
+test("NG+ keeps the cast and trophies, resets the company, and bites back", () => {
+  const s = G.newState(0);
+  assert.equal(G.ngPlus(s), false);
+  s.lifetime = G.NG_THRESHOLD;
+  s.tokens = 5; s.gpus.t4 = 9; s.chars.tenx = 2; s.ach.coldstart = 1; s.pulls = 7;
+  assert.equal(G.ngPlus(s, 1), true);
+  assert.equal(s.ng, 1);
+  assert.equal(s.lifetime, 0);
+  assert.deepEqual(s.gpus, {});
+  assert.equal(s.chars.tenx, 2);
+  assert.equal(s.pulls, 7);
+  assert.ok(s.ach.coldstart);
+  assert.equal(G.ngMult(s), 2);
+  assert.ok(G.gpuCost(s, G.GPUS[0]) > G.GPUS[0].cost);
+  const back = G.loadState(JSON.stringify(s));
+  assert.equal(back.ng, 1);
+  assert.equal(back.chars.tenx, 2);
+  assert.ok(G.progress(back) > G.progress(G.newState(0)) + 1e17);
+});

@@ -3,6 +3,7 @@
 
 import * as G from "./game.js";
 import { login, completeLoginIfCallback, getSession, clearSession } from "./oauth.js";
+import { CAST, RARITIES, rarity, charById, MAX_CHAR_LEVEL } from "./cast.js";
 import { readSave, writeSave } from "./pds.js";
 
 const LS_KEY = "inference-clicker:save";
@@ -15,6 +16,7 @@ let session = null;
 let lastTick = Date.now();
 let lastPds = 0;
 let dirtySincePds = false;
+let lastPulls = []; // results of the most recent pull, shown above the roster
 
 // --- log ---------------------------------------------------------------------
 
@@ -59,7 +61,7 @@ async function syncWithPds() {
   try {
     const rec = await readSave(session);
     const remote = G.fromRecord(rec);
-    if (remote && remote.lifetime > state.lifetime) {
+    if (remote && G.progress(remote) > G.progress(state)) {
       state = remote;
       saveLocal();
       log("loaded your further-along save from your PDS", "info");
@@ -83,12 +85,31 @@ const ACTIONS = {
   replica: (id) => G.buyReplica(state, id),
   train: () => G.startTraining(state),
   serve: (id) => G.setServing(state, id),
+  pull: (id) => {
+    const res = G.pull(state, Number(id) === 10 ? 10 : 1);
+    if (!res) return false;
+    lastPulls = res;
+    for (const r of res) {
+      const c = charById(r.id);
+      if (r.isNew && (c.rarity === "SR" || c.rarity === "SSR")) log(`new ${rarity(c.rarity).name} hire: ${c.name}${c.bad ? " (a baddie)" : ""}`, c.bad ? "bad" : "good");
+    }
+    return true;
+  },
+  ng: () => {
+    if (!G.ngReady(state)) return false;
+    if (!confirm(`Start NG+ ${state.ng + 1}? Your company resets. Your cast, trophies and pity carry over. Tokens/s ×${G.ngMult({ ng: state.ng + 1 })}, but prices +25% and outages +30% per cycle.`)) return false;
+    G.ngPlus(state);
+    lastPulls = [];
+    log(`NG+ ${state.ng}: seed-0 is live again. the cast stays.`, "info");
+    return true;
+  },
 };
 
 function onPanelClick(e) {
   const b = e.target.closest("button[data-act]");
   if (!b || b.disabled) return;
   if (ACTIONS[b.dataset.act](b.dataset.id)) {
+    logEvents(G.checkAchievements(state));
     dirtySincePds = true;
     renderAll(true);
   }
@@ -96,6 +117,7 @@ function onPanelClick(e) {
 
 $("clickBtn").addEventListener("click", (e) => {
   const p = G.click(state);
+  logEvents(G.checkAchievements(state));
   dirtySincePds = true;
   const f = document.createElement("span");
   f.className = "float";
@@ -107,13 +129,13 @@ $("clickBtn").addEventListener("click", (e) => {
   renderHud();
 });
 
-for (const id of ["p-fleet", "p-regions", "p-lab", "p-upgrades"]) $(id).addEventListener("click", onPanelClick);
+for (const id of ["p-fleet", "p-regions", "p-lab", "p-upgrades", "p-pulls", "p-trophies", "p-ng"]) $(id).addEventListener("click", onPanelClick);
 
 $("tabs").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
   if (!b) return;
   for (const t of $("tabs").querySelectorAll("button")) t.setAttribute("aria-selected", String(t === b));
-  for (const name of ["fleet", "regions", "lab", "upgrades"]) $("p-" + name).hidden = name !== b.dataset.tab;
+  for (const name of ["fleet", "regions", "lab", "upgrades", "pulls", "trophies", "ng"]) $("p-" + name).hidden = name !== b.dataset.tab;
 });
 
 const handleValue = () => $("handle").value.trim().replace(/^@/, "").trim();
@@ -162,7 +184,7 @@ function renderFleet() {
       break;
     }
     const each = g.tps * G.servingModel(state).q * G.globalMult(state) * G.coverage(state);
-    rows.push(`<div class="row"><div class="t"><b>${esc(g.name)}</b> ×${have}</div><div class="d">${esc(g.blurb)} · ${G.fmt(each)} tok/s each</div><div class="btns">${btn("gpu", g.id, "rack one", cost)}</div></div>`);
+    rows.push(`<div class="row"><div class="t"><span class="glasses" title="totally a different company">🥸</span> <b>${esc(g.name)}</b> ×${have}</div><div class="d">${esc(g.blurb)} · ${G.fmt(each)} tok/s each</div><div class="btns">${btn("gpu", g.id, "rack one", cost)}</div></div>`);
   }
   setHtml("p-fleet", rows.join("") + (total ? "" : `<div class="sub">click the big button, then rack your first T4.</div>`));
 }
@@ -227,6 +249,56 @@ function renderUpgrades() {
   setHtml("p-upgrades", rows.join(""));
 }
 
+const perkText = (c) => Object.entries(c.perk).map(([k, v]) => {
+  const label = { tps: "tokens/s", click: "click power", train: "training speed", fail: "outages", viral: "viral spikes" }[k];
+  return `<span class="${(k === "fail") === v > 0 ? "neg" : "pos"}">${v > 0 ? "+" : "−"}${Math.round(Math.abs(v) * 100)}% ${label}</span>`;
+}).join(" · ");
+
+function castCard(c, lv, extra = "") {
+  const r = rarity(c.rarity);
+  return `<div class="cc ${c.bad ? "baddie" : ""} ${extra}" style="--rc:${r.color}"><pre>${esc(c.art.join("\n"))}</pre><div class="cn"><b>${esc(c.name)}</b>${c.bad ? ` <span class="badge bad">baddie</span>` : ""}</div><div class="cr">${r.id} · ${r.name}${lv ? ` · lv ${lv}/${MAX_CHAR_LEVEL}` : ""}</div><div class="cp">${perkText(c)}</div><div class="ct">“${esc(c.tag)}”</div></div>`;
+}
+
+function renderPulls() {
+  const rows = [];
+  const one = G.pullCost(state, 1);
+  const ten = G.pullCost(state, 10);
+  rows.push(`<div class="sub">pull archetypal computer people. each copy levels their perk (up to lv ${MAX_CHAR_LEVEL}). baddies pay more and break more. pity: an epic or better every ${G.SR_PITY} pulls, a legendary every ${G.SSR_PITY}. next guaranteed: epic in ${G.SR_PITY - state.pity.sr}, legendary in ${G.SSR_PITY - state.pity.ssr}.</div>`);
+  rows.push(`<div class="row"><div class="t"><b>recruit</b> <span class="badge">${state.pulls} pulls</span></div><div class="d">costs about ${G.PULL_SECONDS / 60} minutes of your current output</div><div class="btns">${btn("pull", "1", "pull ×1", one)}${btn("pull", "10", "pull ×10", ten)}</div></div>`);
+  if (lastPulls.length) {
+    rows.push(`<div class="cast">${lastPulls.map((r) => castCard(charById(r.id), r.level, r.isNew ? "fresh" : "")).join("")}</div>`);
+  }
+  const have = CAST.filter((c) => state.chars[c.id]).length;
+  rows.push(`<div class="sub">roster ${have}/${CAST.length}</div>`);
+  const cards = [];
+  for (const r of RARITIES.slice().reverse()) {
+    for (const c of CAST.filter((x) => x.rarity === r.id)) {
+      cards.push(state.chars[c.id] ? castCard(c, G.charLevel(state, c.id)) : `<div class="cc unk" style="--rc:${r.color}"><pre>${esc(["", "   ?????   ", "   ?????   ", "   ?????   ", "", ""].join("\n"))}</pre><div class="cn"><b>???</b></div><div class="cr">${r.id} · ${r.name}</div></div>`);
+    }
+  }
+  rows.push(`<div class="cast">${cards.join("")}</div>`);
+  setHtml("p-pulls", rows.join(""));
+}
+
+function renderTrophies() {
+  const rows = [`<div class="sub">${G.achCount(state)}/${G.ACHIEVEMENTS.length} trophies · each one is +1% tokens/s (now ×${G.achMult(state).toFixed(2)})</div>`];
+  for (const a of G.ACHIEVEMENTS) {
+    const got = state.ach[a.id];
+    rows.push(`<div class="row ${got ? "" : "locked"}"><div class="t">${got ? "🏆" : "🔒"} <b>${esc(a.name)}</b></div><div class="d">${esc(a.desc)}</div></div>`);
+  }
+  setHtml("p-trophies", rows.join(""));
+}
+
+function renderNg() {
+  const rows = [];
+  const ready = G.ngReady(state);
+  const pct = Math.min(100, (state.lifetime / G.NG_THRESHOLD) * 100);
+  rows.push(`<div class="sub">NG+ resets your company and keeps your cast, pity and trophies. each cycle: tokens/s and click power ×(1 + cycles), prices +25%, outages +30%.</div>`);
+  rows.push(`<div class="row"><div class="t"><b>NG+ ${state.ng + 1}</b> <span class="badge ${ready ? "on" : ""}">${ready ? "ready" : "locked"}</span></div><div class="d">${ready ? `next run: ×${G.ngMult({ ng: state.ng + 1 })} tokens/s, prices +${25 * (state.ng + 1)}%, outages +${30 * (state.ng + 1)}%` : `serve ${G.fmt(G.NG_THRESHOLD)} tokens this run to unlock (${G.fmt(state.lifetime)} so far)<div class="bar"><i style="width:${pct.toFixed(1)}%"></i></div>`}</div><div class="btns"><button class="buy" data-act="ng" data-id="x" ${ready ? "" : "disabled"}>start NG+</button></div></div>`);
+  rows.push(`<div class="row"><div class="t"><b>current cycle</b></div><div class="d">${state.ng ? `NG+ ${state.ng}: ×${G.ngMult(state)} tokens/s, prices +${25 * state.ng}%, outages +${30 * state.ng}%` : "NG (the first run)"}</div></div>`);
+  setHtml("p-ng", rows.join(""));
+}
+
 function renderHud() {
   const rate = G.tps(state);
   const cap = G.tps(state, { ignoreEvents: true });
@@ -240,6 +312,7 @@ function renderHud() {
   $("tpsNote").innerHTML = notes.join(" · ") || (cap ? "all regions healthy" : "");
   const m = G.servingModel(state);
   $("serving").textContent = m.name;
+  document.title = state.ng ? `inference clicker NG+${state.ng}` : "inference clicker — run an inference company";
   $("servingNote").textContent = `${m.q.toFixed(2)}× quality · ${state.serving === "auto" ? "auto" : "pinned"}`;
   const gpus = G.GPUS.reduce((n, g) => n + G.owned(state, g.id), 0);
   $("fleet").textContent = `${G.fmt(gpus)} GPU${gpus === 1 ? "" : "s"}`;
@@ -249,7 +322,7 @@ function renderHud() {
 
 function renderShare() {
   const gpus = G.GPUS.reduce((n, g) => n + G.owned(state, g.id), 0);
-  const text = `my inference company has served ${G.fmt(state.lifetime)} tokens on ${G.fmt(gpus)} GPUs across ${Object.keys(state.regions).length} region(s), ${state.stats.outages} outages and ${state.models.length - 1} models trained. https://inference-clicker.bisks.net/`;
+  const text = `my inference company${state.ng ? ` (NG+${state.ng})` : ""} has served ${G.fmt(state.lifetime)} tokens on ${G.fmt(gpus)} GPUs across ${Object.keys(state.regions).length} region(s), ${state.stats.outages} outages and ${state.models.length - 1} models trained, ${G.achCount(state)} trophies, ${CAST.filter((c) => state.chars[c.id]).length}/${CAST.length} cast. https://inference-clicker.bisks.net/`;
   $("shareLink").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
 }
 
@@ -265,6 +338,9 @@ function renderAll(force = false) {
   renderRegions();
   renderLab();
   renderUpgrades();
+  renderPulls();
+  renderTrophies();
+  renderNg();
   if (force) renderShare();
 }
 
