@@ -68,7 +68,7 @@ export function normalizePage(rec) {
     text: hex(rec.text, base.text),
     link: hex(rec.link, base.link),
     panel: hex(rec.panel, base.panel),
-    panelAlpha: typeof rec.panelAlpha === "number" ? Math.min(1, Math.max(0, rec.panelAlpha)) : base.panelAlpha,
+    panelAlpha: alpha(rec.panelAlpha, base.panelAlpha),
     font: FONTS[rec.font] ? rec.font : base.font,
     title: str(rec.title, 120),
     mood: str(rec.mood, 80),
@@ -83,6 +83,20 @@ export function normalizePage(rec) {
     sections,
     css: sanitizeCss(rec.css),
   };
+}
+
+// The lexicon stores opacity as an integer percent (records can't hold
+// floats); the page works in 0..1. Values <= 1 are read as legacy fractions.
+function alpha(v, fallback) {
+  if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
+  return Math.min(1, Math.max(0, v > 1 ? v / 100 : v));
+}
+
+// Normalised page -> the record written to the repo (matches
+// lexicons/net.bisks.yourspace.page.json).
+export function toRecord(page, now = new Date()) {
+  const { label, ...rest } = normalizePage(page);
+  return { $type: PAGE_COLLECTION, ...rest, panelAlpha: Math.round(rest.panelAlpha * 100), updatedAt: now.toISOString() };
 }
 
 function strList(v, n, max) {

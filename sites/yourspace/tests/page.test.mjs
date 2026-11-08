@@ -37,3 +37,50 @@ test("widgetFrame fills placeholders and requires https", () => {
   assert.equal(widgetFrame({ embedUrl: "http://w.example/" }, {}), null);
   assert.equal(safeHttps("javascript:alert(1)"), "");
 });
+
+// The lexicon JSON is the contract: a record we write must validate against it.
+import { readFileSync } from "node:fs";
+import { toRecord, PAGE_COLLECTION, WIDGET_COLLECTION } from "../public/lib/page.js";
+const lex = (id) => JSON.parse(readFileSync(new URL(`../public/lexicons/${id}.json`, import.meta.url))).defs.main.record;
+
+function check(schema, rec) {
+  const errs = [];
+  for (const k of schema.required || []) if (!(k in rec)) errs.push(`missing ${k}`);
+  for (const [k, v] of Object.entries(rec)) {
+    if (k === "$type") continue;
+    const d = schema.properties[k];
+    if (!d) { errs.push(`unknown field ${k}`); continue; }
+    const bad = (m) => errs.push(`${k}: ${m}`);
+    if (d.type === "string") {
+      if (typeof v !== "string") bad("not a string");
+      else {
+        if (d.maxLength && Buffer.byteLength(v) > d.maxLength) bad("too long");
+        if (d.knownValues && !d.knownValues.includes(v) && v !== "") bad("unknown value");
+      }
+    } else if (d.type === "integer") {
+      if (!Number.isInteger(v) || v < (d.minimum ?? -Infinity) || v > (d.maximum ?? Infinity)) bad("bad integer");
+    } else if (d.type === "boolean") { if (typeof v !== "boolean") bad("not boolean"); }
+    else if (d.type === "array") {
+      if (!Array.isArray(v) || v.length > (d.maxLength ?? Infinity)) bad("bad array");
+      else for (const x of v) if (typeof x !== "string" || (d.items.maxLength && x.length > d.items.maxLength)) bad("bad item");
+    }
+  }
+  return errs;
+}
+
+test("a saved page record validates against the page lexicon", () => {
+  const rec = toRecord({ preset: "emo", panelAlpha: 0.92, friends: ["a.bsky.social"], pinned: ["at://did:plc:x/app.bsky.feed.post/3a"], css: "a{color:red}" });
+  assert.equal(rec.$type, PAGE_COLLECTION);
+  assert.equal(rec.panelAlpha, 92);
+  assert.deepEqual(check(lex(PAGE_COLLECTION), rec), []);
+  assert.deepEqual(check(lex(PAGE_COLLECTION), toRecord({})), []);
+});
+
+test("panelAlpha reads integer percents and legacy fractions", () => {
+  assert.equal(normalizePage({ panelAlpha: 40 }).panelAlpha, 0.4);
+  assert.equal(normalizePage({ panelAlpha: 0.4 }).panelAlpha, 0.4);
+});
+
+test("widget lexicon requires what the publisher writes", () => {
+  assert.deepEqual(lex(WIDGET_COLLECTION).required, ["name", "embedUrl", "createdAt"]);
+});

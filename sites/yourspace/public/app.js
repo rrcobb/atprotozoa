@@ -4,7 +4,7 @@ import { resolveDid, resolvePds, getRecord, resolveHandleForDid } from "./lib/at
 import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
 import {
   PAGE_COLLECTION, WIDGET_COLLECTION, PRESETS, FONTS, SECTIONS, BUILTIN_WIDGETS,
-  normalizePage, parseTrackRef, parsePostRef, parseAtUri, widgetFrame, safeHttps,
+  normalizePage, toRecord, parseTrackRef, parsePostRef, parseAtUri, widgetFrame, safeHttps,
 } from "./lib/page.js";
 
 const APPVIEW = "https://public.api.bsky.app/xrpc";
@@ -513,7 +513,7 @@ function drawEditor() {
   const publish = h("button", { class: "btn", onclick: async () => {
     try {
       if (!pubName.value.trim() || !safeHttps(pubUrl.value)) throw new Error("need a name and an https embed URL");
-      const record = { $type: WIDGET_COLLECTION, name: pubName.value.trim(), description: pubDesc.value.trim(), embedUrl: safeHttps(pubUrl.value), height: Number(pubH.value) || 200, createdAt: new Date().toISOString() };
+      const record = { $type: WIDGET_COLLECTION, name: pubName.value.trim(), description: pubDesc.value.trim(), embedUrl: safeHttps(pubUrl.value), height: Math.min(800, Math.max(60, Math.round(Number(pubH.value)) || 200)), createdAt: new Date().toISOString() };
       const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.createRecord`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ repo: session.did, collection: WIDGET_COLLECTION, record }),
@@ -528,9 +528,7 @@ function drawEditor() {
   const save = h("button", { class: "btn primary", onclick: async () => {
     status.textContent = "saving…";
     try {
-      const n = normalizePage(draft);
-      const { label, ...rest } = n;
-      const record = { $type: PAGE_COLLECTION, ...rest, updatedAt: new Date().toISOString() };
+      const record = toRecord(draft);
       const res = await dpopFetch(session, `${session.pdsUrl.replace(/\/$/, "")}/xrpc/com.atproto.repo.putRecord`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ repo: session.did, collection: PAGE_COLLECTION, rkey: "self", record }),
