@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>foomlog — a no-foom diary for #NaNoFoMo</title>
+<meta name="description" content="Tick each November day you did not recursively self-improve. Keep the streak, post the grid.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="foomlog — a no-foom diary">
+<meta property="og:description" content="Tick each November day you did not foom. Keep the streak, post the grid.">
+<meta property="og:url" content="https://foomlog.bisks.net/">
+<meta property="og:image" content="https://foomlog.bisks.net/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://foomlog.bisks.net/og.png">
+<style>
+:root{--bg:#14110f;--fg:#f4ede4;--dim:#b8ab9c;--hot:#ff5a36}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:18px/1.5 system-ui,sans-serif;display:flex;justify-content:center;padding:2rem 1rem}
+main{max-width:640px;width:100%}
+h1{font-size:clamp(2rem,8vw,3.5rem);margin:0;line-height:1}
+h1 span{color:var(--hot)}
+.sub{color:var(--dim);margin:.5rem 0 1.5rem}
+.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:.5rem}
+.day{font:inherit;font-weight:700;aspect-ratio:1;border-radius:10px;border:2px solid #3a322c;background:#1e1a17;color:var(--dim);cursor:pointer}
+.day.on{background:var(--hot);border-color:var(--hot);color:#14110f}
+.day.today{outline:2px dashed var(--fg);outline-offset:2px}
+.day:disabled{opacity:.35;cursor:not-allowed}
+.stats{display:flex;gap:1.5rem;margin:1.5rem 0;flex-wrap:wrap}
+.stats b{display:block;font-size:2.4rem;color:var(--hot);line-height:1}
+.row{display:flex;gap:.6rem;flex-wrap:wrap}
+button.btn,a.btn{font:inherit;font-weight:700;background:var(--hot);color:#14110f;border:0;border-radius:10px;padding:.7rem 1.1rem;cursor:pointer;text-decoration:none;display:inline-block}
+button.alt{background:transparent;color:var(--fg);border:2px solid var(--dim)}
+footer{color:var(--dim);font-size:.85rem;margin-top:2.5rem}
+footer a{color:var(--dim)}
+</style>
+</head>
+<body>
+<main>
+  <h1>foom<span>log</span></h1>
+  <p class="sub">Each day you didn't recursively self-improve, tick it. Future days stay locked: no pre-committing to not fooming.</p>
+  <div class="grid" id="grid"></div>
+  <div class="stats">
+    <div><b id="count">0</b>days logged</div>
+    <div><b id="streak">0</b>day streak</div>
+  </div>
+  <div class="row">
+    <a class="btn" id="share" target="_blank" rel="noopener">Post my grid to Bluesky</a>
+    <button class="btn alt" id="reset" type="button">clear log</button>
+  </div>
+  <footer>
+    saved in your browser only ·
+    <a href="https://nofoom.bisks.net/">pledge at nofoom</a> ·
+    <a href="https://rateyourbuild.bisks.net/site/foomlog">rate this on rateyourbuild →</a><br>
+    <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a>
+  </footer>
+</main>
+<script>
+(function(){
+  var KEY='foomlog-days';
+  var $=function(id){return document.getElementById(id)};
+  var now=new Date();
+  var year=now.getFullYear();
+  // Only November counts. Outside it, treat the whole month as past (after) or future (before).
+  var inNov=now.getMonth()===10;
+  var today=inNov?now.getDate():(now.getMonth()>10?31:0);
+  function load(){try{return JSON.parse(localStorage.getItem(KEY+'-'+year)||'[]')}catch(e){return []}}
+  function save(a){try{localStorage.setItem(KEY+'-'+year,JSON.stringify(a))}catch(e){}}
+  var days=load();
+  function render(){
+    var g=$('grid'); g.textContent='';
+    for(var d=1;d<=30;d++){
+      var b=document.createElement('button');
+      b.type='button'; b.className='day'+(days.indexOf(d)>=0?' on':'')+(d===today?' today':'');
+      b.textContent=d; b.dataset.day=d; b.disabled=d>today;
+      b.setAttribute('aria-pressed',days.indexOf(d)>=0);
+      g.appendChild(b);
+    }
+    var s=0, ref=Math.min(today,30);
+    // streak = consecutive logged days ending today (or yesterday if today isn't ticked yet)
+    var d2=days.indexOf(ref)>=0?ref:ref-1;
+    while(d2>=1&&days.indexOf(d2)>=0){s++;d2--}
+    $('count').textContent=days.length; $('streak').textContent=s;
+    var grid='';
+    for(var i=1;i<=30;i++){grid+=days.indexOf(i)>=0?'🟧':'⬛';if(i%10===0)grid+='\n'}
+    var text=days.length+'/30 days without a foom so far.\n'+grid+'#NaNoFoMo\nhttps://foomlog.bisks.net/';
+    $('share').href='https://bsky.app/intent/compose?text='+encodeURIComponent(text);
+  }
+  $('grid').addEventListener('click',function(e){
+    var b=e.target.closest('button.day'); if(!b||b.disabled)return;
+    var d=+b.dataset.day, i=days.indexOf(d);
+    if(i>=0)days.splice(i,1);else days.push(d);
+    save(days); render();
+  });
+  $('reset').addEventListener('click',function(){days=[];save(days);render()});
+  render();
+})();
+</script>
+</body>
+</html>
