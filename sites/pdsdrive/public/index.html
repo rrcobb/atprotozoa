@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>pdsdrive — encrypted files in your own PDS</title>
+<meta name="description" content="A drive that lives in your atproto PDS. Files are encrypted in your browser with a passphrase, cut into chunks and stored as blobs. Nothing else sees them.">
+<meta property="og:title" content="pdsdrive">
+<meta property="og:description" content="Encrypted file storage in your own atproto PDS, all in the browser.">
+<meta property="og:url" content="https://pdsdrive.bisks.net/">
+<style>
+  :root { --bg:#0f1419; --fg:#e6edf3; --mut:#8b98a5; --card:#18202a; --line:#2a3644; --acc:#4da3ff; --bad:#ff6b6b; --ok:#5fd38d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,sans-serif; }
+  [hidden] { display:none !important; }
+  main { max-width:820px; margin:0 auto; padding:28px 18px 60px; }
+  h1 { margin:0 0 4px; font-size:28px; }
+  .sub { color:var(--mut); margin:0 0 22px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input[type=text], input[type=password], select { background:#0c1117; color:var(--fg); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font:inherit; }
+  input[type=text], input[type=password] { flex:1; min-width:180px; }
+  button { background:var(--acc); color:#04121f; border:0; border-radius:6px; padding:8px 14px; font:inherit; font-weight:600; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--fg); border:1px solid var(--line); font-weight:400; }
+  button.danger { background:transparent; color:var(--bad); border:1px solid var(--line); font-weight:400; }
+  button:disabled { opacity:.5; cursor:default; }
+  #drop { border:2px dashed var(--line); border-radius:10px; padding:26px; text-align:center; color:var(--mut); }
+  #drop.over { border-color:var(--acc); color:var(--fg); }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { color:var(--mut); font-weight:500; font-size:13px; }
+  td.name { word-break:break-all; }
+  td.act { text-align:right; white-space:nowrap; }
+  .locked { color:var(--mut); font-style:italic; }
+  #log { font:13px/1.5 ui-monospace,monospace; color:var(--mut); white-space:pre-wrap; max-height:200px; overflow:auto; }
+  .err { color:var(--bad); } .ok { color:var(--ok); }
+  small, footer { color:var(--mut); font-size:13px; }
+  footer { margin-top:30px; } footer a, small a { color:var(--mut); }
+  progress { width:100%; height:8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>pds<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">d</span>rive</h1>
+  <p class="sub">a drive in your own PDS. files are encrypted in this tab, cut into chunks, and stored as blobs in your repo.</p>
+
+  <section id="signed-out" class="card">
+    <div class="row">
+      <input type="text" id="handle" placeholder="yourhandle.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button id="signin">sign in</button>
+    </div>
+    <p id="signin-status" class="sub" style="margin:10px 0 0"></p>
+    <p><small>asks for permission to create and delete <code>net.bisks.pdsdrive.file</code> records and upload blobs — nothing else. there is no server: everything runs in your browser.</small></p>
+  </section>
+
+  <section id="signed-in" hidden>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <span>signed in as <b id="who"></b></span>
+        <button class="ghost" id="signout">sign out</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <input type="password" id="pass" placeholder="passphrase (never stored, never sent)" autocomplete="off">
+        <label><small>chunk size</small>
+          <select id="chunk">
+            <option value="52428800" selected>50 MB</option>
+            <option value="10485760">10 MB</option>
+            <option value="5242880">5 MB</option>
+            <option value="1048576">1 MB</option>
+          </select>
+        </label>
+      </div>
+      <p><small>lose the passphrase and the files are gone for good — there is no recovery. the filename is encrypted too.
+      some PDSes cap blob size below 50 MB; if an upload is refused, pick a smaller chunk size.</small></p>
+      <div id="drop">
+        <button id="pick">add files…</button>
+        <p style="margin:8px 0 0">or drop them here</p>
+        <input type="file" id="fallback" multiple hidden>
+      </div>
+      <progress id="bar" value="0" max="1" hidden></progress>
+      <div id="log"></div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <b>your files</b>
+        <span><button class="ghost" id="unlock">unlock names</button> <button class="ghost" id="refresh">refresh</button></span>
+      </div>
+      <table>
+        <thead><tr><th>name</th><th>size</th><th>chunks</th><th>added</th><th></th></tr></thead>
+        <tbody id="files"></tbody>
+      </table>
+      <p id="empty" class="sub" hidden>nothing here yet.</p>
+    </div>
+  </section>
+
+  <footer>
+    a bisks.net experiment · <a href="https://rateyourbuild.bisks.net/site/pdsdrive">rate this on rateyourbuild →</a>
+    · <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a>
+  </footer>
+</main>
+
+<script src="lib/handle-typeahead.js"></script>
+<script>if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));</script>
+<script type="module">
+import { login, completeLoginIfCallback, getSession, clearSession, dpopFetch } from "./lib/oauth.js";
+import { deriveKey, newSalt, seal, open, chunkAad, chunkCount, sealMeta, openMeta, b64, unb64, PBKDF2_ITER } from "./lib/vault.js";
+
+const $ = (s) => document.querySelector(s);
+const COLL = "net.bisks.pdsdrive.file";
+let session = null;
+let records = [];          // listRecords results
+const names = new Map();   // uri -> decrypted meta, filled by "unlock names"
+
+function log(msg, cls) {
+  const d = document.createElement("div");
+  if (cls) d.className = cls;
+  d.textContent = msg;
+  $("#log").append(d);
+  $("#log").scrollTop = 1e9;
+}
+const fmt = (n) => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : n < 1073741824 ? (n / 1048576).toFixed(1) + " MB" : (n / 1073741824).toFixed(2) + " GB";
+const pds = () => session.pdsUrl.replace(/\/$/, "");
+
+async function xrpcJson(method, nsid, body) {
+  const r = await dpopFetch(session, `${pds()}/xrpc/${nsid}`, {
+    method, headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`${nsid} failed (${r.status}): ${(await r.text()).slice(0, 200)}`);
+  return r.json();
+}
+
+// ---- sign in ----------------------------------------------------------------
+async function doSignIn() {
+  const handle = $("#handle").value.trim().replace(/^@/, "");
+  if (!handle) return;
+  $("#signin-status").textContent = "redirecting to your PDS…";
+  try { await login(handle); } catch (e) { $("#signin-status").textContent = `couldn't sign in: ${e.message}`; }
+}
+$("#signin").addEventListener("click", doSignIn);
+$("#handle").addEventListener("keydown", (e) => { if (e.key === "Enter") doSignIn(); });
+$("#signout").addEventListener("click", async () => { await clearSession(); location.reload(); });
+
+// ---- listing ----------------------------------------------------------------
+async function loadFiles() {
+  // Public listRecords on the user's own PDS, paged until the cursor runs out.
+  const out = [];
+  let cursor;
+  do {
+    const p = new URLSearchParams({ repo: session.did, collection: COLL, limit: "100" });
+    if (cursor) p.set("cursor", cursor);
+    const r = await fetch(`${pds()}/xrpc/com.atproto.repo.listRecords?${p}`);
+    if (!r.ok) throw new Error(`listRecords failed (${r.status})`);
+    const d = await r.json();
+    out.push(...d.records);
+    cursor = d.records.length ? d.cursor : undefined;
+  } while (cursor);
+  records = out.reverse(); // newest first
+  render();
+}
+
+function render() {
+  const tb = $("#files");
+  tb.innerHTML = "";
+  $("#empty").hidden = records.length > 0;
+  for (const rec of records) {
+    const m = names.get(rec.uri);
+    const tr = document.createElement("tr");
+    const nm = document.createElement("td");
+    nm.className = "name" + (m ? "" : " locked");
+    nm.textContent = m ? m.name : "🔒 encrypted";
+    const sz = document.createElement("td");
+    sz.textContent = m ? fmt(m.size) : "—";
+    const ch = document.createElement("td");
+    ch.textContent = rec.value.chunks.length;
+    const when = document.createElement("td");
+    when.textContent = (rec.value.createdAt || "").slice(0, 10);
+    const act = document.createElement("td");
+    act.className = "act";
+    const dl = document.createElement("button");
+    dl.className = "ghost"; dl.textContent = "download";
+    dl.addEventListener("click", () => download(rec, dl));
+    const rm = document.createElement("button");
+    rm.className = "danger"; rm.textContent = "delete";
+    rm.addEventListener("click", () => remove(rec));
+    act.append(dl, " ", rm);
+    tr.append(nm, sz, ch, when, act);
+    tb.append(tr);
+  }
+}
+
+function needPass() {
+  const p = $("#pass").value;
+  if (!p) { log("enter a passphrase first", "err"); $("#pass").focus(); }
+  return p;
+}
+
+$("#unlock").addEventListener("click", async () => {
+  const pass = needPass();
+  if (!pass) return;
+  let bad = 0;
+  for (let i = 0; i < records.length; i++) {
+    const rec = records[i];
+    if (names.has(rec.uri)) continue;
+    try {
+      const key = await deriveKey(pass, unb64(rec.value.salt), rec.value.iter);
+      names.set(rec.uri, await openMeta(key, rec.value.meta));
+    } catch { bad++; }
+    $("#bar").hidden = false; $("#bar").max = records.length; $("#bar").value = i + 1;
+  }
+  $("#bar").hidden = true;
+  render();
+  if (bad) log(`${bad} file(s) didn't open with that passphrase`, "err");
+});
+$("#refresh").addEventListener("click", () => loadFiles().catch((e) => log(e.message, "err")));
+
+// ---- upload -----------------------------------------------------------------
+async function uploadBlob(bytes) {
+  const r = await dpopFetch(session, `${pds()}/xrpc/com.atproto.repo.uploadBlob`, {
+    method: "POST", headers: { "content-type": "application/octet-stream" }, body: bytes,
+  });
+  if (!r.ok) throw new Error(`uploadBlob failed (${r.status}): ${(await r.text()).slice(0, 200)}`);
+  return (await r.json()).blob;
+}
+
+let busy = false;
+async function uploadFiles(files) {
+  const pass = needPass();
+  if (!pass || !files.length || busy) return;
+  busy = true;
+  const chunkBytes = +$("#chunk").value;
+  try {
+    for (const file of files) {
+      const total = chunkCount(file.size, chunkBytes);
+      log(`${file.name}: encrypting + uploading ${total} chunk(s)…`);
+      const salt = newSalt();
+      const key = await deriveKey(pass, salt, PBKDF2_ITER);
+      const meta = await sealMeta(key, { name: file.name, type: file.type, size: file.size, lastModified: file.lastModified });
+      const blobs = [];
+      $("#bar").hidden = false; $("#bar").max = total; $("#bar").value = 0;
+      for (let i = 0; i < total; i++) {
+        const plain = new Uint8Array(await file.slice(i * chunkBytes, (i + 1) * chunkBytes).arrayBuffer());
+        blobs.push(await uploadBlob(await seal(key, plain, chunkAad(i, total))));
+        $("#bar").value = i + 1;
+      }
+      await xrpcJson("POST", "com.atproto.repo.createRecord", {
+        repo: session.did, collection: COLL, validate: false,
+        record: { $type: COLL, salt: b64(salt), iter: PBKDF2_ITER, meta, chunks: blobs, createdAt: new Date().toISOString() },
+      });
+      names.clear(); // new rows are locked until unlocked again
+      log(`${file.name}: stored`, "ok");
+    }
+  } catch (e) {
+    log(e.message, "err");
+  } finally {
+    busy = false;
+    $("#bar").hidden = true;
+    await loadFiles().catch((e) => log(e.message, "err"));
+  }
+}
+
+$("#pick").addEventListener("click", async () => {
+  if (window.showOpenFilePicker) {
+    try {
+      const handles = await showOpenFilePicker({ multiple: true });
+      uploadFiles(await Promise.all(handles.map((h) => h.getFile())));
+    } catch (e) { if (e.name !== "AbortError") log(e.message, "err"); }
+  } else {
+    $("#fallback").click(); // browsers without the File System Access API
+  }
+});
+$("#fallback").addEventListener("change", (e) => { uploadFiles([...e.target.files]); e.target.value = ""; });
+const drop = $("#drop");
+drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); uploadFiles([...e.dataTransfer.files]); });
+
+// ---- download / delete --------------------------------------------------------
+async function download(rec, btn) {
+  const pass = needPass();
+  if (!pass) return;
+  btn.disabled = true;
+  try {
+    const v = rec.value;
+    const key = await deriveKey(pass, unb64(v.salt), v.iter);
+    let meta;
+    try { meta = await openMeta(key, v.meta); } catch { throw new Error("wrong passphrase for that file"); }
+    names.set(rec.uri, meta);
+    const total = v.chunks.length;
+    // With the File System Access API, stream plaintext straight to disk;
+    // otherwise collect parts in memory and hand back one Blob.
+    let writable = null;
+    if (window.showSaveFilePicker) {
+      try { writable = await (await showSaveFilePicker({ suggestedName: meta.name })).createWritable(); }
+      catch (e) { if (e.name === "AbortError") return; throw e; }
+    }
+    const parts = [];
+    $("#bar").hidden = false; $("#bar").max = total; $("#bar").value = 0;
+    for (let i = 0; i < total; i++) {
+      const p = new URLSearchParams({ did: session.did, cid: v.chunks[i].ref.$link });
+      const r = await fetch(`${pds()}/xrpc/com.atproto.sync.getBlob?${p}`);
+      if (!r.ok) throw new Error(`getBlob failed (${r.status})`);
+      let plain;
+      try { plain = await open(key, new Uint8Array(await r.arrayBuffer()), chunkAad(i, total)); }
+      catch { throw new Error(`chunk ${i + 1} failed to decrypt`); }
+      if (writable) await writable.write(plain); else parts.push(plain);
+      $("#bar").value = i + 1;
+    }
+    if (writable) await writable.close();
+    else {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob(parts, { type: meta.type || "application/octet-stream" }));
+      a.download = meta.name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    }
+    log(`${meta.name}: decrypted`, "ok");
+    render();
+  } catch (e) {
+    log(e.message, "err");
+  } finally {
+    btn.disabled = false;
+    $("#bar").hidden = true;
+  }
+}
+
+async function remove(rec) {
+  const m = names.get(rec.uri);
+  if (!confirm(`delete ${m ? m.name : "this encrypted file"}? this can't be undone.`)) return;
+  try {
+    await xrpcJson("POST", "com.atproto.repo.deleteRecord", {
+      repo: session.did, collection: COLL, rkey: rec.uri.split("/").pop(),
+    });
+    records = records.filter((r) => r !== rec);
+    render();
+  } catch (e) { log(e.message, "err"); }
+}
+
+// ---- boot -------------------------------------------------------------------
+(async function boot() {
+  try {
+    session = (await completeLoginIfCallback()) || (await getSession());
+  } catch (e) {
+    console.warn("oauth callback error:", e.message);
+    session = await getSession();
+  }
+  if (!session) return;
+  $("#signed-out").hidden = true;
+  $("#signed-in").hidden = false;
+  $("#who").textContent = "@" + session.handle;
+  await loadFiles().catch((e) => log(e.message, "err"));
+})();
+</script>
+</body>
+</html>
