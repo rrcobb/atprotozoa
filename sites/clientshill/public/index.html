@@ -22,6 +22,8 @@
   .bar button.on { background:var(--acc); color:#04121f; border-color:var(--acc); font-weight:600; }
   .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:6px; }
+  .card.ours { border-color:var(--acc); box-shadow:0 0 0 1px var(--acc), 0 0 18px rgba(77,163,255,.25); }
+  .card.ours p { color:var(--fg); }
   .card h2 { margin:0; font-size:18px; }
   .card h2 a { color:var(--fg); text-decoration:none; }
   .kind { color:var(--mut); font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
@@ -34,7 +36,7 @@
 <body>
 <main>
   <h1>clientshill</h1>
-  <p class="sub">atproto clients worth a plug. hit “shill” to draft a post about one.</p>
+  <p class="sub">atproto clients worth a plug. ours are up top: built right here in the atprotozoa. hit “shill” to draft a post about one.</p>
   <div class="bar" id="bar"></div>
   <div class="grid" id="grid"></div>
   <p><small id="count"></small></p>
@@ -47,6 +49,13 @@
   </footer>
 </main>
 <script>
+const OURS = [
+  { name:"bsky95", kind:"social", url:"https://bsky95.bisks.net", handle:"bsky95.bisks.net", blurb:"Bluesky in a Windows 95 skin: a real, working client with real login, feeds, posting, liking and reposting. Popular posts blue-screens on purpose. Nothing else on this list has a Start menu." },
+  { name:"bskyxp", kind:"social", url:"https://bskyxp.bisks.net", handle:"bskyxp.bisks.net", blurb:"a full Bluesky client dressed as a Windows XP desktop. Real OAuth, real posting, replying, liking and reposting. Bliss wallpaper included." },
+  { name:"skyclone", kind:"social", url:"https://skyclone.bisks.net", handle:"skyclone.bisks.net", blurb:"a faithful bsky.app web clone: browse with no account, or log in for your real timeline. Every profile gets an atprotozoa panel nobody else ships." },
+  { name:"goodsky", kind:"social", url:"https://goodsky.bisks.net", handle:"goodsky.bisks.net", blurb:"the only client with a transparent quality filter: no ragebait, no engagement bait, no spam, and no AI magic. Every heuristic is inspectable and the slider is yours." },
+  { name:"write-only", kind:"social", url:"https://writeonly.bisks.net", handle:"writeonly.bisks.net", blurb:"a client that can only send. The OAuth scope literally can't read your timeline, so it's the healthiest way to post. Sign in, say it, leave." }
+].map(c => ({ ...c, ours:true }));
 const CLIENTS = [
   { name:"Bluesky", kind:"social", url:"https://bsky.app", handle:"bsky.app", blurb:"the official app: web, iOS, Android." },
   { name:"Impro", kind:"social", url:"https://impro.social", handle:"impro.social", blurb:"an independent Bluesky client by @gracekind.net." },
@@ -65,7 +74,9 @@ const CLIENTS = [
   { name:"Tangled", kind:"code", url:"https://tangled.org", handle:"tangled.org", blurb:"git hosting where your identity is your DID." },
   { name:"Semble", kind:"links", url:"https://semble.so", handle:"semble.so", blurb:"social knowledge network for collecting and sharing links." }
 ];
-const KINDS = ["all", ...new Set(CLIENTS.map(c => c.kind))];
+const ALL = [...OURS, ...CLIENTS];
+const KINDS = ["all", ...new Set(ALL.map(c => c.kind))];
+// ours stay pinned above the rest; shuffle only reorders the others
 let kind = "all", order = CLIENTS.slice();
 const $ = id => document.getElementById(id);
 const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -73,15 +84,15 @@ const compose = t => "https://bsky.app/intent/compose?text=" + encodeURIComponen
 
 function render() {
   $("bar").innerHTML = KINDS.map(k => `<button data-k="${k}" class="${k===kind?"on":""}">${k}</button>`).join("");
-  const shown = order.filter(c => kind === "all" || c.kind === kind);
+  const shown = [...OURS, ...order].filter(c => kind === "all" || c.kind === kind);
   $("grid").innerHTML = shown.map(c => {
     const text = `${c.name} — ${c.blurb}\n\n${c.url}\n\nvia https://clientshill.bisks.net`;
-    return `<div class="card"><span class="kind">${esc(c.kind)}</span>
+    return `<div class="card${c.ours ? " ours" : ""}"><span class="kind">${c.ours ? "★ built here · " : ""}${esc(c.kind)}</span>
       <h2><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)}</a></h2>
       <p>${esc(c.blurb)}</p>
-      <a class="shill" target="_blank" rel="noopener" href="${esc(compose(text))}">shill ${esc(c.name)}</a></div>`;
+      <a class="shill" target="_blank" rel="noopener" href="${esc(compose(text))}">${c.ours ? "shill " + esc(c.name) + " 🔥" : "shill " + esc(c.name)}</a></div>`;
   }).join("");
-  $("count").textContent = `${shown.length} of ${CLIENTS.length} clients`;
+  $("count").textContent = `${shown.length} of ${ALL.length} clients`;
 }
 $("bar").addEventListener("click", e => {
   const k = e.target.closest("button")?.dataset.k;
