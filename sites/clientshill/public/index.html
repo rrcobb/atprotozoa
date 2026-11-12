@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>clientshill — atproto clients worth a plug</title>
+<meta name="description" content="A hand-kept directory of atproto clients, with a one-tap shill button for each.">
+<meta property="og:title" content="clientshill">
+<meta property="og:description" content="Atproto clients worth a plug — Bluesky apps, readers, event tools, git hosts and more.">
+<meta property="og:url" content="https://clientshill.bisks.net/">
+<meta name="twitter:card" content="summary">
+<style>
+  :root { --bg:#0f1419; --fg:#e6edf3; --mut:#8b98a5; --card:#18202a; --line:#2a3644; --acc:#4da3ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,sans-serif; }
+  [hidden] { display:none !important; }
+  main { max-width:860px; margin:0 auto; padding:28px 18px 60px; }
+  h1 { margin:0 0 4px; font-size:28px; }
+  .sub { color:var(--mut); margin:0 0 20px; }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+  .bar button { background:transparent; color:var(--fg); border:1px solid var(--line); border-radius:999px; padding:5px 12px; font:inherit; cursor:pointer; }
+  .bar button.on { background:var(--acc); color:#04121f; border-color:var(--acc); font-weight:600; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:6px; }
+  .card h2 { margin:0; font-size:18px; }
+  .card h2 a { color:var(--fg); text-decoration:none; }
+  .kind { color:var(--mut); font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
+  .card p { margin:0; color:var(--mut); flex:1; }
+  .shill { align-self:flex-start; background:var(--acc); color:#04121f; text-decoration:none; font-weight:600; border-radius:6px; padding:6px 12px; font-size:14px; }
+  small, footer { color:var(--mut); font-size:13px; }
+  footer { margin-top:30px; } footer a, small a { color:var(--mut); }
+</style>
+</head>
+<body>
+<main>
+  <h1>clientshill</h1>
+  <p class="sub">atproto clients worth a plug. hit “shill” to draft a post about one.</p>
+  <div class="bar" id="bar"></div>
+  <div class="grid" id="grid"></div>
+  <p><small id="count"></small></p>
+  <p><button id="shuffle" class="bar-btn" style="background:transparent;color:inherit;border:1px solid var(--line);border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer">shuffle</button>
+     <a class="shill" id="addyours" target="_blank" rel="noopener" href="#">my client's missing →</a></p>
+  <footer>
+    the list is hand-kept and incomplete; handles and urls may drift. a bisks.net experiment ·
+    <a href="https://rateyourbuild.bisks.net/site/clientshill">rate this on rateyourbuild →</a> ·
+    <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a>
+  </footer>
+</main>
+<script>
+const CLIENTS = [
+  { name:"Bluesky", kind:"social", url:"https://bsky.app", handle:"bsky.app", blurb:"the official app: web, iOS, Android." },
+  { name:"Impro", kind:"social", url:"https://impro.social", handle:"impro.social", blurb:"an independent Bluesky client by @gracekind.net." },
+  { name:"Blacksky", kind:"social", url:"https://blacksky.community", handle:"blacksky.app", blurb:"a community-run client and infrastructure stack built around Black users." },
+  { name:"Graysky", kind:"social", url:"https://graysky.app", handle:"graysky.app", blurb:"a polished third-party mobile client." },
+  { name:"Deck.blue", kind:"social", url:"https://deck.blue", handle:"deck.blue", blurb:"TweetDeck-style multi-column Bluesky." },
+  { name:"Klearsky", kind:"social", url:"https://klearsky.pages.dev", handle:"klearsky.pages.dev", blurb:"a web client with lots of power-user views." },
+  { name:"Ouranos", kind:"social", url:"https://useouranos.app", handle:"useouranos.app", blurb:"a Bluesky web client with a clean three-column layout." },
+  { name:"Skylight", kind:"video", url:"https://skylight.social", handle:"skylight.social", blurb:"short-form video on atproto." },
+  { name:"Flashes", kind:"photos", url:"https://flashes.blue", handle:"flashes.blue", blurb:"an Instagram-style photo client for Bluesky." },
+  { name:"Leaflet", kind:"writing", url:"https://leaflet.pub", handle:"leaflet.pub", blurb:"publish and read long-form writing and notes." },
+  { name:"WhiteWind", kind:"writing", url:"https://whtwnd.com", handle:"whtwnd.com", blurb:"markdown blogging stored in your PDS." },
+  { name:"Frontpage", kind:"links", url:"https://frontpage.fyi", handle:"frontpage.fyi", blurb:"a link aggregator and discussion board." },
+  { name:"Popfeed", kind:"media", url:"https://popfeed.social", handle:"popfeed.social", blurb:"track and review movies, shows, books and games." },
+  { name:"Smoke Signal", kind:"events", url:"https://smokesignal.events", handle:"smokesignal.events", blurb:"events and RSVPs on atproto." },
+  { name:"Tangled", kind:"code", url:"https://tangled.org", handle:"tangled.org", blurb:"git hosting where your identity is your DID." },
+  { name:"Semble", kind:"links", url:"https://semble.so", handle:"semble.so", blurb:"social knowledge network for collecting and sharing links." }
+];
+const KINDS = ["all", ...new Set(CLIENTS.map(c => c.kind))];
+let kind = "all", order = CLIENTS.slice();
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const compose = t => "https://bsky.app/intent/compose?text=" + encodeURIComponent(t);
+
+function render() {
+  $("bar").innerHTML = KINDS.map(k => `<button data-k="${k}" class="${k===kind?"on":""}">${k}</button>`).join("");
+  const shown = order.filter(c => kind === "all" || c.kind === kind);
+  $("grid").innerHTML = shown.map(c => {
+    const text = `${c.name} — ${c.blurb}\n\n${c.url}\n\nvia https://clientshill.bisks.net`;
+    return `<div class="card"><span class="kind">${esc(c.kind)}</span>
+      <h2><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.name)}</a></h2>
+      <p>${esc(c.blurb)}</p>
+      <a class="shill" target="_blank" rel="noopener" href="${esc(compose(text))}">shill ${esc(c.name)}</a></div>`;
+  }).join("");
+  $("count").textContent = `${shown.length} of ${CLIENTS.length} clients`;
+}
+$("bar").addEventListener("click", e => {
+  const k = e.target.closest("button")?.dataset.k;
+  if (k) { kind = k; render(); }
+});
+$("shuffle").addEventListener("click", () => {
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  render();
+});
+$("addyours").href = compose("my atproto client isn't on https://clientshill.bisks.net yet: ");
+render();
+</script>
+</body>
+</html>
