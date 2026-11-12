@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fightskyone: fly a jet through your Bluesky feed</title>
+<meta name="description" content="A PS1-style sky where the other jets are posts from the people you follow. Lock on, fire a missile, the burst is the post. By TechyBen, now in a browser tab.">
+<meta property="og:title" content="fightskyone">
+<meta property="og:description" content="Fly a PS1-style jet through the sky. The other jets are posts from the people you follow.">
+<meta property="og:image" content="https://fightskyone.bisks.net/og.png">
+<meta property="og:url" content="https://fightskyone.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://fightskyone.bisks.net/og.png">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1014; color: #e8eef5; font: 15px/1.5 system-ui, sans-serif; }
+  iframe#sky { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+  #panel { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; pointer-events: none; }
+  #panel.gone { display: none; }
+  .card { pointer-events: auto; max-width: 440px; background: rgba(13,16,20,.82); border: 1px solid rgba(255,255,255,.18); border-radius: 14px; padding: 22px 24px; backdrop-filter: blur(6px); }
+  h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: .02em; }
+  p { margin: 0 0 12px; }
+  form { display: flex; gap: 8px; margin: 14px 0 8px; }
+  input { flex: 1; min-width: 0; padding: 9px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.3); background: rgba(255,255,255,.08); color: inherit; font: inherit; }
+  button { padding: 9px 14px; border-radius: 8px; border: 0; background: #5aa9ff; color: #06121f; font: inherit; font-weight: 600; cursor: pointer; }
+  button.alt { background: transparent; color: #9fc8ff; border: 1px solid rgba(159,200,255,.4); }
+  #err { color: #ffb4a8; min-height: 1.4em; margin: 0; font-size: 13px; }
+  .keys { font-size: 13px; color: #b9c4d0; }
+  footer { font-size: 12px; color: #93a0ae; margin-top: 12px; }
+  footer a { color: #9fc8ff; }
+</style>
+</head>
+<body>
+<iframe id="sky" title="the sky" src="sky/index.html?demo=1&amp;px=240&amp;fps=30"></iframe>
+
+<div id="panel">
+  <div class="card">
+    <h1>fightskyone</h1>
+    <p>A PS1-style sky with a jet to fly in it. The other jets up there are <b>posts from the people you follow</b>: point to lock on, click to send a missile, and the burst <i>is</i> the post. Nobody gets hurt.</p>
+    <form id="go">
+      <input id="handle" placeholder="your handle, e.g. you.bsky.social" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Bluesky handle">
+      <button type="submit">Fly</button>
+    </form>
+    <p id="err" role="status"></p>
+    <button id="demo" class="alt" type="button">or just fly with demo posts</button>
+    <p class="keys" style="margin-top:12px">Mouse steers · W/S throttle · A/D turn · click or Space fires · Tab next target · Enter opens the thread · Esc back here. Public data only, no login.</p>
+    <footer>
+      Made by <a href="https://github.com/TechyBen/fightskyone">TechyBen</a> as a browser extension; this is the same sky as a web page.
+      · <a href="https://rateyourbuild.bisks.net/site/fightskyone">rate this on rateyourbuild →</a>
+      · <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a>
+    </footer>
+  </div>
+</div>
+
+<script>
+const frame = document.getElementById('sky');
+const panel = document.getElementById('panel');
+const input = document.getElementById('handle');
+const err = document.getElementById('err');
+
+function fly(params) {
+  err.textContent = '';
+  frame.src = 'sky/index.html?' + new URLSearchParams({ ...params, fly: '1', px: '240', parent: location.origin });
+  panel.classList.add('gone');
+  frame.addEventListener('load', () => frame.contentWindow.focus(), { once: true });
+}
+
+document.getElementById('go').addEventListener('submit', e => {
+  e.preventDefault();
+  // People type "@alice.bsky.social"; the API wants it bare.
+  const h = input.value.trim().replace(/^@/, '').toLowerCase();
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(h) && !/^did:[a-z]+:\S+$/.test(h)) {
+    err.textContent = 'that doesn’t look like a handle (try alice.bsky.social)';
+    return;
+  }
+  fly({ me: h, jets: '1' });
+});
+document.getElementById('demo').addEventListener('click', () => fly({ demo: '1' }));
+
+addEventListener('message', e => {
+  if (e.source !== frame.contentWindow) return;
+  if (e.data?.type === 'fightsky:leave') {
+    panel.classList.remove('gone');
+    input.focus();
+  } else if (e.data?.type === 'fightsky:open') {
+    window.open(`https://bsky.app/profile/${encodeURIComponent(e.data.did)}/post/${encodeURIComponent(e.data.rkey)}`, '_blank', 'noopener');
+    panel.classList.remove('gone');
+  }
+});
+</script>
+</body>
+</html>
