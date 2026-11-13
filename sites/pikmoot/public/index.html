@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pikmoot — a pikmin game where the pikmin are your moots — bisks.net</title>
+    <meta name="description" content="Type a Bluesky handle. Its moots become your pikmin: pluck them, throw them at reply guys, carry treasure back to the onion before dusk." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://pikmoot.bisks.net/" />
+    <meta property="og:title" content="pikmoot — every pikmin is a moot" />
+    <meta property="og:description" content="Pluck your Bluesky moots, throw them at reply guys, and carry treasure home before dusk." />
+    <meta property="og:image" content="https://pikmoot.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A squad of tiny leaf-topped creatures wearing profile pictures carrying a treasure toward an onion." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="pikmoot — every pikmin is a moot" />
+    <meta name="twitter:description" content="Pluck your Bluesky moots, throw them at reply guys, carry treasure home before dusk." />
+    <meta name="twitter:image" content="https://pikmoot.bisks.net/og.png" />
+    <style>
+      :root {
+        --bg: #ffffff; --ink: #111111; --muted: #6b6b6b; --faint: #e4e4e4;
+        --faintbg: #f6f6f6; --accent: #1a5fd0; --good: #1f8a4c; --bad: #c0392b;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      [hidden] { display: none !important; }
+      body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--mono); font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+      .wrap { max-width: 980px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+      h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+      h1 .slash { color: var(--muted); font-weight: 400; }
+      .intro { color: var(--muted); margin: 0.5rem 0 1.6rem; font-size: 0.9rem; line-height: 1.7; max-width: 66ch; }
+      .intro b { color: var(--ink); font-weight: 600; }
+      form.finder { margin: 0 0 0.6rem; max-width: 560px; }
+      label.lbl { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em; }
+      .searchrow { display: flex; gap: 0.5rem; }
+      input[type="text"] { flex: 1; font-family: inherit; font-size: 0.95rem; padding: 0.6rem 0.75rem; border: 1px solid var(--ink); background: #fff; color: var(--ink); border-radius: 0; min-width: 0; }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button.go, button.btn { font-family: inherit; font-size: 0.9rem; padding: 0.6rem 1rem; background: var(--ink); color: #fff; border: 1px solid var(--ink); border-radius: 0; cursor: pointer; }
+      button.go:hover:not(:disabled), button.btn:hover:not(:disabled) { background: #000; }
+      button:disabled { opacity: 0.35; cursor: default; }
+      button.ghost { background: #fff; color: var(--ink); }
+      button.ghost:hover:not(:disabled) { background: var(--faintbg); }
+      .msg { color: var(--muted); font-size: 0.82rem; min-height: 1.3em; margin: 0.3rem 0 1rem; }
+      .msg.err { color: var(--bad); }
+
+      #game { margin-top: 0.5rem; }
+      .hud { display: flex; flex-wrap: wrap; gap: 0.4rem 1.1rem; align-items: center; font-size: 0.8rem; margin-bottom: 0.5rem; }
+      .hud .bar { width: 120px; height: 8px; background: var(--faint); display: inline-block; vertical-align: middle; }
+      .hud .bar i { display: block; height: 100%; background: var(--accent); }
+      .hud .bar.hp i { background: var(--good); }
+      .hud .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1px solid #0006; vertical-align: -1px; margin-right: 2px; }
+      .stagewrap { position: relative; border: 1px solid var(--ink); background: #8fc46a; touch-action: none; user-select: none; -webkit-user-select: none; }
+      canvas#cv { display: block; width: 100%; height: min(62vh, 560px); min-height: 320px; cursor: crosshair; }
+      #joy { position: absolute; left: 14px; bottom: 14px; width: 110px; height: 110px; border-radius: 50%; background: #ffffff55; border: 2px solid #ffffffaa; display: none; touch-action: none; }
+      #joy i { position: absolute; left: 35px; top: 35px; width: 40px; height: 40px; border-radius: 50%; background: #ffffffcc; }
+      @media (pointer: coarse) { #joy { display: block; } }
+      #whistle { position: absolute; right: 14px; bottom: 14px; }
+      .keys { color: var(--muted); font-size: 0.78rem; margin: 0.5rem 0 0; }
+      .row { display: flex; gap: 0.5rem; margin-top: 0.6rem; flex-wrap: wrap; }
+
+      #summary { border: 1px solid var(--ink); padding: 1.1rem 1.25rem; margin-top: 0.9rem; }
+      #summary h2 { font-size: 1rem; margin: 0 0 0.4rem; }
+      #summary .stats { display: flex; gap: 1.5rem; flex-wrap: wrap; margin: 0.6rem 0; }
+      #summary .stats b { font-size: 1.3rem; display: block; }
+      #summary .stats span { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+      #summary .lost { color: var(--muted); font-size: 0.8rem; word-break: break-word; }
+      #summary a.share { display: inline-block; background: var(--accent); color: #fff; padding: 0.6rem 1rem; text-decoration: none; font-size: 0.9rem; }
+
+      footer { margin-top: 3rem; color: var(--muted); font-size: 0.78rem; border-top: 1px solid var(--faint); padding-top: 1rem; }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+      footer p { margin: 0.3rem 0; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>pikm<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">o</span>ot <span class="slash">· every pikmin is a moot</span></h1>
+      <p class="intro">
+        Type a Bluesky handle. Its <b>moots</b> (mutuals) are your <b>pikmin</b>.
+        Pluck them out of the ground, <b>throw</b> them at reply guys, and have them
+        <b>carry</b> treasure back to the onion. Everything you bring home sprouts
+        more moots. Dusk is coming, and anyone still out in the field when it falls
+        doesn't make it back.
+      </p>
+
+      <form class="finder" id="form" autocomplete="off">
+        <label class="lbl" for="handle">a bluesky handle</label>
+        <div class="searchrow">
+          <input type="text" id="handle" placeholder="e.g. norvid-studies.bsky.social" spellcheck="false" />
+          <button class="go" id="play" type="submit">load moots</button>
+        </div>
+      </form>
+      <p class="msg" id="msg">reads Bluesky's public graph in your browser — no login.</p>
+
+      <section id="game" hidden>
+        <div class="hud" id="hud">
+          <span>day <span class="bar"><i id="timebar" style="width:100%"></i></span></span>
+          <span>captain <span class="bar hp"><i id="hpbar" style="width:100%"></i></span></span>
+          <span id="hudsquad"></span>
+          <span id="hudfield"></span>
+          <span id="hudtreasure"></span>
+        </div>
+        <div class="stagewrap">
+          <canvas id="cv"></canvas>
+          <div id="joy"><i id="joyknob"></i></div>
+          <button class="btn ghost" id="whistle" type="button">whistle</button>
+        </div>
+        <p class="keys">
+          <b>move</b> WASD / arrows · <b>throw</b> click or tap where it should land ·
+          <b>whistle</b> space (calls idle moots back to you) · walk over sprouts to pluck them.
+          Throw onto a treasure to carry it, onto a reply guy to fight it.
+        </p>
+        <div class="row">
+          <button class="btn ghost" id="endday" type="button">call it a day</button>
+        </div>
+        <div id="summary" hidden>
+          <h2 id="sumtitle"></h2>
+          <div id="sumlead"></div>
+          <div class="stats" id="sumstats"></div>
+          <div class="lost" id="sumlost"></div>
+          <div class="row">
+            <a class="share" id="sumshare" target="_blank" rel="noopener">post this to bluesky</a>
+            <button class="btn" id="again" type="button">another day</button>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        <p>moots are mutuals, loaded the same way as
+        <a href="https://moot-bingo.bisks.net">moot bingo</a>. reads Bluesky's public AppView, no login.
+        Same map every time for the same handle.</p>
+        <p><a href="https://rateyourbuild.bisks.net/site/pikmoot">rate this on rateyourbuild →</a>
+        · November is #NaNoFoMo: <a href="https://nanofomo.bisks.net/">pledge not to foom →</a>
+        · sibling of <a href="https://bisks.net">bisks.net</a></p>
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script>
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+    </script>
+    <script type="module" src="./game.js"></script>
+  </body>
+</html>
