@@ -78,7 +78,9 @@ async function followEdges(dids) {
 }
 
 // ---- svg helpers
-const clipDefs = (nodes) => nodes.map((n, i) => `<clipPath id="c${i}"><circle cx="${n.x}" cy="${n.y}" r="${R}"/></clipPath>`).join("");
+// ids are document-global and the five svgs share one page, so each diagram gets its own clip prefix
+let diagramNo = 0, clipPre = "d0c";
+const clipDefs = (nodes) => nodes.map((n, i) => `<clipPath id="${clipPre}${i}"><circle cx="${n.x}" cy="${n.y}" r="${R}"/></clipPath>`).join("");
 const MARKERS = ["#7fd1ae", "#f2a65a", "#6aa7f5", "#c9a6ff", "#8d92a3"].map((c, i) =>
   `<marker id="m${i}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${c}"/></marker>`).join("");
 const COLORS = ["#7fd1ae", "#f2a65a", "#6aa7f5", "#c9a6ff", "#8d92a3"];
@@ -98,15 +100,14 @@ function arrow(a, b, { color = 0, width = 2, label = "", bend = 0, labelAt = 0.5
 function node(n, i, sub) {
   const initial = esc((n.p.displayName || n.p.handle || "?").trim().slice(0, 1).toUpperCase());
   const pic = n.p.avatar
-    ? `<image href="${esc(n.p.avatar)}" x="${n.x - R}" y="${n.y - R}" width="${2 * R}" height="${2 * R}" clip-path="url(#c${i})" preserveAspectRatio="xMidYMid slice"/>`
+    ? `<image href="${esc(n.p.avatar)}" x="${n.x - R}" y="${n.y - R}" width="${2 * R}" height="${2 * R}" clip-path="url(#${clipPre}${i})" preserveAspectRatio="xMidYMid slice"/>`
     : `<text x="${n.x}" y="${n.y + 6}" font-size="20" text-anchor="middle">${initial}</text>`;
   return `<circle cx="${n.x}" cy="${n.y}" r="${R}" fill="#262938" stroke="#fff" stroke-opacity=".5" stroke-width="2"/>${pic}` +
     `<text x="${n.x}" y="${n.y + R + 15}" font-size="11" text-anchor="middle">${esc(clip(n.p.handle, 22))}</text>` +
     (sub ? `<text class="mute" x="${n.x}" y="${n.y + R + 28}" font-size="10" text-anchor="middle">${esc(sub)}</text>` : "");
 }
 
-const svg = (nodes, body, subs = []) =>
-  `<svg viewBox="0 0 ${W} ${H}" role="img"><defs>${MARKERS}${clipDefs(nodes)}</defs>${body}${nodes.map((n, i) => node(n, i, subs[i])).join("")}</svg>`;
+const svg = (nodes, body, subs = []) => (clipPre = "d" + (++diagramNo) + "c", `<svg viewBox="0 0 ${W} ${H}" role="img"><defs>${MARKERS}${clipDefs(nodes)}</defs>${body}${nodes.map((n, i) => node(n, i, subs[i])).join("")}</svg>`);
 
 function ring(n, cx = W / 2, cy = H / 2, rx = 330, ry = 235, start = -Math.PI / 2) {
   return Array.from({ length: n }, (_, i) => {
@@ -222,6 +223,7 @@ async function run(raw) {
     const cast = [me.did, ...top].filter((d) => profs.has(d)).map((d) => ({ p: profs.get(d) }));
     if (cast.length < 3) { setStatus("not enough replied-to accounts still resolve to draw with.", true); return; }
     const follows = await followEdges(cast.map((c) => c.p.did));
+    diagramNo = 0;
     $("out").innerHTML = DIAGRAMS.map(([t, cap, fn]) => `<h2>${t}</h2><p class="cap">${cap}</p>${fn(cast, stats, follows)}`).join("");
     $("out").hidden = false;
     setStatus(`${replies.length} replies in the last 7 days, to ${Object.keys(stats).length} accounts; drew the top ${cast.length - 1}.`);
