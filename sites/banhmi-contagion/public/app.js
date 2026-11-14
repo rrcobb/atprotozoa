@@ -1,5 +1,6 @@
 import { crawl } from "./search.js";
 import { buildModel, makeLayout } from "./model.js";
+import { BIN, series, jumps, character, cause } from "./rate.js";
 
 const $ = (id) => document.getElementById(id);
 const cv = $("cv"), ctx = cv.getContext("2d"), tip = $("tip");
@@ -171,6 +172,62 @@ function renderPosts(reset) {
   }
 }
 
+let binKey = "week", rs = null;
+const TOP_JUMPS = 8; // a display choice: the eight largest single-bin moves are the ones worth reading
+
+function drawRate() {
+  const cvr = $("rate"), c = cvr.getContext("2d"), dpr = window.devicePixelRatio || 1;
+  const r = cvr.getBoundingClientRect();
+  cvr.width = r.width * dpr; cvr.height = r.height * dpr;
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, r.width, r.height);
+  const n = rs.count.length;
+  if (n < 2) return;
+  const panels = [[rs.count, "posts/bin", false], [rs.d1, "Δ", true], [rs.d2, "Δ²", true]];
+  const ph = r.height / 3, bw = r.width / n;
+  panels.forEach(([v, label, signed], k) => {
+    const y0 = k * ph, mx = Math.max(1, ...v.map(Math.abs));
+    const base = signed ? y0 + ph / 2 : y0 + ph - 4, scale = (signed ? ph / 2 - 6 : ph - 14) / mx;
+    c.strokeStyle = "#3a3026"; c.beginPath(); c.moveTo(0, base); c.lineTo(r.width, base); c.stroke();
+    v.forEach((x, i) => {
+      c.fillStyle = !signed ? "#e8b44a" : x >= 0 ? "#ff5a36" : "#5aa0ff";
+      const h = x * scale;
+      c.fillRect(i * bw, h >= 0 ? base - h : base, Math.max(1, bw - 1), Math.abs(h));
+    });
+    c.fillStyle = "#9a8c78"; c.font = "11px monospace"; c.fillText(`${label} (max ${mx})`, 4, y0 + 12);
+  });
+}
+
+function renderRate() {
+  $("ratesec").hidden = false; // unhide first: drawRate measures the canvas
+  rs = series(model.posts, t0, Date.now(), BIN[binKey]);
+  $("binbtn").textContent = binKey === "week" ? "weekly bins" : "daily bins";
+  const ch = character(rs);
+  $("verdict").textContent = `verdict: ${ch.verdict} (median ${ch.baseline} posts per ${binKey}; the busiest 5% of ${binKey}s hold ${Math.round(ch.burst * 100)}% of all posts; ${ch.outliers} outlier ${binKey}s)`;
+  drawRate();
+  const ol = $("jumps"); ol.textContent = "";
+  for (const j of jumps(rs, TOP_JUMPS)) {
+    const cs = cause(model, rs, j), li = document.createElement("li");
+    const when = t0 + j.i * rs.bin;
+    const b = document.createElement("button"); b.type = "button";
+    b.textContent = `${j.d1 > 0 ? "▲ +" : "▼ "}${j.d1} on ${day(when)}`;
+    b.addEventListener("click", () => {
+      playing = false; $("play").textContent = "▶ replay";
+      setT(Math.min(1, (when + rs.bin - t0) / (t1 - t0)));
+      if (cs.seed) select(byDid.get(cs.seed.did));
+      $("stage").scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    li.append(b, ` (${j.z.toFixed(1)}σ): ${cs.text}`);
+    if (cs.seed && cs.seed.post) {
+      const a = document.createElement("a"); a.href = postUrl(cs.seed.post.uri); a.target = "_blank"; a.rel = "noopener"; a.textContent = "seed post";
+      li.append(" · ", a);
+    }
+    ol.append(li);
+  }
+}
+$("binbtn").addEventListener("click", () => { binKey = binKey === "week" ? "day" : "week"; renderRate(); });
+window.addEventListener("resize", () => { if (rs) drawRate(); });
+
 function stats() {
   const infected = model.nodes.length, links = model.edges.filter((e) => e.infection).length;
   const peak = (() => { const m = new Map(); for (const p of model.posts) { const k = day(p.createdAt); m.set(k, (m.get(k) || 0) + 1); } return [...m].sort((a, b) => b[1] - a[1])[0]; })();
@@ -211,6 +268,7 @@ async function main() {
   byDid = new Map(model.nodes.map((n) => [n.did, n]));
   t0 = model.posts[0].createdAt; t1 = Math.max(model.posts[model.posts.length - 1].createdAt, t0 + 3600e3);
   stats();
+  renderRate();
   $("controls").hidden = false; $("hist").hidden = false; $("postsec").hidden = false;
   status.textContent = res.failed ? `${res.failed} search window(s) failed after retries, so some posts may be missing. Laying out the graph…` : "laying out the graph…";
   const r = cv.getBoundingClientRect();

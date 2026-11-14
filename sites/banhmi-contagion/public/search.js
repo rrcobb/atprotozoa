@@ -64,7 +64,8 @@ async function walkWindow(q, since, until, add) {
 }
 
 const START = Date.parse("2023-02-01T00:00:00Z");
-export const TERMS = ['"banh mi"', "banhmi", '"bánh mì"', '"banh mis"'];
+// "bahn mi" / "bahnmi" are the common misspellings, so they count as banh mi posts too.
+export const TERMS = ['"banh mi"', "banhmi", '"bánh mì"', '"banh mis"', '"bahn mi"', "bahnmi", '"bahn mis"'];
 
 // Streams progress via onProgress(postsSoFar, label). Resolves to {posts, failed}.
 export async function crawl(onProgress) {
