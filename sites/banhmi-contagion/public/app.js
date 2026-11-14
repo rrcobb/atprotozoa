@@ -1,6 +1,8 @@
-import { crawl } from "./search.js";
-import { buildModel, makeLayout } from "./model.js";
-import { BIN, series, jumps, character, cause } from "./rate.js";
+import { crawl, TERMS, START } from "./search.js";
+import { buildModel } from "./model.js";
+import { makeLayout } from "./layout.js";
+import { loadCache, saveCache } from "./cache.js";
+import { DAY, series, jumps, character, cause } from "./rate.js";
 
 const $ = (id) => document.getElementById(id);
 const cv = $("cv"), ctx = cv.getContext("2d"), tip = $("tip");
@@ -13,6 +15,8 @@ let model = null, layout = null, t0 = 0, t1 = 0, T = 0;
 let view = { x: 0, y: 0, k: 1 };
 let selected = null, hover = null, playing = false, byDid = new Map();
 let order = "asc", shown = 0;
+let allPosts = [], runId = 0, histS = null;
+const num = (x) => +x.toFixed(1); // smoothed counts are fractional
 const PAGE = 200; // DOM paging for the post list only — the whole history is loaded
 
 function resize() {
@@ -66,12 +70,11 @@ function drawHist() {
   if (h.width !== r.width * dpr) { h.width = r.width * dpr; h.height = r.height * dpr; }
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, r.width, r.height);
-  const DAY = 86400e3, nb = Math.max(1, Math.ceil((t1 - t0) / DAY) + 1);
-  const bins = new Array(nb).fill(0);
-  for (const p of model.posts) bins[Math.floor((p.createdAt - t0) / DAY)]++;
-  const mx = Math.max(...bins), bw = r.width / nb;
+  if (!histS) return;
+  const bins = histS.count, nb = bins.length, DAYMS = histS.bin;
+  const mx = Math.max(1e-9, ...bins), bw = r.width / nb;
   bins.forEach((v, i) => {
-    c.fillStyle = t0 + i * DAY <= T ? "#e8b44a" : "#4a3d2e";
+    c.fillStyle = t0 + i * DAYMS <= T ? "#e8b44a" : "#4a3d2e";
     const bh = (v / mx) * (r.height - 4);
     c.fillRect(i * bw, r.height - bh, Math.max(1, bw - 1), bh);
   });
@@ -188,7 +191,7 @@ function renderPosts(reset) {
   }
 }
 
-let binKey = "week", rs = null;
+let rs = null;
 const TOP_JUMPS = 8; // a display choice: the eight largest single-bin moves are the ones worth reading
 
 function drawRate() {
@@ -210,23 +213,28 @@ function drawRate() {
       const h = x * scale;
       c.fillRect(i * bw, h >= 0 ? base - h : base, Math.max(1, bw - 1), Math.abs(h));
     });
-    c.fillStyle = "#9a8c78"; c.font = "11px monospace"; c.fillText(`${label} (max ${mx})`, 4, y0 + 12);
+    c.fillStyle = "#9a8c78"; c.font = "11px monospace"; c.fillText(`${label} (max ${num(mx)})`, 4, y0 + 12);
   });
 }
 
 function renderRate() {
   $("ratesec").hidden = false; // unhide first: drawRate measures the canvas
-  rs = series(model.posts, t0, Date.now(), BIN[binKey]);
-  $("binbtn").textContent = binKey === "week" ? "weekly bins" : "daily bins";
-  const ch = character(rs);
-  $("verdict").textContent = `verdict: ${ch.verdict} (median ${ch.baseline} posts per ${binKey}; the busiest 5% of ${binKey}s hold ${Math.round(ch.burst * 100)}% of all posts; ${ch.outliers} outlier ${binKey}s)`;
+  const days = +$("res").value, w = +$("smooth").value, bin = days * DAY;
+  $("resv").textContent = days === 1 ? "1 day" : days + " days";
+  $("smoothv").textContent = w ? `±${w} bin${w === 1 ? "" : "s"}` : "off";
+  rs = series(model.posts, t0, Date.now(), bin, w);
+  const nb = Math.ceil((t1 - t0) / bin) + 1;
+  histS = series(model.posts, t0, t0 + nb * bin, bin, w);
+  const ch = character(rs), unit = days === 1 ? "day" : `${days}-day bin`;
+  $("verdict").textContent = `verdict: ${ch.verdict} (median ${num(ch.baseline)} posts per ${unit}; the busiest 5% of ${unit}s hold ${Math.round(ch.burst * 100)}% of all posts; ${ch.outliers} outlier ${unit}s)`;
   drawRate();
+  drawHist();
   const ol = $("jumps"); ol.textContent = "";
   for (const j of jumps(rs, TOP_JUMPS)) {
     const cs = cause(model, rs, j), li = document.createElement("li");
     const when = t0 + j.i * rs.bin;
     const b = document.createElement("button"); b.type = "button";
-    b.textContent = `${j.d1 > 0 ? "▲ +" : "▼ "}${j.d1} on ${day(when)}`;
+    b.textContent = `${j.d1 > 0 ? "▲ +" : "▼ "}${num(j.d1)} on ${day(when)}`;
     b.addEventListener("click", () => {
       playing = false; $("play").textContent = "▶ replay";
       setT(Math.min(1, (when + rs.bin - t0) / (t1 - t0)));
@@ -241,7 +249,8 @@ function renderRate() {
     ol.append(li);
   }
 }
-$("binbtn").addEventListener("click", () => { binKey = binKey === "week" ? "day" : "week"; renderRate(); });
+$("res").addEventListener("input", () => { if (model) renderRate(); });
+$("smooth").addEventListener("input", () => { if (model) renderRate(); });
 window.addEventListener("resize", () => { if (rs) drawRate(); });
 
 function stats() {
@@ -278,33 +287,73 @@ function stats() {
 }
 
 async function main() {
-  const res = await crawl((n, label) => { status.textContent = `${n.toLocaleString()} posts found so far… (${label})`; });
+  const cached = await loadCache();
+  // a cache from a different term list would silently miss posts, so it only counts when the terms match
+  const warm = cached && cached.terms === TERMS.join("|") ? cached : null;
+  // top-up from two days before the last crawl: posts take a moment to be indexed
+  const since = warm ? Math.max(START, warm.at - 2 * DAY) : START;
+  if (warm) status.textContent = `${warm.posts.length.toLocaleString()} posts cached; fetching what's new…`;
+  const started = Date.now();
+  const res = await crawl((n, label) => { status.textContent = `${n.toLocaleString()} posts found so far… (${label})`; }, since, warm ? warm.posts : []);
   if (!res.posts.length) { status.classList.add("err"); status.textContent = "the search came back empty — Bluesky's search may be rate limiting; reload in a minute."; return; }
-  model = buildModel(res.posts);
+  // only cache a crawl that fully succeeded: a failed window would otherwise never be retried
+  if (!res.failed) saveCache(res.posts, started, TERMS.join("|"));
+  allPosts = res.posts.slice().sort((a, b) => a.createdAt - b.createdAt);
+  const first = allPosts[0].createdAt;
+  $("since").min = $("since").value = new Date(first).toISOString().slice(0, 10);
+  $("since").max = new Date().toISOString().slice(0, 10);
+  $("graphctl").hidden = false; $("chartctl").hidden = false;
+  start(res.failed);
+}
+
+// (re)build everything from allPosts at or after the chosen start date
+function start(failed = 0) {
+  const run = ++runId;
+  if (layout) layout.stop();
+  const from = $("since").value ? Date.parse($("since").value) : 0;
+  const posts = allPosts.filter((p) => p.createdAt >= from);
+  if (!posts.length) { status.textContent = "no posts on or after that date."; return; }
+  selected = hover = null; playing = false; $("play").textContent = "▶ replay"; $("clear").hidden = true;
+  model = buildModel(posts);
   byDid = new Map(model.nodes.map((n) => [n.did, n]));
   t0 = model.posts[0].createdAt; t1 = Math.max(model.posts[model.posts.length - 1].createdAt, t0 + 3600e3);
   stats();
   renderRate();
-  const dl = $("handles"); for (const n of model.nodes) { const o = document.createElement("option"); o.value = n.handle; dl.append(o); }
+  const dl = $("handles"); dl.textContent = "";
+  for (const n of model.nodes) { const o = document.createElement("option"); o.value = n.handle; dl.append(o); }
   $("controls").hidden = false; $("findform").hidden = false; $("hist").hidden = false; $("postsec").hidden = false;
-  status.textContent = res.failed ? `${res.failed} search window(s) failed after retries, so some posts may be missing. Laying out the graph…` : "laying out the graph…";
+  status.textContent = failed ? `${failed} search window(s) failed after retries, so some posts may be missing. Laying out the graph…` : "laying out the graph…";
   const r = cv.getBoundingClientRect();
   view = { x: r.width / 2, y: r.height / 2, k: 1 };
   resize();
   setT(1);
   renderPosts(true);
-  layout = makeLayout(model);
-  let iters = 0;
+  layout = makeLayout(model, $("pull").value / 100);
   const frame = () => {
-    const start = performance.now();
-    while (performance.now() - start < 12 && iters < 350) { layout.step(); iters++; }
-    if (iters === 350) fit();
+    if (run !== runId) return; // a newer start date superseded this layout
+    const moving = layout.step(12);
+    if (!moving) fit();
     draw();
-    if (iters < 350) requestAnimationFrame(frame);
-    else status.textContent = (res.failed ? status.textContent.replace(/ Laying.*/, "") + " " : "") + "Done. Hit replay to watch it spread.";
+    if (moving) requestAnimationFrame(frame);
+    else status.textContent = (failed ? status.textContent.replace(/ Laying.*/, "") + " " : "") + "Done. Hit replay to watch it spread.";
   };
   requestAnimationFrame(frame);
 }
+
+$("since").addEventListener("change", () => { if (allPosts.length) start(); });
+$("pull").addEventListener("input", () => {
+  if (!layout) return;
+  const run = runId;
+  layout.setPull($("pull").value / 100);
+  status.textContent = "re-clustering…";
+  const frame = () => {
+    if (run !== runId) return;
+    const moving = layout.step(12);
+    draw();
+    if (moving) requestAnimationFrame(frame); else status.textContent = "Done. Hit replay to watch it spread.";
+  };
+  requestAnimationFrame(frame);
+});
 
 function fit() {
   let xs = model.nodes.map((n) => n.x).sort((a, b) => a - b), ys = model.nodes.map((n) => n.y).sort((a, b) => a - b);

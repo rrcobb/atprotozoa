@@ -63,33 +63,45 @@ async function walkWindow(q, since, until, add) {
   }
 }
 
-const START = Date.parse("2023-02-01T00:00:00Z");
+export const START = Date.parse("2023-02-01T00:00:00Z");
 // "bahn mi" / "bahnmi" are the common misspellings, so they count as banh mi posts too.
 export const TERMS = ['"banh mi"', "banhmi", '"bánh mì"', '"banh mis"', '"bahn mi"', "bahnmi", '"bahn mis"'];
+const SLICE = 30 * 24 * HOUR;
+// 8 requests in flight: the AppView rate-limits bursts, and get() backs off when it does.
+const CONCURRENCY = 8;
 
 // Streams progress via onProgress(postsSoFar, label). Resolves to {posts, failed}.
-export async function crawl(onProgress) {
-  const seen = new Map();
+// `since` is where the walk starts (START for a full crawl, just before the last cached crawl
+// for a top-up); `seed` is previously cached posts to merge into.
+export async function crawl(onProgress, since = START, seed = []) {
+  const seen = new Map(seed.map((p) => [p.uri, p]));
   const add = (ps) => { for (const p of ps) seen.set(p.uri, p); };
-  const now = Date.now();
-  let failed = 0;
-  for (const q of TERMS) {
-    // searchPosts has no oldest-first sort, so walk fixed windows from Bluesky's public
-    // launch; empty windows cost one request each.
-    const start = START;
-    // monthly-ish top-level slices, 3 at a time
-    const slices = [];
-    const SLICE = 30 * 24 * HOUR;
-    for (let s = start; s < now + HOUR; s += SLICE) slices.push([s, Math.min(s + SLICE, now + HOUR)]);
-    let next = 0, done = 0;
-    await Promise.all([0, 1, 2].map(async () => {
-      while (next < slices.length) {
-        const [a, b] = slices[next++];
-        failed += await walkWindow(q, a, b, add);
-        done++;
-        onProgress(seen.size, `${q} · ${done}/${slices.length} windows`);
-      }
-    }));
-  }
+  const until = Date.now() + HOUR;
+  let failed = 0, done = 0;
+  const tasks = [];
+  // One probe per term over the whole range. Most terms (the misspellings) come back short,
+  // so they cost a single request; only terms with a full first page get split into monthly
+  // windows, which are walked 8 at a time.
+  await Promise.all(TERMS.map(async (q) => {
+    const u = new URL(SEARCH);
+    u.searchParams.set("q", q); u.searchParams.set("sort", "latest"); u.searchParams.set("limit", "100");
+    u.searchParams.set("since", new Date(since).toISOString()); u.searchParams.set("until", new Date(until).toISOString());
+    const d = await get(u.toString());
+    if (d) {
+      const ps = (d.posts || []).map(toPost);
+      add(ps); onProgress(seen.size, `${q} · probing`);
+      if (ps.length < 100) return;
+    } // a failed probe falls through to the windowed walk, which retries per window
+    for (let s = since; s < until; s += SLICE) tasks.push([q, s, Math.min(s + SLICE, until)]);
+  }));
+  const total = tasks.length;
+  let next = 0;
+  await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
+    while (next < tasks.length) {
+      const [q, a, b] = tasks[next++];
+      failed += await walkWindow(q, a, b, add);
+      onProgress(seen.size, `${q} · ${++done}/${total} windows`);
+    }
+  }));
   return { posts: [...seen.values()], failed };
 }

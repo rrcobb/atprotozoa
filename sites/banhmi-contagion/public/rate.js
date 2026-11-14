@@ -1,17 +1,30 @@
 // rate.js — rate of change of banh mi posting, and what drove each jump or drop.
 // Pure functions, no DOM, so they can be tested under node.
 
-export const BIN = { day: 86400e3, week: 7 * 86400e3 };
+export const DAY = 86400e3;
+
+// Centered moving average over +-w bins (window shrinks at the ends). w=0 is the raw series.
+export function smooth(a, w) {
+  if (!w) return a.slice();
+  return a.map((_, i) => {
+    const lo = Math.max(0, i - w), hi = Math.min(a.length - 1, i + w);
+    let s = 0;
+    for (let k = lo; k <= hi; k++) s += a[k];
+    return s / (hi - lo + 1);
+  });
+}
 
 // Post counts per bin starting at t0. The final bin is dropped when it hasn't finished
 // yet (end > now): a half-elapsed bin always reads as a fake crash in the derivative.
-export function series(posts, t0, now, bin) {
+// w smooths the counts (see smooth) before the derivatives are taken from them.
+export function series(posts, t0, now, bin, w = 0) {
   const nb = Math.floor((now - t0) / bin); // only complete bins
-  const count = new Array(Math.max(0, nb)).fill(0);
+  const raw = new Array(Math.max(0, nb)).fill(0);
   for (const p of posts) {
     const i = Math.floor((p.createdAt - t0) / bin);
-    if (i >= 0 && i < nb) count[i]++;
+    if (i >= 0 && i < nb) raw[i]++;
   }
+  const count = smooth(raw, w);
   // d1[i] = change in posts/bin from the previous bin (velocity); d2[i] = change in d1 (acceleration)
   const d1 = count.map((c, i) => (i ? c - count[i - 1] : 0));
   const d2 = d1.map((d, i) => (i > 1 ? d - d1[i - 1] : 0));

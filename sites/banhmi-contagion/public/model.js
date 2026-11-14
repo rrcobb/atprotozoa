@@ -44,7 +44,8 @@ export function buildModel(posts) {
     for (const t of p.links) {
       if (t === p.did || !nodes.has(t)) continue;
       const k = t + "|" + p.did;
-      if (!edges.has(k)) edges.set(k, { a: t, b: p.did, t: p.createdAt, uri: p.uri, infection: false });
+      if (!edges.has(k)) edges.set(k, { a: t, b: p.did, t: p.createdAt, uri: p.uri, infection: false, n: 1 });
+      else edges.get(k).n++; // how many posts carried this interaction
     }
   }
   // infector: earliest linking post by B to a carrier A who was already carrying at that moment
@@ -71,69 +72,35 @@ export function buildModel(posts) {
     nodes.get(e.a).deg++;
     nodes.get(e.b).deg++;
   }
-  return { posts, nodes: [...nodes.values()], edges: list };
+  const out = { posts, nodes: [...nodes.values()], edges: list };
+  communities(out);
+  return out;
 }
 
-// Seeded PRNG so the layout is the same every load.
-function rng(seed) {
-  return () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
-}
-
-// Force layout with spatial-hash repulsion (O(n), not O(n^2)), run in slices by the caller.
-export function makeLayout(model) {
-  const rand = rng(7);
-  const idx = new Map();
-  model.nodes.forEach((n, i) => {
-    idx.set(n.did, i);
-    const ang = rand() * Math.PI * 2, r = 40 + Math.sqrt(i) * 14;
-    n.x = Math.cos(ang) * r; n.y = Math.sin(ang) * r; n.vx = 0; n.vy = 0;
-  });
-  const links = model.edges.map((e) => [idx.get(e.a), idx.get(e.b)]);
-  const N = model.nodes.length;
-  const R = 46; // repulsion radius: beyond this, dots don't push each other
-  let alpha = 1;
-  function step() {
-    const nodes = model.nodes;
-    const grid = new Map();
-    for (let i = 0; i < N; i++) {
-      const n = nodes[i];
-      const k = Math.floor(n.x / R) + "," + Math.floor(n.y / R);
-      let c = grid.get(k);
-      if (!c) grid.set(k, (c = []));
-      c.push(i);
-    }
-    for (let i = 0; i < N; i++) {
-      const n = nodes[i];
-      const cx = Math.floor(n.x / R), cy = Math.floor(n.y / R);
-      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
-        const c = grid.get(cx + dx + "," + (cy + dy));
-        if (!c) continue;
-        for (const j of c) {
-          if (j <= i) continue;
-          const m = nodes[j];
-          let ux = n.x - m.x, uy = n.y - m.y;
-          let d2 = ux * ux + uy * uy;
-          if (d2 > R * R) continue;
-          if (d2 < 0.01) { ux = rand() - 0.5; uy = rand() - 0.5; d2 = 0.25; }
-          const d = Math.sqrt(d2), f = ((R - d) / R) * 3 * alpha;
-          ux = (ux / d) * f; uy = (uy / d) * f;
-          n.vx += ux; n.vy += uy; m.vx -= ux; m.vy -= uy;
-        }
-      }
-    }
-    for (const [a, b] of links) {
-      const p = nodes[a], q = nodes[b];
-      const ux = q.x - p.x, uy = q.y - p.y, d = Math.hypot(ux, uy) || 1;
-      const f = (d - 28) * 0.02 * alpha;
-      p.vx += (ux / d) * f; p.vy += (uy / d) * f;
-      q.vx -= (ux / d) * f; q.vy -= (uy / d) * f;
-    }
-    for (const n of nodes) {
-      n.vx -= n.x * 0.004 * alpha; n.vy -= n.y * 0.004 * alpha;
-      n.x += n.vx; n.y += n.vy;
-      n.vx *= 0.6; n.vy *= 0.6;
-    }
-    alpha = Math.max(0.03, alpha * 0.99);
+// Label propagation over the interaction graph: each account adopts the label with the most
+// interaction weight among its neighbours, in a fixed order, so the result is deterministic.
+// Sets n.comm (a label id) on every node and returns the label -> member count map.
+export function communities(model) {
+  const idx = new Map(model.nodes.map((n, i) => [n.did, i]));
+  const adj = model.nodes.map(() => []);
+  for (const e of model.edges) {
+    const a = idx.get(e.a), b = idx.get(e.b);
+    adj[a].push([b, e.n]); adj[b].push([a, e.n]);
   }
-  return { step };
+  const label = model.nodes.map((_, i) => i);
+  for (let round = 0; round < 30; round++) {
+    let moved = 0;
+    for (let i = 0; i < label.length; i++) {
+      if (!adj[i].length) continue;
+      const w = new Map();
+      for (const [j, wt] of adj[i]) w.set(label[j], (w.get(label[j]) || 0) + wt);
+      let best = label[i], bw = w.get(best) || 0;
+      for (const [l, x] of w) if (x > bw || (x === bw && l < best)) { best = l; bw = x; }
+      if (best !== label[i]) { label[i] = best; moved++; }
+    }
+    if (!moved) break; // converged; the cap only stops a pathological flip-flop
+  }
+  const sizes = new Map();
+  model.nodes.forEach((n, i) => { n.comm = label[i]; sizes.set(label[i], (sizes.get(label[i]) || 0) + 1); });
+  return sizes;
 }

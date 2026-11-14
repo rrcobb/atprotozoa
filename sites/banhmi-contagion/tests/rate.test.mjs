@@ -33,3 +33,27 @@ test("flat series reads as steady", () => {
   const posts = []; for (let d = 0; d < 40; d++) { posts.push(mk("a", d)); posts.push(mk("b", d)); }
   assert.match(character(series(posts, 0, 40 * D, D)).verdict, /steady/);
 });
+
+import { smooth } from "../public/rate.js";
+
+test("smooth: w=0 is identity, w=1 averages neighbours and shrinks at the ends", () => {
+  assert.deepEqual(smooth([1, 2, 3], 0), [1, 2, 3]);
+  assert.deepEqual(smooth([0, 3, 0], 1), [1.5, 1, 1.5]);
+});
+
+test("series with smoothing derives d1 from the smoothed counts", () => {
+  const posts = [mk("a", 0), mk("a", 1), mk("b", 1), mk("c", 1), mk("a", 2)];
+  const s = series(posts, 0, 3 * D, D, 1);
+  assert.deepEqual(s.count, [2, 5 / 3, 2]); // [1,3,1] smoothed
+});
+
+test("communities: a tight pair and a tight trio land in separate groups", () => {
+  const posts = [mk("a", 0), mk("b", 1, ["a"]), mk("a", 2, ["b"]), mk("x", 3), mk("y", 4, ["x"]), mk("z", 5, ["x", "y"]), mk("x", 6, ["z"]), mk("lone", 7)];
+  const m = buildModel(posts);
+  const c = Object.fromEntries(m.nodes.map((n) => [n.did, n.comm]));
+  assert.equal(c.a, c.b);
+  assert.equal(c.x, c.y); assert.equal(c.y, c.z);
+  assert.notEqual(c.a, c.x);
+  assert.notEqual(c.lone, c.a);
+  assert.equal(m.edges.find((e) => e.a === "a" && e.b === "b").n, 1);
+});
