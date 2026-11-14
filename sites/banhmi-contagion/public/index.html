@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>banh mi contagion — who caught it, and from whom</title>
+<meta name="description" content="Every public Bluesky post mentioning banh mi, drawn as an infection graph on a scrubbable timeline." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://banhmi-contagion.bisks.net/" />
+<meta property="og:title" content="banh mi contagion" />
+<meta property="og:description" content="Patient zero, the spread, and the whole post history of the banh mi situation on Bluesky." />
+<meta property="og:image" content="https://banhmi-contagion.bisks.net/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="A network of dots spreading outward from one red dot, titled banh mi contagion." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="banh mi contagion" />
+<meta name="twitter:description" content="Patient zero, the spread, and the whole post history of the banh mi situation on Bluesky." />
+<meta name="twitter:image" content="https://banhmi-contagion.bisks.net/og.png" />
+<style>
+  :root { --bg:#14100c; --ink:#f3e9d8; --muted:#9a8c78; --line:#3a3026; --card:#1d1812; --hot:#ff5a36; --cool:#e8b44a; --old:#6b5a45;
+    --mono: ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono); font-size:14px; line-height:1.5; }
+  header { padding:22px 20px 6px; max-width:1100px; margin:0 auto; }
+  h1 { margin:0; font-size:26px; letter-spacing:-.02em; }
+  .tagline { color:var(--muted); margin:2px 0 0; }
+  main { max-width:1100px; margin:0 auto; padding:10px 20px 60px; }
+  #status { color:var(--muted); min-height:1.5em; margin:8px 0; }
+  #status.err { color:#ff8a70; }
+  #stats { display:flex; gap:10px; flex-wrap:wrap; margin:8px 0; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 12px; }
+  .stat b { display:block; font-size:20px; color:var(--cool); }
+  .stat span { color:var(--muted); font-size:12px; }
+  #stage { position:relative; background:#0d0a07; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  canvas { display:block; width:100%; height:560px; cursor:grab; touch-action:none; }
+  #tip { position:absolute; pointer-events:none; background:#000d; border:1px solid var(--line); border-radius:6px; padding:5px 8px; font-size:12px; display:none; max-width:260px; }
+  #controls { display:flex; gap:10px; align-items:center; margin:10px 0; }
+  #controls button { font:inherit; background:var(--hot); color:#000; font-weight:700; border:0; border-radius:6px; padding:7px 14px; cursor:pointer; }
+  #scrub { flex:1; accent-color:var(--hot); }
+  #when { min-width:150px; text-align:right; color:var(--cool); }
+  #hist { width:100%; height:70px; display:block; margin-top:6px; }
+  h2 { font-size:16px; margin:26px 0 8px; }
+  #pz li { margin:2px 0; }
+  a { color:var(--cool); }
+  .post { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 12px; margin:6px 0; }
+  .post .who { color:var(--hot); font-weight:700; }
+  .post .meta { color:var(--muted); font-size:12px; }
+  .post p { margin:4px 0 0; white-space:pre-wrap; word-break:break-word; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .row button { font:inherit; background:none; border:1px solid var(--line); color:var(--ink); border-radius:6px; padding:3px 10px; cursor:pointer; }
+  .legend { color:var(--muted); font-size:12px; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:50%; vertical-align:middle; margin:0 3px 0 8px; }
+  footer { max-width:1100px; margin:0 auto; padding:0 20px 40px; color:var(--muted); font-size:12px; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>banh mi contagion 🥖</h1>
+  <p class="tagline">every public post saying “banh mi”, from the first one to now: who caught it, and from whom.</p>
+</header>
+<main>
+  <div id="status">warming up the search…</div>
+  <div id="stats" hidden></div>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="tip"></div>
+  </div>
+  <div id="controls" hidden>
+    <button id="play" type="button">▶ replay</button>
+    <input id="scrub" type="range" min="0" max="1000" value="1000" aria-label="timeline" />
+    <span id="when"></span>
+  </div>
+  <canvas id="hist" hidden></canvas>
+  <p class="legend">dot = account (size = posts) · line = replied to / quoted / mentioned an earlier carrier · <i style="background:var(--hot)"></i>newly infected <i style="background:var(--old)"></i>long-term carrier · drag to pan, wheel to zoom, click a dot to read their posts</p>
+
+  <section id="pzsec" hidden>
+    <h2>patient zero &amp; the first wave</h2>
+    <ol id="pz"></ol>
+  </section>
+
+  <section id="postsec" hidden>
+    <h2 id="posthead">post history</h2>
+    <div class="row"><button id="clear" type="button" hidden>show everyone</button>
+      <button id="order" type="button">oldest first</button></div>
+    <div id="posts"></div>
+  </section>
+</main>
+<footer>
+  <div>Search: the public Bluesky post index (“banh mi”, “banhmi”, “bánh mì”). Edges only link two carriers when one replied to, quoted or @-mentioned the other, so it's an interaction graph, not the follow graph. Search can miss deleted or unindexed posts.</div>
+  <div><a href="https://rateyourbuild.bisks.net/site/banhmi-contagion">rate this on rateyourbuild →</a> · <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a> · <a id="share" target="_blank" rel="noopener">post this to bluesky</a></div>
+</footer>
+<script type="module" src="app.js"></script>
+</body>
+</html>
