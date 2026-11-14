@@ -4,7 +4,7 @@
 
 import { resolvePds } from "./lib/identity.js";
 import { fetchRepoRecordsWithKeys } from "./lib/car.js";
-import { buildCorpus, tokenize, Parrot, Trainer, unigramLoss, parrotScore, BLOCKS } from "./lib/model.js";
+import { buildCorpus, tokenize, Parrot, Trainer, unigramLoss, parrotScore, fitVocab, paramCountFor, decayFor } from "./lib/model.js";
 
 const PUB = "https://public.api.bsky.app/xrpc";
 const $ = (id) => document.getElementById(id);
@@ -49,6 +49,28 @@ async function listAllPosts(pds, did, onProgress) {
   return out;
 }
 
+// Read the "parrot brain" knobs. Defaults (all untouched) are the original
+// one-linear-layer parrot.
+function readBrain() {
+  const hidden = $("optArch").value ? $("optArch").value.split(",").map(Number) : [];
+  const cfg = { ctx: +$("optCtx").value, bag: +$("optBag").value, hidden };
+  const wantVocab = +$("optVocab").value;
+  const maxVocab = fitVocab(wantVocab, cfg);
+  const epochs = +$("optEpochs").value;
+  const b = +$("optBudget").value;
+  return { cfg, wantVocab, maxVocab, epochs, budgetMs: b > 0 ? b : Infinity, deep: hidden.length > 0 };
+}
+
+function brainInfo() {
+  const br = readBrain();
+  const p = paramCountFor(br.maxVocab, br.cfg);
+  $("optInfo").textContent = `about ${(p / 1e6).toFixed(1)}M parameters (${Math.round(p * 4 / 1e6)} MB)` +
+    (br.maxVocab < br.wantVocab ? `; vocabulary trimmed to ${br.maxVocab} to fit in a tab` : "") +
+    (br.deep || br.cfg.ctx > 3 || br.epochs > 6 ? ". Heavier brains take minutes, not seconds." : ".");
+}
+for (const id of ["optArch", "optCtx", "optBag", "optVocab", "optEpochs", "optBudget"]) $(id).addEventListener("change", brainInfo);
+brainInfo();
+
 function show(which) {
   for (const id of ["gate", "training", "results"]) $(id).hidden = id !== which;
 }
@@ -59,6 +81,7 @@ async function run(raw) {
   const handle = normHandle(raw);
   if (!handle) { $("goMsg").textContent = "type a handle first"; return; }
   $("goMsg").textContent = "";
+  const brain = readBrain();
   $("goBtn").disabled = true;
   show("training");
   $("trainTitle").textContent = "fetching " + handle;
@@ -81,20 +104,21 @@ async function run(raw) {
       log("repo download failed (" + e.message + "), paging instead…");
       recs = await listAllPosts(pds, did, log);
     }
-    const corpus = buildCorpus(recs.map((r) => r.value && r.value.text).filter(Boolean));
+    const corpus = buildCorpus(recs.map((r) => r.value && r.value.text).filter(Boolean), { maxVocab: brain.maxVocab });
     if (corpus.posts.length < MIN_POSTS) throw new Error(`only ${corpus.posts.length} usable posts, a parrot needs at least ${MIN_POSTS}`);
     const trainIdx = [], heldIdx = [];
     corpus.posts.forEach((_, i) => (i % HOLDOUT_EVERY === HOLDOUT_EVERY - 1 ? heldIdx : trainIdx).push(i));
     const trainPosts = trainIdx.map((i) => corpus.posts[i]);
     const heldPosts = heldIdx.map((i) => corpus.posts[i]);
 
-    const model = new Parrot(corpus.vocab, corpus.counts);
+    const model = new Parrot(corpus.vocab, corpus.counts, brain.cfg);
     const tokens = corpus.posts.reduce((a, p) => a + p.length - 2, 0);
     $("trainTitle").textContent = `training a parrot of ${profile.displayName}`;
     $("trainLog").textContent =
       `${corpus.posts.length.toLocaleString()} posts, ${tokens.toLocaleString()} words\n` +
-      `vocab ${model.V.toLocaleString()} words (${BLOCKS} blocks x ${model.V} x ${model.V} + bias = ${model.paramCount.toLocaleString()} parameters)\n`;
-    const trainer = new Trainer(model, trainPosts);
+      `vocab ${model.V.toLocaleString()} words, ${model.describe}, ${model.paramCount.toLocaleString()} parameters\n`;
+    // Deep nets use a gentler step: tanh layers diverge at the linear model's 0.1.
+    const trainer = new Trainer(model, trainPosts, { epochs: brain.epochs, budgetMs: brain.budgetMs, decay: decayFor(brain.epochs), lr0: brain.deep ? 0.04 : 0.1 });
     const t0 = performance.now();
     for (;;) {
       const done = trainer.run(40);
@@ -140,13 +164,14 @@ function renderResults() {
     stat(corpus.posts.length.toLocaleString(), "posts") +
     stat(tokens.toLocaleString(), "words") +
     stat(model.V.toLocaleString(), "vocab") +
+    stat(model.hidden.length ? `${model.hidden.length} hidden` : "linear", "architecture") +
     stat((model.paramCount / 1e6).toFixed(1) + "M", "parameters") +
     stat(String(trainer.epoch), "epochs") +
     stat(secs.toFixed(0) + " s", "training time") +
     stat(heldLoss.toFixed(2), `held-out loss (${state.heldN} posts)`) +
     stat(baseLoss.toFixed(2), "unigram loss") +
     stat(Math.exp(heldLoss).toFixed(0), "perplexity");
-  const text = `my stochastic parrot of @${profile.handle} scored ${score}/100. one linear layer + one softmax, trained in the tab`;
+  const text = `my stochastic parrot of @${profile.handle} scored ${score}/100. ${model.describe}, trained in the tab`;
   $("shareLink").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text + "\nhttps://stochastic-parrot.bisks.net/");
   drawHist(losses, baseLoss);
   const ranked = [...corpus.posts.keys()].filter((i) => corpus.posts[i].length >= 8).sort((a, b) => losses[a] - losses[b]);

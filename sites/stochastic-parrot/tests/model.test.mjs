@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { tokenize, detokenize, buildCorpus, Parrot, Trainer, unigramLoss, parrotScore } from "../public/lib/model.js";
+import { tokenize, detokenize, buildCorpus, Parrot, Trainer, unigramLoss, parrotScore, fitVocab } from "../public/lib/model.js";
 
 function lcg(seed) { let s = seed; return () => ((s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff); }
 function corpus(n, rand) {
@@ -33,4 +33,28 @@ test("model beats the unigram baseline and talks back", () => {
   const out = m.generate([c.index.get("coffee")], { rand });
   assert.ok(out.length > 3, out);
   assert.ok(!out.includes("<"), out);
+});
+
+test("hidden layers train, beat unigram, and param counts match", () => {
+  for (const cfg of [{ hidden: [32] }, { hidden: [32, 24], ctx: 4, bag: 8 }]) {
+    const rand = lcg(11);
+    const c = buildCorpus(corpus(400, rand));
+    const held = c.posts.filter((_, i) => i % 10 === 3), train = c.posts.filter((_, i) => i % 10 !== 3);
+    const m = new Parrot(c.vocab, c.counts, { ...cfg, rand });
+    let n = m.b.length + m.Wo.length + m.E.length + m.bh.reduce((a, x) => a + x.length, 0) + m.Wh.reduce((a, x) => a + (x ? x.length : 0), 0);
+    assert.equal(m.paramCount, n);
+    const tr = new Trainer(m, train, { epochs: 4, budgetMs: 1e9, rand, lr0: 0.05 });
+    while (!tr.run(50));
+    const ml = held.reduce((a, s) => a + m.postLoss(s), 0) / held.length;
+    const base = unigramLoss(c.counts, held);
+    assert.ok(Number.isFinite(ml) && ml < base * 0.85, `${JSON.stringify(cfg)} model ${ml} vs unigram ${base}`);
+    assert.ok(m.generate([c.index.get("coffee")], { rand }).length > 3);
+  }
+});
+test("linear param count matches the formula; fitVocab trims big configs", () => {
+  const c = buildCorpus(corpus(100, lcg(3)));
+  const m = new Parrot(c.vocab, c.counts, { ctx: 5 });
+  assert.equal(m.paramCount, 6 * m.V * m.V + m.V);
+  assert.ok(fitVocab(5000, { ctx: 6 }) < 5000);
+  assert.equal(fitVocab(1500, { ctx: 3 }), 1500);
 });

@@ -11,6 +11,11 @@
 // (or an average of one-hots), "multiply by W" is just "add up a few rows of W",
 // which is what the code does.
 //
+// Optional depth: pass `hidden: [128, 64]` and the single layer becomes an MLP.
+// The sparse inputs then sum rows of an embedding-like first layer (rows x H0),
+// tanh, any further dense tanh layers, and a final linear layer to the vocab,
+// then the same softmax. `hidden: []` (the default) is the one-linear-layer parrot.
+//
 // Browser-safe and node-safe (no DOM) so tests/ can import it directly.
 
 export const PAD = 0;   // "<s>": start of post, also the padding for short contexts
@@ -32,6 +37,35 @@ export const MAX_VOCAB = 1500;
 // A word has to show up this many times to earn a row; once-only words are
 // mostly typos and handles, and a row the model sees once can't be learned.
 export const MIN_COUNT = 2;
+// Ceiling on total weights for any configuration: 64M float32s = 256 MB, about
+// what a desktop tab will hold without the browser killing it (and a phone
+// won't). Bigger contexts or vocabularies get their vocab trimmed to fit.
+export const MAX_PARAMS = 64e6;
+
+export const DEFAULTS = { ctx: 3, bag: BAG, hidden: [], maxVocab: MAX_VOCAB };
+
+// Weights for a vocabulary of V words under cfg ({ctx, bag, hidden}).
+export function paramCountFor(V, cfg = {}) {
+  const { ctx = 3, hidden = [] } = cfg;
+  const blocks = ctx + 1;
+  if (!hidden.length) return blocks * V * V + V;
+  let n = blocks * V * hidden[0] + hidden[0];
+  for (let k = 1; k < hidden.length; k++) n += hidden[k - 1] * hidden[k] + hidden[k];
+  return n + hidden[hidden.length - 1] * V + V;
+}
+
+// Largest vocab <= want whose configuration stays under MAX_PARAMS.
+export function fitVocab(want, cfg = {}) {
+  let V = want;
+  while (V > 200 && paramCountFor(V, cfg) > MAX_PARAMS) V = Math.floor(V * 0.9);
+  return V;
+}
+
+// Per-epoch learning-rate decay: 0.7 per epoch at the default 6 epochs, and the
+// same overall fall-off (0.7^5) stretched across however many epochs you ask for.
+export function decayFor(epochs) {
+  return epochs <= 6 ? 0.7 : Math.pow(Math.pow(0.7, 5), 1 / (epochs - 1));
+}
 
 const URL_RE = /https?:\/\/\S+|\b[\w-]+(?:\.[\w-]+)+\/\S*/g;
 const TOKEN_RE = /@[\w.-]*\w|#[\p{L}\p{N}_]+|[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*|[^\s\p{L}\p{N}]/gu;
@@ -57,7 +91,7 @@ export function detokenize(tokens) {
 
 // texts: array of post strings. Returns { vocab, index, counts, posts }.
 // `posts` are Int32Array token-id sequences, already wrapped as <s> ... </s>.
-export function buildCorpus(texts) {
+export function buildCorpus(texts, { maxVocab = MAX_VOCAB } = {}) {
   const tokenized = [];
   const kept = [];
   const freq = new Map();
@@ -69,7 +103,7 @@ export function buildCorpus(texts) {
     for (const t of toks) freq.set(t, (freq.get(t) || 0) + 1);
   }
   const eligible = [...freq.entries()].filter(([, c]) => c >= MIN_COUNT).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
-  const words = eligible.slice(0, MAX_VOCAB - SPECIAL.length).map(([w]) => w);
+  const words = eligible.slice(0, maxVocab - SPECIAL.length).map(([w]) => w);
   const vocab = [...SPECIAL, ...words];
   const index = new Map(vocab.map((w, i) => [w, i]));
   const counts = new Float64Array(vocab.length);
@@ -85,50 +119,98 @@ export function buildCorpus(texts) {
 }
 
 export class Parrot {
-  constructor(vocab, counts) {
+  constructor(vocab, counts, { ctx = 3, bag = BAG, hidden = [], rand = Math.random } = {}) {
     this.vocab = vocab;
     this.V = vocab.length;
     this.counts = counts;
-    this.W = new Float32Array(BLOCKS * this.V * this.V);
-    this.b = new Float32Array(this.V);
+    this.ctx = ctx;
+    this.bag = bag;
+    this.hidden = hidden;
+    this.blocks = ctx + 1;
     // scratch, reused across calls
     this.logits = new Float32Array(this.V);
-    this.rows = new Int32Array(3 + 2 * BAG);
-    this.wts = new Float32Array(3 + 2 * BAG);
+    this.rows = new Int32Array(ctx + 2 * bag);
+    this.wts = new Float32Array(ctx + 2 * bag);
+    this.b = new Float32Array(this.V);
+    if (!hidden.length) {
+      this.W = new Float32Array(this.blocks * this.V * this.V);
+    } else {
+      const H = hidden, last = H[H.length - 1];
+      // first layer: one row of H[0] per (block, word); small gaussian-ish init
+      const init = (arr, scale) => { for (let i = 0; i < arr.length; i++) arr[i] = (rand() + rand() + rand() - 1.5) * scale; return arr; };
+      this.E = init(new Float32Array(this.blocks * this.V * H[0]), 0.3);
+      this.bh = H.map((h) => new Float32Array(h));
+      this.Wh = [null];
+      for (let k = 1; k < H.length; k++) this.Wh.push(init(new Float32Array(H[k - 1] * H[k]), 1.2 / Math.sqrt(H[k - 1])));
+      this.Wo = init(new Float32Array(last * this.V), 0.1 / Math.sqrt(last));
+      this.acts = H.map((h) => new Float32Array(h));
+      this.da = H.map((h) => new Float32Array(h));
+    }
     // Start the bias at the log unigram distribution, so epoch 1 begins from
     // "say common words" instead of uniform noise.
     const total = counts.reduce((a, c) => a + c, 0) + this.V;
     for (let j = 0; j < this.V; j++) this.b[j] = Math.log((counts[j] + 1) / total);
   }
 
-  get paramCount() { return this.W.length + this.b.length; }
+  get paramCount() { return paramCountFor(this.V, this); }
+
+  get describe() {
+    return this.hidden.length ? `${this.hidden.length} hidden layer${this.hidden.length > 1 ? "s" : ""} (${this.hidden.join("→")}) + softmax` : "1 linear layer + softmax";
+  }
 
   // Fill rows/wts for predicting position t of `seq` (seq[0] is <s>);
   // `extraBag` is an array of ids mixed into the bag (used to steer replies).
   features(seq, t, extraBag) {
     const V = this.V, rows = this.rows, wts = this.wts;
     let n = 0;
-    for (let k = 0; k < 3; k++) {
+    const ctx = this.ctx, BAGN = this.bag, bagBlock = ctx;
+    for (let k = 0; k < ctx; k++) {
       const id = t - 1 - k >= 0 ? seq[t - 1 - k] : PAD;
       rows[n] = k * V + id; wts[n] = 1; n++;
     }
     const bagStart = n;
-    for (let i = t - 4; i >= 0 && n - bagStart < BAG; i--) {
+    for (let i = t - ctx - 1; i >= 0 && n - bagStart < BAGN; i--) {
       if (seq[i] === PAD) break;
-      rows[n] = 3 * V + seq[i]; n++;
+      rows[n] = bagBlock * V + seq[i]; n++;
     }
-    if (extraBag) for (const id of extraBag.slice(0, BAG)) { rows[n] = 3 * V + id; n++; }
+    if (extraBag) for (const id of extraBag.slice(0, BAGN)) { rows[n] = bagBlock * V + id; n++; }
     const nb = n - bagStart;
     for (let i = bagStart; i < n; i++) wts[i] = 1 / nb;
     return n;
   }
 
   forward(n) {
-    const { V, W, b, logits, rows, wts } = this;
+    const { V, b, logits, rows, wts } = this;
     logits.set(b);
-    for (let r = 0; r < n; r++) {
-      const base = rows[r] * V, w = wts[r];
-      for (let j = 0; j < V; j++) logits[j] += w * W[base + j];
+    if (!this.hidden.length) {
+      const W = this.W;
+      for (let r = 0; r < n; r++) {
+        const base = rows[r] * V, w = wts[r];
+        for (let j = 0; j < V; j++) logits[j] += w * W[base + j];
+      }
+    } else {
+      const { E, Wh, bh, acts, hidden, Wo } = this;
+      const H0 = hidden[0], a0 = acts[0];
+      a0.set(bh[0]);
+      for (let r = 0; r < n; r++) {
+        const base = rows[r] * H0, w = wts[r];
+        for (let j = 0; j < H0; j++) a0[j] += w * E[base + j];
+      }
+      for (let j = 0; j < H0; j++) a0[j] = Math.tanh(a0[j]);
+      for (let k = 1; k < hidden.length; k++) {
+        const prev = acts[k - 1], a = acts[k], Hk = hidden[k], W = Wh[k];
+        a.set(bh[k]);
+        for (let i = 0; i < prev.length; i++) {
+          const v = prev[i], base = i * Hk;
+          for (let j = 0; j < Hk; j++) a[j] += v * W[base + j];
+        }
+        for (let j = 0; j < Hk; j++) a[j] = Math.tanh(a[j]);
+      }
+      const last = acts[acts.length - 1];
+      for (let i = 0; i < last.length; i++) {
+        const v = last[i], base = i * V;
+        for (let j = 0; j < V; j++) logits[j] += v * Wo[base + j];
+      }
     }
     let max = -Infinity;
     for (let j = 0; j < V; j++) if (logits[j] > max) max = logits[j];
@@ -143,16 +225,48 @@ export class Parrot {
   step(seq, t, lr) {
     const n = this.features(seq, t);
     this.forward(n);
-    const { V, W, b, logits: p, rows, wts } = this;
+    const { V, b, logits: p, rows, wts } = this;
     const target = seq[t];
     const loss = -Math.log(Math.max(p[target], 1e-12));
     p[target] -= 1; // p is now the gradient wrt the logits
+    if (this.hidden.length) { this.backDeep(n, p, lr); return loss; }
+    const W = this.W;
     for (let j = 0; j < V; j++) b[j] -= lr * p[j];
     for (let r = 0; r < n; r++) {
       const base = rows[r] * V, s = lr * wts[r];
       for (let j = 0; j < V; j++) W[base + j] -= s * p[j];
     }
     return loss;
+  }
+
+  // Backprop through the hidden stack; g is the gradient wrt the logits.
+  backDeep(n, g, lr) {
+    const { V, b, Wo, Wh, bh, E, acts, da, hidden, rows, wts } = this;
+    const L = hidden.length - 1;
+    const last = acts[L], dl = da[L];
+    for (let i = 0; i < last.length; i++) {
+      const base = i * V, v = last[i];
+      let d = 0;
+      for (let j = 0; j < V; j++) { d += Wo[base + j] * g[j]; Wo[base + j] -= lr * v * g[j]; }
+      dl[i] = d;
+    }
+    for (let j = 0; j < V; j++) b[j] -= lr * g[j];
+    for (let k = L; k >= 1; k--) {
+      const a = acts[k], d = da[k], prev = acts[k - 1], dprev = da[k - 1], Hk = hidden[k], W = Wh[k];
+      for (let j = 0; j < Hk; j++) { d[j] *= 1 - a[j] * a[j]; bh[k][j] -= lr * d[j]; }
+      for (let i = 0; i < prev.length; i++) {
+        const base = i * Hk, v = prev[i];
+        let s = 0;
+        for (let j = 0; j < Hk; j++) { s += W[base + j] * d[j]; W[base + j] -= lr * v * d[j]; }
+        dprev[i] = s;
+      }
+    }
+    const a0 = acts[0], d0 = da[0], H0 = hidden[0];
+    for (let j = 0; j < H0; j++) { d0[j] *= 1 - a0[j] * a0[j]; bh[0][j] -= lr * d0[j]; }
+    for (let r = 0; r < n; r++) {
+      const base = rows[r] * H0, s = lr * wts[r];
+      for (let j = 0; j < H0; j++) E[base + j] -= s * d0[j];
+    }
   }
 
   // Mean loss per token over one post, no update.
@@ -181,7 +295,7 @@ export class Parrot {
     const seq = [PAD];
     const bag = [...new Set(promptIds)].filter((id) => id > UNK)
       .sort((a, b) => this.counts[a] - this.counts[b]) // rarest first: the words that carry the topic
-      .slice(0, BAG);
+      .slice(0, this.bag);
     const seen = new Map();
     for (let step = 0; step < maxTokens; step++) {
       const probs = this.nextProbs(seq, bag);
