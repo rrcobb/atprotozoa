@@ -129,6 +129,7 @@ function pick(e) {
     const [x, y] = toScreen(n), d = (x - mx) ** 2 + (y - my) ** 2;
     if (d < bd) { bd = d; best = n; }
   }
+  const changed = best !== hover;
   hover = best;
   if (best) {
     tip.style.display = "block";
@@ -136,7 +137,21 @@ function pick(e) {
     const inf = best.infector ? " · caught it from @" + byDid.get(best.infector).handle : "";
     tip.textContent = `@${best.handle} · ${best.posts.length} post${best.posts.length === 1 ? "" : "s"} · first ${day(best.first)}${inf}`;
   } else tip.style.display = "none";
-  draw();
+  if (changed) draw(); // hovering the same dot (or empty space) needs no repaint
+}
+
+// find an account by handle: select it and pan the view onto it
+function find(q) {
+  const h = q.trim().replace(/^@/, "").toLowerCase();
+  const msg = $("findmsg");
+  if (!h) { msg.textContent = ""; return; }
+  const n = model.nodes.find((x) => x.handle.toLowerCase() === h) || model.nodes.find((x) => x.handle.toLowerCase().includes(h));
+  if (!n) { msg.textContent = `no @${h} among the carriers`; return; }
+  msg.textContent = "";
+  if (n.first > T) setT(Math.min(1, (n.first - t0) / (t1 - t0)));
+  const r = cv.getBoundingClientRect();
+  view.x = r.width / 2 - n.x * view.k; view.y = r.height / 2 - n.y * view.k;
+  select(n);
 }
 
 function select(n) {
@@ -145,6 +160,7 @@ function select(n) {
   renderPosts(true);
   draw();
 }
+$("findform").addEventListener("submit", (e) => { e.preventDefault(); find($("find").value); });
 $("clear").addEventListener("click", () => select(null));
 $("order").addEventListener("click", () => { order = order === "asc" ? "desc" : "asc"; $("order").textContent = order === "asc" ? "oldest first" : "newest first"; renderPosts(true); });
 
@@ -269,7 +285,8 @@ async function main() {
   t0 = model.posts[0].createdAt; t1 = Math.max(model.posts[model.posts.length - 1].createdAt, t0 + 3600e3);
   stats();
   renderRate();
-  $("controls").hidden = false; $("hist").hidden = false; $("postsec").hidden = false;
+  const dl = $("handles"); for (const n of model.nodes) { const o = document.createElement("option"); o.value = n.handle; dl.append(o); }
+  $("controls").hidden = false; $("findform").hidden = false; $("hist").hidden = false; $("postsec").hidden = false;
   status.textContent = res.failed ? `${res.failed} search window(s) failed after retries, so some posts may be missing. Laying out the graph…` : "laying out the graph…";
   const r = cv.getBoundingClientRect();
   view = { x: r.width / 2, y: r.height / 2, k: 1 };
