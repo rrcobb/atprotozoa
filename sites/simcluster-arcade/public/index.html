@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>simcluster arcade — mortal kombat with the simcluster — bisks.net</title>
+    <meta name="description" content="A Mortal Kombat arcade cabinet staffed by the simcluster: character select, a ladder of regulars each with their own moveset, and a PvP lobby that shows who else is online." />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://simcluster-arcade.bisks.net/" />
+    <meta property="og:title" content="simcluster arcade" />
+    <meta
+      property="og:description"
+      content="Mortal Kombat, but it\'s the simcluster. Pick a fighter, climb the arcade ladder, or jump in the PvP lobby and fight whoever else is online."
+    />
+    <meta property="og:image" content="https://simcluster-arcade.bisks.net/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://simcluster-arcade.bisks.net/og.png" />
+
+    <link rel="preconnect" href="https://public.api.bsky.app" />
+
+    <style>
+      :root {
+        --bg: #0a0710;
+        --panel: #150f20;
+        --panel2: #1d1530;
+        --ink: #f3ecff;
+        --muted: #9a86b8;
+        --faint: #2e2148;
+        --accent: #ff2e63;
+        --accent-dim: #a01f43;
+        --player: #26e0c9;
+        --gold: #ffd23f;
+        --good: #3ddc84;
+        --bad: #ff4d4d;
+        --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code",
+          "Roboto Mono", Menlo, Consolas, monospace;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(900px 500px at 50% -8%, #241436, var(--bg));
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 15px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap { max-width: 900px; margin: 0 auto; padding: 3rem 1.25rem 6rem; }
+
+      h1 {
+        font-size: 1.7rem; font-weight: 800; margin: 0;
+        letter-spacing: 0.03em; text-transform: uppercase;
+        color: var(--accent);
+        text-shadow: 2px 2px 0 var(--accent-dim);
+      }
+      h1 .slash { color: var(--muted); font-weight: 400; text-transform: none; letter-spacing: normal; text-shadow: none; font-size: 0.9rem; }
+      .intro {
+        color: var(--muted); margin: 0.6rem 0 2rem; font-size: 0.88rem;
+        line-height: 1.7; max-width: 66ch;
+      }
+      .intro b { color: var(--ink); font-weight: 700; }
+      .intro .p { color: var(--player); }
+      .intro .a { color: var(--accent); }
+
+      form.finder { margin: 0 0 0.6rem; max-width: 560px; }
+      label.lbl {
+        display: block; font-size: 0.76rem; color: var(--muted);
+        margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.05em;
+      }
+      .searchrow { display: flex; gap: 0.5rem; }
+      input[type="text"] {
+        flex: 1; font-family: inherit; font-size: 0.95rem;
+        padding: 0.6rem 0.7rem; border: 1px solid var(--faint);
+        border-radius: 4px; background: var(--panel); color: var(--ink);
+      }
+      input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+      .msg { min-height: 1.2rem; font-size: 0.8rem; margin: 0.5rem 0 1.6rem; color: var(--muted); }
+      .msg.err { color: var(--bad); }
+      .msg.ok { color: var(--good); }
+
+      button { font-family: inherit; cursor: pointer; }
+      button:disabled { opacity: 0.35; cursor: default; }
+      button.go {
+        font-size: 0.9rem; padding: 0.6rem 1.1rem;
+        border: 1px solid var(--accent); background: var(--accent); color: #1a0510;
+        border-radius: 4px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em;
+      }
+      button.go:hover:not(:disabled) { background: #ff5a80; }
+      button.ghost {
+        font-size: 0.82rem; padding: 0.5rem 0.85rem;
+        border: 1px solid var(--faint); background: transparent; color: var(--ink);
+        border-radius: 4px;
+      }
+      button.ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+
+      /* ── game shell ───────────────────────────────────────────────────── */
+      #game { display: none; margin-top: 0.5rem; }
+      #game.on { display: block; }
+
+      .ladder-track {
+        display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;
+        border: 1px solid var(--faint); border-radius: 6px;
+        background: var(--panel); padding: 0.7rem 0.8rem; margin-bottom: 1rem;
+      }
+      .ladder-track .rung {
+        width: 30px; height: 30px; border-radius: 50%; object-fit: cover;
+        background: var(--faint); border: 2px solid var(--faint); flex: none;
+        opacity: 0.45; filter: grayscale(0.6);
+      }
+      .ladder-track .rung.done { border-color: var(--good); opacity: 0.75; filter: none; }
+      .ladder-track .rung.now { border-color: var(--gold); opacity: 1; filter: none; transform: scale(1.15); }
+      .ladder-track .arrow { color: var(--muted); font-size: 0.8rem; }
+      .ladder-track .label { margin-left: auto; font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+
+      /* ── pre-fight taunt screen ──────────────────────────────────────── */
+      .prefight {
+        display: none; border: 1px solid var(--faint); border-radius: 8px;
+        background: var(--panel); padding: 1.4rem 1.3rem; margin-bottom: 1rem;
+        text-align: center;
+      }
+      .prefight.on { display: block; }
+      .prefight .rung-tag {
+        font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
+        color: var(--muted); margin-bottom: 0.6rem;
+      }
+      .prefight .rung-tag.boss { color: var(--gold); font-weight: 800; }
+      .prefight .portrait {
+        width: 84px; height: 84px; border-radius: 50%; object-fit: cover;
+        background: var(--faint); border: 3px solid var(--accent); margin-bottom: 0.7rem;
+      }
+      .prefight .name { font-weight: 800; font-size: 1.15rem; }
+      .prefight .handle { color: var(--muted); font-size: 0.82rem; margin-bottom: 0.5rem; }
+      .prefight .diffbar {
+        max-width: 260px; margin: 0.5rem auto 0.9rem; height: 8px; border-radius: 4px;
+        background: var(--faint); overflow: hidden;
+      }
+      .prefight .diffbar .fill { height: 100%; background: linear-gradient(90deg, var(--good), var(--gold), var(--accent)); }
+      .prefight .difflabel { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem; }
+      .taunt {
+        position: relative; max-width: 480px; margin: 0 auto 1.2rem;
+        background: var(--panel2); border: 1px solid var(--faint); border-radius: 10px;
+        padding: 0.8rem 1rem; font-size: 0.9rem; line-height: 1.5; color: var(--ink);
+      }
+      .taunt::after {
+        content: ""; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%);
+        border-width: 9px 8px 0; border-style: solid; border-color: var(--panel2) transparent transparent;
+      }
+      .movelist { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin: 0 auto 1.1rem; text-align: left; font-size: 0.78rem; }
+      .movelist .mv { min-width: 190px; background: var(--panel2); border: 1px solid var(--faint); border-radius: 6px; padding: 0.55rem 0.8rem; line-height: 1.55; }
+      .movelist .mv-h { font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.72rem; }
+      .movelist .mv-g { color: var(--muted); font-size: 0.62rem; margin-bottom: 0.3rem; font-family: monospace; word-break: break-all; }
+      .movelist .mv-s { color: var(--muted); font-size: 0.68rem; margin-bottom: 0.25rem; }
+      .movelist kbd { background: var(--panel); border: 1px solid var(--faint); border-radius: 3px; padding: 0 0.3rem; font-family: inherit; color: var(--ink); }
+      .controls-hint .dim { opacity: 0.7; }
+      .roster-grid .cell .cls { font-size: 0.6rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
+      .prefight .retries { font-size: 0.74rem; color: var(--muted); margin-bottom: 0.9rem; }
+      .prefight .retries b { color: var(--gold); }
+
+      /* ── arena ────────────────────────────────────────────────────────── */
+      .arena-wrap { display: none; }
+      .arena-wrap.on { display: block; }
+      .bars { display: flex; gap: 0.8rem; margin-bottom: 0.4rem; }
+      .bar { flex: 1; position: relative; }
+      .bar .name {
+        font-size: 0.72rem; margin-bottom: 0.2rem; display: flex; justify-content: space-between;
+        color: var(--muted);
+      }
+      .bar.player .name { color: var(--player); }
+      .bar.opp .name { color: var(--accent); text-align: right; flex-direction: row-reverse; }
+      .bar .track { height: 14px; border-radius: 3px; background: var(--faint); overflow: hidden; border: 1px solid var(--faint); }
+      .bar .fill { height: 100%; width: 100%; transition: width 0.15s ease; }
+      .bar.player .fill { background: var(--player); }
+      .bar.opp .fill { background: var(--accent); }
+      .bar .fill.hot { background: var(--bad) !important; }
+
+      #canvas {
+        display: block; width: 100%; max-width: 800px; margin: 0 auto;
+        background: linear-gradient(180deg, #1a1128 0%, #120b1c 70%, #0d0815 100%);
+        border: 1px solid var(--faint); border-radius: 8px; touch-action: none;
+      }
+      .controls-hint { position: relative; text-align: center; font-size: 0.72rem; color: var(--muted); margin: 0.5rem 0; padding-right: 2rem; }
+      .controls-hint kbd {
+        background: var(--panel2); border: 1px solid var(--faint); border-radius: 3px;
+        padding: 0.05rem 0.35rem; color: var(--ink); font-family: inherit;
+      }
+      button.mute {
+        position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+        border: 1px solid var(--faint); background: var(--panel2); color: var(--ink);
+        border-radius: 4px; font-size: 0.85rem; padding: 0.15rem 0.4rem; line-height: 1.4;
+      }
+      button.mute:hover { border-color: var(--accent); }
+
+      .touch { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; margin-top: 0.6rem; }
+      .touch .side { display: flex; gap: 0.5rem; }
+      .touch button {
+        width: 46px; height: 46px; border-radius: 50%; font-size: 1.15rem;
+        border: 1px solid var(--faint); background: var(--panel2); color: var(--ink);
+        touch-action: manipulation; user-select: none;
+      }
+      .touch button:active { background: var(--accent); border-color: var(--accent); }
+      @media (min-width: 720px) { .touch { display: none; } }
+
+      /* ── result overlays ─────────────────────────────────────────────── */
+      .result-overlay {
+        display: none; text-align: center; border-radius: 8px; padding: 1.3rem;
+        margin-top: 0.8rem; border: 1px solid var(--faint); background: var(--panel);
+      }
+      .result-overlay.on { display: block; }
+      .result-overlay h2 { margin: 0 0 0.4rem; font-size: 1.4rem; letter-spacing: 0.02em; }
+      .result-overlay.win h2 { color: var(--good); }
+      .result-overlay.lose h2 { color: var(--bad); }
+      .result-overlay p { color: var(--muted); margin: 0 0 1rem; font-size: 0.86rem; }
+      .result-overlay .actions { display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; }
+
+      /* ── end cards ────────────────────────────────────────────────────── */
+      .endcard {
+        display: none; border-radius: 8px; padding: 1.6rem 1.4rem; margin-top: 1rem; text-align: center;
+      }
+      .endcard.on { display: block; }
+      .endcard.victory { background: #1e2a10; border: 1px solid var(--gold); }
+      .endcard.defeat { background: #2a0d14; border: 1px solid var(--bad); }
+      .endcard h2 { margin: 0 0 0.5rem; font-size: 1.6rem; letter-spacing: 0.02em; }
+      .endcard.victory h2 { color: var(--gold); }
+      .endcard.defeat h2 { color: var(--bad); }
+      .endcard p { color: var(--muted); margin: 0 0 1.1rem; font-size: 0.88rem; }
+      .endcard .actions { display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap; }
+      .endcard .actions a.share, .endcard .actions button.share {
+        border: 1px solid var(--gold); background: transparent; color: var(--gold);
+        border-radius: 4px; padding: 0.5rem 0.85rem; font-size: 0.82rem; text-decoration: none;
+        font-weight: 700;
+      }
+      .endcard .actions a.share:hover, .endcard .actions button.share:hover { background: var(--gold); color: #241a04; }
+
+      /* ── roster (character select) ───────────────────────────────────── */
+      #roster { display: none; }
+      #roster.on { display: block; }
+      #roster h2 {
+        margin: 0 0 0.3rem; font-size: 1.3rem; letter-spacing: 0.08em; text-transform: uppercase;
+        color: var(--gold); text-shadow: 2px 2px 0 #6b5510;
+      }
+      #roster p { color: var(--muted); font-size: 0.82rem; margin: 0 0 1rem; }
+      .roster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 0.6rem; margin-bottom: 1rem; }
+      .roster-grid .cell {
+        display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
+        padding: 0.7rem 0.4rem; background: var(--panel); color: var(--ink); font-family: inherit;
+        border: 2px solid var(--faint); border-radius: 6px; cursor: pointer; text-align: center;
+      }
+      .roster-grid .cell:hover, .roster-grid .cell:focus-visible { border-color: var(--gold); background: var(--panel2); outline: none; }
+      .roster-grid .cell.you { border-color: var(--player); }
+      .roster-grid .cell img { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; background: var(--faint); }
+      .roster-grid .cell .nm { font-size: 0.74rem; font-weight: 700; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .roster-grid .cell .hd { font-size: 0.64rem; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #title { display: none; }
+      #title.on { display: block; }
+      .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; margin: 1.2rem 0; }
+      .mode {
+        font: inherit; color: var(--ink); text-align: left; cursor: pointer;
+        background: var(--panel); border: 2px solid var(--accent); border-radius: 8px; padding: 1rem 1.1rem;
+        display: flex; flex-direction: column; gap: 0.25rem;
+        box-shadow: 4px 4px 0 var(--accent-dim); transition: transform 0.08s;
+      }
+      .mode b { font-size: 1.3rem; letter-spacing: 0.06em; color: var(--accent); }
+      .mode span { font-size: 0.78rem; color: var(--muted); }
+      .mode.pvp { border-color: var(--player); box-shadow: 4px 4px 0 #14786c; }
+      .mode.pvp b { color: var(--player); }
+      .mode:hover:not(:disabled) { transform: translate(-2px, -2px); }
+      .mode:disabled { opacity: 0.6; cursor: wait; }
+      @media (max-width: 560px) { .modes { grid-template-columns: 1fr; } }
+      .go.alt { background: var(--player); color: #07201d; }
+      #lobby { display: none; }
+      #lobby.on { display: block; }
+      #lobby h2 { font-size: 1.1rem; margin: 0 0 0.4rem; color: var(--player); text-transform: uppercase; letter-spacing: 0.06em; }
+      #lobby p { color: var(--muted); font-size: 0.82rem; margin: 0 0 1rem; }
+      .lobby-me { display: flex; align-items: center; gap: 0.6rem; font-weight: 700; margin-bottom: 0.6rem; }
+      .lobby-me img, .lobby-row img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: var(--faint); }
+      .lobby-row {
+        display: flex; align-items: center; gap: 0.8rem; padding: 0.6rem 0.8rem; margin-bottom: 0.5rem;
+        background: var(--panel); border: 1px solid var(--faint); border-radius: 6px;
+      }
+      .lobby-row.challenge { border-color: var(--gold); background: var(--panel2); }
+      .lobby-row .who { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 0.8rem; }
+      .lobby-row .who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .lobby-row .who span { color: var(--muted); font-size: 0.72rem; }
+      .lobby-empty { padding: 1rem; border: 1px dashed var(--faint); border-radius: 6px; color: var(--muted); font-size: 0.82rem; margin-bottom: 0.8rem; }
+      .arena-wrap { position: relative; }
+      .arena-wrap::after {
+        content: ""; position: absolute; left: 0; right: 0; bottom: 0; pointer-events: none; height: 100%;
+        background: repeating-linear-gradient(0deg, rgba(0,0,0,0.12) 0 1px, transparent 1px 3px);
+      }
+      /* versus screen */
+      #vs {
+        display: none; position: fixed; inset: 0; z-index: 2147482000;
+        background: radial-gradient(700px 400px at 50% 50%, #3a1030, #07040c 70%);
+        align-items: center; justify-content: center; gap: 1.2rem; padding: 1rem;
+      }
+      #vs.on { display: flex; }
+      #vs .vs-side {
+        --c: #fff; flex: 1; max-width: 320px; text-align: center; min-width: 0;
+        animation: vs-in-l 0.45s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+      }
+      #vs .vs-side.right { animation-name: vs-in-r; }
+      #vs img { width: 150px; height: 150px; border-radius: 50%; object-fit: cover; border: 5px solid var(--c); box-shadow: 0 0 40px var(--c); background: var(--faint); }
+      #vs .vs-name { font-size: 1.4rem; font-weight: 900; margin-top: 0.7rem; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #vs .vs-handle { color: var(--muted); font-size: 0.8rem; }
+      #vs .vs-class { font-size: 0.78rem; font-weight: 700; margin-top: 0.3rem; }
+      #vs .vs-gene { font-size: 0.66rem; color: var(--muted); margin-top: 0.5rem; word-break: break-all; }
+      #vs .vs-mid {
+        font-size: 4.2rem; font-weight: 900; color: var(--gold); text-shadow: 4px 4px 0 var(--accent-dim);
+        animation: vs-pop 0.5s 0.35s cubic-bezier(0.2, 1.8, 0.4, 1) both;
+      }
+      @keyframes vs-in-l { from { transform: translateX(-120vw); } to { transform: none; } }
+      @keyframes vs-in-r { from { transform: translateX(120vw); } to { transform: none; } }
+      @keyframes vs-pop { from { transform: scale(0) rotate(-30deg); } to { transform: none; } }
+      @media (max-width: 560px) { #vs img { width: 90px; height: 90px; } #vs .vs-mid { font-size: 2.4rem; } #vs .vs-name { font-size: 1rem; } }
+      footer {
+        margin-top: 3rem; color: var(--muted); font-size: 0.78rem;
+        border-top: 1px solid var(--faint); padding-top: 1rem;
+      }
+      footer a { color: var(--accent); text-decoration: none; }
+      footer a:hover { text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>S<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">I</span>MCLUSTER ARCADE <span class="slash">· mortal kombat, but it's the simcluster</span></h1>
+      <div id="title" class="on">
+        <p class="intro">
+          Pick a fighter from the simcluster's regulars. Every account is a
+          <b>class</b> (bruiser, ninja, mage, monk, acrobat, boxer, trickster
+          or storm) with its own body, punch, kick and <b>two specials</b>:
+          fireballs, shuriken, boomerangs, shockwaves, lunges, teleports and a
+          lightning strike you can see coming. Smash-style stage with
+          platforms, double jump, dash, and percent damage until a hit sends
+          someone clean off the stage for the <b class="a">K.O.</b> Each fighter
+          carries a live 60-base stretch of the guava genome, after
+          <a href="https://bsky.app/profile/abeliansoup.bsky.social">@abeliansoup</a>'s
+          proteins-in-the-octagon posts.
+        </p>
+        <div class="modes">
+          <button class="mode" id="modeArcade" type="button"><b>ARCADE</b><span>choose a fighter, then climb the cast to the final boss</span></button>
+          <button class="mode pvp" id="modePvp" type="button"><b>PVP LOBBY</b><span>see who else is online and challenge them, live</span></button>
+        </div>
+        <form class="finder" id="form" autocomplete="off">
+          <label class="lbl">or build the roster from a bluesky handle: you + your mutuals</label>
+          <div class="searchrow">
+            <input type="text" id="handle" placeholder="e.g. norvid-studies.bsky.social" spellcheck="false" />
+            <button class="go" id="play" type="submit">arcade ladder</button>
+            <button class="go alt" id="playPvp" type="button">pvp lobby</button>
+          </div>
+        </form>
+        <p class="msg" id="msg">reads Bluesky's public graph and feeds in your browser — no login.</p>
+      </div>
+
+      <section id="roster">
+        <h2 id="rosterTitle">choose your fighter</h2>
+        <p id="rosterBlurb"></p>
+        <div class="roster-grid" id="rosterGrid"></div>
+        <button class="ghost" id="rosterBack" type="button">back to the start</button>
+      </section>
+      <section id="lobby">
+        <h2>pvp lobby</h2>
+        <div class="lobby-me" id="lobbyMe"></div>
+        <p><span id="lobbyCount">nobody else is here yet</span> · everyone who has this page open in the lobby shows up here within seconds. the fight itself is peer-to-peer, no server in between.</p>
+        <div id="challenges"></div>
+        <div id="lobbyList"></div>
+        <p class="msg" id="lobbyStatus"></p>
+        <button class="ghost" id="lobbyBack" type="button">change fighter</button>
+      </section>
+      <section id="game">
+        <div class="ladder-track" id="ladderTrack"></div>
+
+        <div class="prefight" id="prefight">
+          <div class="rung-tag" id="rungTag"></div>
+          <img class="portrait" id="oppPortrait" alt="" />
+          <div class="name" id="oppName"></div>
+          <div class="handle" id="oppHandle"></div>
+          <div class="diffbar"><div class="fill" id="diffFill" style="width:0%"></div></div>
+          <div class="difflabel" id="diffLabel"></div>
+          <div class="taunt" id="tauntBubble">…</div>
+          <div class="movelist" id="moveList"></div>
+          <div class="retries" id="retriesLabel"></div>
+          <button class="go" id="fightBtn">FIGHT</button>
+        </div>
+
+        <div class="arena-wrap" id="arenaWrap">
+          <div class="bars">
+            <div class="bar player">
+              <div class="name"><span id="playerBarName">you</span><span id="playerHp">100</span></div>
+              <div class="track"><div class="fill" id="playerFill"></div></div>
+            </div>
+            <div class="bar opp">
+              <div class="name"><span id="oppHp">100</span><span id="oppBarName">moot</span></div>
+              <div class="track"><div class="fill" id="oppFill"></div></div>
+            </div>
+          </div>
+          <canvas id="canvas" width="800" height="420"></canvas>
+          <div class="controls-hint">
+            <kbd>A</kbd>/<kbd>D</kbd> or <kbd>←</kbd>/<kbd>→</kbd> move ·
+            <kbd>W</kbd>/<kbd>Space</kbd> jump (x2) · <kbd>Shift</kbd> dash ·
+            <kbd>J</kbd> punch · <kbd>K</kbd> kick · hold <kbd>L</kbd> block
+            <br /><kbd>U</kbd> <span id="sp1Name">special</span> · <kbd>I</kbd> <span id="sp2Name">special</span> <span class="dim">(cooldowns bottom-left)</span>
+            <button class="mute" id="muteBtn" type="button" title="mute sound">🔊</button>
+          </div>
+          <div class="touch" id="touch">
+            <div class="side">
+              <button data-k="left">◀</button>
+              <button data-k="right">▶</button>
+              <button data-k="jump">⤒</button>
+            </div>
+            <div class="side">
+              <button data-k="dash">⚡</button>
+              <button data-k="block">🛡</button>
+              <button data-k="sp1">✦</button>
+              <button data-k="sp2">✧</button>
+              <button data-k="punch">👊</button>
+              <button data-k="kick">🦵</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="result-overlay" id="resultOverlay">
+          <h2 id="resultTitle"></h2>
+          <p id="resultText"></p>
+          <div class="actions" id="resultActions"></div>
+        </div>
+      </section>
+
+      <div class="endcard victory" id="victoryCard">
+        <h2>LADDER CLEARED</h2>
+        <p id="victoryMsg"></p>
+        <div class="actions">
+          <button class="go" id="victoryReplay">run it back</button>
+          <a class="share" id="victoryShare" href="#" target="_blank" rel="noopener">share on bluesky</a>
+          <button class="share" id="victoryShareNative" hidden>share card</button>
+          <button class="ghost" id="victoryRoster">pick another fighter</button>
+          <button class="ghost" id="victoryNew">back to the start</button>
+        </div>
+      </div>
+
+      <div class="endcard defeat" id="defeatCard">
+        <h2>RUN OVER</h2>
+        <p id="defeatMsg"></p>
+        <div class="actions">
+          <button class="go" id="defeatReplay">run it back</button>
+          <a class="share" id="defeatShare" href="#" target="_blank" rel="noopener">share on bluesky</a>
+          <button class="share" id="defeatShareNative" hidden>share card</button>
+          <button class="ghost" id="defeatRoster">pick another fighter</button>
+          <button class="ghost" id="defeatNew">back to the start</button>
+        </div>
+      </div>
+
+      <div id="vs" aria-hidden="true">
+        <div class="vs-side left"><img alt="" /><div class="vs-name"></div><div class="vs-handle"></div><div class="vs-class"></div><div class="vs-gene"></div></div>
+        <div class="vs-mid">VS</div>
+        <div class="vs-side right"><img alt="" /><div class="vs-name"></div><div class="vs-handle"></div><div class="vs-class"></div><div class="vs-gene"></div></div>
+      </div>
+
+      <canvas id="shareCanvas" width="1200" height="630" style="display: none"></canvas>
+
+      <footer>
+        forked from <a href="https://simcluster-kombat.bisks.net/">simcluster kombat</a>.
+        the arcade cast's avatars come live from Bluesky's public AppView; the
+        pvp lobby's presence and handshake ride on ntfy.sh, and the fight is
+        peer-to-peer over WebRTC. sibling of
+        <a href="https://bisks.net">bisks.net</a>. <a href="https://rateyourbuild.bisks.net/site/simcluster-arcade">rate this on rateyourbuild →</a>
+        · <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a>
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module" src="./fighter.js"></script>
+
+    <!-- chicken mode (added across projects by @buildthis.bisks.net) -->
+    <style>
+      #cm-toggle {
+        position: fixed;
+        right: 0.85rem;
+        bottom: 0.85rem;
+        z-index: 2147483000;
+        font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        font-size: 0.7rem;
+        line-height: 1;
+        background: rgba(20, 20, 20, 0.72);
+        color: #ddd;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        -webkit-backdrop-filter: blur(4px);
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+      }
+      #cm-toggle.on { background: #f4b400; color: #1a1206; border-color: #f4b400; }
+      #cm-coop {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2.2rem;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 2147483000;
+        display: none;
+      }
+      #cm-coop.on { display: block; }
+      .cm-chicken {
+        position: absolute;
+        bottom: 0.1rem;
+        font-size: 1.5rem;
+        transform: scaleX(-1);
+        animation-name: cm-strut;
+        animation-timing-function: linear;
+        animation-iteration-count: infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      @keyframes cm-strut {
+        0% { transform: translateX(-3rem) scaleX(-1); }
+        48% { transform: translateX(calc(100vw + 3rem)) scaleX(-1) translateY(-0.3rem); }
+        50% { transform: translateX(calc(100vw + 3rem)) scaleX(1); }
+        98% { transform: translateX(-3rem) scaleX(1) translateY(-0.3rem); }
+        100% { transform: translateX(-3rem) scaleX(-1); }
+      }
+    </style>
+    <button id="cm-toggle" type="button" title="it's not really corgi mode">🐔</button>
+    <div id="cm-coop"></div>
+    <script>
+      (function () {
+        var coop = document.getElementById("cm-coop");
+        var toggle = document.getElementById("cm-toggle");
+        if (!coop || !toggle) return;
+        var KEY = "chicken-mode";
+        var spawner = null;
+
+        function spawn() {
+          var c = document.createElement("div");
+          c.className = "cm-chicken";
+          c.textContent = Math.random() < 0.15 ? "🐓" : "🐔";
+          var duration = 14 + Math.random() * 10;
+          c.style.animationDuration = duration + "s";
+          c.style.animationDelay = -Math.random() * duration + "s";
+          c.style.fontSize = (1.1 + Math.random() * 0.9) + "rem";
+          coop.appendChild(c);
+        }
+        function start() {
+          if (spawner) return;
+          coop.innerHTML = "";
+          for (var i = 0; i < 5; i++) spawn();
+          spawner = setInterval(function () {
+            if (coop.children.length < 8) spawn();
+          }, 4000);
+        }
+        function stop() {
+          if (spawner) clearInterval(spawner);
+          spawner = null;
+          coop.innerHTML = "";
+        }
+        function setMode(on) {
+          coop.classList.toggle("on", on);
+          toggle.classList.toggle("on", on);
+          if (on) start(); else stop();
+          try { localStorage.setItem(KEY, on ? "1" : "0"); } catch (e) {}
+        }
+        toggle.addEventListener("click", function () {
+          setMode(!coop.classList.contains("on"));
+        });
+        var startedOn = false;
+        try { startedOn = localStorage.getItem(KEY) === "1"; } catch (e) {}
+        if (startedOn) setMode(true);
+      })();
+    </script>
+    <!-- /chicken mode -->
+</body>
+</html>
