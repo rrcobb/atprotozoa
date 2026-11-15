@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>mootmix — a playlist from your moots' posts — bisks.net</title>
+    <meta name="description" content="Enter a Bluesky handle: every moot's whole post history is scanned for music links (YouTube, Spotify, SoundCloud, Bandcamp, Apple Music…) and turned into one playable playlist." />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="mootmix — a playlist from your moots' posts" />
+    <meta property="og:description" content="Every music link your moots ever posted, deduped into one playable playlist." />
+    <meta property="og:url" content="https://mootmix.bisks.net/" />
+    <meta property="og:image" content="https://mootmix.bisks.net/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="mootmix — a cassette tape labeled with your moots' names." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="mootmix — a playlist from your moots' posts" />
+    <meta name="twitter:description" content="Every music link your moots ever posted, deduped into one playable playlist." />
+    <meta name="twitter:image" content="https://mootmix.bisks.net/og.png" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <span class="brand">mootmix</span>
+        <span class="brand-sub">y<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">o</span>ur moots' music, one playlist</span>
+      </header>
+
+      <section id="gate" class="screen">
+        <div class="intro-card">
+          <p>
+            Your moots have been dropping songs in their posts for years. This
+            downloads every moot's whole repo, pulls out every <b>music link</b>
+            (YouTube, Spotify, SoundCloud, Apple Music, Mixcloud, Bandcamp…),
+            dedupes them, and hands you one <b>playable playlist</b>.
+          </p>
+          <p class="fine">
+            Public reads only — no login, nothing written anywhere. Each moot's
+            entire history is read, no page limit, up to <span id="poolCapLabel">1000</span>
+            moots deep. Give it a minute.
+          </p>
+          <form id="goForm" autocomplete="off">
+            <label class="lbl" for="handle">your handle</label>
+            <div class="row">
+              <input type="text" id="handle" placeholder="e.g. cee.wtf" spellcheck="false" />
+              <button id="goBtn" type="submit">mix it</button>
+            </div>
+          </form>
+          <p class="msg" id="goMsg"></p>
+        </div>
+      </section>
+
+      <section id="working" class="screen hidden">
+        <div class="progress-card">
+          <div class="status" id="statusLine">reading the graph…</div>
+          <div class="meter"><i id="meterBar" style="width:6%"></i></div>
+          <div class="substat" id="subStat"></div>
+        </div>
+      </section>
+
+      <section id="result" class="screen hidden">
+        <div class="summary-card" id="summaryCard"></div>
+
+        <div class="player-card hidden" id="playerCard">
+          <p class="now" id="now"></p>
+          <div class="stage" id="stage"></div>
+          <div class="ctrls">
+            <button id="prevBtn" class="ghost small" type="button">⏮ prev</button>
+            <button id="nextBtn" class="small" type="button">next ⏭</button>
+            <label><input type="checkbox" id="autoNext" checked /> auto-advance</label>
+          </div>
+        </div>
+
+        <div class="ctrls">
+          <button id="playAll" type="button">▶ play all</button>
+          <button id="shuffle" class="ghost" type="button">🔀 shuffle</button>
+          <button id="newest" class="ghost" type="button">newest first</button>
+        </div>
+        <div class="filters" id="filters"></div>
+        <div class="feedhead"><span id="listCount"></span></div>
+        <ol id="tracks" class="tracks"></ol>
+
+        <div class="sharebar">
+          <a id="shareLink" href="#" target="_blank" rel="noopener">post this mix to Bluesky →</a>
+        </div>
+        <div class="startover">
+          <button id="restart" class="ghost small" type="button">mix someone else</button>
+        </div>
+      </section>
+
+      <footer>
+        moots = mutual follows, read from Bluesky's public AppView. YouTube,
+        Spotify, SoundCloud, Apple Music and Mixcloud links play in the page;
+        Bandcamp, Tidal, Deezer and song.link links open in a new tab. Only
+        original posts and replies count, not reposts.
+        <a href="https://rateyourbuild.bisks.net/site/mootmix">rate this on rateyourbuild →</a>
+        · November is #NaNoFoMo: <a href="https://nanofomo.bisks.net/">pledge not to foom →</a>
+        · sibling of <a href="https://backscroll.bisks.net">backscroll</a>.
+      </footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script>
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));
+    </script>
+    <script type="module">
+      import { resolveDid, moots, walkAll, postUrl, POOL_CAP } from "./lib/mootmix.js";
+
+      const $ = (id) => document.getElementById(id);
+      const screens = ["gate", "working", "result"].map($);
+      const showScreen = (id) => screens.forEach((s) => s.classList.toggle("hidden", s.id !== id));
+      $("poolCapLabel").textContent = String(POOL_CAP);
+
+      let tracks = [];      // all deduped tracks
+      let queue = [];       // currently listed (filtered + ordered)
+      let cur = -1;         // index into queue
+      let service = "all";
+      let order = "newest"; // newest | shuffle
+      let me = "";
+
+      const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      const dateOf = (iso) => (iso || "").slice(0, 10);
+
+      $("goForm").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const raw = $("handle").value.trim().replace(/^@/, "");
+        const msg = $("goMsg");
+        msg.className = "msg";
+        msg.textContent = "";
+        if (!raw) { msg.textContent = "type a handle first"; return; }
+        $("goBtn").disabled = true;
+        try {
+          const did = await resolveDid(raw);
+          me = raw;
+          showScreen("working");
+          $("statusLine").textContent = "mapping your moots…";
+          const m = await moots(did, { onStep: (s) => ($("statusLine").textContent = s) });
+          if (!m.pool.length) throw new Error("no moots found for that account");
+          $("statusLine").textContent = `scanning ${Math.min(m.pool.length, POOL_CAP)} ${m.kind} for music…`;
+          const res = await walkAll(m.pool, {
+            onProgress: (p) => {
+              $("meterBar").style.width = Math.max(6, Math.round((p.done / p.total) * 100)) + "%";
+              $("subStat").textContent = `${p.done}/${p.total} moots · ${p.posts.toLocaleString()} posts read · ${p.tracks} tracks found${p.current ? " · " + p.current : ""}`;
+            },
+          });
+          tracks = res.tracks;
+          $("summaryCard").innerHTML =
+            `<b>${tracks.length.toLocaleString()}</b> unique music links from <b>${res.walkedCount}</b> ${esc(m.kind)} ` +
+            `(${res.posts.toLocaleString()} posts scanned, ${res.links.toLocaleString()} link mentions)` +
+            (res.poolTruncated ? ` — only the first ${res.walkedCount} of ${res.poolSize} were scanned.` : ".");
+          service = "all"; order = "newest"; cur = -1;
+          $("playerCard").classList.add("hidden");
+          $("stage").innerHTML = "";
+          $("shareLink").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(`my moots posted ${tracks.length} songs. mootmix turned them into a playlist: https://mootmix.bisks.net/`);
+          buildList();
+          showScreen("result");
+        } catch (err) {
+          showScreen("gate");
+          msg.className = "msg err";
+          msg.textContent = String(err.message || err);
+        } finally {
+          $("goBtn").disabled = false;
+        }
+      });
+
+      function shuffled(a) {
+        a = a.slice();
+        for (let i = a.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [a[i], a[j]] = [a[j], a[i]];
+        }
+        return a;
+      }
+
+      function buildList() {
+        const services = [...new Set(tracks.map((t) => t.service))].sort();
+        $("filters").innerHTML = ["all", ...services]
+          .map((s) => `<button type="button" class="ghost${s === service ? " on" : ""}" data-s="${esc(s)}">${esc(s)}</button>`)
+          .join("");
+        let list = tracks.filter((t) => service === "all" || t.service === service);
+        list = order === "shuffle" ? shuffled(list) : list.sort((a, b) => (a.latest < b.latest ? 1 : -1));
+        queue = list;
+        cur = -1;
+        $("listCount").textContent = `${queue.length} tracks · ${order === "shuffle" ? "shuffled" : "most recently shared first"}`;
+        $("tracks").innerHTML = queue.map((t, i) => {
+          const who = t.shares[0];
+          const more = t.shares.length > 1 ? ` · +${t.shares.length - 1} more share${t.shares.length > 2 ? "s" : ""}` : "";
+          const title = t.title || t.label;
+          const playable = t.ytId || t.embed;
+          return `<li class="track" data-i="${i}"><span class="n">${i + 1}</span><div class="body">
+            <div class="ttl"><span class="chip${playable ? "" : " open"}">${esc(t.service)}</span>${esc(title)}</div>
+            <div class="meta">shared by @${esc(who.handle)} ${esc(dateOf(who.createdAt))}${more}
+            · <a href="${esc(postUrl(who.postUri, who.handle))}" target="_blank" rel="noopener" data-stop>post</a>
+            · <a href="${esc(t.url)}" target="_blank" rel="noopener" data-stop>link</a></div></div></li>`;
+        }).join("");
+      }
+
+      $("filters").addEventListener("click", (e) => {
+        const b = e.target.closest("button[data-s]");
+        if (!b) return;
+        service = b.dataset.s;
+        buildList();
+      });
+      $("shuffle").addEventListener("click", () => { order = "shuffle"; buildList(); play(0); });
+      $("newest").addEventListener("click", () => { order = "newest"; buildList(); });
+      $("playAll").addEventListener("click", () => play(0));
+      $("tracks").addEventListener("click", (e) => {
+        if (e.target.closest("[data-stop]")) return;
+        const li = e.target.closest("li.track");
+        if (li) play(Number(li.dataset.i));
+      });
+      $("nextBtn").addEventListener("click", () => step(1));
+      $("prevBtn").addEventListener("click", () => step(-1));
+      $("restart").addEventListener("click", () => {
+        $("stage").innerHTML = "";
+        ytPlayer = null;
+        showScreen("gate");
+      });
+
+      function step(d) {
+        if (!queue.length) return;
+        play((cur + d + queue.length) % queue.length);
+      }
+
+      // ---- player ----------------------------------------------------------
+      let ytPlayer = null;
+      let ytApi = null;
+      function loadYtApi() {
+        if (ytApi) return ytApi;
+        ytApi = new Promise((resolve) => {
+          const prev = window.onYouTubeIframeAPIReady;
+          window.onYouTubeIframeAPIReady = () => { if (prev) prev(); resolve(); };
+          const s = document.createElement("script");
+          s.src = "https://www.youtube.com/iframe_api";
+          s.onerror = () => resolve();
+          document.head.appendChild(s);
+        });
+        return ytApi;
+      }
+
+      async function play(i) {
+        const t = queue[i];
+        if (!t) return;
+        cur = i;
+        document.querySelectorAll("li.track").forEach((li) => li.classList.toggle("cur", Number(li.dataset.i) === i));
+        const li = document.querySelector(`li.track[data-i="${i}"]`);
+        if (li) li.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        $("playerCard").classList.remove("hidden");
+        const who = t.shares[0];
+        $("now").innerHTML = `<b>${i + 1}/${queue.length}</b> · ${esc(t.title || t.label)} — shared by @${esc(who.handle)} · <a href="${esc(t.url)}" target="_blank" rel="noopener">open original</a>`;
+        const stage = $("stage");
+        if (ytPlayer && ytPlayer.destroy) { try { ytPlayer.destroy(); } catch (_) {} }
+        ytPlayer = null;
+        if (t.ytId) {
+          stage.innerHTML = '<div class="yt"><div id="ytHost"></div></div>';
+          await loadYtApi();
+          if (!window.YT || !window.YT.Player) {
+            stage.innerHTML = `<div class="open">couldn't load the YouTube player. <a href="${esc(t.url)}" target="_blank" rel="noopener">open it on YouTube →</a></div>`;
+            return;
+          }
+          if (cur !== i) return; // user moved on while the API loaded
+          ytPlayer = new window.YT.Player("ytHost", {
+            width: "100%", height: "100%", videoId: t.ytId,
+            playerVars: { autoplay: 1, start: t.start || 0, playsinline: 1 },
+            events: {
+              onReady: (ev) => ev.target.playVideo(),
+              onStateChange: (ev) => { if (ev.data === 0 && $("autoNext").checked) step(1); },
+              onError: () => { if ($("autoNext").checked) step(1); },
+            },
+          });
+          const host = stage.querySelector(".yt");
+          if (host) host.style.cssText = "width:100%;aspect-ratio:16/9";
+        } else if (t.embed) {
+          const tall = t.service === "spotify" && /\/(album|playlist|show|artist)\//.test(t.embed);
+          const cls = t.service === "apple" || tall ? "tall" : "short";
+          stage.innerHTML = `<iframe class="${cls}" src="${esc(t.embed)}" allow="autoplay *; encrypted-media *; clipboard-write" loading="lazy"></iframe>`;
+        } else {
+          stage.innerHTML = `<div class="open">${esc(t.service)} can't be embedded from a bare link. <a href="${esc(t.url)}" target="_blank" rel="noopener">open it in a new tab →</a><br/>then come back and hit next.</div>`;
+        }
+      }
+    </script>
+  </body>
+</html>
