@@ -8,6 +8,7 @@
 
 import { buildLadder, fetchHitTweet, pickLadder } from "./lib/moots.js";
 import { characterFor, SLOT_KEYS } from "./lib/characters.js";
+import { geneFor } from "./lib/genome.js";
 
 // ── DOM ────────────────────────────────────────────────────────────────
 const form = document.getElementById("form");
@@ -1262,6 +1263,13 @@ function moveCol(title, m) {
   st.className = "mv-s";
   st.textContent = statLine(c);
   col.append(h, st);
+  const gene = document.createElement("div");
+  gene.className = "mv-g";
+  gene.textContent = "guava locus: reading…";
+  col.appendChild(gene);
+  geneFor(m.did || m.handle || "").then((g) => {
+    gene.textContent = g ? `chr${g.chr}:${g.pos.toLocaleString()} · GC ${g.gc}% · ${g.peptide}` : "guava locus: unavailable";
+  });
   for (const slot of ["punch", "kick", "sp1", "sp2"]) {
     const mv = c.moves[slot];
     const row = document.createElement("div");
