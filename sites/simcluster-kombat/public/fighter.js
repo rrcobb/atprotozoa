@@ -1,10 +1,13 @@
 // fighter.js — simcluster kombat (forked from mootkombat). Canvas stick-figure fighter: build a moot ladder
 // (lib/moots.js) then fight up it, one bout per moot, one retry per moot.
+// Every account is a class (lib/characters.js) with its own body, basic
+// punch/kick and two specials (U / I): projectiles, blinks, lunges, lightning.
 // Smash-style: floating stage + platforms, double jump, dash, percent-based
 // knockback that sends fighters flying off the blast zones for the KO.
 // No frameworks, no build step — vanilla JS + canvas 2D + WebAudio.
 
-import { buildLadder } from "./lib/moots.js";
+import { buildLadder, fetchHitTweet, pickLadder } from "./lib/moots.js";
+import { characterFor, SLOT_KEYS } from "./lib/characters.js";
 
 // ── DOM ────────────────────────────────────────────────────────────────
 const form = document.getElementById("form");
@@ -38,6 +41,9 @@ const oppHpEl = document.getElementById("oppHp");
 const playerBarNameEl = document.getElementById("playerBarName");
 const oppBarNameEl = document.getElementById("oppBarName");
 const muteBtn = document.getElementById("muteBtn");
+const sp1NameEl = document.getElementById("sp1Name");
+const sp2NameEl = document.getElementById("sp2Name");
+const moveListEl = document.getElementById("moveList");
 
 const resultOverlayEl = document.getElementById("resultOverlay");
 const resultTitleEl = document.getElementById("resultTitle");
@@ -72,14 +78,6 @@ const platR = { x1: W - 330, x2: W - 170, y: GROUND - 110 };
 const platC = { x1: W / 2 - 70, x2: W / 2 + 70, y: GROUND - 195 };
 const SURFACES = [GROUND_SURFACE, platL, platR, platC];
 
-const PUNCH = {
-  range: 74, dmg: [5, 9], startup: 110, active: 90, recovery: 160,
-  kbBase: 110, kbGrowth: 3.0, angle: (58 * Math.PI) / 180,
-};
-const KICK = {
-  range: 96, dmg: [8, 13], startup: 190, active: 100, recovery: 230,
-  kbBase: 150, kbGrowth: 3.7, angle: (50 * Math.PI) / 180,
-};
 const BLOCK_CHIP = 0.15; // fraction of damage that still gets through a block
 
 const escapeHtml = (s) =>
@@ -139,6 +137,10 @@ const sfx = {
   kick: () => { noiseBurst({ dur: 0.1, gain: 0.32, filterFreq: 900 }); beep({ freq: 120, dur: 0.09, gain: 0.14 }); },
   block: () => { beep({ freq: 340, dur: 0.05, type: "triangle", gain: 0.12 }); noiseBurst({ dur: 0.05, gain: 0.15, filterFreq: 2500 }); },
   jump: (double) => beep({ freq: double ? 520 : 420, dur: 0.08, type: "sine", gain: 0.1, slide: double ? 160 : 100 }),
+  boom: () => { noiseBurst({ dur: 0.25, gain: 0.35, filterFreq: 400 }); beep({ freq: 80, dur: 0.22, type: "sawtooth", gain: 0.16, slide: -40 }); },
+  zap: () => { beep({ freq: 900, dur: 0.14, type: "sawtooth", gain: 0.1, slide: -700 }); noiseBurst({ dur: 0.12, gain: 0.15, filterFreq: 5000 }); },
+  whoosh: () => noiseBurst({ dur: 0.16, gain: 0.16, filterFreq: 2400 }),
+  cast: () => beep({ freq: 300, dur: 0.18, type: "triangle", gain: 0.12, slide: 360 }),
   dash: () => noiseBurst({ dur: 0.12, gain: 0.18, filterFreq: 3200 }),
   land: () => noiseBurst({ dur: 0.06, gain: 0.12, filterFreq: 600 }),
   ko: () => { beep({ freq: 520, dur: 0.5, type: "sawtooth", gain: 0.15, slide: -460 }); noiseBurst({ dur: 0.4, gain: 0.2, filterFreq: 500, delay: 0.05 }); },
@@ -180,8 +182,10 @@ let retriesLeft = 1;
 let cleared = 0;
 
 // ── fighter entity ────────────────────────────────────────────────────
-function makeFighter({ x, facingRight, isPlayer, name, avatar, color, difficulty }) {
+function makeFighter({ x, facingRight, isPlayer, name, avatar, color, difficulty, sheet }) {
   return {
+    sheet, moves: sheet.moves, dims: sheet.dims, accent: sheet.accent,
+    cd: { sp1: 0, sp2: 0 }, trails: {}, alpha: 1,
     x, footY: GROUND, vx: 0, vy: 0, airborne: false, jumpsLeft: 2,
     surface: GROUND_SURFACE, dashT: 0, dashCdT: 0, moveDir: 0,
     isPlayer, name, avatar: avatar ? loadAvatar(avatar) : null, color,
@@ -190,7 +194,7 @@ function makeFighter({ x, facingRight, isPlayer, name, avatar, color, difficulty
     percent: 0,
     walking: false,
     blocking: false,
-    action: null, // { type:'punch'|'kick', spec, t, hit }
+    action: null, // { type: slot, spec, t, hit, began }
     hitstunT: 0,
     koT: -1,
     flashT: 0,
@@ -203,14 +207,15 @@ function makeFighter({ x, facingRight, isPlayer, name, avatar, color, difficulty
 let player, opp;
 window.__mkDebug = () => ({ player: { x: player.x, footY: player.footY, vx: player.vx, vy: player.vy, airborne: player.airborne, percent: player.percent, koT: player.koT }, opp: { x: opp.x, footY: opp.footY, vx: opp.vx, vy: opp.vy, airborne: opp.airborne, percent: opp.percent, koT: opp.koT } });
 window.__mkForceHit = (pct, useKick) => {
-  const spec = useKick ? KICK : PUNCH;
+  const spec = useKick ? player.moves.kick : player.moves.punch;
   opp.percent = pct;
   opp.x = player.x + spec.range - 5;
-  applyHit(player, opp, spec);
+  meleeHit(player, opp, spec);
 };
 let running = false;
 let lastT = 0;
 let held = new Set();
+let projs = []; // projectiles + lightning bolts
 let sparks = []; // { x, y, t, blocked }
 let particles = []; // { x, y, vx, vy, t, maxT, color, size }
 let shakeT = 0;
@@ -220,11 +225,13 @@ let popups = []; // { x, y, text, t, color }
 window.addEventListener("keydown", (e) => {
   if (e.target === input || e.target.tagName === "INPUT") return; // don't eat keys while typing a handle
   const k = e.key.toLowerCase();
-  if (["arrowleft", "arrowright", "arrowup", " ", "a", "d", "w", "l", "shift", "j", "k"].includes(k)) e.preventDefault();
+  if (["arrowleft", "arrowright", "arrowup", " ", "a", "d", "w", "l", "shift", "j", "k", "u", "i"].includes(k)) e.preventDefault();
   held.add(k);
   if (!running) return;
-  if (k === "j") tryAttack(player, PUNCH, "punch");
-  if (k === "k") tryAttack(player, KICK, "kick");
+  if (k === "j") tryAttack(player, "punch");
+  if (k === "k") tryAttack(player, "kick");
+  if (k === "u") tryAttack(player, "sp1");
+  if (k === "i") tryAttack(player, "sp2");
   if (!e.repeat && (k === "w" || k === "arrowup" || k === " ")) doJump(player);
   if (!e.repeat && k === "shift") {
     const left = held.has("a") || held.has("arrowleft");
@@ -254,8 +261,8 @@ document.querySelectorAll(".touch button").forEach((btn) => {
     btn.addEventListener("touchstart", (e) => { e.preventDefault(); if (running) doDash(player, player.facing); });
     btn.addEventListener("click", () => { if (running) doDash(player, player.facing); });
   } else {
-    btn.addEventListener("touchstart", (e) => { e.preventDefault(); if (running) tryAttack(player, k === "punch" ? PUNCH : KICK, k); });
-    btn.addEventListener("click", () => { if (running) tryAttack(player, k === "punch" ? PUNCH : KICK, k); });
+    btn.addEventListener("touchstart", (e) => { e.preventDefault(); if (running) tryAttack(player, k); });
+    btn.addEventListener("click", () => { if (running) tryAttack(player, k); });
   }
 });
 
@@ -263,9 +270,12 @@ function canAct(f) {
   return !f.action && f.hitstunT <= 0 && f.koT < 0;
 }
 
-function tryAttack(f, spec, type) {
+function tryAttack(f, slot) {
   if (!canAct(f) || f.dashT > 0) return;
-  f.action = { type, spec, t: 0, hit: false };
+  const spec = f.moves[slot];
+  if (!spec || (f.cd[slot] || 0) > 0) return;
+  if (spec.cd) f.cd[slot] = spec.cd;
+  f.action = { type: slot, spec, t: 0, hit: false, began: false };
   f.blocking = false;
 }
 
@@ -273,12 +283,12 @@ function doJump(f) {
   if (f.koT >= 0 || f.hitstunT > 0 || f.action || f.dashT > 0) return;
   if (!f.airborne) {
     f.airborne = true;
-    f.vy = JUMP_V;
+    f.vy = JUMP_V * f.sheet.jump;
     f.jumpsLeft = 1;
     spawnBurst(f.x, f.footY, f.color, 5, 20, 60, 200);
     sfx.jump(false);
   } else if (f.jumpsLeft > 0) {
-    f.vy = AIRJUMP_V;
+    f.vy = AIRJUMP_V * f.sheet.jump;
     f.jumpsLeft--;
     spawnBurst(f.x, f.footY, f.color, 7, 30, 90, 220);
     sfx.jump(true);
@@ -331,17 +341,27 @@ function drawParticles() {
 }
 
 // ── combat resolution ─────────────────────────────────────────────────
-function applyHit(attacker, defender, spec) {
-  const dist = Math.abs(attacker.x - defender.x);
-  if (dist > spec.range) return;
-  // must be facing them
-  const facingRight = defender.x > attacker.x;
-  if ((facingRight && attacker.facing < 0) || (!facingRight && attacker.facing > 0)) return;
-  if (Math.abs(attacker.footY - defender.footY) > 110) return; // too far apart vertically (different platform)
+const otherOf = (f) => (f === player ? opp : player);
 
-  let dmg = rand(spec.dmg[0], spec.dmg[1]);
+// A melee move connects if the defender is inside range, in front of the
+// attacker (unless the move hits both sides), and on roughly the same level.
+function meleeHit(attacker, defender, spec) {
+  if (defender.koT >= 0) return false;
+  const dist = Math.abs(attacker.x - defender.x);
+  if (dist > spec.range) return false;
+  if (!spec.both) {
+    const facingRight = defender.x > attacker.x;
+    if ((facingRight && attacker.facing < 0) || (!facingRight && attacker.facing > 0)) return false;
+  }
+  if (Math.abs(attacker.footY - defender.footY) > (spec.hop ? 170 : 110)) return false; // too far apart vertically (different platform)
+  resolveHit(attacker, defender, spec, defender.x >= attacker.x ? 1 : -1, (attacker.x + defender.x) / 2, (attacker.footY + defender.footY) / 2 - 90);
+  return true;
+}
+
+// Damage, knockback, block chip and juice for any hit: melee, projectile or bolt.
+function resolveHit(attacker, defender, spec, dirAway, hx, hy) {
+  let dmg = rand(spec.dmg[0], spec.dmg[1]) * attacker.sheet.pow;
   const blocked = defender.blocking && canAct(defender) && !defender.airborne;
-  const dirAway = defender.x >= attacker.x ? 1 : -1;
 
   if (blocked) {
     dmg *= BLOCK_CHIP;
@@ -349,32 +369,127 @@ function applyHit(attacker, defender, spec) {
     defender.hitstunT = 150;
     shakeT = 60;
     sfx.block();
+  } else if (spec.stun) {
+    // swap-style move: no damage, just a stagger
+    defender.hitstunT = spec.stun;
+    defender.action = null;
+    defender.blocking = false;
+    dmg = 0;
+    sfx.punch();
   } else {
     defender.percent = clamp(defender.percent + dmg, 0, MAX_PERCENT);
-    const launch = spec.kbBase + defender.percent * spec.kbGrowth;
-    defender.vx = dirAway * Math.cos(spec.angle) * launch;
-    defender.vy = -Math.sin(spec.angle) * launch;
+    const launch = (spec.kbBase + defender.percent * spec.kbGrowth) / defender.sheet.weight;
+    const ang = defender.airborne ? spec.angle : Math.max(spec.angle, 0.26); // spikes only work on airborne targets
+    defender.vx = dirAway * Math.cos(ang) * launch;
+    defender.vy = -Math.sin(ang) * launch;
     defender.airborne = true;
     defender.hitstunT = clamp(90 + launch * 0.55, 90, 1100);
     defender.action = null;
     defender.blocking = false;
     shakeT = 120;
-    (spec === KICK ? sfx.kick : sfx.punch)();
+    (sfx[spec.sfx === "kick" ? "kick" : spec.sfx === "punch" || !spec.sfx ? "punch" : spec.sfx] || sfx.punch)();
   }
 
   defender.flashT = 120;
-  const midX = (attacker.x + defender.x) / 2;
-  const midY = (attacker.footY + defender.footY) / 2 - 90;
-  sparks.push({ x: midX, y: midY, t: blocked ? 140 : 220, blocked });
-  spawnBurst(midX, midY, blocked ? "#9a86b8" : defender.color, blocked ? 5 : 10, 60, blocked ? 100 : 220, blocked ? 250 : 400);
+  sparks.push({ x: hx, y: hy, t: blocked ? 140 : 220, blocked });
+  spawnBurst(hx, hy, blocked ? "#9a86b8" : defender.color, blocked ? 5 : 10, 60, blocked ? 100 : 220, blocked ? 250 : 400);
   popups.push({
-    x: defender.x, y: midY - 40,
-    text: blocked ? "blocked" : "+" + Math.round(dmg) + "%",
+    x: defender.x, y: hy - 40,
+    text: blocked ? "blocked" : spec.stun ? "swapped!" : "+" + Math.round(dmg) + "%",
     color: blocked ? "#9a86b8" : "#ffd23f",
     t: 600,
   });
 
   updateBars();
+}
+
+// ── specials: what happens when a move's startup ends ──────────────────
+function beginAction(f, other) {
+  const a = f.action, s = a.spec;
+  a.began = true;
+  if (s.lunge) f.vx = f.facing * s.lunge;
+  if (s.hop) { f.vy = s.hop; f.airborne = true; }
+  if (s.kind === "melee") {
+    if (s.slot === "sp1" || s.slot === "sp2" || s.lunge || s.hop) (sfx[s.sfx] || sfx.whoosh)();
+    if (s.both) spawnBurst(f.x, f.footY - 40, f.accent, 8, 80, s.range * 2, 260);
+  } else if (s.kind === "proj") {
+    (sfx[s.sfx] || sfx.whoosh)();
+    const p = s.proj;
+    projs.push({
+      kind: p.kind, owner: f, spec: s, p,
+      x: f.x + f.facing * 30,
+      y: p.floor ? f.footY - p.size * 0.6 : f.footY - f.dims.leg - f.dims.torso * 0.75,
+      vx: f.facing * p.speed, vy: p.vy || 0, t: 0, hit: false, back: false, rot: 0,
+    });
+  } else if (s.kind === "blink") {
+    sfx.whoosh();
+    spawnBurst(f.x, f.footY - 50, f.accent, 12, 40, 180, 360);
+    if (s.mode === "behind") {
+      const dir = other.x >= f.x ? 1 : -1; // we land on the far side of them
+      f.x = clamp(other.x + dir * 58, ARENA_MIN - 20, ARENA_MAX + 20);
+      f.facing = -dir;
+      if (!other.airborne) { f.footY = other.footY; f.surface = other.surface; f.airborne = false; f.vy = 0; }
+      spawnBurst(f.x, f.footY - 50, f.accent, 12, 40, 180, 360);
+      meleeHit(f, other, { ...s, range: 200, both: true });
+    } else {
+      const fx = f.x, ox = other.x;
+      f.x = clamp(ox, ARENA_MIN - 20, ARENA_MAX + 20);
+      other.x = clamp(fx, ARENA_MIN - 20, ARENA_MAX + 20);
+      f.facing = other.x > f.x ? 1 : -1;
+      other.facing = f.x > other.x ? 1 : -1;
+      spawnBurst(f.x, f.footY - 50, f.accent, 12, 40, 180, 360);
+      spawnBurst(other.x, other.footY - 50, other.accent, 12, 40, 180, 360);
+      resolveHit(f, other, s, 1, (f.x + other.x) / 2, f.footY - 90);
+    }
+  } else if (s.kind === "bolt") {
+    sfx.cast();
+    projs.push({ kind: "bolt", owner: f, spec: s, p: s.bolt, x: other.x, y: 0, t: 0, hit: false, locked: false });
+  }
+}
+
+function updateProjs(dt) {
+  const dtMs = dt * 1000;
+  for (const q of projs) {
+    q.t += dtMs;
+    const owner = q.owner, target = otherOf(owner);
+    if (q.kind === "bolt") {
+      const b = q.p;
+      if (q.t < b.warn - 260 && target.koT < 0) q.x = target.x; // tracks until the last quarter-second, then locks
+      if (!q.hit && q.t >= b.warn && q.t < b.warn + b.strike && target.koT < 0 && Math.abs(target.x - q.x) < b.width) {
+        q.hit = true;
+        sfx.zap();
+        resolveHit(owner, target, q.spec, target.x >= q.x ? 1 : -1, target.x, target.footY - 90);
+      }
+      if (q.t >= b.warn && !q.fired) { q.fired = true; sfx.zap(); shakeT = 90; spawnBurst(q.x, GROUND, owner.accent, 10, 60, 220, 300); }
+      q.dead = q.t >= b.warn + b.strike + 120;
+      continue;
+    }
+    const p = q.p;
+    q.rot += dt * 14;
+    if (q.kind === "boomerang") {
+      if (!q.back && q.t > p.life * 0.45) { q.back = true; q.hit = false; }
+      if (q.back) {
+        q.vx = Math.sign(owner.x - q.x || 1) * p.speed * 1.05;
+        q.vy = (owner.footY - owner.dims.leg - owner.dims.torso * 0.75 - q.y) * 3;
+        if (Math.abs(owner.x - q.x) < 26) q.dead = true;
+      }
+    }
+    if (p.grav) q.vy += p.grav * dt;
+    q.x += q.vx * dt;
+    q.y += q.vy * dt;
+    if (p.bounce && q.y > GROUND - p.size) { q.y = GROUND - p.size; q.vy = -Math.abs(q.vy) * 0.8; }
+    if (q.t >= p.life || q.x < BLAST_LEFT || q.x > BLAST_RIGHT || q.y > H + 40) q.dead = true;
+    if (!q.hit && !q.dead && target.koT < 0) {
+      const top = target.footY - target.dims.leg - target.dims.torso - target.dims.head * 2;
+      if (Math.abs(q.x - target.x) < 22 + p.size && q.y > top - p.size && q.y < target.footY + p.size) {
+        q.hit = true;
+        resolveHit(owner, target, q.spec, q.vx >= 0 ? 1 : -1, q.x, q.y);
+        if (q.kind !== "boomerang" && q.kind !== "wave") q.dead = true;
+        if (q.kind === "bomb") spawnBurst(q.x, q.y, owner.accent, 14, 80, 260, 400);
+      }
+    }
+  }
+  projs = projs.filter((q) => !q.dead);
 }
 
 function triggerRingOut(f, other) {
@@ -386,6 +501,24 @@ function triggerRingOut(f, other) {
 }
 
 // ── AI ─────────────────────────────────────────────────────────────────
+// Which special (if any) makes sense at this distance? Melee specials need
+// the target inside their reach (plus lunge distance); projectiles want some
+// breathing room; blinks and bolts work at mid range.
+function aiPickSpecial(f, target, dist) {
+  const ok = [];
+  for (const slot of ["sp1", "sp2"]) {
+    const s = f.moves[slot];
+    if (f.cd[slot] > 0) continue;
+    let good = false;
+    if (s.kind === "melee") good = dist <= s.range + s.lunge * 0.2;
+    else if (s.kind === "proj") good = dist >= 160 && dist <= 560 && Math.abs(target.footY - f.footY) < 90;
+    else if (s.kind === "blink") good = s.mode === "behind" ? dist >= 110 && dist <= 420 : dist >= 90 && dist <= 360;
+    else if (s.kind === "bolt") good = dist <= 600;
+    if (good) ok.push(slot);
+  }
+  return ok.length ? ok[Math.floor(Math.random() * ok.length)] : null;
+}
+
 function aiDecide(f, target, dt) {
   f.aiNextT -= dt;
 
@@ -407,11 +540,18 @@ function aiDecide(f, target, dt) {
 
   if (!canAct(f)) { f.aiIntent = "idle"; return; }
 
-  if (dist <= KICK.range * 0.9) {
+  // specials first: the AI uses its own moveset, more eagerly the harder it is
+  if (!f.airborne && Math.random() < 0.25 + t * 0.5) {
+    const sp = aiPickSpecial(f, target, dist);
+    if (sp) { f.aiIntent = "idle"; tryAttack(f, sp); return; }
+  }
+
+  const { punch, kick } = f.moves;
+  if (dist <= kick.range * 0.9) {
     const roll = Math.random();
     if (roll < aggression) {
       f.aiIntent = "idle";
-      tryAttack(f, dist <= PUNCH.range ? (Math.random() < 0.5 ? PUNCH : KICK) : KICK, "atk");
+      tryAttack(f, dist <= punch.range ? (Math.random() < 0.5 ? "punch" : "kick") : "kick");
     } else if (roll < aggression + blockChance) {
       f.aiIntent = "block";
     } else if (f.percent > 60 && Math.random() < 0.4) {
@@ -493,6 +633,8 @@ function updateFighter(f, other, dt) {
 
   if (f.flashT > 0) f.flashT -= dtMs;
   if (f.dashCdT > 0) f.dashCdT -= dtMs;
+  if (f.cd.sp1 > 0) f.cd.sp1 -= dtMs;
+  if (f.cd.sp2 > 0) f.cd.sp2 -= dtMs;
 
   if (f.koT >= 0) {
     f.koT += dtMs;
@@ -510,9 +652,9 @@ function updateFighter(f, other, dt) {
     const a = f.action;
     a.t += dtMs;
     const s = a.spec;
-    if (!a.hit && a.t >= s.startup && a.t < s.startup + s.active) {
-      applyHit(f, other, s);
-      a.hit = true;
+    if (!a.began && a.t >= s.startup) beginAction(f, other);
+    if (s.kind === "melee" && !a.hit && a.t >= s.startup && a.t < s.startup + s.active) {
+      if (meleeHit(f, other, s)) a.hit = true; // checked every frame of the active window
     }
     if (a.t >= s.startup + s.active + s.recovery) {
       f.action = null;
@@ -532,10 +674,10 @@ function updateFighter(f, other, dt) {
       // knockback actually carries to a blast zone instead of snapping
       // back the instant control returns or the AI decides to approach.
       if (f.moveDir && Math.abs(f.vx) < AIR_MOVE_SPEED * 1.5) {
-        f.vx += (f.moveDir * AIR_MOVE_SPEED - f.vx) * Math.min(1, 3 * dt);
+        f.vx += (f.moveDir * AIR_MOVE_SPEED * f.sheet.spd - f.vx) * Math.min(1, 3 * dt);
       }
     } else {
-      f.vx = f.moveDir * MOVE_SPEED;
+      f.vx = f.moveDir * MOVE_SPEED * f.sheet.spd;
     }
   } else {
     f.vx *= Math.pow(0.4, dt); // knockback/hitstun drag (dt is seconds — gentle per-second decay so a launch actually carries through hitstun)
@@ -572,12 +714,57 @@ function updateBars() {
 }
 
 // ── rendering ──────────────────────────────────────────────────────────
-const LEG = 46, TORSO = 52, ARM = 38, HEAD_R = 19;
+// Poses are keyframes {aR,aL:[deg,len×arm], lR,lL:[deg,len×leg], raise:{R,L}, lean, drop, spin}
+// where deg 0 = forward, 90 = down, -90 = up (mirrored by facing). An attack
+// plays IDLE → A over the startup, A → B over the active frames, B → IDLE over
+// the recovery. A leg that isn't "raised" is planted: its angle is kept but
+// its length is solved so the foot stays on the floor.
+const IDLE = { aR: [62, 0.66], aL: [118, 0.66], lR: [75, 1], lL: [105, 1], rR: 0, rL: 0, lean: 0, drop: 0, spin: 0 };
+const ANIMS = {
+  jab: { tip: ["aR"], A: { aR: [70, 0.5], aL: [-30, 0.7], lean: -4 }, B: { aR: [-5, 1.9], aL: [-40, 0.6], lean: 8 } },
+  haymaker: { tip: ["aR"], A: { aR: [-160, 1.1], aL: [100, 0.6], lean: -12, drop: 6, lR: [55, 1], lL: [125, 1] }, B: { aR: [35, 1.6], aL: [100, 0.6], lean: 20, drop: 8, lR: [55, 1], lL: [125, 1] } },
+  kick: { tip: ["lR"], A: { lR: [100, 1], rR: 1, aR: [120, 0.6], aL: [-40, 0.6], lean: -8 }, B: { lR: [-6, 1.6], rR: 1, aR: [120, 0.6], aL: [-50, 0.6], lean: -12 } },
+  roundhouse: { tip: ["lR"], A: { lR: [135, 1], rR: 1, aR: [100, 0.6], aL: [-30, 0.7], lean: -6 }, B: { lR: [-35, 1.7], rR: 1, aR: [110, 0.8], aL: [140, 0.8], lean: -14 } },
+  uppercut: { tip: ["aR"], A: { aR: [95, 0.7], aL: [-30, 0.6], drop: 14, lean: -6, lR: [60, 1], lL: [120, 1] }, B: { aR: [-85, 1.7], aL: [-30, 0.6], drop: -4, lean: 8 } },
+  lunge: { tip: ["aR"], A: { aR: [110, 0.5], aL: [-20, 0.6], lean: -14, drop: 8, lR: [110, 1], lL: [70, 1] }, B: { aR: [-4, 1.8], aL: [-30, 0.6], lean: 22, drop: 6, lR: [40, 1], lL: [140, 1] } },
+  dive: { tip: ["lR", "lL"], A: { aR: [-110, 1], aL: [-110, 1], lR: [100, 1], lL: [80, 1], rR: 1, rL: 1, drop: 18 }, B: { aR: [150, 1], aL: [170, 1], lR: [42, 1.5], lL: [30, 1.4], rR: 1, rL: 1, lean: 16 } },
+  throw: { tip: [], A: { aR: [-140, 1], aL: [-30, 0.6], lean: -6 }, B: { aR: [0, 1.3], aL: [-30, 0.6], lean: 8 } },
+  cast: { tip: [], A: { aR: [110, 0.5], aL: [110, 0.5], lean: -10 }, B: { aR: [-8, 1.1], aL: [8, 1.1], lean: 10 } },
+  slam: { tip: [], A: { aR: [-100, 1.1], aL: [-80, 1.1], lean: -4 }, B: { aR: [70, 1.1], aL: [60, 1.1], drop: 22, lean: 14, lR: [50, 1], lL: [130, 1] } },
+  nova: { tip: ["aR", "aL"], A: { aR: [110, 0.9], aL: [70, 0.9], drop: 8 }, B: { aR: [-40, 1.6], aL: [-140, 1.6], drop: -2, lR: [60, 1], lL: [120, 1] } },
+  spin: { tip: ["aR", "aL"], A: { aR: [0, 1.3], aL: [180, 1.3], lR: [60, 1], lL: [120, 1], drop: 6 }, B: { aR: [0, 1.3], aL: [180, 1.3], lR: [60, 1], lL: [120, 1], drop: 6, spin: 900 } },
+  vanish: { tip: [], A: { drop: 26, aR: [100, 0.6], aL: [80, 0.6], lean: -10 }, B: { drop: 0, aR: [-30, 0.7], aL: [-150, 0.7] } },
+  summon: { tip: [], A: { aR: [-100, 1], aL: [-80, 1], lean: -4 }, B: { aR: [-90, 1.3], aL: [-90, 1.3], lean: 2, drop: -4 } },
+};
+const POSE_KEYS = Object.keys(IDLE);
+const ease = (u) => u * u * (3 - 2 * u);
+const withIdle = (p) => ({ ...IDLE, ...p });
+function mixPose(a, b, u) {
+  const out = {};
+  for (const k of POSE_KEYS) {
+    out[k] = Array.isArray(a[k]) ? [a[k][0] + (b[k][0] - a[k][0]) * u, a[k][1] + (b[k][1] - a[k][1]) * u] : a[k] + (b[k] - a[k]) * u;
+  }
+  return out;
+}
+
+// Where an attack is in its animation, as a keyframed pose.
+function actionKeys(f) {
+  const a = f.action, s = a.spec;
+  const anim = ANIMS[s.anim] || ANIMS.jab;
+  const A = withIdle(anim.A), B = withIdle(anim.B);
+  const act = s.startup + s.active;
+  if (a.t < s.startup) return mixPose(IDLE, A, ease(clamp(a.t / s.startup, 0, 1)));
+  if (a.t < act) return mixPose(A, B, ease(clamp((a.t - s.startup) / s.active, 0, 1)));
+  return mixPose(B, IDLE, ease(clamp((a.t - act) / s.recovery, 0, 1)));
+}
+
+const ray = (o, fw, deg, len) => ({ x: o.x + fw * Math.cos(deg * Math.PI / 180) * len, y: o.y + Math.sin(deg * Math.PI / 180) * len });
 
 function pose(f, walkPhase) {
-  const hip = { x: f.x, y: f.footY - LEG };
-  const shoulder = { x: hip.x, y: hip.y - TORSO };
-  const head = { x: shoulder.x, y: shoulder.y - HEAD_R - 2 };
+  const D = f.dims;
+  const hip = { x: f.x, y: f.footY - D.leg };
+  const shoulder = { x: hip.x, y: hip.y - D.torso };
+  const head = { x: shoulder.x, y: shoulder.y - D.head - 2 };
   const fw = f.facing;
 
   if (f.koT >= 0) {
@@ -605,30 +792,22 @@ function pose(f, walkPhase) {
   }
 
   if (f.action) {
-    const a = f.action;
-    const s = a.spec;
-    const p = clamp(a.t / (s.startup + s.active), 0, 1); // 0..1 through strike
-    if (a.type === "punch" || (a.type === "atk" && s === PUNCH)) {
-      const reach = Math.sin(Math.min(1, p) * Math.PI) * 34;
-      return {
-        hip, shoulder,
-        head: { x: head.x + fw * 4, y: head.y },
-        legL: { x: hip.x - 16, y: f.footY }, legR: { x: hip.x + 16, y: f.footY },
-        armL: { x: shoulder.x - fw * 10, y: shoulder.y + 18 },
-        armR: { x: shoulder.x + fw * (ARM + reach), y: shoulder.y - 4 },
-      };
-    } else {
-      // kick
-      const reach = Math.sin(Math.min(1, p) * Math.PI) * 44;
-      return {
-        hip, shoulder: { x: shoulder.x - fw * 8, y: shoulder.y },
-        head: { x: head.x - fw * 8, y: head.y },
-        legL: { x: hip.x - fw * 12, y: f.footY },
-        legR: { x: hip.x + fw * (LEG * 0.6 + reach), y: f.footY - 30 - reach * 0.3 },
-        armL: { x: shoulder.x - fw * 24, y: shoulder.y + 10 },
-        armR: { x: shoulder.x - fw * 20, y: shoulder.y - 6 },
-      };
-    }
+    const q = actionKeys(f);
+    const hipA = { x: hip.x, y: hip.y + q.drop };
+    const shA = { x: hipA.x + fw * q.lean, y: hipA.y - D.torso };
+    const headA = { x: shA.x + fw * q.lean * 0.3, y: shA.y - D.head - 2 };
+    const leg = (key, raised) => {
+      const [deg, len] = q[key];
+      if (raised > 0.5) return ray(hipA, fw, deg, len * D.leg);
+      const dy = f.footY - hipA.y; // planted foot: keep the angle, land on the floor
+      return { x: hipA.x + fw * dy / Math.tan(deg * Math.PI / 180), y: f.footY };
+    };
+    return {
+      hip: hipA, shoulder: shA, head: headA,
+      legR: leg("lR", q.rR), legL: leg("lL", q.rL),
+      armR: ray(shA, fw, q.aR[0] + q.spin, q.aR[1] * D.arm),
+      armL: ray(shA, fw, q.aL[0] + q.spin, q.aL[1] * D.arm),
+    };
   }
 
   if (f.airborne) {
@@ -664,12 +843,59 @@ function pose(f, walkPhase) {
   };
 }
 
+// Class marker on the head: the quickest way to tell the classes apart.
+function drawHat(f, h) {
+  const r = f.dims.head, top = h.y - r, c = f.accent;
+  ctx.save();
+  ctx.strokeStyle = c; ctx.fillStyle = c; ctx.lineWidth = 3;
+  ctx.beginPath();
+  switch (f.sheet.hat) {
+    case "bandana":
+      ctx.moveTo(h.x - r, h.y - r * 0.45); ctx.lineTo(h.x + r, h.y - r * 0.45);
+      ctx.moveTo(h.x - f.facing * r, h.y - r * 0.45); ctx.lineTo(h.x - f.facing * (r + 12), h.y - r * 0.1);
+      break;
+    case "headband":
+      ctx.moveTo(h.x - r, h.y - r * 0.4); ctx.lineTo(h.x + r, h.y - r * 0.4);
+      ctx.moveTo(h.x - f.facing * r, h.y - r * 0.4); ctx.lineTo(h.x - f.facing * (r + 16), h.y - r * 0.9);
+      ctx.moveTo(h.x - f.facing * r, h.y - r * 0.4); ctx.lineTo(h.x - f.facing * (r + 14), h.y + r * 0.1);
+      break;
+    case "wizard":
+      ctx.moveTo(h.x - r * 1.15, top + 4); ctx.lineTo(h.x + r * 1.15, top + 4);
+      ctx.lineTo(h.x + f.facing * 4, top - 28); ctx.closePath(); ctx.fill();
+      break;
+    case "topknot":
+      ctx.arc(h.x, top - 5, 6, 0, Math.PI * 2); ctx.fill();
+      break;
+    case "feather":
+      ctx.moveTo(h.x, top + 2); ctx.quadraticCurveTo(h.x - f.facing * 16, top - 14, h.x - f.facing * 6, top - 26);
+      break;
+    case "tophat":
+      ctx.fillRect(h.x - r * 0.7, top - 20, r * 1.4, 22); ctx.fillRect(h.x - r * 1.1, top, r * 2.2, 4);
+      break;
+    case "spikes":
+      ctx.moveTo(h.x - r * 0.8, top + 4); ctx.lineTo(h.x - r * 0.5, top - 14); ctx.lineTo(h.x - r * 0.1, top + 2);
+      ctx.lineTo(h.x + r * 0.3, top - 18); ctx.lineTo(h.x + r * 0.6, top + 2); ctx.lineTo(h.x + r * 0.9, top - 10);
+      break;
+    default: break; // "gloves" are drawn on the hands
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawFighter(f, walkPhase) {
   const p = pose(f, walkPhase);
   ctx.save();
+
+  // blink moves fade the body out during the windup and back in after
+  let alpha = 1;
+  if (f.action && f.action.spec.kind === "blink") {
+    const a = f.action, s = a.spec;
+    alpha = a.t < s.startup ? 1 - 0.85 * (a.t / s.startup) : Math.min(1, 0.15 + ((a.t - s.startup) / 220) * 0.85);
+  }
+  ctx.globalAlpha = alpha;
   ctx.strokeStyle = f.color;
   ctx.fillStyle = f.color;
-  ctx.lineWidth = 5;
+  ctx.lineWidth = f.dims.lw;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
@@ -682,12 +908,33 @@ function drawFighter(f, walkPhase) {
   const heightAbove = Math.max(0, GROUND - f.footY);
   const shrink = clamp(1 - heightAbove / 300, 0.3, 1);
   ctx.save();
-  ctx.globalAlpha = 0.25 * shrink;
+  ctx.globalAlpha = 0.25 * shrink * alpha;
   ctx.fillStyle = "#000";
   ctx.beginPath();
   ctx.ellipse(f.x, GROUND + 6, 26 * shrink, 6 * shrink, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
+
+  // swing trails: the striking limb leaves a fading streak while the move is live
+  const a = f.action;
+  const live = a && a.spec.kind === "melee" && a.t >= a.spec.startup && a.t < a.spec.startup + a.spec.active + 80;
+  const tips = live ? ANIMS[a.spec.anim].tip : [];
+  for (const k of Object.keys(f.trails)) if (!tips.includes(k)) delete f.trails[k];
+  for (const k of tips) {
+    const key = { aR: "armR", aL: "armL", lR: "legR", lL: "legL" }[k];
+    const tr = (f.trails[k] = f.trails[k] || []);
+    tr.push({ x: p[key].x, y: p[key].y });
+    if (tr.length > 8) tr.shift();
+    ctx.save();
+    ctx.strokeStyle = f.accent;
+    ctx.lineCap = "round";
+    for (let i = 1; i < tr.length; i++) {
+      ctx.globalAlpha = (i / tr.length) * 0.7 * alpha;
+      ctx.lineWidth = 2 + (i / tr.length) * 6;
+      ctx.beginPath(); ctx.moveTo(tr[i - 1].x, tr[i - 1].y); ctx.lineTo(tr[i].x, tr[i].y); ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   // legs
   ctx.beginPath(); ctx.moveTo(p.hip.x, p.hip.y); ctx.lineTo(p.legL.x, p.legL.y); ctx.stroke();
@@ -697,17 +944,22 @@ function drawFighter(f, walkPhase) {
   // arms
   ctx.beginPath(); ctx.moveTo(p.shoulder.x, p.shoulder.y); ctx.lineTo(p.armL.x, p.armL.y); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(p.shoulder.x, p.shoulder.y); ctx.lineTo(p.armR.x, p.armR.y); ctx.stroke();
-
   ctx.shadowBlur = 0;
 
+  if (f.sheet.hat === "gloves") {
+    ctx.fillStyle = f.accent;
+    for (const h of [p.armL, p.armR]) { ctx.beginPath(); ctx.arc(h.x, h.y, 8, 0, Math.PI * 2); ctx.fill(); }
+  }
+
   // head — moot's avatar, clipped into the circle
+  const R = f.dims.head;
   ctx.save();
   ctx.beginPath();
-  ctx.arc(p.head.x, p.head.y, HEAD_R, 0, Math.PI * 2);
+  ctx.arc(p.head.x, p.head.y, R, 0, Math.PI * 2);
   if (f.avatar && f.avatar.ready) {
     ctx.save();
     ctx.clip();
-    ctx.drawImage(f.avatar.img, p.head.x - HEAD_R, p.head.y - HEAD_R, HEAD_R * 2, HEAD_R * 2);
+    ctx.drawImage(f.avatar.img, p.head.x - R, p.head.y - R, R * 2, R * 2);
     ctx.restore();
   } else {
     ctx.fillStyle = f.color;
@@ -718,6 +970,76 @@ function drawFighter(f, walkPhase) {
   ctx.stroke();
   ctx.restore();
 
+  drawHat(f, p.head);
+
+  ctx.restore();
+}
+
+// ── projectiles + lightning ────────────────────────────────────────────
+function drawProjs() {
+  for (const q of projs) {
+    const c = q.owner.accent;
+    ctx.save();
+    if (q.kind === "bolt") {
+      const b = q.p;
+      if (q.t < b.warn) {
+        // telegraph: a ring on the floor that tightens, then the column lights
+        const u = q.t / b.warn;
+        ctx.strokeStyle = c; ctx.globalAlpha = 0.35 + 0.5 * u; ctx.lineWidth = 3;
+        ctx.setLineDash([6, 6]);
+        ctx.beginPath(); ctx.ellipse(q.x, GROUND + 4, b.width * (1.4 - 0.4 * u), 8, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(q.x, GROUND); ctx.lineTo(q.x, 0); ctx.stroke();
+      } else {
+        ctx.strokeStyle = "#fff"; ctx.shadowColor = c; ctx.shadowBlur = 18; ctx.lineWidth = 6;
+        ctx.beginPath(); ctx.moveTo(q.x, 0);
+        for (let y = 30, i = 0; y < GROUND; y += 36, i++) ctx.lineTo(q.x + (i % 2 ? 18 : -18), y);
+        ctx.lineTo(q.x, GROUND); ctx.stroke();
+      }
+    } else if (q.kind === "orb") {
+      ctx.shadowColor = c; ctx.shadowBlur = 16; ctx.fillStyle = c;
+      ctx.beginPath(); ctx.arc(q.x, q.y, q.p.size, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(q.x, q.y, q.p.size * 0.45, 0, Math.PI * 2); ctx.fill();
+    } else if (q.kind === "star" || q.kind === "boomerang") {
+      ctx.translate(q.x, q.y); ctx.rotate(q.rot * (q.kind === "star" ? 1.6 : 1));
+      ctx.fillStyle = c; ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+      const n = q.kind === "star" ? 4 : 2, r = q.p.size;
+      ctx.beginPath();
+      for (let i = 0; i < n * 2; i++) {
+        const ang = (i / (n * 2)) * Math.PI * 2, rr = i % 2 ? r * 0.35 : r * (q.kind === "star" ? 1.2 : 1.6);
+        ctx.lineTo(Math.cos(ang) * rr, Math.sin(ang) * rr);
+      }
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (q.kind === "wave") {
+      ctx.strokeStyle = c; ctx.shadowColor = c; ctx.shadowBlur = 12; ctx.lineWidth = 6; ctx.lineCap = "round";
+      const d = Math.sign(q.vx) || 1;
+      ctx.beginPath(); ctx.arc(q.x - d * 14, q.y, q.p.size * 1.4, d > 0 ? -1 : Math.PI - 1, d > 0 ? 1 : Math.PI + 1); ctx.stroke();
+    } else if (q.kind === "shock") {
+      ctx.fillStyle = c; ctx.globalAlpha = 0.85;
+      ctx.beginPath(); ctx.ellipse(q.x, q.y + 4, q.p.size * 1.2, q.p.size * 0.7, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(q.x - 14, q.y + 10); ctx.lineTo(q.x, q.y - q.p.size * 1.3); ctx.lineTo(q.x + 14, q.y + 10); ctx.closePath(); ctx.fill();
+    } else if (q.kind === "bomb") {
+      ctx.fillStyle = "#1b1428"; ctx.strokeStyle = c; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(q.x, q.y, q.p.size, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = c; ctx.beginPath(); ctx.arc(q.x + 6, q.y - q.p.size - 3, 3 + (Math.sin(q.rot * 3) + 1), 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+// cooldown chips for the player's two specials, bottom-left of the arena
+function drawHud() {
+  ctx.save();
+  ctx.font = "700 11px ui-monospace, monospace";
+  ctx.textAlign = "left";
+  [["sp1", 0], ["sp2", 1]].forEach(([slot, row]) => {
+    const s = player.moves[slot], ready = player.cd[slot] <= 0;
+    const y = H - 34 + row * 18, frac = ready ? 1 : 1 - player.cd[slot] / s.cd;
+    ctx.globalAlpha = ready ? 0.95 : 0.55;
+    ctx.fillStyle = "#2e2148"; ctx.fillRect(12, y, 120, 13);
+    ctx.fillStyle = ready ? player.accent : "#6b5a8a"; ctx.fillRect(12, y, 120 * frac, 13);
+    ctx.fillStyle = ready ? "#120b1c" : "#f3ecff";
+    ctx.fillText(`${SLOT_KEYS[slot]} ${s.name}`, 17, y + 10);
+  });
   ctx.restore();
 }
 
@@ -796,8 +1118,10 @@ function render(dt, walkPhase) {
   const [back, front] = player.x <= opp.x ? [player, opp] : [opp, player];
   drawFighter(back, walkPhase);
   drawFighter(front, walkPhase);
+  drawProjs();
   drawParticles();
   drawSparksAndPopups(dt);
+  drawHud();
 
   ctx.restore();
 }
@@ -813,6 +1137,7 @@ function loop(ts) {
 
   updateFighter(player, opp, dt);
   updateFighter(opp, player, dt);
+  updateProjs(dt);
   updateParticles(dt);
   updateBars();
 
@@ -830,17 +1155,21 @@ function startBout() {
   player = makeFighter({
     x: 240, facingRight: true, isPlayer: true,
     name: shortHandle(ladderData.self.handle), avatar: selfAvatar, color: "#26e0c9",
+    sheet: characterFor(ladderData.self),
   });
   opp = makeFighter({
     x: W - 240, facingRight: false, isPlayer: false,
     name: shortHandle(rung.handle), avatar: rung.avatar, color: "#ff2e63",
-    difficulty: rung.difficulty,
+    difficulty: rung.difficulty, sheet: characterFor(rung),
   });
   held.clear();
+  projs = [];
   sparks = []; popups = []; particles = []; shakeT = 0;
 
-  playerBarNameEl.textContent = player.name;
-  oppBarNameEl.textContent = opp.name;
+  playerBarNameEl.textContent = `${player.name} · ${player.sheet.label}`;
+  oppBarNameEl.textContent = `${opp.name} · ${opp.sheet.label}`;
+  sp1NameEl.textContent = player.moves.sp1.name;
+  sp2NameEl.textContent = player.moves.sp2.name;
   updateBars();
 
   resultOverlayEl.className = "result-overlay";
@@ -920,6 +1249,34 @@ function updateLadderTrack() {
   ladderTrackEl.appendChild(label);
 }
 
+const statLine = (c) => `pow ${c.stats.pow} · spd ${c.stats.spd} · wgt ${c.stats.wgt}`;
+function moveCol(title, m) {
+  const c = characterFor(m);
+  const col = document.createElement("div");
+  col.className = "mv";
+  const h = document.createElement("div");
+  h.className = "mv-h";
+  h.style.color = c.accent;
+  h.textContent = `${title}: ${c.label}`;
+  const st = document.createElement("div");
+  st.className = "mv-s";
+  st.textContent = statLine(c);
+  col.append(h, st);
+  for (const slot of ["punch", "kick", "sp1", "sp2"]) {
+    const mv = c.moves[slot];
+    const row = document.createElement("div");
+    const kb = document.createElement("kbd");
+    kb.textContent = SLOT_KEYS[slot];
+    row.append(kb, " " + (mv.title || mv.name));
+    col.appendChild(row);
+  }
+  return col;
+}
+function renderMoveList(you, them) {
+  moveListEl.innerHTML = "";
+  moveListEl.append(moveCol("you", you), moveCol("them", them));
+}
+
 function showPrefight() {
   const rung = ladderData.ladder[rungIndex];
   const isLast = rungIndex === ladderData.ladder.length - 1;
@@ -936,6 +1293,16 @@ function showPrefight() {
   diffLabelEl.textContent =
     rung.difficulty < 0.3 ? "should be manageable" : rung.difficulty < 0.65 ? "real threat" : "way out of your weight class";
   tauntBubbleEl.textContent = rung.taunt?.text || "…";
+  if (!rung.taunt) {
+    // taunts are fetched one bout at a time, so a big cluster doesn't cost a feed request per account up front
+    fetchHitTweet(rung.did, rung.handle)
+      .catch(() => null)
+      .then((t) => {
+        rung.taunt = t || { text: "…", url: null, likeCount: 0 };
+        if (ladderData && ladderData.ladder[rungIndex] === rung) tauntBubbleEl.textContent = rung.taunt.text;
+      });
+  }
+  renderMoveList(ladderData.self, rung);
   retriesLabelEl.innerHTML = `<b>${retriesLeft}</b> retry available for this bout`;
 
   resultOverlayEl.className = "result-overlay";
@@ -1072,9 +1439,11 @@ function ladderFor(pickDid) {
   const all = [cast.self, ...cast.ladder];
   const me = all.find((m) => m.did === pickDid);
   const meLog = Math.log10((me.followersCount || 0) + 1);
-  const rest = all
-    .filter((m) => m.did !== pickDid)
-    .sort((a, b) => (a.followersCount || 0) - (b.followersCount || 0))
+  const rest = pickLadder(
+    all
+      .filter((m) => m.did !== pickDid)
+      .sort((a, b) => (a.followersCount || 0) - (b.followersCount || 0)),
+  )
     .map((m) => {
       const diff = Math.log10((m.followersCount || 0) + 1) - meLog;
       return { ...m, difficulty: Math.max(0, Math.min(1, (diff + 1) / 3)) };
@@ -1099,7 +1468,12 @@ function showRoster() {
     const hd = document.createElement("span");
     hd.className = "hd";
     hd.textContent = shortHandle(m.handle) + (m.did === cast.self.did ? " (you)" : "");
-    b.append(img, nm, hd);
+    const c = characterFor(m);
+    const cls = document.createElement("span");
+    cls.className = "cls";
+    cls.style.color = c.accent;
+    cls.textContent = c.label;
+    b.append(img, nm, hd, cls);
     b.addEventListener("click", () => pickFighter(m.did));
     rosterGridEl.appendChild(b);
   });
@@ -1176,7 +1550,7 @@ form.addEventListener("submit", async (e) => {
     });
     cast = res;
     msg.className = "msg ok";
-    msg.textContent = `simcluster loaded: you plus ${res.ladder.length} moots picked from ${res.mootCount} total. choose your fighter.`;
+    msg.textContent = `simcluster loaded: you plus ${res.ladder.length} moots. choose your fighter.`;
     finder.style.display = "none";
     input.blur(); // keyboard controls (a/d/w/j/k/l/shift) shouldn't get eaten by the text field
     showRoster();

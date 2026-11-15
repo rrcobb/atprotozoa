@@ -16,9 +16,8 @@ import { followerDids as constellationFollowerDids } from "./microcosm.js";
 const PUB = "https://public.api.bsky.app/xrpc";
 
 const GRAPH_PAGES = 400; // backstop, not a budget — raised 2026-08-28 across the moot-family sites (same treatment as kevinmoot's bfs.js FOLLOWERS_PAGES; a fixed page count on getFollows/getFollowers was a speed knob dressed as a data cap, not a correctness bound)
-const COUNT_CAP = 200; // backfill followersCount for at most this many moots
-const LADDER_SIZE = 8; // the cast: self + up to 8 moots; every one is selectable on the roster screen and the rest form the ladder
-const FEED_PAGES = 2; // product decision: the taunt is a flavour line, so each fighter costs at most 2 feed requests (~200 recent posts) — the whole cast loads in parallel before the select screen
+const LADDER_SIZE = 8; // product decision: a run is 8 bouts, drawn from the whole cluster (everyone is selectable on the roster screen)
+const FEED_PAGES = 2; // product decision: the taunt is a flavour line, so each fighter costs at most 2 feed requests (~200 recent posts); fetched one bout at a time
 
 async function jget(url) {
   const r = await fetch(url);
@@ -108,9 +107,9 @@ async function findMoots(did) {
 }
 
 // getProfiles takes ≤25 actors/call. Fill followersCount in place for (at
-// most) the first COUNT_CAP moots so the ladder sorts on real numbers.
+// every moot so the ladder sorts on real numbers.
 async function backfillCounts(list, onStep) {
-  const targets = list.slice(0, COUNT_CAP);
+  const targets = list;
   for (let i = 0; i < targets.length; i += 25) {
     const batch = targets.slice(i, i + 25);
     const u = new URL(`${PUB}/app.bsky.actor.getProfiles`);
@@ -179,7 +178,7 @@ export async function fetchHitTweet(did, fallbackHandle) {
 // rather than a fixed evenly-spaced index, so re-rolling the same handle
 // gives a different ladder lineup each run while keeping the difficulty
 // curve intact.
-function pickLadder(sorted) {
+export function pickLadder(sorted) {
   if (sorted.length <= LADDER_SIZE) return sorted;
   const boss = sorted[sorted.length - 1];
   const rest = sorted.slice(0, -1);
@@ -199,9 +198,9 @@ function pickLadder(sorted) {
   return [...dedup, boss];
 }
 
-// Build the moot ladder for a handle. Returns:
-//   { self, ladder: [{did,handle,displayName,avatar,followersCount,
-//                      difficulty, taunt}], mootCount }
+// Build the cast for a handle. Returns:
+//   { self, ladder: [{did,handle,displayName,avatar,followersCount}], mootCount }
+// where `ladder` is every moot, smallest first (fighter.js picks each run's bouts from it).
 export async function buildLadder(actor, { onStep } = {}) {
   const did = await resolveDid(actor);
 
@@ -239,40 +238,10 @@ export async function buildLadder(actor, { onStep } = {}) {
     .filter((m) => typeof m.followersCount === "number")
     .sort((a, b) => a.followersCount - b.followersCount);
   const pool = sorted.length ? sorted : moots;
-  const picks = pickLadder(pool);
 
-  if (onStep) onStep("scouting trash talk…");
-  const selfLog = Math.log10((self.followersCount || 0) + 1);
-  const ladder = await Promise.all(
-    picks.map(async (m) => {
-      const mootLog = Math.log10((m.followersCount || 0) + 1);
-      // difficulty 0..1, log-scaled: a moot with 10x your followers sits
-      // mid-ladder, 1000x+ tops it out. moots smaller than you start easy.
-      const diff = mootLog - selfLog;
-      const difficulty = Math.max(0, Math.min(1, (diff + 1) / 3));
-      let taunt = null;
-      try {
-        taunt = await fetchHitTweet(m.did, m.handle);
-      } catch {}
-      return {
-        ...m,
-        difficulty,
-        taunt: taunt || {
-          text: "…",
-          url: null,
-          likeCount: 0,
-        },
-      };
-    }),
-  );
-
-  // self gets a taunt too: if the player picks a moot as their fighter, self
-  // joins the ladder as an opponent.
-  let selfTaunt = null;
-  try {
-    selfTaunt = await fetchHitTweet(did, self.handle);
-  } catch {}
-  self = { ...self, taunt: selfTaunt || { text: "…", url: null, likeCount: 0 } };
+  // the whole cluster is the cast; difficulty is set per pick on the roster screen
+  // and taunts are fetched lazily, one bout at a time (fetchHitTweet)
+  const ladder = pool;
 
   return { self, ladder, mootCount: moots.length };
 }
