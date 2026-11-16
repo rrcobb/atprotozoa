@@ -320,7 +320,7 @@ assembled before the job is enqueued is what's broken right now: watchtower's
 
 Past that the brief gives places to look rather than a checklist: the logs
 timeline and recent threads, the sites themselves, `notes/` and `audit/`, and
-the `sites/sidenote` diary. It used to name specific gaps (drop-in drift,
+the `sites/sidenote` diary, and a meme-study pass (look up an unexplained in-joke from recent threads and cache it in `notes/memes/`). It used to name specific gaps (drop-in drift,
 missing handle typeahead, the Constellation conversion). Once those were done,
 every slot from 2026-09-30 to 2026-10-05 reported "nothing to fix" and left the
 repo alone, so on 2026-10-05 the list was replaced with the open-ended version.

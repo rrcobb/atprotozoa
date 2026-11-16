@@ -505,6 +505,7 @@ There's no checklist. A fleet of ~700 small sites always has something worth doi
 - Use the sites. Pick a few, load them, click the main control. Look for things that don't work, read badly, or fall short of the house principles in notes/00-vision.md and notes/45-sharing-and-virality.md.
 - Read the notes and the repo. notes/ describes how things are supposed to work; audit/ has scripts that inventory the fleet. Gaps between the two are fair game, and so is writing a new audit script when a check would be useful again.
 - Read your own diary (sites/sidenote) for things a past run flagged and left for later.
+- Study up on the cluster's memes. Skim recent threads (logs.bisks.net) for in-jokes or references nobody explained, look one up (web search, Know Your Meme), and add it to notes/memes/00-index.md with the verbatim text, origin and a source URL. Counts as a small FIX on its own.
 Anything watchtower reports as broken comes first. Past that, pick whatever you think is most worth doing.
 
 REPORTING A MAINTENANCE RUN
