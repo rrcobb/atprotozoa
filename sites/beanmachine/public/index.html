@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>beanmachine — a magic beans machine</title>
+<meta name="description" content="Crank the machine, get a magic bean, press it. It grows a beanstalk that spreads over the screen and blooms." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://beanmachine.bisks.net/" />
+<meta property="og:title" content="beanmachine — a magic beans machine" />
+<meta property="og:description" content="Crank the machine, get a magic bean, press it. It grows a beanstalk that spreads over the screen and blooms." />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="beanmachine — a magic beans machine" />
+<meta name="twitter:description" content="Press a magic bean. Watch the beanstalk take over and bloom." />
+<style>
+  :root { --ink:#1b2a1b; --soil:#4a3322; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; overflow:hidden; font: 15px/1.4 ui-monospace, Menlo, Consolas, monospace; color: var(--ink); background: linear-gradient(#cfeaff, #f4fbe9 70%); }
+  canvas { position:fixed; left:0; top:0; pointer-events:none; }
+  .ground { position:fixed; left:0; right:0; bottom:0; height:56px; background: var(--soil); border-top: 6px solid #3c7a2e; }
+  .ui { position:fixed; left:0; right:0; bottom:62px; display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; justify-content:center; padding:0 12px; z-index:2; }
+  .machine { background:#e9e4d6; border:3px solid var(--ink); border-radius:14px 14px 6px 6px; padding:10px 14px; text-align:center; box-shadow: 4px 4px 0 var(--ink); }
+  .machine h1 { margin:0 0 6px; font-size:16px; }
+  button { font:inherit; cursor:pointer; border:2px solid var(--ink); background:#fff; color:var(--ink); border-radius:8px; padding:6px 12px; }
+  button.crank { background:#ffd84d; font-weight:bold; }
+  button:active { transform: translateY(1px); }
+  .tray { min-width:140px; min-height:48px; display:flex; gap:8px; align-items:center; justify-content:center; background:rgba(255,255,255,.6); border:2px dashed var(--ink); border-radius:10px; padding:6px 10px; }
+  .tray:empty::before { content:"tray is empty"; opacity:.6; }
+  .bean { width:26px; height:38px; padding:0; border:2px solid #3b2a12; border-radius:50% 50% 50% 50% / 60% 60% 40% 40%; background: radial-gradient(circle at 35% 30%, #fff6 0 18%, transparent 20%), var(--c, #7a4bd0); animation: pulse 1.6s ease-in-out infinite; }
+  .bean:hover { filter: brightness(1.15); }
+  @keyframes pulse { 50% { transform: scale(1.1); } }
+  .hint { position:fixed; top:10px; left:0; right:0; text-align:center; z-index:2; font-size:13px; }
+  .foot { position:fixed; bottom:4px; left:0; right:0; text-align:center; color:#f5e9d8; font-size:12px; z-index:2; }
+  .foot a, .hint a { color: inherit; }
+</style>
+</head>
+<body>
+<canvas id="vines"></canvas>
+<canvas id="blooms"></canvas>
+<div class="hint">crank the machine, then press a bean. · <a id="share" href="#" target="_blank" rel="noopener">post your garden</a></div>
+<div class="ground"></div>
+<div class="ui">
+  <div class="machine">
+    <h1>magic beans machine</h1>
+    <button id="crank" class="crank" type="button">crank ⟳</button>
+  </div>
+  <div class="tray" id="tray" aria-label="beans"></div>
+</div>
+<div class="foot">
+  <a href="https://rateyourbuild.bisks.net/site/beanmachine">rate this on rateyourbuild →</a> ·
+  <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a>
+</div>
+<script>
+(() => {
+  const vc = document.getElementById("vines"), bc = document.getElementById("blooms");
+  const vx = vc.getContext("2d"), bx = bc.getContext("2d");
+  const tray = document.getElementById("tray");
+  const GROUND = 62; // ground strip height in px
+  let W = 0, H = 0;
+  function size() {
+    const w = innerWidth, h = innerHeight;
+    // keep the vine layer's pixels when the window grows
+    const old = document.createElement("canvas");
+    old.width = vc.width; old.height = vc.height;
+    old.getContext("2d").drawImage(vc, 0, 0);
+    W = Math.max(W, w); H = Math.max(H, h);
+    vc.width = bc.width = W; vc.height = bc.height = H;
+    vx.drawImage(old, 0, 0);
+    vc.style.width = bc.style.width = W + "px"; vc.style.height = bc.style.height = H + "px";
+  }
+  size(); addEventListener("resize", size);
+
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  const PETALS = ["#ff6fa5", "#ffd84d", "#ff8a4d", "#b58cff", "#ffffff", "#6fd3ff"];
+  const BEANS = ["#7a4bd0", "#d04b8a", "#d0a14b", "#4bb5d0", "#5fd04b"];
+  let tips = [], flowers = [];
+
+  function addBean() {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "bean"; b.title = "press me";
+    b.style.setProperty("--c", BEANS[Math.floor(Math.random() * BEANS.length)]);
+    b.addEventListener("click", () => {
+      const r = b.getBoundingClientRect();
+      b.remove();
+      plant(r.left + r.width / 2);
+    });
+    tray.appendChild(b);
+  }
+  document.getElementById("crank").addEventListener("click", addBean);
+  addBean();
+
+  function plant(x) {
+    const y = innerHeight - GROUND;
+    tips.push({ x, y, a: -Math.PI / 2, w: 7, life: innerHeight * rnd(0.45, 0.6) / 2, depth: 0, step: 0, hue: 105 });
+  }
+
+  function leaf(x, y, a, s, hue) {
+    vx.save(); vx.translate(x, y); vx.rotate(a);
+    vx.fillStyle = `hsl(${hue + rnd(-10, 10)} 55% ${rnd(32, 45)}%)`;
+    vx.beginPath(); vx.moveTo(0, 0);
+    vx.quadraticCurveTo(s * 0.5, -s * 0.5, s, 0);
+    vx.quadraticCurveTo(s * 0.5, s * 0.5, 0, 0);
+    vx.fill(); vx.restore();
+  }
+
+  function stepTip(t) {
+    const nx = t.x + Math.cos(t.a) * 2, ny = t.y + Math.sin(t.a) * 2;
+    vx.strokeStyle = `hsl(${t.hue} 55% 30%)`; vx.lineWidth = t.w; vx.lineCap = "round";
+    vx.beginPath(); vx.moveTo(t.x, t.y); vx.lineTo(nx, ny); vx.stroke();
+    t.x = nx; t.y = ny; t.step++; t.life--;
+    // wander; trunk bends upward, branches droop less and spread sideways
+    t.a += rnd(-0.07, 0.07) + Math.sin(t.step / 18 + t.x) * 0.02;
+    if (t.depth === 0) t.a += (-Math.PI / 2 - t.a) * 0.01;
+    t.w = Math.max(1.5, t.w - 0.004);
+    if (t.step % 14 === 0) {
+      const side = t.step % 28 === 0 ? 1 : -1;
+      leaf(t.x, t.y, t.a + side * rnd(0.7, 1.3), rnd(10, 20) - t.depth * 2, t.hue);
+    }
+    if (t.depth < 3 && t.step % 26 === 0 && t.step > 20 && tips.length < 400 && Math.random() < 0.85) {
+      const side = Math.random() < 0.5 ? 1 : -1;
+      tips.push({ x: t.x, y: t.y, a: t.a + side * rnd(0.6, 1.1), w: Math.max(2, t.w * 0.7), depth: t.depth + 1,
+                  life: rnd(40, 110) * (1 - t.depth * 0.2), step: 0, hue: t.hue + rnd(-6, 6) });
+    }
+    if (t.y < 8 || t.x < -20 || t.x > W + 20) t.life = 0; // off-screen: bloom here and stop
+  }
+
+  function flower(x, y, big) {
+    flowers.push({ x, y, p: 0, r: big ? rnd(16, 26) : rnd(9, 15), n: Math.floor(rnd(5, 9)),
+                   c: PETALS[Math.floor(Math.random() * PETALS.length)], rot: rnd(0, 6.28) });
+  }
+
+  function drawFlower(f) {
+    const e = 1 - Math.pow(1 - Math.min(f.p, 1), 3); // ease-out bloom
+    const bump = f.p < 1 ? 1 : 1 + Math.sin((f.p - 1) * 6) * 0.03 * Math.max(0, 1 - (f.p - 1));
+    bx.save(); bx.translate(f.x, f.y); bx.rotate(f.rot + e * 0.6); bx.scale(e * bump, e * bump);
+    bx.fillStyle = f.c; bx.strokeStyle = "rgba(0,0,0,.18)"; bx.lineWidth = 1;
+    for (let i = 0; i < f.n; i++) {
+      bx.rotate(Math.PI * 2 / f.n);
+      bx.beginPath(); bx.ellipse(f.r * 0.6, 0, f.r * 0.6, f.r * 0.33, 0, 0, 7); bx.fill(); bx.stroke();
+    }
+    bx.fillStyle = "#f7b500"; bx.beginPath(); bx.arc(0, 0, f.r * 0.28, 0, 7); bx.fill();
+    bx.restore();
+  }
+
+  function frame() {
+    for (let k = 0; k < 2; k++) { // two growth steps per frame
+      const next = [];
+      for (const t of tips) {
+        if (t.life > 0) { stepTip(t); }
+        if (t.life > 0) next.push(t);
+        else {
+          flower(t.x, t.y, t.depth === 0);
+          if (t.depth < 3 && Math.random() < 0.7) flower(t.x + rnd(-14, 14), t.y + rnd(-10, 10), false);
+        }
+      }
+      // tips pushed during stepTip are appended to `tips`; keep them too
+      for (const t of tips) if (t.life > 0 && !next.includes(t)) next.push(t);
+      tips = next;
+    }
+    bx.clearRect(0, 0, W, H);
+    for (const f of flowers) { f.p += 0.018; drawFlower(f); }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  document.getElementById("share").addEventListener("click", (e) => {
+    e.currentTarget.href = "https://bsky.app/intent/compose?text=" +
+      encodeURIComponent("I pressed a magic bean 🌱🌸 https://beanmachine.bisks.net/");
+  });
+})();
+</script>
+</body>
+</html>
