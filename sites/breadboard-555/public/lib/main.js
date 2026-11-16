@@ -1,4 +1,6 @@
-import { NODES, newStack, evaluate, fmtOhms, fmtFarads, fmtHz, KINDS } from "./circuit.js";
+import { evaluate, fmtOhms, fmtFarads, fmtHz, KINDS } from "./circuit.js";
+import { newGame, place, move, pass, rematch, whyNot } from "./game.js";
+import { clientId, localStore, onlineStore } from "./net.js";
 
 const NS = "http://www.w3.org/2000/svg";
 const COLORS = ["var(--p1)", "var(--p2)"];
@@ -14,18 +16,6 @@ PIN_Y.forEach((y, i) => {
 const RAIL = { VCC: { y: 14 }, GND: { y: 286 } };
 const PIN_LABEL = { P1: "GND", P2: "TRIG", P3: "OUT", P4: "RESET", P5: "CTRL", P6: "THRES", P7: "DISCH", P8: "V+" };
 
-let game;
-function fresh() {
-  return {
-    turn: 0,
-    winner: null,
-    hand: null, // { part, origin?: placed record to restore on cancel }
-    first: null,
-    boards: [0, 1].map(() => ({ stack: newStack(), placed: [] })),
-    msg: "player 1 starts. pick a part from your stack.",
-  };
-}
-
 const $ = (id) => document.getElementById(id);
 const el = (tag, attrs = {}, parent) => {
   const e = document.createElementNS(NS, tag);
@@ -34,13 +24,29 @@ const el = (tag, attrs = {}, parent) => {
   return e;
 };
 
+const me = clientId();
+let store = null;
+let mode = null; // "online" | "local"
+let hand = null; // { from: "stack" | "board", id } — local to this browser, never synced
+let first = null;
+let note = ""; // local hint shown instead of the game log until the next move
+let lastRound = -1;
+let lastTurn = -1;
+
+const g = () => store.get();
+// Which side this browser plays: -1 is a spectator. Hot-seat plays whoever's turn it is.
+function mySeat() {
+  if (mode === "local") return g().turn;
+  return g().seats.indexOf(me);
+}
+
 function partLabel(p) {
   if (p.kind === "res") return fmtOhms(p.ohms) + "Ω";
   if (p.kind === "cap") return fmtFarads(p.farads);
   return KINDS[p.kind].label;
 }
 
-function endpoints(p, placed) {
+function endpoints(p) {
   const rail = (n, other) => {
     const ox = POS[other] ? POS[other][0] : 180;
     return [Math.max(30, Math.min(330, ox)), RAIL[n].y];
@@ -52,16 +58,19 @@ function endpoints(p, placed) {
   return [a, b];
 }
 
-function drawBoard(i) {
-  const b = game.boards[i];
-  const active = game.turn === i && !game.winner;
+function canAct() {
+  return mode && !whyNot(g(), mySeat());
+}
+
+function drawBoard() {
+  const doc = g();
+  const active = canAct();
   const sec = document.createElement("section");
-  sec.className = "board" + (active ? " active" : "") + (game.winner === i + 1 ? " won" : "");
-  sec.style.setProperty("--c", COLORS[i]);
-  const res = evaluate(b.placed);
+  sec.className = "board" + (doc.winner ? " won" : "");
+  const res = evaluate(doc.placed);
   const h = document.createElement("h2");
   const nm = document.createElement("span");
-  nm.textContent = NAMES[i];
+  nm.textContent = "the shared breadboard";
   h.appendChild(nm);
   const hz = document.createElement("span");
   hz.className = "hz";
@@ -77,22 +86,20 @@ function drawBoard(i) {
   sec.appendChild(h);
 
   const svg = el("svg", { class: "bb", viewBox: "0 0 360 300" });
-  // rails
   for (const n of ["VCC", "GND"]) {
     const r = el("rect", { x: 20, y: RAIL[n].y - 9, width: 320, height: 18, rx: 4, class: "rail", fill: n === "VCC" ? "#6b2a2a" : "#26364a" }, svg);
-    if (game.first === n && active) r.setAttribute("stroke", "#f0c040");
-    r.addEventListener("click", () => clickNode(i, n));
+    if (first === n && active) r.setAttribute("stroke", "#f0c040");
+    r.addEventListener("click", () => clickNode(n));
     const t = el("text", { x: 180, y: RAIL[n].y + 4, class: "pinlabel", "text-anchor": "middle" }, svg);
     t.textContent = n === "VCC" ? "V+ rail" : "GND rail";
   }
-  // chip
   el("rect", { x: 130, y: 62, width: 100, height: 176, rx: 6, fill: "#222", stroke: "#555" }, svg);
   el("path", { d: "M170 62 a10 10 0 0 0 20 0", fill: "#0b100d", stroke: "#555" }, svg);
   const ct = el("text", { x: 180, y: 155, class: "pinlabel", "text-anchor": "middle", style: "font-size:22px;fill:#777" }, svg);
   ct.textContent = "555";
-  // parts (under pin dots)
   const seen = {};
-  b.placed.forEach((p) => {
+  doc.placed.forEach((p) => {
+    if (hand && hand.from === "board" && hand.id === p.id) return; // lifted off the board
     const [pa, pb] = endpoints(p);
     const key = [p.a, p.b].sort().join("-");
     const k = (seen[key] = (seen[key] || 0) + 1);
@@ -105,42 +112,27 @@ function drawBoard(i) {
     const off = 22 + (k - 1) * 16;
     const cx = mx + nx * off * 2, cy = my + ny * off * 2;
     const d = `M${pa[0]} ${pa[1]} Q${cx} ${cy} ${pb[0]} ${pb[1]}`;
-    const g = el("g", { class: "part" }, svg);
-    const color = p.kind === "wire" ? "#7ad77a" : p.kind === "led" ? "#ff6060" : "#d8b878";
-    el("path", { d, class: "body", fill: "none", stroke: color, "stroke-width": p.kind === "wire" ? 2.5 : 5, "stroke-dasharray": p.kind === "wire" ? "" : "10 3" }, g);
-    el("path", { d, class: "hit" }, g);
+    const g2 = el("g", { class: "part" }, svg);
+    const owner = COLORS[p.by] || "#d8b878";
+    const color = p.kind === "wire" ? owner : p.kind === "led" ? "#ff6060" : "#d8b878";
+    el("path", { d, class: "body", fill: "none", stroke: color, "stroke-width": p.kind === "wire" ? 2.5 : 5, "stroke-dasharray": p.kind === "wire" ? "" : "10 3" }, g2);
+    el("path", { d, class: "hit" }, g2);
     if (p.kind !== "wire") {
-      const t = el("text", { x: mx + nx * off, y: my + ny * off - 4 }, g);
+      const t = el("text", { x: mx + nx * off, y: my + ny * off - 4, style: `fill:${owner}` }, g2);
       t.textContent = partLabel(p);
     }
-    g.addEventListener("click", () => clickPart(i, p));
+    g2.addEventListener("click", () => clickPart(p));
   });
-  // holes
   for (const n of Object.keys(POS)) {
     const [x, y] = POS[n];
-    const c = el("circle", { cx: x, cy: y, r: 8, class: "node" + (game.first === n && active ? " sel" : "") }, svg);
-    c.addEventListener("click", () => clickNode(i, n));
+    const c = el("circle", { cx: x, cy: y, r: 8, class: "node" + (first === n && active ? " sel" : "") }, svg);
+    c.addEventListener("click", () => clickNode(n));
     const left = x < 180;
     const t = el("text", { x: left ? 138 : 222, y: y + 4, class: "pinlabel", "text-anchor": left ? "start" : "end" }, svg);
     t.textContent = `${n.slice(1)} ${PIN_LABEL[n]}`;
   }
   sec.appendChild(svg);
 
-  // stack
-  const st = document.createElement("div");
-  st.className = "stack";
-  for (const p of b.stack) {
-    const c = document.createElement("button");
-    c.className = "chip" + (game.hand && game.hand.part === p ? " sel" : "");
-    c.textContent = partLabel(p);
-    c.disabled = !active || (game.hand && game.hand.part !== p && game.hand.origin);
-    c.addEventListener("click", () => clickChip(i, p));
-    st.appendChild(c);
-  }
-  if (!b.stack.length) st.textContent = "(stack empty)";
-  sec.appendChild(st);
-
-  // checklist
   const ul = document.createElement("ul");
   ul.className = "checks";
   for (const c of res.checks) {
@@ -153,111 +145,156 @@ function drawBoard(i) {
   return sec;
 }
 
+function drawStack(i) {
+  const doc = g();
+  const seat = mySeat();
+  const mine = seat === i;
+  const sec = document.createElement("section");
+  sec.className = "pstack" + (doc.turn === i && !doc.winner ? " active" : "");
+  sec.style.setProperty("--c", COLORS[i]);
+  const h = document.createElement("h2");
+  h.textContent = NAMES[i] + (mode === "online" && mine ? " (you)" : "") + (doc.turn === i && !doc.winner ? " · to move" : "");
+  sec.appendChild(h);
+  const st = document.createElement("div");
+  st.className = "stack";
+  const usable = canAct() && mine && !(hand && hand.from === "board");
+  for (const p of doc.stacks[i]) {
+    const c = document.createElement("button");
+    c.className = "chip" + (hand && hand.from === "stack" && hand.id === p.id ? " sel" : "");
+    c.textContent = partLabel(p);
+    c.disabled = !usable;
+    c.addEventListener("click", () => clickChip(p));
+    st.appendChild(c);
+  }
+  if (!doc.stacks[i].length) st.textContent = "(stack empty)";
+  sec.appendChild(st);
+  return sec;
+}
+
+function drawInvite() {
+  const doc = g();
+  const box = $("invite");
+  const waiting = mode === "online" && doc.seats[1] == null;
+  box.hidden = !waiting;
+  if (!waiting) return;
+  const link = location.href;
+  $("joinlink").value = link;
+  $("sharejoin").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(`join my breadboard-555 game: first to make the shared 555 oscillate wins.\n\n${link}`);
+}
+
 function render() {
-  const boards = $("boards");
-  boards.replaceChildren(drawBoard(0), drawBoard(1));
-  const over = !!game.winner;
-  $("turn").textContent = over ? "game over" : `${NAMES[game.turn]}'s turn`;
-  $("turn").style.color = COLORS[game.turn];
-  const h = game.hand;
-  $("hand").textContent = h ? `holding: ${partLabel(h.part)}${game.first ? ` · from ${game.first}, now pick the other end` : " · pick two holes"}` : "";
-  $("cancel").hidden = !h;
-  $("pass").disabled = over;
-  $("msg").textContent = game.msg;
+  const doc = g();
+  if (doc.round !== lastRound) { hand = null; first = null; note = ""; lastRound = doc.round; }
+  if (doc.turn !== lastTurn) { hand = null; first = null; lastTurn = doc.turn; }
+  $("lobby").hidden = !!mode;
+  $("game").hidden = !mode;
+  if (!mode) return;
+  $("boards").replaceChildren(drawStack(0), drawBoard(), drawStack(1));
+  drawInvite();
+  const over = !!doc.winner;
+  const seat = mySeat();
+  const who = mode === "local" ? "" : seat < 0 ? " (watching)" : ` (you are ${NAMES[seat]})`;
+  $("turn").textContent = (over ? "game over" : `${NAMES[doc.turn]}'s turn`) + who;
+  $("turn").style.color = COLORS[doc.turn];
+  $("hand").textContent = hand
+    ? `holding: ${partLabel(hand.from === "stack" ? g().stacks[seat].find((p) => p.id === hand.id) || {} : g().placed.find((p) => p.id === hand.id) || {})}${first ? ` · from ${first}, now pick the other end` : " · pick two holes"}`
+    : "";
+  $("cancel").hidden = !hand;
+  $("pass").disabled = !canAct();
+  $("msg").textContent = note || doc.log;
   $("win").hidden = !over;
-}
-
-function endTurn() {
-  game.hand = null;
-  game.first = null;
-  game.turn = 1 - game.turn;
-  game.msg = `${NAMES[game.turn]}: your move.`;
-}
-
-function clickChip(i, part) {
-  if (i !== game.turn || game.winner) return;
-  if (game.hand && game.hand.part === part) game.hand = null;
-  else game.hand = { part };
-  game.first = null;
-  game.msg = game.hand ? `now click two holes to place the ${KINDS[part.kind].label}.` : "";
-  render();
-}
-
-function clickPart(i, placed) {
-  if (i !== game.turn || game.winner) return;
-  if (game.hand) {
-    game.msg = "you're already holding something. place it or put it back first.";
-    return render();
-  }
-  const b = game.boards[i];
-  b.placed.splice(b.placed.indexOf(placed), 1);
-  game.hand = { part: placed.part, origin: placed };
-  game.first = null;
-  game.msg = `picked up the ${KINDS[placed.kind].label}. click two holes to move it.`;
-  render();
-}
-
-function clickNode(i, n) {
-  if (i !== game.turn || game.winner) return;
-  if (!game.hand) {
-    game.msg = "pick a part from your stack first (or click one on the board to move it).";
-    return render();
-  }
-  if (!game.first) {
-    game.first = n;
-    game.msg = `from ${n}. now the other end.`;
-    return render();
-  }
-  if (game.first === n) {
-    game.first = null;
-    game.msg = "";
-    return render();
-  }
-  const b = game.boards[i];
-  const part = game.hand.part;
-  const rec = { kind: part.kind, a: game.first, b: n, part };
-  if (part.ohms) rec.ohms = part.ohms;
-  if (part.farads) rec.farads = part.farads;
-  const moved = !!game.hand.origin;
-  if (!moved) b.stack.splice(b.stack.indexOf(part), 1);
-  b.placed.push(rec);
-  const res = evaluate(b.placed);
-  if (res.ok) {
-    game.winner = i + 1;
-    game.msg = "";
-    $("winTitle").textContent = `${NAMES[i]} wins!`;
-    $("winText").textContent = `the 555 is oscillating at ${fmtHz(res.hz)} (${res.mode}) after ${b.placed.length} parts on the board.`;
-    const text = `${NAMES[i]} just got a 555 oscillating at ${fmtHz(res.hz)} in breadboard-555, a two-player breadboard race.\n\nhttps://breadboard-555.bisks.net/`;
+  if (over) {
+    const text = `${NAMES[doc.winner - 1]} just got the shared 555 oscillating at ${doc.result || ""} in breadboard-555, a two-player breadboard race.\n\nhttps://breadboard-555.bisks.net/`;
+    $("winTitle").textContent = `${NAMES[doc.winner - 1]} wins!`;
+    $("winText").textContent = `the 555 is oscillating: ${doc.result || ""}.`;
     $("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
-    game.hand = null;
-    game.first = null;
-    return render();
   }
-  const note = res.short ? " 💨 that shorted V+ to GND. smoke everywhere." : "";
-  endTurn();
-  game.msg = `${NAMES[1 - game.turn]} ${moved ? "moved" : "placed"} a ${KINDS[part.kind].label}.${note} ${NAMES[game.turn]}: your move.`;
+}
+
+function say(t) { note = t; render(); }
+
+function clickChip(p) {
+  if (!canAct()) return;
+  hand = hand && hand.id === p.id ? null : { from: "stack", id: p.id };
+  first = null;
+  say(hand ? `now click two holes to place the ${KINDS[p.kind].label}.` : "");
+}
+
+function clickPart(p) {
+  if (!canAct()) return say(whyNot(g(), mySeat()) || "you're watching this one.");
+  if (hand) return say("you're already holding something. place it or put it back first.");
+  hand = { from: "board", id: p.id };
+  first = null;
+  say(`picked up the ${KINDS[p.kind].label}${p.by !== mySeat() ? " (it's your opponent's!)" : ""}. click two holes to move it.`);
+}
+
+function clickNode(n) {
+  if (!canAct()) return say(whyNot(g(), mySeat()) || "you're watching this one.");
+  if (!hand) return say("pick a part from your stack first (or click one on the board to move it).");
+  if (!first) { first = n; return say(`from ${n}. now the other end.`); }
+  if (first === n) { first = null; return say(""); }
+  const a = first, seat = mySeat(), h = hand;
+  hand = null;
+  first = null;
+  note = "";
+  store.change((d) => { if (h.from === "stack") place(d, seat, h.id, a, n); else move(d, seat, h.id, a, n); });
   render();
 }
 
 $("cancel").addEventListener("click", () => {
-  const h = game.hand;
-  if (!h) return;
-  // A part picked up from the board goes back where it was; one from the stack just stays there.
-  if (h.origin) game.boards[game.turn].placed.push(h.origin);
-  game.hand = null;
-  game.first = null;
-  game.msg = "put it back. still your turn.";
-  render();
+  hand = null;
+  first = null;
+  say("put it back. still your turn.");
 });
 $("pass").addEventListener("click", () => {
-  if (game.winner) return;
-  if (game.hand && game.hand.origin) game.boards[game.turn].placed.push(game.hand.origin);
-  endTurn();
-  game.msg = `${NAMES[1 - game.turn]} passed. ${NAMES[game.turn]}: your move.`;
+  const seat = mySeat();
+  hand = null; first = null; note = "";
+  store.change((d) => { pass(d, seat); });
   render();
 });
-const restart = () => { game = fresh(); render(); };
-$("reset").addEventListener("click", restart);
-$("again").addEventListener("click", restart);
+$("again").addEventListener("click", () => { store.change((d) => rematch(d)); render(); });
+$("reset").addEventListener("click", () => {
+  if (mode === "local") { store = localStore(newGame()); lastRound = -1; lastTurn = -1; note = ""; hand = null; first = null; render(); }
+  else if (confirm("start a fresh game with the same link? the board and both stacks reset.")) { store.change((d) => rematch(d)); render(); }
+});
+$("copy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(location.href); $("copy").textContent = "copied"; }
+  catch { $("joinlink").select(); }
+});
 
-restart();
+function startLocal() {
+  mode = "local";
+  store = localStore(newGame());
+  store.onChange(render);
+  $("modeNote").textContent = "hot-seat: both players share this screen.";
+  render();
+}
+
+// Seats are first-come. If two people grab seat 2 at once the last write wins,
+// and the loser sees their seat isn't theirs after the next sync and just watches.
+function claimSeat() {
+  const d = g();
+  if (d.seats.indexOf(me) < 0 && d.seats[1] == null) store.change((x) => { if (x.seats[1] == null) x.seats[1] = me; });
+}
+
+async function startOnline(url) {
+  $("lobbyMsg").textContent = url ? "joining the game…" : "opening a new game…";
+  try {
+    store = await onlineStore(url, newGame(me));
+  } catch (e) {
+    $("lobbyMsg").textContent = `couldn't reach the shared game (${e.message}). you can still play hot-seat.`;
+    return;
+  }
+  mode = "online";
+  if (!url) history.replaceState(null, "", "#" + store.url);
+  $("modeNote").textContent = "online: moves sync live between everyone with the link.";
+  store.onChange(() => { claimSeat(); render(); });
+  claimSeat();
+  render();
+}
+
+$("newOnline").addEventListener("click", () => startOnline(null));
+$("hotseat").addEventListener("click", startLocal);
+
+const hash = decodeURIComponent(location.hash.slice(1));
+if (hash.startsWith("automerge:")) startOnline(hash);
