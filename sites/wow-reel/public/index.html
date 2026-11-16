@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>wow-reel — every post that starts with “wow” or “#testimonials”</title>
+<meta name="description" content="Pulls a Bluesky account's entire repo and lists every post that starts with “wow” or “#testimonials”." />
+<meta property="og:title" content="wow-reel" />
+<meta property="og:description" content="Every post that starts with “wow” or “#testimonials”, from the whole repo." />
+<meta property="og:url" content="https://wow-reel.bisks.net/" />
+<meta property="og:image" content="https://wow-reel.bisks.net/og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<style>
+  body{font:16px/1.5 system-ui,sans-serif;max-width:640px;margin:0 auto;padding:24px 16px;background:#fafaf7;color:#222}
+  h1{margin:0 0 4px}
+  .sub{color:#666;margin:0 0 20px}
+  form{display:flex;gap:8px;margin-bottom:12px}
+  input{flex:1;padding:8px;font:inherit;border:1px solid #bbb;border-radius:6px}
+  button{padding:8px 14px;font:inherit;border:0;border-radius:6px;background:#1d4ed8;color:#fff;cursor:pointer}
+  button:disabled{opacity:.5}
+  #status{color:#555;min-height:1.5em}
+  .tabs{display:flex;gap:8px;margin:12px 0}
+  .tabs label{cursor:pointer;font-size:14px}
+  .post{background:#fff;border:1px solid #e3e3dc;border-radius:8px;padding:12px;margin:10px 0;white-space:pre-wrap;word-wrap:break-word}
+  .meta{font-size:13px;color:#777;margin-top:6px}
+  .meta a{color:#1d4ed8}
+  footer{margin-top:32px;font-size:13px;color:#777}
+  footer a{color:inherit}
+</style>
+</head>
+<body>
+<h1>wow-reel</h1>
+<p class="sub">every post <span id="who" style="cursor:pointer">t</span>hat starts with “wow” or “#testimonials”</p>
+<form id="form" autocomplete="off">
+  <input id="handle" placeholder="handle, e.g. cee.wtf" spellcheck="false" />
+  <button id="go" type="submit">fetch</button>
+</form>
+<div id="status"></div>
+<div class="tabs" id="tabs" hidden>
+  <label><input type="radio" name="f" value="all" checked /> all</label>
+  <label><input type="radio" name="f" value="wow" /> wow</label>
+  <label><input type="radio" name="f" value="testimonials" /> #testimonials</label>
+</div>
+<div id="list"></div>
+<footer>
+  Public reads only; the whole repo is downloaded from the PDS, so no post is missed. Replies count too.
+  · <a href="https://rateyourbuild.bisks.net/site/wow-reel">rate this on rateyourbuild →</a>
+  · <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a>
+</footer>
+<script src="lib/handle-typeahead.js"></script>
+<script>if (window.attachHandleTypeahead) window.attachHandleTypeahead(document.getElementById("handle"));</script>
+<script type="module">
+import { fetchRepoRecordsWithKeys } from "./lib/car.js";
+import { resolvePds } from "./lib/identity.js";
+const $ = (id) => document.getElementById(id);
+const input = $("handle"), status = $("status"), list = $("list"), tabs = $("tabs"), go = $("go");
+let found = [];
+
+$("who").onclick = () => { input.value = "@cee.wtf"; input.dispatchEvent(new Event("input", { bubbles: true })); input.focus(); };
+
+// "wow" or "#testimonials" at the very start of the post, ignoring leading whitespace and case.
+function kind(text) {
+  const t = (text || "").trimStart().toLowerCase();
+  if (t.startsWith("#testimonials")) return "testimonials";
+  if (t.startsWith("wow")) return "wow";
+  return null;
+}
+function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function render() {
+  const f = document.querySelector("input[name=f]:checked").value;
+  const rows = found.filter((p) => f === "all" || p.kind === f);
+  status.textContent = `${rows.length} post${rows.length === 1 ? "" : "s"}` + (f === "all" ? "" : ` (${found.length} total)`);
+  list.innerHTML = rows.map((p) => {
+    const rkey = p.uri.split("/").pop();
+    const d = p.createdAt ? new Date(p.createdAt).toLocaleString() : "";
+    return `<div class="post">${esc(p.text)}<div class="meta">${esc(d)} · <a href="https://bsky.app/profile/${p.did}/post/${rkey}" target="_blank" rel="noopener">open</a></div></div>`;
+  }).join("");
+}
+tabs.addEventListener("change", render);
+
+$("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const h = input.value.trim().replace(/^@/, "");
+  if (!h) return;
+  go.disabled = true; list.innerHTML = ""; tabs.hidden = true;
+  try {
+    status.textContent = "resolving…";
+    const r = await fetch("https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle?handle=" + encodeURIComponent(h));
+    const did = (await r.json()).did;
+    if (!did) throw new Error(`couldn't resolve "${h}"`);
+    const pds = await resolvePds(did);
+    if (!pds) throw new Error("couldn't find that account's PDS");
+    const { records } = await fetchRepoRecordsWithKeys(pds, did, "app.bsky.feed.post", (m) => { status.textContent = m; });
+    found = records
+      .map((r) => ({ uri: r.uri, did, text: r.value.text || "", createdAt: r.value.createdAt, kind: kind(r.value.text) }))
+      .filter((p) => p.kind)
+      .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    tabs.hidden = false;
+    render();
+    if (!found.length) status.textContent = `scanned ${records.length} posts; none start with “wow” or “#testimonials”.`;
+  } catch (err) {
+    status.textContent = "error: " + err.message;
+  } finally {
+    go.disabled = false;
+  }
+});
+</script>
+<script src="lib/visits.js" data-site="wow-reel" data-into="footer"></script>
+</body>
+</html>
