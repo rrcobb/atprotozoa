@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bamischijf — de ballade</title>
+<meta name="description" content="An ode to the bamischijf: a synthesized oompah song, a lyric music video and the poem, all in your browser.">
+<meta property="og:title" content="Bamischijf — de ballade">
+<meta property="og:description" content="A music video for the fried noodle disc of the Dutch snackbar.">
+<meta property="og:url" content="https://bamischijf.bisks.net/">
+<meta name="twitter:card" content="summary">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#1b1030;color:#fff3d6;font-family:"Trebuchet MS",Verdana,sans-serif;display:flex;flex-direction:column;align-items:center;padding:0 0 28px}
+  .tri{width:100%;height:14px;background:linear-gradient(#ae1c28 0 33.3%,#fff 33.3% 66.6%,#21468b 66.6%)}
+  header{text-align:center;padding:16px 12px 4px}
+  h1{margin:0;font-family:Impact,"Arial Black",sans-serif;font-size:clamp(2rem,9vw,3.4rem);letter-spacing:.04em;text-transform:uppercase;color:#ffb300;text-shadow:3px 3px 0 #ae1c28}
+  .sub{margin:4px 0 0;color:#ffd98a}
+  .stage{width:min(640px,96vw);margin:12px 0 8px;border:6px solid #ff6f00;border-radius:12px;overflow:hidden;background:#000;position:relative}
+  canvas{display:block;width:100%;height:auto;aspect-ratio:16/9}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:6px 0}
+  button,.btn{font:inherit;font-weight:700;background:#ff6f00;color:#fff;border:0;border-radius:999px;padding:10px 22px;cursor:pointer;text-decoration:none;font-size:1rem}
+  button:hover,.btn:hover{background:#ffb300;color:#1b1030}
+  label{display:flex;align-items:center;gap:6px;font-size:.9rem;color:#ffd98a}
+  .poem{width:min(560px,92vw);margin:18px 0 0}
+  .poem h2{font-family:Impact,sans-serif;letter-spacing:.05em;color:#ffb300;margin:22px 0 4px;text-transform:uppercase;font-size:1.1rem}
+  .poem p{margin:0;line-height:1.5}
+  .poem .en{display:block;color:#b9a77d;font-style:italic;font-size:.85rem}
+  .poem .l{display:block;margin-top:6px}
+  .poem .l.on{color:#ffb300}
+  footer{margin-top:26px;font-size:.85rem;color:#b9a77d;text-align:center;line-height:1.7}
+  footer a{color:#ffd98a}
+</style>
+</head>
+<body>
+<div class="tri"></div>
+<header>
+  <h1>Bamischijf</h1>
+  <p class="sub">een ballade voor de gouden schijf · a ballad for the golden disc</p>
+</header>
+<div class="stage"><canvas id="c" width="960" height="540"></canvas></div>
+<div class="bar">
+  <button id="play">▶ speel af</button>
+  <label><input type="checkbox" id="sing"> zing mee (browser voice)</label>
+</div>
+<div class="poem" id="poem"></div>
+<footer>
+  <a id="share" href="#" target="_blank" rel="noopener">post it to Bluesky</a> ·
+  <a href="https://rateyourbuild.bisks.net/site/bamischijf">rate this on rateyourbuild →</a><br>
+  <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a>
+</footer>
+<script>
+"use strict";
+// ---- the song: [dutch, english, scene, section] — two bars (4s at 120bpm) each
+const BPM = 120, BEAT = 60 / BPM, LINE = 8 * BEAT; // 2 bars of 4/4
+const LYRICS = [
+  ["Om middernacht gaat de frituur weer open","at midnight the fryer wakes up again",0,"couplet"],
+  ["een gouden schijf, zo rond als de maan","a golden disc, round as the moon",1,"couplet"],
+  ["noedels in paneermeel, kruidig en warm","noodles in breadcrumbs, spiced and warm",1,"couplet"],
+  ["geen vork, geen bord, hij past in mijn hand","no fork, no plate, it fits in my hand",2,"couplet"],
+  ["Bami, bami, bamischijf!","bami, bami, bami disc!",3,"refrein"],
+  ["knapperig rond, mijn gouden schijf","crunchy and round, my golden disc",3,"refrein"],
+  ["met pindasaus of mayo erop","with satay sauce or mayo on top",3,"refrein"],
+  ["bamischijf, mijn lieve schijf!","bami disc, my darling disc!",3,"refrein"],
+  ["De fiets staat nat tegen de snackbarmuur","the bike leans wet on the snackbar wall",4,"couplet"],
+  ["het regent, natuurlijk, het is Nederland","it's raining, of course, it's the Netherlands",4,"couplet"],
+  ["“Nummer zevenenveertig!” roept de man","“number forty-seven!” calls the man",5,"couplet"],
+  ["hete vingers, blije bek, ik hap erin","hot fingers, happy face, I bite right in",5,"couplet"],
+  ["Bami, bami, bamischijf!","bami, bami, bami disc!",3,"refrein"],
+  ["knapperig rond, mijn gouden schijf","crunchy and round, my golden disc",3,"refrein"],
+  ["met pindasaus of mayo erop","with satay sauce or mayo on top",3,"refrein"],
+  ["bamischijf, mijn lieve schijf!","bami disc, my darling disc!",3,"refrein"],
+  ["Ben ik ooit ver van huis, in Tokio of Rome","if I'm ever far from home, in Tokyo or Rome",6,"brug"],
+  ["dan droom ik van een schijf en ik weet: ik moet naar huis","I dream of a disc and I know: I must go home",6,"brug"],
+  ["Bami, bami, bamischijf!","bami, bami, bami disc!",3,"slot"],
+  ["wij draaien samen rond, o gouden schijf","we spin around together, o golden disc",3,"slot"],
+  ["met pindasaus of mayo erop","with satay sauce or mayo on top",3,"slot"],
+  ["bamischijf, bamischijf, BAMISCHIJF!","bami disc, bami disc, BAMI DISC!",3,"slot"],
+];
+const INTRO = 2 * LINE / 2; // one bar-pair of instrumental, 4s
+const TOTAL = INTRO + LYRICS.length * LINE + LINE / 2;
+
+// poem under the video
+(function(){
+  const poem = document.getElementById("poem");
+  let sec = "", html = "";
+  LYRICS.forEach((l, i) => {
+    if (l[3] !== sec) { sec = l[3]; html += `<h2>${sec}</h2>`; }
+    html += `<p class="l" id="l${i}">${l[0]}<span class="en">${l[1]}</span></p>`;
+  });
+  poem.innerHTML = html;
+  const text = "Bamischijf — a ballad for the golden disc \u{1F35C}\nhttps://bamischijf.bisks.net/";
+  document.getElementById("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+})();
+
+// ---- audio: oompah in C — C F G C, synthesized live
+let ac = null, master = null, timer = null, t0 = 0, nextStep = 0, running = false;
+const mtof = n => 440 * Math.pow(2, (n - 69) / 12);
+const PROG = [[48,[60,64,67]],[53,[60,65,69]],[55,[59,62,67]],[48,[60,64,67]]]; // bass note, chord
+// hook melody per bar-pair (8 eighth-notes per bar, 0 = rest): refrein vs couplet
+const MEL = {
+  refrein:[[72,0,72,0,76,0,79,0],[77,0,76,0,74,0,72,0],[74,0,74,0,77,0,79,0],[79,0,77,0,76,74,72,0]],
+  couplet:[[67,0,69,0,72,0,69,0],[69,0,72,0,74,0,72,0],[71,0,74,0,72,0,71,0],[72,0,67,0,64,0,67,0]],
+  brug:[[64,0,67,0,71,0,67,0],[65,0,69,0,72,0,69,0],[67,0,71,0,74,0,71,0],[72,0,0,0,67,0,0,0]],
+  slot:[[72,72,76,76,79,79,84,0],[77,77,76,76,74,74,72,0],[74,74,77,77,79,79,83,0],[84,0,79,0,76,0,72,0]],
+};
+function tone(type, f, t, d, vol) {
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.value = f;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + d + 0.02);
+}
+function noise(t, d, vol, hp) {
+  const n = Math.floor(ac.sampleRate * d), b = ac.createBuffer(1, n, ac.sampleRate), x = b.getChannelData(0);
+  for (let i = 0; i < n; i++) x[i] = Math.random() * 2 - 1;
+  const s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+  s.buffer = b; f.type = "highpass"; f.frequency.value = hp;
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+  s.connect(f); f.connect(g); g.connect(master); s.start(t);
+}
+function kick(t) {
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.15);
+  g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+  o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.22);
+}
+// step = one eighth note since song start
+function scheduleStep(step, t) {
+  const introSteps = INTRO / (BEAT / 2);
+  const bar = Math.floor(step / 8), inBar = step % 8;
+  const chord = PROG[bar % 4];
+  if (inBar % 4 === 0) { tone("triangle", mtof(chord[0] - 12), t, BEAT * 0.9, 0.5); kick(t); }       // oom
+  if (inBar % 4 === 2) { chord[1].forEach(n => tone("square", mtof(n), t, BEAT * 0.4, 0.07)); noise(t, 0.12, 0.25, 2500); } // pah
+  if (inBar % 2 === 1) noise(t, 0.04, 0.08, 7000);
+  if (step >= introSteps) {
+    const li = Math.floor((step - introSteps) / 8);
+    if (li < LYRICS.length) {
+      const m = MEL[LYRICS[li][3]][li % 4][inBar];
+      if (m) tone("sawtooth", mtof(m), t, BEAT * 0.45, 0.09);
+    }
+  } else if (inBar % 2 === 0) tone("sawtooth", mtof(chord[1][inBar / 2 % 3] + 12), t, BEAT * 0.4, 0.06);
+}
+function pump() {
+  const stepDur = BEAT / 2;
+  while (running && t0 + nextStep * stepDur < ac.currentTime + 0.25) {
+    if (nextStep * stepDur > TOTAL) { stop(true); return; }
+    scheduleStep(nextStep, t0 + nextStep * stepDur);
+    nextStep++;
+  }
+}
+let sung = -1;
+function speak(i) {
+  if (!document.getElementById("sing").checked || !window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance(LYRICS[i][0].replace(/[“”]/g, ""));
+  u.lang = "nl-NL"; u.rate = 0.95; u.pitch = 1.3; u.volume = 0.9;
+  speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
+const btn = document.getElementById("play");
+function start() {
+  ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+  ac.resume();
+  master = ac.createGain(); master.gain.value = 0.8; master.connect(ac.destination);
+  t0 = ac.currentTime + 0.1; nextStep = 0; sung = -1; running = true;
+  timer = setInterval(pump, 50); pump();
+  btn.textContent = "■ stop";
+}
+function stop(ended) {
+  running = false; clearInterval(timer);
+  if (master) { master.disconnect(); master = null; }
+  if (window.speechSynthesis) speechSynthesis.cancel();
+  btn.textContent = ended ? "▶ nog een keer" : "▶ speel af";
+}
+btn.addEventListener("click", () => running ? stop(false) : start());
+
+// ---- video: canvas scenes keyed to the audio clock
+const cv = document.getElementById("c"), cx = cv.getContext("2d"), W = 960, H = 540;
+const rnd = (() => { let s = 7; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
+const crumbs = Array.from({ length: 70 }, () => ({ a: rnd() * 6.28, r: rnd(), s: 2 + rnd() * 4 }));
+const rain = Array.from({ length: 90 }, () => ({ x: rnd() * W, y: rnd() * H, v: 6 + rnd() * 6 }));
+const BG = ["#2a1747","#3a1d12","#ffb300","#ae1c28","#21468b","#2a1747","#17284f"];
+
+function disc(x, y, r, rot, bite) {
+  cx.save(); cx.translate(x, y); cx.rotate(rot);
+  const g = cx.createRadialGradient(-r * .3, -r * .3, r * .1, 0, 0, r);
+  g.addColorStop(0, "#f7c55a"); g.addColorStop(.7, "#d98a1c"); g.addColorStop(1, "#8f4e0b");
+  cx.fillStyle = g; cx.beginPath(); cx.arc(0, 0, r, 0, 6.2832); cx.fill();
+  cx.strokeStyle = "rgba(90,40,0,.45)"; cx.lineWidth = Math.max(1, r / 28);
+  for (let k = 0; k < 9; k++) { cx.beginPath(); cx.arc(0, 0, r * (.2 + k * .09), k, k + 2.2 + (k % 3)); cx.stroke(); } // noodle swirls
+  cx.fillStyle = "rgba(255,230,150,.7)";
+  crumbs.forEach(c => { cx.fillRect(Math.cos(c.a) * c.r * r * .9, Math.sin(c.a) * c.r * r * .9, c.s * r / 90, c.s * r / 90); });
+  // face
+  cx.fillStyle = "#2a1200"; const e = r * .14;
+  cx.beginPath(); cx.arc(-r * .28, -r * .1, e, 0, 6.2832); cx.arc(r * .28, -r * .1, e, 0, 6.2832); cx.fill();
+  cx.fillStyle = "#fff"; cx.beginPath(); cx.arc(-r * .25, -r * .14, e * .35, 0, 6.2832); cx.arc(r * .31, -r * .14, e * .35, 0, 6.2832); cx.fill();
+  cx.strokeStyle = "#2a1200"; cx.lineWidth = r * .06; cx.beginPath(); cx.arc(0, r * .12, r * .3, .15, Math.PI - .15); cx.stroke();
+  cx.restore();
+  if (bite) { cx.fillStyle = bite; cx.beginPath(); cx.arc(x + r * .9, y - r * .6, r * .38, 0, 6.2832); cx.fill(); }
+}
+function bike(x, y, s, t) {
+  cx.save(); cx.translate(x, y); cx.scale(s, s); cx.strokeStyle = "#111"; cx.lineWidth = 5; cx.lineCap = "round";
+  [-40, 40].forEach(wx => { cx.beginPath(); cx.arc(wx, 0, 28, 0, 6.2832); cx.stroke(); cx.save(); cx.translate(wx, 0); cx.rotate(t * 6); cx.beginPath(); cx.moveTo(-28, 0); cx.lineTo(28, 0); cx.moveTo(0, -28); cx.lineTo(0, 28); cx.lineWidth = 1.5; cx.stroke(); cx.restore(); });
+  cx.lineWidth = 5; cx.beginPath(); cx.moveTo(-40, 0); cx.lineTo(-10, -40); cx.lineTo(30, -40); cx.lineTo(40, 0); cx.moveTo(-10, -40); cx.lineTo(0, 0); cx.lineTo(-40, 0); cx.moveTo(30, -40); cx.lineTo(26, -56); cx.stroke();
+  cx.restore();
+}
+function sign(text, x, y, c, size) {
+  cx.font = `900 ${size}px Impact,"Arial Black",sans-serif`; cx.textAlign = "center";
+  cx.shadowColor = c; cx.shadowBlur = 18; cx.fillStyle = c; cx.fillText(text, x, y); cx.shadowBlur = 0;
+}
+function scene(si, t, lt, beatPulse) {
+  const bg = BG[si]; cx.fillStyle = bg; cx.fillRect(0, 0, W, H);
+  if (si === 0) { // night snackbar, neon
+    for (let i = 0; i < 40; i++) { cx.fillStyle = `rgba(255,255,255,${.3 + .7 * Math.abs(Math.sin(t + i))})`; cx.fillRect((i * 97) % W, (i * 53) % 220, 2, 2); }
+    cx.fillStyle = "#ffe9a8"; cx.beginPath(); cx.arc(780, 110, 46 + beatPulse * 4, 0, 6.2832); cx.fill();
+    cx.fillStyle = "#120a22"; cx.fillRect(0, 330, W, 210);
+    sign("FRITUUR", W / 2, 300, Math.sin(t * 9) > -.9 ? "#ff3d71" : "#6a1a30", 90);
+    cx.fillStyle = "#ffb300"; cx.fillRect(180, 350, 600, 120); cx.fillStyle = "#1b1030"; cx.fillRect(200, 365, 560, 40);
+    sign("OPEN", W / 2, 398, "#7dffb2", 34);
+  } else if (si === 1) { // the disc rises over the fryer
+    cx.fillStyle = "#7a3a10"; cx.fillRect(0, 360, W, 180);
+    for (let i = 0; i < 24; i++) { const bx = (i * 83) % W, by = 380 + ((t * 40 + i * 31) % 150); cx.strokeStyle = "rgba(255,230,150,.6)"; cx.beginPath(); cx.arc(bx, by, 4 + i % 5, 0, 6.2832); cx.stroke(); }
+    disc(W / 2, 260 - Math.min(lt, 2) * 10 + Math.sin(t * 2) * 8, 150 + beatPulse * 10, Math.sin(t) * .1);
+  } else if (si === 2) { // hand holds disc
+    cx.fillStyle = "#ffe0b5"; cx.beginPath(); cx.ellipse(W / 2, 470, 190, 130, 0, 0, 6.2832); cx.fill();
+    for (let k = -2; k < 3; k++) { cx.beginPath(); cx.ellipse(W / 2 + k * 70, 340, 32, 80, k * .1, 0, 6.2832); cx.fill(); }
+    disc(W / 2, 250, 140 + beatPulse * 8, 0);
+    sign("geen vork nodig", W / 2, 70, "#fff", 52);
+  } else if (si === 3) { // chorus: dance floor, spinning discs, wobbling sauces
+    const hue = (t * 60) % 360; cx.fillStyle = `hsl(${hue},70%,30%)`; cx.fillRect(0, 0, W, H);
+    for (let i = 0; i < 12; i++) for (let j = 0; j < 5; j++) { cx.fillStyle = (i + j + Math.floor(t * 2)) % 2 ? "rgba(255,255,255,.08)" : "rgba(0,0,0,.12)"; cx.fillRect(i * 80, 300 + j * 48, 80, 48); }
+    [[-1, 200],[0, W / 2],[1, 760]].forEach(([k, x], n) => disc(x, 270 + Math.sin(t * 4 + n) * 24, (n === 1 ? 130 : 78) + beatPulse * 10, t * (n === 1 ? 1.5 : -2) * 1 , null));
+    cx.fillStyle = "#ffb300"; cx.beginPath(); cx.ellipse(110, 450, 38, 20, 0, 0, 6.2832); cx.fill(); // satay
+    cx.fillStyle = "#fff"; cx.beginPath(); cx.ellipse(850, 450, 38, 20, 0, 0, 6.2832); cx.fill(); // mayo
+    sign("BAMISCHIJF!", W / 2, 90 + beatPulse * 6, "#fff", 84);
+  } else if (si === 4) { // rainy bike
+    cx.fillStyle = "#2b2b3a"; cx.fillRect(0, 350, W, 190); cx.fillStyle = "#b5513a"; cx.fillRect(0, 60, 220, 300);
+    cx.fillStyle = "#ffb300"; cx.fillRect(20, 80, 180, 50); sign("SNACK", 110, 118, "#7a1a10", 36);
+    bike(300 + ((t * 25) % 420), 410, 1.5, t);
+    cx.strokeStyle = "rgba(180,200,255,.6)"; cx.lineWidth = 2;
+    rain.forEach(r => { r.y += r.v; r.x -= 2; if (r.y > H) { r.y = -10; r.x = rnd() * W + 40; } cx.beginPath(); cx.moveTo(r.x, r.y); cx.lineTo(r.x + 4, r.y + 14); cx.stroke(); });
+  } else if (si === 5) { // number called, bite
+    cx.fillStyle = "#222"; cx.fillRect(0, 380, W, 160); cx.fillStyle = "#ffb300"; cx.fillRect(150, 70, 660, 250);
+    cx.fillStyle = "#111"; cx.fillRect(170, 90, 620, 210);
+    sign(String(47), W / 2, 240, "#ff3d3d", 140 + beatPulse * 8);
+    disc(W / 2, 430, 70, 0, lt > 4 ? bg : null);
+  } else { // brug: skyline, longing
+    cx.fillStyle = "#0d1630"; cx.fillRect(0, 0, W, H);
+    for (let i = 0; i < 14; i++) { const h = 80 + (i * 61) % 180; cx.fillStyle = "#07101f"; cx.fillRect(i * 70, 400 - h, 56, h + 140); for (let w = 0; w < 6; w++) { cx.fillStyle = (i + w + Math.floor(t)) % 4 ? "#ffd98a" : "#07101f"; cx.fillRect(i * 70 + 10, 420 - h + w * 24, 8, 10); } }
+    cx.globalAlpha = .6 + .3 * Math.sin(t * 2); disc(W / 2, 150 + Math.sin(t) * 12, 90, t * .3); cx.globalAlpha = 1;
+    sign("dromen van thuis", W / 2, 70, "#ffd98a", 44);
+  }
+}
+function frame() {
+  const t = running && ac ? ac.currentTime - t0 : -1;
+  const idle = t < 0;
+  const tt = idle ? performance.now() / 1000 : t;
+  const li = idle ? -1 : Math.floor((t - INTRO) / LINE);
+  const si = idle ? 3 : li < 0 ? 0 : Math.min(li, LYRICS.length - 1) < LYRICS.length ? LYRICS[Math.min(li, LYRICS.length - 1)][2] : 3;
+  const lt = idle ? 0 : li < 0 ? t : (t - INTRO) - li * LINE;
+  const beatPulse = Math.max(0, 1 - ((tt % BEAT) / BEAT) * 3);
+  scene(si, tt, lt, beatPulse);
+  // lyric bar
+  cx.fillStyle = "rgba(0,0,0,.6)"; cx.fillRect(0, H - 110, W, 110);
+  cx.textAlign = "center";
+  if (idle) {
+    cx.fillStyle = "#ffb300"; cx.font = "bold 34px Trebuchet MS,sans-serif"; cx.fillText("▶ druk op speel af", W / 2, H - 50);
+  } else if (li >= 0 && li < LYRICS.length) {
+    cx.fillStyle = "#fff"; cx.font = "bold 34px Trebuchet MS,sans-serif"; cx.fillText(LYRICS[li][0], W / 2, H - 58, W - 40);
+    cx.fillStyle = "#ffd98a"; cx.font = "italic 22px Trebuchet MS,sans-serif"; cx.fillText(LYRICS[li][1], W / 2, H - 22, W - 40);
+    if (li !== sung) { sung = li; speak(li); document.querySelectorAll(".poem .l.on").forEach(e => e.classList.remove("on")); document.getElementById("l" + li).classList.add("on"); }
+  } else if (li >= LYRICS.length) {
+    cx.fillStyle = "#ffb300"; cx.font = "bold 40px Trebuchet MS,sans-serif"; cx.fillText("smakelijk! 🍜", W / 2, H - 50);
+  }
+  // progress
+  if (!idle) { cx.fillStyle = "#ff6f00"; cx.fillRect(0, H - 6, W * Math.min(1, t / TOTAL), 6); }
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>
