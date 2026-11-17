@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Bamischijf — de ballade</title>
-<meta name="description" content="An ode to the bamischijf: a synthesized oompah song, a lyric music video and the poem, all in your browser.">
+<meta name="description" content="An ode to the bamischijf, sung by a physically modeled voice (chimera) embedded in the page, plus a lyric video and the poem.">
 <meta property="og:title" content="Bamischijf — de ballade">
 <meta property="og:description" content="A music video for the fried noodle disc of the Dutch snackbar.">
 <meta property="og:url" content="https://bamischijf.bisks.net/">
@@ -31,8 +31,11 @@
   .chim{width:min(640px,96vw);margin:22px 0 0;text-align:center}
   .chim h2{font-family:Impact,sans-serif;letter-spacing:.05em;color:#ffb300;margin:0 0 4px;text-transform:uppercase;font-size:1.1rem}
   .chim p{margin:4px 0 8px;font-size:.9rem;color:#ffd98a}
-  .chim iframe{width:100%;height:560px;border:6px solid #21468b;border-radius:12px;background:#000;margin-top:8px}
-  .chim iframe[hidden]{display:none}
+  .chim.main{width:min(1100px,98vw);margin-top:10px}
+  .chim iframe{width:100%;height:max(620px,82vh);border:6px solid #21468b;border-radius:12px;background:#000;margin-top:8px}
+  .chim .bar{align-items:center}
+  .chim select{font:inherit;background:#2a1a4a;color:#fff3d6;border:2px solid #ff6f00;border-radius:999px;padding:8px 12px}
+  h2.more{font-family:Impact,sans-serif;letter-spacing:.05em;color:#ffb300;margin:30px 0 0;text-transform:uppercase;font-size:1.1rem;text-align:center}
   footer{margin-top:26px;font-size:.85rem;color:#b9a77d;text-align:center;line-height:1.7}
   footer a{color:#ffd98a}
 </style>
@@ -43,22 +46,28 @@
   <h1>Bamischijf</h1>
   <p class="sub">een ballade voor de gouden schijf · a ballad for the golden disc</p>
 </header>
+<div class="chim main">
+  <p>Sing it with <a href="https://github.com/jamesondh/chimera-vocal-synth" target="_blank" rel="noopener" style="color:#ffd98a">chimera</a> by jamesondh, a physically modeled voice, running right here. It sings English (not Dutch), so the ballad goes in as English lyrics.</p>
+  <div class="bar">
+    <select id="chim-part" aria-label="which part of the ballad">
+      <option value="all">the whole ballad</option>
+      <option value="couplet">couplets</option>
+      <option value="refrein">refrein</option>
+      <option value="brug">brug</option>
+      <option value="slot">slot</option>
+    </select>
+    <button id="chim-load">put it in the Sing box</button>
+  </div>
+  <iframe id="chim-frame" src="chimera/" title="chimera vocal synth" allow="autoplay; midi; fullscreen"></iframe>
+  <p id="chim-msg" aria-live="polite"></p>
+</div>
+<h2 class="more">the original lyric video</h2>
 <div class="stage"><canvas id="c" width="960" height="540"></canvas></div>
 <div class="bar">
   <button id="play">▶ speel af</button>
   <label><input type="checkbox" id="sing"> zing mee (browser voice)</label>
 </div>
 <div class="poem" id="poem"></div>
-<div class="chim">
-  <h2>laat een echte stem zingen</h2>
-  <p>Let a physically modeled voice sing it: <a href="https://github.com/jamesondh/chimera-vocal-synth" target="_blank" rel="noopener" style="color:#ffd98a">chimera</a> by jamesondh. It sings English (not Dutch), so copy the English lyrics, open the Sing screen and paste them in.</p>
-  <div class="bar">
-    <button id="chim-open">open chimera</button>
-    <button id="chim-copy">copy English lyrics</button>
-  </div>
-  <iframe id="chim-frame" title="chimera vocal synth" allow="autoplay; midi" hidden></iframe>
-  <p id="chim-msg" aria-live="polite"></p>
-</div>
 <footer>
   <a id="share" href="#" target="_blank" rel="noopener">post it to Bluesky</a> ·
   <a href="https://rateyourbuild.bisks.net/site/bamischijf">rate this on rateyourbuild →</a><br>
@@ -108,18 +117,44 @@ const TOTAL = INTRO + LYRICS.length * LINE + LINE / 2;
   document.getElementById("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
 })();
 
-// ---- chimera embed: loaded on demand; it only reads ?show=<id> from the URL, so lyrics go by clipboard
+// ---- chimera embed: the engine is vendored at /chimera/ (same origin), so we can drive its UI:
+// switch to Sing mode and write the English lyrics into its text box like a user typing
 (function(){
   const frame = document.getElementById("chim-frame"), msg = document.getElementById("chim-msg");
-  document.getElementById("chim-open").addEventListener("click", () => {
-    if (!frame.src) frame.src = "https://www.chimera.audio/";
-    frame.hidden = !frame.hidden;
+  const part = document.getElementById("chim-part");
+  const lyricsFor = k => LYRICS.filter(l => k === "all" || l[3] === k).map(l => l[1].replace(/[“”]/g, "")).join("\n");
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  async function load() {
+    const doc = frame.contentDocument;
+    if (!doc) { msg.textContent = "chimera isn't ready yet; try again in a second"; return; }
+    // the app mounts after the wasm engine compiles; wait for its mode switch
+    let sing = null;
+    for (let i = 0; i < 40 && !sing; i++) {
+      sing = [...doc.querySelectorAll('[role="radio"]')].find(b => b.textContent.trim() === "Sing");
+      if (!sing) await sleep(250);
+    }
+    if (!sing) { msg.textContent = "chimera is still loading; try again in a moment"; return; }
+    if (sing.getAttribute("aria-checked") !== "true") sing.click();
+    let box = null;
+    for (let i = 0; i < 20 && !box; i++) {
+      box = doc.querySelector("textarea");
+      if (!box) await sleep(100);
+    }
+    if (!box) { msg.textContent = "couldn't find chimera's text box; paste the lyrics yourself (copied to clipboard)"; copy(); return; }
+    // React tracks the value itself, so go through the native setter, then fire input
+    const set = Object.getOwnPropertyDescriptor(frame.contentWindow.HTMLTextAreaElement.prototype, "value").set;
+    set.call(box, lyricsFor(part.value));
+    box.dispatchEvent(new frame.contentWindow.Event("input", { bubbles: true }));
+    msg.textContent = "lyrics are in: press Sing inside chimera";
+  }
+  async function copy() {
+    try { await navigator.clipboard.writeText(lyricsFor(part.value)); } catch (e) {}
+  }
+  document.getElementById("chim-load").addEventListener("click", () => {
+    load().catch(e => { msg.textContent = "couldn't reach chimera: " + e.message; });
   });
-  document.getElementById("chim-copy").addEventListener("click", async () => {
-    const text = LYRICS.map(l => l[1].replace(/[“”]/g, "")).join("\n");
-    try { await navigator.clipboard.writeText(text); msg.textContent = "copied: paste it into chimera's Sing box"; }
-    catch (e) { msg.textContent = "couldn't reach the clipboard; select the English lines in the poem instead"; }
-  });
+  // prefill once the app has booted, so the ballad is ready to sing on arrival
+  frame.addEventListener("load", () => { load().catch(() => {}); });
 })();
 
 // ---- audio: oompah in C — C F G C, synthesized live
