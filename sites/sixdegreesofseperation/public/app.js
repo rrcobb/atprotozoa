@@ -78,7 +78,7 @@ function renderRows() {
         <input type="checkbox" data-did="${esc(r.did)}" ${selected.has(r.did) ? "checked" : ""} aria-label="include ${esc(handle)}" />
         ${p && p.avatar ? `<img class="avatar" src="${esc(p.avatar)}" alt="" loading="lazy" />` : `<span class="avatar"></span>`}
         <div class="who">
-          <a class="n" href="https://bsky.app/profile/${encodeURIComponent(r.did)}" target="_blank" rel="noopener">${esc(name)}</a>
+          <a class="n" href="https://bsky.app/profile/${r.did}" target="_blank" rel="noopener">${esc(name)}</a>
           <span class="h">${esc(handle)}</span>
           <details><summary>blocked by</summary>${by}</details>
         </div>
