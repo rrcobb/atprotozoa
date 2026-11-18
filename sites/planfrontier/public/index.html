@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>planfrontier — health plans on the pareto front</title>
+<meta name="description" content="Health insurance plans charted like frontier models: pick two axes, see the pareto front, add your own plans.">
+<meta property="og:title" content="planfrontier — health plans on the pareto front">
+<meta property="og:description" content="Health insurance plans charted like frontier models: pick two axes, see the pareto front, add your own plans.">
+<meta property="og:image" content="https://planfrontier.bisks.net/og.png">
+<meta property="og:url" content="https://planfrontier.bisks.net/">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://planfrontier.bisks.net/og.png">
+<style>
+:root{--bg:#0f1115;--card:#171a21;--line:#2a2f3a;--fg:#e8eaf0;--dim:#8b93a5;--front:#4ade80;--dom:#6b7385;--sel:#fbbf24;--acc:#60a5fa}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:28px;margin:0 0 4px;letter-spacing:-.02em}
+.sub{color:var(--dim);margin:0 0 16px}
+.warn{background:#2a2412;border:1px solid #5a4a1a;color:#e8d9a0;padding:8px 12px;border-radius:8px;font-size:13px;margin-bottom:16px}
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin-bottom:12px}
+label{display:flex;flex-direction:column;font-size:12px;color:var(--dim);gap:3px}
+select,input,button{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit}
+button{cursor:pointer}button:hover{border-color:var(--acc)}
+.chart{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px}
+svg{width:100%;height:auto;display:block}
+.axis text{fill:var(--dim);font-size:11px}
+.axis line,.grid{stroke:var(--line)}
+.pt{cursor:pointer}
+.pt text{fill:var(--fg);font-size:11px;paint-order:stroke;stroke:var(--card);stroke-width:3px}
+.pt.dom text{fill:var(--dim)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+@media(max-width:700px){.cols{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.card h2{font-size:15px;margin:0 0 8px}
+.front li{margin:4px 0;cursor:pointer}
+.front li:hover{color:var(--sel)}
+.bar{height:6px;background:var(--line);border-radius:3px;margin:2px 0 8px}
+.bar i{display:block;height:100%;background:var(--acc);border-radius:3px}
+.row{display:flex;justify-content:space-between;font-size:13px}
+.badge{font-size:11px;padding:1px 6px;border-radius:9px;background:#14301f;color:var(--front);margin-left:6px}
+.badge.d{background:#262a35;color:var(--dim)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:4px 6px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+.tw{overflow-x:auto}
+.add{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.add input{width:92px}.add input.n{width:140px}
+footer{margin-top:28px;color:var(--dim);font-size:13px;display:flex;flex-wrap:wrap;gap:6px 14px}
+a{color:var(--acc)}
+</style>
+</head>
+<body>
+<main>
+<h1>planfrontier</h1>
+<p class="sub">Health plans, announced like frontier models. Plot any two things against each other; the green line is the pareto front — plans nothing else beats on both.</p>
+<div class="warn">Sample numbers shaped like US marketplace metal tiers, not real quotes. Edit the table below to use your own plans — they stay in your browser.</div>
+
+<div class="controls">
+  <label>X axis <select id="xs"></select></label>
+  <label>Y axis <select id="ys"></select></label>
+  <label id="spend-wrap">Care you expect this year: <b id="spend-v">$5,000</b>
+    <input id="spend" type="range" min="0" max="60000" step="500" value="5000"></label>
+  <button id="share" type="button">share on bluesky</button>
+</div>
+
+<div class="chart"><svg id="chart" viewBox="0 0 960 520" role="img" aria-label="scatter chart of plans"></svg></div>
+
+<div class="cols">
+  <div class="card front"><h2>The frontier <span id="fcount" class="badge"></span></h2><ol id="front"></ol></div>
+  <div class="card" id="detail"><h2>Model card</h2><p class="sub">Click a point or a frontier plan.</p></div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <h2>Plans</h2>
+  <div class="tw"><table id="tbl"></table></div>
+  <form class="add" id="add">
+    <input class="n" name="name" placeholder="plan name" required>
+    <input name="premium" type="number" min="0" placeholder="premium $/mo" required>
+    <input name="deductible" type="number" min="0" placeholder="deductible $" required>
+    <input name="oopMax" type="number" min="0" placeholder="OOP max $" required>
+    <input name="coinsurance" type="number" min="0" max="100" placeholder="coinsurance %" required>
+    <input name="pcpCopay" type="number" min="0" placeholder="PCP copay $" required>
+    <input name="av" type="number" min="0" max="100" placeholder="coverage % (AV)" required>
+    <input name="network" type="number" min="0" max="100" placeholder="network 0-100" required>
+    <button>add plan</button>
+    <button type="button" id="reset">reset to samples</button>
+  </form>
+</div>
+
+<footer>
+  <span>"Coverage" is actuarial value: the share of typical costs the plan pays.</span>
+  <a href="https://rateyourbuild.bisks.net/site/planfrontier">rate this on rateyourbuild →</a>
+  <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a>
+</footer>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>
