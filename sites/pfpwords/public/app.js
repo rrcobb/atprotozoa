@@ -31,6 +31,7 @@ let skipped = 0, pending = [], running = false, ws = null, hostIx = 0, model = n
 const seen = new Set();
 const groupOf = new Map(); // did -> "cat" | "anime" once classified
 const why = { other: 0, fail: 0 };
+let lastErr = "";
 const queue = [];
 // One image in flight at a time: CLIP in wasm is CPU-bound, and the queue
 // dropping oldest-first keeps us classifying current profiles, not a backlog.
@@ -96,7 +97,38 @@ async function flush() {
   } catch {}
 }
 
+// cdn.bsky.app sends no CORS headers, so the model's fetch() of an avatar URL
+// is blocked from the browser. Pull the pixels through CORS-friendly routes:
+// a resizing image proxy (wsrv.nl, small and fast), else the blob straight
+// from the account's own PDS (plc.directory and PDSes send ACAO: *).
+const pdsOf = new Map();
+async function pds(did) {
+  if (pdsOf.has(did)) return pdsOf.get(did);
+  const u = did.startsWith("did:web:") ? `https://${did.slice(8)}/.well-known/did.json` : `https://plc.directory/${did}`;
+  const doc = await (await fetch(u)).json();
+  const svc = (doc.service || []).find((x) => x.id === "#atproto_pds");
+  if (!svc) throw new Error("no PDS in DID doc");
+  pdsOf.set(did, svc.serviceEndpoint);
+  return svc.serviceEndpoint;
+}
+async function avatarBlobUrl(p) {
+  try {
+    const r = await fetch("https://wsrv.nl/?output=jpg&w=224&h=224&url=" + encodeURIComponent(p.url));
+    if (!r.ok) throw new Error("proxy " + r.status);
+    return URL.createObjectURL(await r.blob());
+  } catch {
+    const cid = p.url.split("/").pop().split("@")[0];
+    const host = await pds(p.did);
+    const r = await fetch(`${host}/xrpc/com.atproto.sync.getBlob?did=${encodeURIComponent(p.did)}&cid=${cid}`);
+    if (!r.ok) throw new Error("getBlob " + r.status);
+    return URL.createObjectURL(await r.blob());
+  }
+}
+
 async function ownPosts(did) {
+  try { return await ownPostsRaw(did); } catch { return []; }
+}
+async function ownPostsRaw(did) {
   const res = await fetch(`${FEED}app.bsky.feed.getAuthorFeed?actor=${encodeURIComponent(did)}&filter=posts_no_replies&limit=${FEED_LIMIT}`);
   if (!res.ok) return [];
   const { feed } = await res.json();
@@ -109,7 +141,9 @@ async function pump() {
   if (!p) return;
   busy = 1;
   try {
-    const img = await model.tf.RawImage.read(p.url);
+    const blobUrl = await avatarBlobUrl(p);
+    let img;
+    try { img = await model.tf.RawImage.read(blobUrl); } finally { URL.revokeObjectURL(blobUrl); }
     const { image_embeds } = await model.vm(await model.proc(img));
     const pr = classify(Array.from(image_embeds.data), model.text, GROUPS);
     const g = pr.cat >= CONFIDENT ? "cat" : pr.anime >= CONFIDENT ? "anime" : null;
@@ -119,7 +153,7 @@ async function pump() {
       addPost(counts, p.did, g, posts.join("\n"));
       thumb(p.url, g);
     } else { skipped++; why.other++; }
-  } catch { skipped++; why.fail++; }
+  } catch (e) { skipped++; why.fail++; lastErr = (e && e.message) || String(e); }
   busy = 0;
   render();
   pump();
@@ -150,7 +184,7 @@ function list(el, rows, key) {
 
 function render() {
   dirty = false;
-  $("why").textContent = `skipped: ${why.other} had some other kind of avatar, ${why.fail} wouldn't load`;
+  $("why").textContent = `skipped: ${why.other} had some other kind of avatar, ${why.fail} wouldn't load${lastErr ? " (last error: " + lastErr + ")" : ""}`;
   $("tc").firstElementChild.textContent = counts.cat.n;
   $("ta").firstElementChild.textContent = counts.anime.n;
   $("to").firstElementChild.textContent = skipped;
