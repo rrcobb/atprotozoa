@@ -4,8 +4,8 @@ const STOP = new Set(("a an and are as at be but by for from has have i i'm im i
   "this to was we with you your not no do if just all can will about more up out get one com http https www bsky social " +
   "he she they his her their them our us what who when how than then there here also too very really").split(" "));
 
-// Words + emoji from a profile's display name and bio. Each distinct token
-// counts once per profile, so one bio shouting "cat cat cat" can't dominate.
+// Words + emoji from an account's posts. Each distinct token counts once per
+// account, so one poster shouting "cat cat cat" can't dominate.
 export function tokens(text) {
   const clean = String(text || "").toLowerCase().replace(/https?:\/\/\S+/g, " ");
   const found = clean.match(/\p{L}[\p{L}\p{M}'’]*|\p{Extended_Pictographic}/gu) || [];
@@ -20,13 +20,20 @@ export function tokens(text) {
 }
 
 export function newCounts() {
-  return { cat: { n: 0, words: new Map() }, anime: { n: 0, words: new Map() } };
+  return { cat: { n: 0, words: new Map() }, anime: { n: 0, words: new Map() }, accounts: new Map() };
 }
 
-export function addProfile(counts, group, text) {
+// Add post text for an account in `group`. The account's first text bumps the
+// group's n; every word counts once per account however many posts say it.
+export function addPost(counts, did, group, text) {
   const g = counts[group];
-  g.n++;
-  for (const w of tokens(text)) g.words.set(w, (g.words.get(w) || 0) + 1);
+  let acc = counts.accounts.get(did);
+  if (!acc) { acc = new Set(); counts.accounts.set(did, acc); g.n++; }
+  for (const w of tokens(text)) {
+    if (acc.has(w)) continue;
+    acc.add(w);
+    g.words.set(w, (g.words.get(w) || 0) + 1);
+  }
 }
 
 // Smoothed log-odds of a word appearing in profiles of one group vs the other.
@@ -51,7 +58,9 @@ export function rank(counts, { minTotal = 4, top = 15 } = {}) {
 }
 
 // CLIP zero-shot: softmax over cosine similarities (CLIP's logit scale is 100).
-export function classify(imageEmb, textEmbs) {
+// `groups[k]` names the class of prompt k; probabilities are summed per class
+// so several phrasings of "cat" vote together instead of splitting the mass.
+export function classify(imageEmb, textEmbs, groups) {
   const norm = (v) => { let s = 0; for (const x of v) s += x * x; s = Math.sqrt(s) || 1; return v.map((x) => x / s); };
   const im = norm(imageEmb);
   const logits = textEmbs.map((t) => {
@@ -62,5 +71,7 @@ export function classify(imageEmb, textEmbs) {
   const m = Math.max(...logits);
   const ex = logits.map((l) => Math.exp(l - m));
   const z = ex.reduce((a, b) => a + b, 0);
-  return ex.map((e) => e / z);
+  const out = {};
+  ex.forEach((e, k) => { const g = groups ? groups[k] : k; out[g] = (out[g] || 0) + e / z; });
+  return out;
 }

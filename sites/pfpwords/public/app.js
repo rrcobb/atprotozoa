@@ -1,4 +1,4 @@
-import { newCounts, addProfile, rank, classify } from "./lib/stats.js";
+import { newCounts, addPost, rank, classify } from "./lib/stats.js";
 
 const CDN = "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
 const MODEL = "Xenova/clip-vit-base-patch32";
@@ -8,19 +8,29 @@ const HOSTS = [
   "wss://jetstream1.us-west.bsky.network/subscribe",
   "wss://jetstream2.us-west.bsky.network/subscribe",
 ];
-// index 0 = cat, 1 = anime, 2.. = the "neither" bucket. Only a confident
-// cat/anime call is counted; anything else is skipped.
+// Several phrasings per class; their probabilities are summed per class. The
+// "other" prompts exist so a person/dog/logo avatar has somewhere else to go.
 const PROMPTS = [
-  "a photo of a cat", "an anime character illustration",
-  "a photo of a person", "a photo of a dog", "a landscape photo", "a logo or text",
-  "a cartoon that is not anime", "a photo of an object", "a selfie",
+  ["cat", "a photo of a cat"], ["cat", "a close-up of a cat's face"], ["cat", "a cute kitten"], ["cat", "a cat sitting"],
+  ["anime", "an anime character"], ["anime", "anime art of a girl"], ["anime", "a manga illustration"], ["anime", "an anime-style drawing"],
+  ["other", "a photo of a person"], ["other", "a selfie of a person"], ["other", "a photo of a dog"], ["other", "a landscape photo"],
+  ["other", "a logo or text"], ["other", "a cartoon that is not anime"], ["other", "a photo of an object"], ["other", "a photo of an animal"],
+  ["other", "a drawing of a character"], ["other", "a plain colored picture"],
 ];
-const CONFIDENT = 0.6; // a call under 60% is as likely a mislabel as a signal
+const GROUPS = PROMPTS.map((p) => p[0]);
+const CONFIDENT = 0.5; // the class must hold the majority of the probability mass
+const FEED = "https://public.api.bsky.app/xrpc/";
+// Posts pulled per account when it's classified: one page, a stated product
+// decision (a sample of the account's recent voice, one request each); posts
+// that arrive live afterwards keep adding.
+const FEED_LIMIT = 100;
 
 const $ = (id) => document.getElementById(id);
 const counts = newCounts();
-let skipped = 0, running = false, ws = null, hostIx = 0, model = null, busy = 0;
+let skipped = 0, pending = [], running = false, ws = null, hostIx = 0, model = null, busy = 0;
 const seen = new Set();
+const groupOf = new Map(); // did -> "cat" | "anime" once classified
+const why = { other: 0, fail: 0 };
 const queue = [];
 // One image in flight at a time: CLIP in wasm is CPU-bound, and the queue
 // dropping oldest-first keeps us classifying current profiles, not a backlog.
@@ -39,7 +49,7 @@ async function loadModel() {
     tf.AutoProcessor.from_pretrained(MODEL),
     tf.CLIPVisionModelWithProjection.from_pretrained(MODEL),
   ]);
-  const { text_embeds } = await tm(tok(PROMPTS, { padding: true, truncation: true }));
+  const { text_embeds } = await tm(tok(PROMPTS.map((p) => p[1]), { padding: true, truncation: true }));
   const dim = text_embeds.dims[1];
   const text = PROMPTS.map((_, k) => Array.from(text_embeds.data.slice(k * dim, (k + 1) * dim)));
   model = { tf, proc, vm, text };
@@ -49,22 +59,48 @@ async function loadModel() {
 function connect() {
   if (!running) return;
   const u = new URL(HOSTS[hostIx % HOSTS.length]);
-  u.searchParams.set("wantedCollections", "app.bsky.actor.profile");
+  u.searchParams.set("wantedCollections", "app.bsky.feed.post");
   ws = new WebSocket(u);
-  ws.onopen = () => status("listening for new profiles…");
+  ws.onopen = () => status("listening for posts…");
   ws.onmessage = (ev) => {
     let m; try { m = JSON.parse(ev.data); } catch { return; }
-    const r = m.commit && m.commit.record;
-    if (!r || !(m.commit.operation === "create" || m.commit.operation === "update")) return;
-    const cid = r.avatar && r.avatar.ref && r.avatar.ref.$link;
-    if (!cid || seen.has(m.did)) return;
+    const c = m.commit, r = c && c.record;
+    if (!r || c.operation !== "create" || !r.text) return;
+    const g = groupOf.get(m.did);
+    if (g) { addPost(counts, m.did, g, r.text); dirty = true; return; }
+    if (seen.has(m.did)) return;
     seen.add(m.did);
-    queue.push({ did: m.did, cid, text: (r.displayName || "") + " " + (r.description || "") });
-    if (queue.length > MAX_QUEUE) queue.shift();
-    pump();
+    pending.push(m.did);
+    if (pending.length >= 25) flush();
   };
   ws.onclose = () => { if (running) { hostIx++; status("reconnecting…"); setTimeout(connect, 1000); } };
   ws.onerror = () => ws.close();
+}
+
+let dirty = false;
+// Poster DIDs -> avatars, 25 per getProfiles call (the endpoint's max).
+async function flush() {
+  if (!pending.length) return;
+  const batch = pending.splice(0, 25);
+  try {
+    const q = batch.map((d) => "actors=" + encodeURIComponent(d)).join("&");
+    const res = await fetch(FEED + "app.bsky.actor.getProfiles?" + q);
+    if (!res.ok) return;
+    const { profiles } = await res.json();
+    for (const p of profiles) {
+      if (!p.avatar) continue;
+      queue.push({ did: p.did, url: p.avatar.replace("/img/avatar/", "/img/avatar_thumbnail/") });
+      if (queue.length > MAX_QUEUE) queue.shift();
+    }
+    pump();
+  } catch {}
+}
+
+async function ownPosts(did) {
+  const res = await fetch(`${FEED}app.bsky.feed.getAuthorFeed?actor=${encodeURIComponent(did)}&filter=posts_no_replies&limit=${FEED_LIMIT}`);
+  if (!res.ok) return [];
+  const { feed } = await res.json();
+  return feed.filter((f) => !f.reason && f.post.record && f.post.record.text).map((f) => f.post.record.text);
 }
 
 async function pump() {
@@ -72,14 +108,18 @@ async function pump() {
   const p = queue.pop(); // newest first
   if (!p) return;
   busy = 1;
-  const url = `https://cdn.bsky.app/img/avatar_thumbnail/plain/${p.did}/${p.cid}@jpeg`;
   try {
-    const img = await model.tf.RawImage.read(url);
+    const img = await model.tf.RawImage.read(p.url);
     const { image_embeds } = await model.vm(await model.proc(img));
-    const pr = classify(Array.from(image_embeds.data), model.text);
-    const g = pr[0] >= CONFIDENT ? "cat" : pr[1] >= CONFIDENT ? "anime" : null;
-    if (g) { addProfile(counts, g, p.text); thumb(url, g); } else skipped++;
-  } catch { skipped++; }
+    const pr = classify(Array.from(image_embeds.data), model.text, GROUPS);
+    const g = pr.cat >= CONFIDENT ? "cat" : pr.anime >= CONFIDENT ? "anime" : null;
+    if (g) {
+      const posts = await ownPosts(p.did);
+      groupOf.set(p.did, g);
+      addPost(counts, p.did, g, posts.join("\n"));
+      thumb(p.url, g);
+    } else { skipped++; why.other++; }
+  } catch { skipped++; why.fail++; }
   busy = 0;
   render();
   pump();
@@ -109,6 +149,8 @@ function list(el, rows, key) {
 }
 
 function render() {
+  dirty = false;
+  $("why").textContent = `skipped: ${why.other} had some other kind of avatar, ${why.fail} wouldn't load`;
   $("tc").firstElementChild.textContent = counts.cat.n;
   $("ta").firstElementChild.textContent = counts.anime.n;
   $("to").firstElementChild.textContent = skipped;
@@ -116,7 +158,7 @@ function render() {
   list($("listc"), r.cat, "cat");
   list($("lista"), r.anime, "anime");
   const t = (a) => a.slice(0, 5).map((x) => x.word).join(", ");
-  const text = `cat pfps vs anime pfps on bluesky, by bio words (n=${counts.cat.n + counts.anime.n}):\n🐱 ${t(r.cat) || "…"}\n✨ ${t(r.anime) || "…"}\nhttps://pfpwords.bisks.net/`;
+  const text = `cat pfps vs anime pfps on bluesky, by what they post (n=${counts.cat.n + counts.anime.n}):\n🐱 ${t(r.cat) || "…"}\n✨ ${t(r.anime) || "…"}\nhttps://pfpwords.bisks.net/`;
   $("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
 }
 
@@ -135,3 +177,5 @@ $("stop").onclick = () => {
   status("paused");
 };
 render();
+setInterval(() => { if (dirty) render(); }, 1000);
+setInterval(flush, 2000); // don't strand a partial batch on a quiet moment
