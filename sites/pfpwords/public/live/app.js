@@ -1,4 +1,4 @@
-import { newCounts, addPost, rank, classify } from "./lib/stats.js";
+import { newCounts, addPost, rank, classify } from "../lib/stats.js";
 
 const CDN = "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2";
 const MODEL = "Xenova/clip-vit-base-patch32";
@@ -192,7 +192,7 @@ function render() {
   list($("listc"), r.cat, "cat");
   list($("lista"), r.anime, "anime");
   const t = (a) => a.slice(0, 5).map((x) => x.word).join(", ");
-  const text = `cat pfps vs anime pfps on bluesky, by what they post (n=${counts.cat.n + counts.anime.n}):\n🐱 ${t(r.cat) || "…"}\n✨ ${t(r.anime) || "…"}\nhttps://pfpwords.bisks.net/`;
+  const text = `cat pfps vs anime pfps on bluesky, by what they post (n=${counts.cat.n + counts.anime.n}):\n🐱 ${t(r.cat) || "…"}\n✨ ${t(r.anime) || "…"}\nhttps://pfpwords.bisks.net/live/`;
   $("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
 }
 
