@@ -382,25 +382,22 @@ async function reportOutcome({ ok, result, url, text, requeue = false, posted = 
   }
 }
 
-// Build a link facet for `url` where it appears in `text`, so it renders as a
-// clickable link instead of plain text. atproto facets use UTF-8 BYTE offsets,
-// not JS string indices — so measure the byte length of the slice before the URL
-// for byteStart, and the byte length of the URL itself for the span. Returns []
-// if the url isn't present (shouldn't happen, but fail safe rather than post a
-// broken facet).
-function linkFacets(text, url) {
-  if (!url) return [];
-  const at = text.indexOf(url);
-  if (at < 0) return [];
+// Build link facets for every http(s) URL in `text` (the built-site URL and any
+// URL the BUILD_NOTE carries), so they render as clickable links instead of
+// plain text. atproto facets use UTF-8 BYTE offsets, not JS string indices.
+// Trailing sentence punctuation isn't part of the URL.
+function linkFacets(text) {
   const enc = new TextEncoder();
-  const byteStart = enc.encode(text.slice(0, at)).length;
-  const byteEnd = byteStart + enc.encode(url).length;
-  return [
-    {
-      index: { byteStart, byteEnd },
-      features: [{ $type: "app.bsky.richtext.facet#link", uri: url }],
-    },
-  ];
+  const facets = [];
+  for (const m of text.matchAll(/https?:\/\/[^\s)]+/g)) {
+    const uri = m[0].replace(/[.,!?;:]+$/, "");
+    const byteStart = enc.encode(text.slice(0, m.index)).length;
+    facets.push({
+      index: { byteStart, byteEnd: byteStart + enc.encode(uri).length },
+      features: [{ $type: "app.bsky.richtext.facet#link", uri }],
+    });
+  }
+  return facets;
 }
 
 // Resolve @handle mentions in `text` into rich-text mention facets. Bluesky
@@ -471,7 +468,7 @@ async function createReply(session, text, url) {
       root: { uri: reqEnv("REPLY_ROOT_URI"), cid: reqEnv("REPLY_ROOT_CID") },
       parent: { uri: reqEnv("REPLY_PARENT_URI"), cid: reqEnv("REPLY_PARENT_CID") },
     },
-    facets: [...linkFacets(text, url), ...(await mentionFacets(text))],
+    facets: [...linkFacets(text), ...(await mentionFacets(text))],
   };
   const res = await fetch(`${PDS}/xrpc/com.atproto.repo.createRecord`, {
     method: "POST",

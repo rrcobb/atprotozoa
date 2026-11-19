@@ -3089,7 +3089,7 @@ async function replyToPost(
       root: { uri: m.rootUri, cid: m.rootCid },
       parent: { uri: m.uri, cid: m.cid },
     },
-    facets: mentionFacets(text, mentions),
+    facets: digestFacets(text, mentions),
   };
   const res = await fetch(`${PDS}/xrpc/com.atproto.repo.createRecord`, {
     method: "POST",
@@ -3152,7 +3152,7 @@ async function createPost(
     $type: "app.bsky.feed.post",
     text,
     createdAt: new Date().toISOString(),
-    facets: mentionFacets(text, mentions),
+    facets: digestFacets(text, mentions),
   };
   const res = await fetch(`${PDS}/xrpc/com.atproto.repo.createRecord`, {
     method: "POST",
@@ -5034,8 +5034,9 @@ async function postDigest(
   return root?.uri;
 }
 
-// Link AND mention facets. mentionFacets() above only does mentions, and the
-// digest's whole point is a shareable link, so it needs both. Byte offsets, not
+// Link AND mention facets. mentionFacets() above only does mentions; the
+// digest and every watcher reply (replyToPost/createPost) can carry URLs, so
+// they need both. Byte offsets, not
 // char indices (notes/70 — the lesson baked into mino's reply builder).
 function digestFacets(text: string, mentions: Record<string, string>): unknown[] {
   const enc = new TextEncoder();
@@ -5043,10 +5044,12 @@ function digestFacets(text: string, mentions: Record<string, string>): unknown[]
   const linkRe = /https?:\/\/[^\s)]+/g;
   let m: RegExpExecArray | null;
   while ((m = linkRe.exec(text)) !== null) {
+    // Sentence punctuation after a URL isn't part of it.
+    const url = m[0].replace(/[.,!?;:]+$/, "");
     const byteStart = enc.encode(text.slice(0, m.index)).length;
     out.push({
-      index: { byteStart, byteEnd: byteStart + enc.encode(m[0]).length },
-      features: [{ $type: "app.bsky.richtext.facet#link", uri: m[0] }],
+      index: { byteStart, byteEnd: byteStart + enc.encode(url).length },
+      features: [{ $type: "app.bsky.richtext.facet#link", uri: url }],
     });
   }
   const mentionRe = /@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g;
