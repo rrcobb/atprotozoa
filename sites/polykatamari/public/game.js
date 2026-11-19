@@ -46,9 +46,10 @@ function fresh() {
   st = {
     pts, faces, born: pts.map(() => -1e9), // per-vertex birth time (ms)
     items, x: 0, z: 0, vx: 0, vz: 0, r: START_R,
-    R: [1, 0, 0, 0, 1, 0, 0, 0, 1],     // local -> world rotation, row-major
+    R: [1, 0, 0, 0, 1, 0, 0, 0, 1], h: 1,     // local -> world rotation, row-major
     picked: 0, t0: performance.now(), won: false, started: false, wonAt: 0,
   };
+  st.h = groundHeight(st.R);
   updateHud();
 }
 
@@ -117,6 +118,25 @@ function project(x, y, z) {
   return { x: W / 2 + (sx / depth) * cam.focal, y: H * 0.55 - (sy / depth) * cam.focal, d: depth, k: cam.focal / depth };
 }
 
+// height of the centre above the ground when the lowest vertex touches it (unit radius)
+function groundHeight(R) {
+  let m = 0;
+  for (const p of st.pts) m = Math.min(m, applyR(R, p)[1]);
+  return -m;
+}
+
+// at rest, topple off a lone vertex or edge until a face lies flat on the ground
+function settle(dt) {
+  let low = null, ly = 1e9;
+  for (const p of st.pts) { const v = applyR(st.R, p); if (v[1] < ly) { ly = v[1]; low = v; } }
+  const wx = -low[0], wz = -low[2], l = Math.hypot(wx, wz);
+  if (l < 1e-4) return;
+  const t = Math.min(0.12, 3 * dt);
+  const R2 = matMul(axisAngle(wz / l, 0, -wx / l, t), st.R);
+  const h2 = groundHeight(R2);
+  if (h2 < st.h - 1e-5) { st.R = R2; st.h = h2; } // only if the centre actually falls
+}
+
 // ---- step ----
 function pickup(item) {
   item.dead = true;
@@ -129,6 +149,7 @@ function pickup(item) {
   st.born.push(performance.now());
   st.picked++;
   st.r *= GROW;
+  st.h = groundHeight(st.R);
   updateHud();
   if (st.pts.length >= GOAL && !st.won) win();
 }
@@ -152,11 +173,26 @@ function step(dt) {
   if (sp > maxV) { st.vx *= maxV / sp; st.vz *= maxV / sp; }
   st.x += st.vx * dt; st.z += st.vz * dt;
   st.x = Math.max(-FIELD, Math.min(FIELD, st.x)); st.z = Math.max(-FIELD, Math.min(FIELD, st.z));
-  // roll: axis = up x dir, angle = distance / radius
+  // roll like a polyhedron, not a sphere: it pivots over its lowest vertex, so
+  // the centre rises as a vertex tips over and drops as the next face lands.
+  // Rolling forward about a ground contact moves the centre forward by (centre
+  // height) per radian, so angle = distance / height. The lurch is the shape.
   const dist = Math.hypot(st.vx, st.vz) * dt;
   if (dist > 1e-6) {
     const dx = st.vx * dt / dist, dz = st.vz * dt / dist;
-    st.R = matMul(axisAngle(dz, 0, -dx, dist / st.r), st.R);
+    const h0 = st.h;
+    const ang = Math.min(0.35, dist / Math.max(0.2, st.h * st.r));
+    st.R = matMul(axisAngle(dz, 0, -dx, ang), st.R);
+    st.h = groundHeight(st.R);
+    // potential energy: climbing onto a vertex costs speed, falling onto a face gives it back
+    const dH = (st.h - h0) * st.r, v2 = st.vx * st.vx + st.vz * st.vz;
+    if (v2 > 1e-6) {
+      const k = Math.sqrt(Math.max(0.04, v2 - 2 * 6 * dH) / v2);
+      const kk = Math.min(1.5, Math.max(0.5, k));
+      st.vx *= kk; st.vz *= kk;
+    }
+  } else if (!ix && !iz) {
+    settle(dt);
   }
   for (const it of st.items) {
     if (it.dead) continue;
@@ -224,7 +260,7 @@ function drawBall(now) {
     const age = now - st.born[i];
     const pop = age >= POP_MS ? 1 : 0.4 + 0.6 * (1 - Math.pow(1 - age / POP_MS, 3)) + (age < POP_MS ? 0.25 * Math.sin((age / POP_MS) * Math.PI) : 0);
     const v = applyR(R, p);
-    return [st.x + v[0] * r * pop, r + v[1] * r * pop, st.z + v[2] * r * pop];
+    return [st.x + v[0] * r * pop, r * st.h + v[1] * r * pop, st.z + v[2] * r * pop];
   });
   const scr = world.map((w) => project(w[0], w[1], w[2]));
   // ground shadow
@@ -241,7 +277,7 @@ function drawBall(now) {
     const toCam = [cam.x - cx, cam.y - cy, cam.z - cz];
     if (n[0] * toCam[0] + n[1] * toCam[1] + n[2] * toCam[2] <= 0) continue; // back face
     // as vertices fill in, lean the shading normal toward the sphere normal
-    const sn = normalize([cx - st.x, cy - r, cz - st.z]);
+    const sn = normalize([cx - st.x, cy - r * st.h, cz - st.z]);
     n = normalize([n[0] + (sn[0] - n[0]) * smooth, n[1] + (sn[1] - n[1]) * smooth, n[2] + (sn[2] - n[2]) * smooth]);
     draw.push({ sa, sb, sc, n, d: (sa.d + sb.d + sc.d) / 3, idx: f[0] + f[1] + f[2] });
   }
