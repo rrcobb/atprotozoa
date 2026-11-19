@@ -63,27 +63,81 @@ function updateHud() {
 
 // ---- input ----
 const keys = new Set();
-addEventListener("keydown", (e) => { keys.add(e.key.toLowerCase()); if (e.key.startsWith("Arrow")) e.preventDefault(); });
+addEventListener("keydown", (e) => {
+  keys.add(e.key.toLowerCase());
+  if (e.key.startsWith("Arrow") || (e.key === " " && e.target === document.body)) e.preventDefault();
+});
 addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+addEventListener("blur", () => keys.clear());
 let pointer = null;
 canvas.addEventListener("pointerdown", (e) => { pointer = { x: e.clientX, y: e.clientY }; });
 canvas.addEventListener("pointermove", (e) => { if (pointer) pointer = { x: e.clientX, y: e.clientY }; });
 addEventListener("pointerup", () => { pointer = null; });
 addEventListener("pointercancel", () => { pointer = null; });
 
+// Two control schemes. "simple": arrows/WASD push the ball in screen directions,
+// the camera never turns. "katamari": WASD is the left stick, arrows are the right
+// stick, space is L3+R3 (dash), and the two sticks act like treads: both forward
+// rolls ahead, opposite pushes spin you around, the camera follows your heading.
+let mode = "simple";
+try { if (localStorage.getItem("polykatamari-controls") === "katamari") mode = "katamari"; } catch {}
+let yaw = 0;               // heading, radians; 0 looks down -z
+let dashing = false;
+let turnRate = 0;          // heading change this frame, rad/s
+
+function setMode(m) {
+  mode = m; if (m === "simple") yaw = 0;
+  try { localStorage.setItem("polykatamari-controls", m); } catch {}
+  $("mode").textContent = m === "katamari" ? "🎮 katamari controls" : "⌨️ simple controls";
+  $("keyhelp").textContent = m === "katamari"
+    ? "WASD = left stick, arrows = right stick, space = dash (L3+R3). Both forward rolls ahead; one forward, one back spins you. A gamepad works too."
+    : "arrows / WASD, or hold a finger or mouse toward where you want to go";
+}
+
+const DEAD = 0.2;
+const dead = (v) => (Math.abs(v) < DEAD ? 0 : v);
+function sticks() {
+  let lx = (keys.has("d") ? 1 : 0) - (keys.has("a") ? 1 : 0), ly = (keys.has("w") ? 1 : 0) - (keys.has("s") ? 1 : 0);
+  let rx = (keys.has("arrowright") ? 1 : 0) - (keys.has("arrowleft") ? 1 : 0), ry = (keys.has("arrowup") ? 1 : 0) - (keys.has("arrowdown") ? 1 : 0);
+  dashing = keys.has(" ");
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  for (const g of pads) {
+    if (!g || g.axes.length < 4) continue;
+    lx += dead(g.axes[0]); ly -= dead(g.axes[1]); rx += dead(g.axes[2]); ry -= dead(g.axes[3]);
+    if (g.buttons[10] && g.buttons[11] && g.buttons[10].pressed && g.buttons[11].pressed) dashing = true;
+  }
+  const c = (v) => Math.max(-1, Math.min(1, v));
+  return [c(lx), c(ly), c(rx), c(ry)];
+}
+
+// returns a world-space push, length <= 1
 function inputDir() {
-  let dx = 0, dz = 0;
-  if (keys.has("arrowleft") || keys.has("a")) dx -= 1;
-  if (keys.has("arrowright") || keys.has("d")) dx += 1;
-  if (keys.has("arrowup") || keys.has("w")) dz -= 1;
-  if (keys.has("arrowdown") || keys.has("s")) dz += 1;
+  turnRate = 0;
+  let wx = 0, wz = 0;
+  const fx = Math.sin(yaw), fz = -Math.cos(yaw), rx_ = Math.cos(yaw), rz = Math.sin(yaw);
+  if (mode === "katamari") {
+    const [lx, ly, rx, ry] = sticks();
+    const fwd = (ly + ry) / 2, side = (lx + rx) / 2;
+    turnRate = (ly - ry) * 1.9;
+    wx = fx * fwd + rx_ * side; wz = fz * fwd + rz * side;
+  } else {
+    dashing = false;
+    let dx = 0, dz = 0;
+    if (keys.has("arrowleft") || keys.has("a")) dx -= 1;
+    if (keys.has("arrowright") || keys.has("d")) dx += 1;
+    if (keys.has("arrowup") || keys.has("w")) dz -= 1;
+    if (keys.has("arrowdown") || keys.has("s")) dz += 1;
+    wx = dx; wz = dz;
+  }
   if (pointer) { // toward the pointer, relative to the ball's screen position
     const b = project(st.x, st.r, st.z);
     const px = pointer.x - (b ? b.x : W / 2), py = pointer.y - (b ? b.y : H / 2);
-    if (Math.hypot(px, py) > 12) { dx += px; dz += py; }
+    if (Math.hypot(px, py) > 12) { wx += rx_ * px - fx * py; wz += rz * px - fz * py; }
   }
-  const l = Math.hypot(dx, dz);
-  return l ? [dx / l, dz / l] : [0, 0];
+  const l = Math.hypot(wx, wz);
+  if (!l) return [0, 0];
+  const k = mode === "katamari" && l < 1 ? 1 : 1 / l; // katamari keeps partial stick strength
+  return [wx * k, wz * k];
 }
 
 // ---- math ----
@@ -101,22 +155,26 @@ function axisAngle(ax, ay, az, t) {
 const applyR = (R, v) => [R[0] * v[0] + R[1] * v[1] + R[2] * v[2], R[3] * v[0] + R[4] * v[1] + R[5] * v[2], R[6] * v[0] + R[7] * v[1] + R[8] * v[2]];
 const applyRT = (R, v) => [R[0] * v[0] + R[3] * v[1] + R[6] * v[2], R[1] * v[0] + R[4] * v[1] + R[7] * v[2], R[2] * v[0] + R[5] * v[1] + R[8] * v[2]];
 
-// ---- camera (fixed yaw, looks down at the ball) ----
-let cam = { x: 0, y: 5, z: 8, fx: 0, fy: -0.5, fz: -0.85, ux: 0, uy: 0.85, uz: -0.5, focal: 600 };
+// ---- camera (follows the heading; in simple mode the heading never changes) ----
+let cam = { rx: 1, rz: 0, x: 0, y: 5, z: 8, fx: 0, fy: -0.5, fz: -0.85, ux: 0, uy: 0.85, uz: -0.5, focal: 600 };
 function updateCam() {
   const d = st.r * 4.5 + 5, h = st.r * 3 + 3.5;
-  cam.x = st.x; cam.y = h; cam.z = st.z + d;
-  const f = normalize([0, st.r * 0.6 - h, -d]);
-  cam.fx = f[0]; cam.fy = f[1]; cam.fz = f[2];
-  // right = +x, up = right x forward... for right=(1,0,0): up = (0, -fz, fy)
-  cam.ux = 0; cam.uy = -f[2]; cam.uz = f[1];
+  const Fx = Math.sin(yaw), Fz = -Math.cos(yaw);   // heading on the ground
+  const Rx = Math.cos(yaw), Rz = Math.sin(yaw);    // right of the heading
+  cam.x = st.x - Fx * d; cam.y = h; cam.z = st.z - Fz * d;
+  const f = normalize([0, st.r * 0.6 - h, -d]);     // pitch in the heading's frame
+  const cf = -f[2];
+  cam.fx = Fx * cf; cam.fy = f[1]; cam.fz = Fz * cf;
+  cam.rx = Rx; cam.rz = Rz;
+  // up = right x forward, with right horizontal
+  cam.ux = -Rz * cam.fy; cam.uy = Rz * cam.fx - Rx * cam.fz; cam.uz = Rx * cam.fy;
   cam.focal = Math.min(W, H * 1.25) * 1.05;
 }
 function project(x, y, z) {
   const dx = x - cam.x, dy = y - cam.y, dz = z - cam.z;
   const depth = dx * cam.fx + dy * cam.fy + dz * cam.fz;
   if (depth < 0.3) return null;
-  const sx = dx, sy = dx * cam.ux + dy * cam.uy + dz * cam.uz;
+  const sx = dx * cam.rx + dz * cam.rz, sy = dx * cam.ux + dy * cam.uy + dz * cam.uz;
   return { x: W / 2 + (sx / depth) * cam.focal, y: H * 0.55 - (sy / depth) * cam.focal, d: depth, k: cam.focal / depth };
 }
 
@@ -170,11 +228,12 @@ function win() {
 let rising = false, lastBump = 0;
 function step(dt) {
   const [ix, iz] = inputDir();
-  const accel = 14 * (st.started ? 1 : 0);
+  yaw += turnRate * dt * (st.started ? 1 : 0);
+  const accel = 14 * (st.started ? 1 : 0) * (dashing ? 2.2 : 1);
   st.vx += ix * accel * dt; st.vz += iz * accel * dt;
   const drag = Math.exp(-1.6 * dt);
   st.vx *= drag; st.vz *= drag;
-  const maxV = 7 + st.r * 1.5, sp = Math.hypot(st.vx, st.vz);
+  const maxV = (7 + st.r * 1.5) * (dashing ? 1.6 : 1), sp = Math.hypot(st.vx, st.vz);
   if (sp > maxV) { st.vx *= maxV / sp; st.vz *= maxV / sp; }
   st.x += st.vx * dt; st.z += st.vz * dt;
   st.x = Math.max(-FIELD, Math.min(FIELD, st.x)); st.z = Math.max(-FIELD, Math.min(FIELD, st.z));
@@ -345,8 +404,11 @@ function frame(now) {
 $("go").onclick = () => { sound.start(); $("intro").hidden = true; st.started = true; st.t0 = performance.now(); };
 $("again").onclick = () => { sound.start(); $("win").hidden = true; fresh(); $("intro").hidden = true; st.started = true; };
 fresh();
+setMode(mode);
+$("mode").onclick = (e) => { setMode(mode === "katamari" ? "simple" : "katamari"); if (e && e.currentTarget) e.currentTarget.blur(); };
+addEventListener("gamepadconnected", () => setMode("katamari"));
 requestAnimationFrame(frame);
 
 function toggleSound() { $("mute").textContent = sound.toggleMute() ? "🔇" : "🔊"; }
 $("mute").onclick = toggleSound;
-addEventListener("keydown", (e) => { if (e.key.toLowerCase() === "m") toggleSound(); });
+addEventListener("keydown", (e) => { if (e.key.toLowerCase() === "m") toggleSound(); if (e.key.toLowerCase() === "c") setMode(mode === "katamari" ? "simple" : "katamari"); });
