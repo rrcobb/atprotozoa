@@ -1,3 +1,4 @@
+import * as sound from "./audio.js";
 import { startPyramid, addPoint, normalize, emptiestDirection, maxDot } from "./hull.js";
 
 const canvas = document.getElementById("c");
@@ -57,6 +58,7 @@ function updateHud() {
   const V = st.pts.length, F = st.faces.length;
   $("stats").textContent = `${V} vertices · ${F * 3 / 2} edges · ${F} faces`;
   $("fill").style.width = Math.min(100, ((V - 5) / (GOAL - 5)) * 100) + "%";
+  sound.setProgress((V - 5) / (GOAL - 5));
 }
 
 // ---- input ----
@@ -151,11 +153,13 @@ function pickup(item) {
   st.r *= GROW;
   st.h = groundHeight(st.R);
   updateHud();
+  sound.pickup(st.pts.length);
   if (st.pts.length >= GOAL && !st.won) win();
 }
 
 function win() {
   st.won = true; st.wonAt = performance.now();
+  sound.win();
   const secs = Math.round((st.wonAt - st.t0) / 1000);
   $("winstats").textContent = `${st.pts.length} vertices, ${secs}s from pyramid to sphere.`;
   const text = `pyramid → sphere in ${secs}s, ${st.pts.length} vertices 🔺→⚪ polykatamari`;
@@ -163,6 +167,7 @@ function win() {
   setTimeout(() => { $("win").hidden = false; }, 1500);
 }
 
+let rising = false, lastBump = 0;
 function step(dt) {
   const [ix, iz] = inputDir();
   const accel = 14 * (st.started ? 1 : 0);
@@ -186,6 +191,9 @@ function step(dt) {
     st.h = groundHeight(st.R);
     // potential energy: climbing onto a vertex costs speed, falling onto a face gives it back
     const dH = (st.h - h0) * st.r, v2 = st.vx * st.vx + st.vz * st.vz;
+    // a face landing: the centre was rising over a vertex, now it's dropping
+    if (rising && dH < 0 && st.started) sound.land(Math.sqrt(v2) / 8);
+    rising = dH > 0;
     if (v2 > 1e-6) {
       const k = Math.sqrt(Math.max(0.04, v2 - 2 * 6 * dH) / v2);
       const kk = Math.min(1.5, Math.max(0.5, k));
@@ -205,6 +213,7 @@ function step(dt) {
         const nx = (st.x - it.x) / d, nz = (st.z - it.z) / d;
         st.x = it.x + nx * minD; st.z = it.z + nz * minD;
         const vn = st.vx * nx + st.vz * nz;
+        if (vn < -1 && performance.now() - lastBump > 300) { lastBump = performance.now(); sound.bump(); }
         if (vn < 0) { st.vx -= vn * nx * 1.4; st.vz -= vn * nz * 1.4; }
       }
     }
@@ -333,7 +342,11 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-$("go").onclick = () => { $("intro").hidden = true; st.started = true; st.t0 = performance.now(); };
-$("again").onclick = () => { $("win").hidden = true; fresh(); $("intro").hidden = true; st.started = true; };
+$("go").onclick = () => { sound.start(); $("intro").hidden = true; st.started = true; st.t0 = performance.now(); };
+$("again").onclick = () => { sound.start(); $("win").hidden = true; fresh(); $("intro").hidden = true; st.started = true; };
 fresh();
 requestAnimationFrame(frame);
+
+function toggleSound() { $("mute").textContent = sound.toggleMute() ? "🔇" : "🔊"; }
+$("mute").onclick = toggleSound;
+addEventListener("keydown", (e) => { if (e.key.toLowerCase() === "m") toggleSound(); });
