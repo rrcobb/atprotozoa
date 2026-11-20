@@ -14,7 +14,7 @@ let pic, ev, models = [], bodies = [];
 let tally, rolls, misses, maxCount, lastCell = -1;
 let evolving = true, adoptedFit = -1, adoptedAt = 0, bestFitSeen = 0, lastGain = 0;
 let phase = "idle";            // idle (dice float and turn) | rolling | rested
-let rollStart = 0, auto = false, fastAuto = false, brush = 1;
+let rollStart = 0, speed = 1, auto = false, fastAuto = false, brush = 1;
 let picDirty = false, picDirtyAt = 0;
 
 // ---- grids ----
@@ -170,14 +170,40 @@ function finishThrow() {
   $("sum").textContent = `${vals.join(" + ")} = ${sum} → ${where}`;
   drawTally();
   stats();
-  if (auto) setTimeout(() => { if (auto) throwNow(); }, 900);
+  if (auto) setTimeout(() => { if (auto) throwNow(); }, 900 / speed);
 }
+
+// Show a sampled roll: lay each die on the floor with the sampled face up.
+function poseRoll(faces) {
+  const n = bodies.length;
+  bodies.forEach((b, i) => {
+    const f = b.poly.faces[faces[i]];
+    // rotate the face normal onto +y, then spin about y for variety
+    const ax = [-f.n[2], 0, f.n[0]], s = Math.hypot(ax[0], ax[2]);
+    const q0 = s < 1e-9 ? (f.n[1] > 0 ? [0, 0, 0, 1] : [1, 0, 0, 0]) : qAxis(ax, Math.atan2(s, f.n[1]));
+    const spin = qAxis([0, 1, 0], Math.random() * 6.283);
+    b.q = qMul(spin, q0);
+    let low = Infinity;
+    for (const v of b.poly.verts) low = Math.min(low, qRot(b.q, v)[1]);
+    b.pos = [(i - (n - 1) / 2) * 2.3 + (Math.random() - 0.5) * 0.5, -low, (Math.random() - 0.5) * 2.4];
+    b.vel = [0, 0, 0]; b.w = [0, 0, 0];
+    b.settled = true; b.top = faces[i];
+  });
+  phase = "rested";
+}
+const qMul = (a, b) => [
+  a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+  a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+  a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+  a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+];
 
 function rollMany(n) {
   if (!models.length) return;
   settleEvolution();
   let last = null;
   for (let i = 0; i < n; i++) { last = rollFast(models); record(last.sum); }
+  if (last && phase !== "rolling") poseRoll(last.faces); // the dice on the tray show the latest roll
   if (n === 1 || last) $("sum").textContent = `from the odds: ${last.faces.map((f, i) => models[i].vals[f]).join(" + ")} = ${last.sum}`;
   drawTally();
   stats();
@@ -191,7 +217,7 @@ function frame(now) {
   if (picDirty && now - picDirtyAt > 250) { picDirty = false; restartEvolution(); }
   if (evolving && ev) evolveFrame(now);
   if (phase === "rolling") {
-    const done = stepWorld(bodies, dt);
+    const done = stepWorld(bodies, dt * speed);
     if (!done && now - rollStart > 10000) forceSettle();
     if (done || bodies.every((b) => b.settled)) finishThrow();
   } else if (phase === "idle") {
@@ -258,6 +284,7 @@ $("auto").onclick = () => {
   $("auto").classList.toggle("on", auto);
   if (auto) throwNow();
 };
+$("speed").onchange = () => { speed = Number($("speed").value); };
 $("fast").onclick = () => rollMany(100);
 $("fastAuto").onclick = () => {
   fastAuto = !fastAuto;
