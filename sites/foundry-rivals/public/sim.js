@@ -199,6 +199,31 @@ function market(s) {
   });
 }
 
+// Time series, one column per series, sampled every `stride` days. localStorage
+// holds the save (~5MB), so when a column passes HIST_MAX points every other
+// sample is dropped and the stride doubles: the whole game stays on the chart,
+// at coarser resolution, instead of being cut off.
+export const HIST_MAX = 480;
+export function record(s) {
+  const h = s.hist || (s.hist = { stride: 1, day: [], cols: {} });
+  if ((s.day - 1) % h.stride) return;
+  const put = (k, v) => (h.cols[k] || (h.cols[k] = new Array(h.day.length).fill(null))).push(Math.round(v * 100) / 100);
+  const L = s.last;
+  put("nw:you", netWorth(s)); put("cash", s.cash);
+  s.rivals.forEach((r, i) => { put("nw:r" + i, rivalWorth(r)); put("price:r" + i, r.price); put("sold:r" + i, r.sold); });
+  put("price:you", s.price.widget);
+  s.mines.forEach((m, i) => { put("oreprice:" + i, m.price); put("orestock:" + i, m.stock); });
+  put("revenue", L.revenue); put("costs", L.oreCost + L.fees + L.upkeep); put("profit", L.revenue - L.oreCost - L.fees - L.upkeep);
+  put("made", L.widgets); put("sold:you", L.sold);
+  s.regions.forEach((r, ri) => { put("hub:" + ri, r.stock.widget); r.towns.forEach((t, ti) => { put(`pop:${ri}:${ti}`, t.pop); put(`sat:${ri}:${ti}`, t.sat * 100); }); });
+  h.day.push(s.day - 1);
+  if (h.day.length > HIST_MAX) {
+    const half = (a) => a.filter((_, i) => i % 2 === 0);
+    h.day = half(h.day); for (const k in h.cols) h.cols[k] = half(h.cols[k]);
+    h.stride *= 2;
+  }
+}
+
 export function step(s) {
   s.last = { sold: 0, revenue: 0, fees: 0, upkeep: 0, oreCost: 0, widgets: 0 };
   mineStep(s);
@@ -211,6 +236,7 @@ export function step(s) {
   s.cash -= up; s.last.upkeep = up;
   s.totalRevenue += s.last.revenue;
   s.day++;
+  record(s);
   if (s.day % 365 === 1) {
     const board = [{ n: "you", w: netWorth(s) }, ...s.rivals.map((r) => ({ n: r.name, w: rivalWorth(r) }))].sort((a, b) => b.w - a.w);
     say(s, `year ${Math.floor(s.day / 365)} ends: ${board[0].n} leads at $${board[0].w}`);

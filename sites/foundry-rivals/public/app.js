@@ -1,3 +1,4 @@
+import { lineChart, spark, color } from "./charts.js";
 import { newGame, step, build, buildHub, netWorth, rivalWorth, COST, RATE, UPKEEP, MAX_WORKSHOP, WORKSHOP_STEP } from "./sim.js";
 
 const KEY = "foundry-rivals-v1";
@@ -42,6 +43,7 @@ function regions() {
     <div class="region"><div class="row"><b>${r.name}</b>
       ${r.hub ? `<span class="dim">hub stock: ${fmt(r.stock.widget)} widgets, ${fmt(r.stock.gear)} gears</span>` : `<button data-hub="${ri}" ${s.cash < COST.hub ? "disabled" : ""}>open hub ${money(COST.hub)}</button>`}</div>
       <div class="dim">distributors: ${r.dists.map((d) => `${d.name} ($${d.fee}/unit, ${d.cap}/day)`).join(" · ")}</div>
+      <div id="rc${ri}" class="rc"></div>
       ${r.towns.map((t) => `<div class="town"><span>${t.name}</span><span>pop ${fmt(t.pop)}</span><span>demand ${t.demand.toFixed(1)}/day</span><span>${Math.round(t.sat * 100)}% served · workshop ${t.workshop}/${MAX_WORKSHOP}</span></div>`).join("")}
     </div>`).join("");
 }
@@ -55,6 +57,24 @@ function board() {
     `day ${s.day} in foundry rivals: #${rank} of 4 factories, net worth ${money(netWorth(s))}. https://foundry-rivals.bisks.net/`);
 }
 
+const H = () => s.hist || { day: [], cols: {} };
+const col = (k) => H().cols[k] || [];
+const rivalNames = () => s.rivals.map((r) => r.name.split(" ")[0]);
+
+function charts() {
+  const h = H(), d = h.day;
+  $("spark").innerHTML = spark(col("nw:you"));
+  $("mines-chart").innerHTML = lineChart(d, s.mines.map((m, i) => ({ name: m.name.split(" ")[0], data: col("oreprice:" + i), color: color(i + 1) })), { money: true, label: "ore price per mine over time" });
+  $("factory-chart").innerHTML = lineChart(d, [{ name: "made/day", data: col("made"), color: color(5) }, { name: "sold/day", data: col("sold:you"), color: color(0), bold: true }], { label: "widgets made and sold per day" }) +
+    lineChart(d, [{ name: "profit/day", data: col("profit"), color: color(2), bold: true }, { name: "costs/day", data: col("costs"), color: color(3) }], { money: true, zero: true, label: "daily profit and costs" });
+  $("logi-chart").innerHTML = lineChart(d, [{ name: "you", data: col("price:you"), bold: true }, ...rivalNames().map((n, i) => ({ name: n, data: col("price:r" + i), color: color(i + 1) }))], { money: true, label: "widget price, you vs rivals" });
+  $("board-chart").innerHTML = lineChart(d, [{ name: "you", data: col("nw:you"), bold: true }, ...rivalNames().map((n, i) => ({ name: n, data: col("nw:r" + i), color: color(i + 1) }))], { money: true, h: 130, label: "net worth over time" });
+  s.regions.forEach((r, ri) => {
+    $("rc" + ri).innerHTML = lineChart(d, r.towns.map((t, ti) => ({ name: t.name, data: col(`pop:${ri}:${ti}`), color: color(ti) })), { label: r.name + " town populations" }) +
+      lineChart(d, r.towns.map((t, ti) => ({ name: t.name, data: col(`sat:${ri}:${ti}`), color: color(ti) })), { label: r.name + " % of demand served" }) ;
+  });
+}
+
 function head() {
   $("day").textContent = "day " + s.day;
   $("cash").textContent = money(s.cash);
@@ -65,7 +85,7 @@ function head() {
 }
 
 // sliders re-render panels, so only rebuild the ones that change per tick
-function tick() { head(); factory(); regions(); board(); }
+function tick() { head(); factory(); regions(); board(); charts(); }
 function all() { mines(); logi(); tick(); }
 
 document.addEventListener("input", (e) => {

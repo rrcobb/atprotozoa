@@ -28,3 +28,14 @@ test("selling gears upgrades town workshops", () => {
   for (let i = 0; i < 300; i++) step(s);
   assert.ok(s.regions[0].towns.some((t) => t.workshop > 0));
 });
+
+import { HIST_MAX } from "../public/sim.js";
+test("history records every column in step and decimates past HIST_MAX", () => {
+  const s = newGame(7);
+  for (let i = 0; i < HIST_MAX * 3; i++) step(s);
+  const h = s.hist;
+  assert.ok(h.stride > 1);
+  assert.ok(h.day.length <= HIST_MAX);
+  for (const k in h.cols) assert.equal(h.cols[k].length, h.day.length, k);
+  assert.ok(h.day[h.day.length - 1] >= HIST_MAX * 3 - h.stride);
+});
