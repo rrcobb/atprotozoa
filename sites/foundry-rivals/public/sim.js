@@ -2,9 +2,18 @@
 // One tick = one day.
 
 export const COST = { smelter: 400, assembler: 600, works: 900, truck: 250, hub: 800 };
-export const UPKEEP = { smelter: 4, assembler: 5, works: 8, truck: 6, hub: 10 };
+export const UPKEEP = { smelter: 3, assembler: 3, works: 5, truck: 4, hub: 8 };
 export const RATE = { smelter: 6, assembler: 6, works: 5, truck: 8 }; // units per day
 export const TOWN_MAX_WIDGET = 46; // what a town will pay at most for a widget
+// rivals ratchet their price up while they sell out, but not past what keeps
+// the player in the game; the towns would pay up to TOWN_MAX_WIDGET
+export const RIVAL_MAX_PRICE = 32;
+// a town spreads its buying: no single supplier fills more than this share of
+// its demand, however cheap, so the cheapest rival can't take the whole market
+export const SUPPLIER_SHARE_MAX = 0.6;
+// rivals stop expanding once together they could cover this share of all demand,
+// which leaves a market for the player to win
+export const RIVAL_SHARE_MAX = 0.7;
 export const TOWN_MAX_GEAR = 16;
 export const WORKSHOP_STEP = 40; // gears a town must absorb per workshop level
 export const MAX_WORKSHOP = 5;
@@ -29,11 +38,11 @@ export function newGame(seed = 1) {
       { name: "DeepHaul Extraction", rate: 24, stock: 400, price: 2 },
       { name: "Ferrous & Daughters", rate: 20, stock: 300, price: 2 },
     ],
-    contract: [6, 0, 0],
+    contract: [4, 4, 4],
     rivals: [
-      { name: "Brassworks Ltd", cash: 1200, cap: 12, price: 28, cost: 11, sold: 0 },
-      { name: "Autonomo Inc", cash: 1500, cap: 10, price: 26, cost: 10, sold: 0 },
-      { name: "Cogsworth & Sons", cash: 900, cap: 14, price: 31, cost: 12, sold: 0 },
+      { name: "Brassworks Ltd", cash: 1200, cap: 12, price: 28, cost: 15, sold: 0 },
+      { name: "Autonomo Inc", cash: 1500, cap: 10, price: 27, cost: 14, sold: 0 },
+      { name: "Cogsworth & Sons", cash: 900, cap: 14, price: 31, cost: 17, sold: 0 },
     ],
     regions: [
       { name: "Northmarch", hub: false, stock: { widget: 0, gear: 0 },
@@ -86,12 +95,15 @@ export function buildHub(s, i) {
 
 function mineStep(s) {
   // rivals draw ore too, so the mines' prices respond to how crowded the market is
-  const rivalOre = s.rivals.reduce((a, r) => a + r.cap * 1.2, 0);
+  const rivalOre = s.rivals.reduce((a, r) => a + r.cap * 0.15, 0);
   const totalRate = s.mines.reduce((a, m) => a + m.rate, 0);
   for (const m of s.mines) {
     m.stock = Math.min(m.rate * 25, m.stock + m.rate);
     m.stock = Math.max(0, m.stock - rivalOre * (m.rate / totalRate));
     m.price = +(1.5 + 5 * (1 - Math.min(1, m.stock / (m.rate * 25)))).toFixed(2);
+    // a mine whose ore is selling dear opens a shaft. This is self-limiting: more
+    // output refills the stock, which pulls the price back under the threshold.
+    if (m.price > 4 && s.day % 4 === 0) { m.rate += 1; if (m.rate % 5 === 0) say(s, `${m.name} drilled deeper (${m.rate}/day)`); }
   }
 }
 
@@ -100,7 +112,9 @@ function produce(s) {
   // buy contracted ore
   s.mines.forEach((m, i) => {
     const want = Math.min(s.contract[i], m.stock);
-    const afford = Math.min(want, Math.floor(s.cash / m.price));
+    // ore is bought on the mines' credit, so a cash dip below zero can't cut off
+    // the ore that would earn the money back; buildings still need cash on hand
+    const afford = want;
     if (afford <= 0) return;
     m.stock -= afford;
     s.inv.ore += afford;
@@ -112,10 +126,20 @@ function produce(s) {
   const i = s.inv;
   const plates = Math.min(s.b.smelter * RATE.smelter, Math.floor(i.ore / 2));
   i.ore -= plates * 2; i.plate += plates;
-  const gears = Math.min(s.b.assembler * RATE.assembler, Math.floor(i.plate / 2));
-  i.plate -= gears * 2; i.gear += gears;
-  const widgets = Math.min(s.b.works * RATE.works, i.gear, i.plate);
-  i.gear -= widgets; i.plate -= widgets; i.widget += widgets;
+  // widgets get plates first: each needs a gear (2 plates) plus 1 plate, and a
+  // gear already in stock costs only the 1 plate. Spare plates then become
+  // gears for the hubs, so a gear-shipping player can't starve their own works.
+  let acap = s.b.assembler * RATE.assembler, widgets = 0;
+  for (; widgets < s.b.works * RATE.works; widgets++) {
+    if (i.gear > 0 && i.plate >= 1) { i.gear--; i.plate--; }
+    else if (acap > 0 && i.plate >= 3) { acap--; i.plate -= 3; }
+    else break;
+  }
+  i.widget += widgets;
+  if (s.shipGears || i.gear < s.b.works * RATE.works) {
+    const gears = Math.min(acap, Math.floor(i.plate / 2));
+    i.plate -= gears * 2; i.gear += gears;
+  }
   L.widgets = widgets;
 }
 
@@ -161,11 +185,12 @@ function market(s) {
       let got = 0;
       for (const o of offers) {
         if (o.price > TOWN_MAX_WIDGET || D <= 0) continue;
-        const n = Math.min(D, o.avail);
+        const n = Math.min(D, o.avail, t.demand * SUPPLIER_SHARE_MAX);
         if (o.k >= 0) { sold[o.k] += n; } else { deliveredW += n; }
-        if (o.k >= 0) supplied[o.k] += o.avail; D -= n; got += n;
+        D -= n; got += n;
       }
-      for (const o of offers) if (o.k >= 0 && o.price > TOWN_MAX_WIDGET) supplied[o.k] += o.avail;
+      // a rival's offer counts as supply whether or not the town had room left for it
+      for (const o of offers) if (o.k >= 0) supplied[o.k] += o.avail;
       t.sat = t.demand ? got / t.demand : 1;
       t.pop *= 1 + (t.sat > 0.8 ? 0.0003 + 0.0001 * t.workshop : t.sat < 0.4 ? -0.0001 : 0);
       // gears: towns build local supply chains on top of them
@@ -189,12 +214,18 @@ function market(s) {
     L.revenue += deliveredW * s.price.widget; L.fees += fees; L.sold += deliveredW;
   }
   // rivals bank and adjust
+  const totalDemand = s.regions.reduce((a, r) => a + r.towns.reduce((b, t) => b + t.demand, 0), 0);
+  const rivalCap = s.rivals.reduce((a, r) => a + r.cap, 0);
   s.rivals.forEach((v, k) => {
     v.sold = sold[k];
-    v.cash += sold[k] * (v.price - v.cost - 1.5) - 20;
+    v.cash += sold[k] * (v.price - v.cost - 3) - (30 + 3 * v.cap);
     if (supplied[k] > 0) v.price += sold[k] >= supplied[k] * 0.95 ? 0.6 : -0.6;
-    v.price = Math.max(v.cost + 3, Math.min(42, v.price + (rng(s) - 0.5) * 0.4));
-    if (v.cash > 700 + v.cap * 30) { v.cash -= 500; v.cap += 2; say(s, `${v.name} expanded to ${v.cap} widgets/day`); }
+    v.price = Math.max(v.cost + 5, Math.min(RIVAL_MAX_PRICE, v.price + (rng(s) - 0.5) * 0.4));
+    // capacity follows demand: a rival grows only while it sells out, and sheds
+    // capacity it can't sell, so none can balloon into a monopoly
+    const used = supplied[k] > 0 ? sold[k] / supplied[k] : 0;
+    if (v.cash > 1000 + v.cap * 40 && used >= 0.9 && rivalCap < RIVAL_SHARE_MAX * totalDemand) { v.cash -= 600; v.cap += 1; say(s, `${v.name} expanded to ${v.cap} widgets/day`); }
+    else if (used < 0.4 && v.cap > 4 && (s.day + k) % 10 === 0) v.cap -= 1;
     if (v.cash < -200) { v.cash = 0; v.cap = Math.max(4, v.cap - 2); }
   });
 }

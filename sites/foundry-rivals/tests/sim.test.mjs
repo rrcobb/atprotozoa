@@ -39,3 +39,25 @@ test("history records every column in step and decimates past HIST_MAX", () => {
   for (const k in h.cols) assert.equal(h.cols[k].length, h.day.length, k);
   assert.ok(h.day[h.day.length - 1] >= HIST_MAX * 3 - h.stride);
 });
+
+test("gear shipping doesn't starve the works of plates", () => {
+  const s = newGame(11);
+  buildHub(s, 0);
+  for (let i = 0; i < 20; i++) step(s);
+  assert.ok(s.last.widgets > 0 && s.last.sold > 0);
+});
+
+test("broke player still buys ore and can recover", () => {
+  const s = newGame(12);
+  buildHub(s, 0);
+  s.cash = -500;
+  step(s);
+  assert.ok(s.last.oreCost > 0);
+});
+
+test("no rival balloons into a monopoly", () => {
+  const s = newGame(5);
+  for (let i = 0; i < 730; i++) step(s);
+  const tot = s.rivals.reduce((a, r) => a + r.cap, 0);
+  for (const r of s.rivals) assert.ok(r.cap < tot * 0.6, r.name);
+});

@@ -1,7 +1,7 @@
 import { lineChart, spark, color } from "./charts.js";
 import { newGame, step, build, buildHub, netWorth, rivalWorth, COST, RATE, UPKEEP, MAX_WORKSHOP, WORKSHOP_STEP } from "./sim.js";
 
-const KEY = "foundry-rivals-v1";
+const KEY = "foundry-rivals-v2";
 const $ = (id) => document.getElementById(id);
 const fmt = (n) => Math.round(n).toLocaleString();
 const money = (n) => (n < 0 ? "-$" : "$") + fmt(Math.abs(n));
@@ -80,7 +80,7 @@ function head() {
   $("cash").textContent = money(s.cash);
   $("nw").textContent = "net worth " + money(netWorth(s));
   const L = s.last;
-  $("flow").textContent = `yesterday: ${L.widgets} widgets made, ${fmt(L.sold)} sold, revenue ${money(L.revenue)}, ore ${money(L.oreCost)}, freight ${money(L.fees)}, upkeep ${money(L.upkeep)}`;
+  $("flow").textContent = (s.cash < 0 ? "in the red: ore is on credit, so keep selling. " : !s.regions.some((r) => r.hub) ? "no hub yet, so nothing can sell: open one in a region. " : "") + `yesterday: ${L.widgets} widgets made, ${fmt(L.sold)} sold, revenue ${money(L.revenue)}, ore ${money(L.oreCost)}, freight ${money(L.fees)}, upkeep ${money(L.upkeep)}`;
   $("log").innerHTML = s.log.map((l) => `<li>${l}</li>`).join("");
 }
 
