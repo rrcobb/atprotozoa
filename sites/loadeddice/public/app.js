@@ -1,118 +1,221 @@
-import { N, PICTURES, blank, buildDice, rollSet, match } from "./lib/dice.js";
+import { N, CELLS, CELL_OF_SUM, PICTURES, blank, targetPmf, sumPmf, rollFast, match } from "./lib/dice.js";
+import { createEvolver } from "./lib/evolve.js";
+import { topFaceUp } from "./lib/geometry.js";
+import { makeBody, throwDice, stepWorld, qRot, qConj } from "./lib/physics.js";
+import { drawScene, qAxis } from "./lib/render3d.js";
 
 const $ = (id) => document.getElementById(id);
-const grid = $("grid"), target = $("target");
-const gctx = grid.getContext("2d"), tctx = target.getContext("2d");
+const tray = $("tray"), tctx = tray.getContext("2d");
+const grid = $("grid"), gctx = grid.getContext("2d");
+const target = $("target"), pctx = target.getContext("2d");
+const expected = $("expected"), ectx = expected.getContext("2d");
 
-let pic, dice, tally, rolls, maxCount, auto = false, brush = 1;
+let pic, ev, models = [], bodies = [];
+let tally, rolls, misses, maxCount, lastCell = -1;
+let evolving = true, adoptedFit = -1, adoptedAt = 0, bestFitSeen = 0, lastGain = 0;
+let phase = "idle";            // idle (dice float and turn) | rolling | rested
+let rollStart = 0, auto = false, fastAuto = false, brush = 1;
+let picDirty = false, picDirtyAt = 0;
 
-function setPicture(p) {
-  pic = p;
-  dice = buildDice(pic);
-  drawTarget();
-  renderDie($("rowDie"), dice.rowDie, -1);
-  $("colDie").innerHTML = "";
-  $("last").textContent = "roll to see which faces land.";
-  resetTally();
+// ---- grids ----
+function cellFill(ctx, canvas, k, v) {
+  const s = canvas.width / N, a = Math.round(Math.min(1, v) * 255);
+  ctx.fillStyle = `rgb(${a},${Math.round(a * 0.78)},${Math.round(a * 0.4)})`;
+  ctx.fillRect((k % N) * s, Math.floor(k / N) * s, s, s);
+}
+function paintGrid(ctx, canvas, valueAt) {
+  ctx.fillStyle = "#0a0908";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let k = 0; k < CELLS; k++) { const v = valueAt(k); if (v > 0) cellFill(ctx, canvas, k, v); }
+}
+function drawTarget() { paintGrid(pctx, target, (k) => pic[Math.floor(k / N)][k % N]); }
+function drawExpected() {
+  if (!models.length) return;
+  const pmf = sumPmf(models);
+  const cell = new Float64Array(CELLS);
+  let max = 0;
+  for (let s = 0; s < CELLS; s++) { cell[CELL_OF_SUM[s]] = pmf[s]; max = Math.max(max, pmf[s]); }
+  paintGrid(ectx, expected, (k) => (max ? cell[k] / max : 0));
+}
+function drawTally() {
+  paintGrid(gctx, grid, (k) => (maxCount ? tally[k] / maxCount : 0));
+  if (lastCell >= 0) {
+    const s = grid.width / N;
+    gctx.strokeStyle = "#fff"; gctx.lineWidth = 2;
+    gctx.strokeRect((lastCell % N) * s + 1, Math.floor(lastCell / N) * s + 1, s - 2, s - 2);
+  }
 }
 
 function resetTally() {
-  tally = new Array(N * N).fill(0);
-  rolls = 0; maxCount = 0;
-  drawGrid();
+  tally = new Array(CELLS).fill(0);
+  rolls = 0; misses = 0; maxCount = 0; lastCell = -1;
+  drawTally();
   stats();
-}
-
-function cell(ctx, canvas, r, c, v, tint) {
-  const s = canvas.width / N;
-  const a = Math.round(v * 255);
-  ctx.fillStyle = `rgb(${a},${Math.round(a * 0.78)},${Math.round(a * 0.4)})`;
-  ctx.fillRect(c * s, r * s, s, s);
-}
-
-function drawTarget() {
-  tctx.clearRect(0, 0, target.width, target.height);
-  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) cell(tctx, target, r, c, pic[r][c]);
-}
-
-function drawGrid() {
-  gctx.fillStyle = "#0a0908";
-  gctx.fillRect(0, 0, grid.width, grid.height);
-  if (!maxCount) return;
-  for (let r = 0; r < N; r++)
-    for (let c = 0; c < N; c++) {
-      const n = tally[r * N + c];
-      if (n) cell(gctx, grid, r, c, n / maxCount);
-    }
 }
 
 function stats() {
   $("rolls").textContent = rolls.toLocaleString();
-  $("match").textContent = Math.round(match(pic, tally, rolls) * 100) + "%";
+  $("misses").textContent = misses.toLocaleString();
+  const m = Math.round(match(pic, tally, rolls) * 100);
+  $("match").textContent = m + "%";
   const text = rolls
-    ? `I rolled 21 lopsided dice ${rolls.toLocaleString()} times and they drew a picture (${$("match").textContent} match) 🎲`
-    : "21 lopsided dice that draw a picture when you roll them 🎲";
-  $("share").href = "https://bsky.app/intent/compose?text=" +
-    encodeURIComponent(text + " https://loadeddice.bisks.net/");
+    ? `I threw 5 lumpy evolved dice ${rolls.toLocaleString()} times and their summed top faces drew a picture (${m}% match) 🎲`
+    : "evolved lumpy dice whose summed top faces draw a picture 🎲";
+  $("share").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text + " https://loadeddice.bisks.net/");
 }
 
-function renderDie(el, die, hit) {
-  el.innerHTML = "";
-  die.weights.forEach((w, i) => {
-    const f = document.createElement("div");
-    f.className = "face" + (w <= 0 ? " zero" : "") + (i === hit ? " hit" : "");
-    f.style.flexGrow = String(w);
-    f.title = `face ${i + 1}: ${(die.total ? (w / die.total) * 100 : 0).toFixed(1)}%`;
-    if (w > 0) f.textContent = i + 1;
-    el.appendChild(f);
+// ---- dice strips ----
+function renderStrips() {
+  const host = $("dieStrips");
+  host.innerHTML = "";
+  models.forEach((m, i) => {
+    const row = document.createElement("div");
+    row.className = "die";
+    m.p.forEach((p, fi) => {
+      const f = document.createElement("div");
+      f.className = "face" + (p <= 1e-9 ? " zero" : "");
+      f.style.flexGrow = String(p);
+      f.title = `value ${m.vals[fi]}: ${(p * 100).toFixed(1)}% on top`;
+      if (p > 1e-9) f.textContent = m.vals[fi];
+      row.appendChild(f);
+    });
+    const cap = document.createElement("div");
+    cap.className = "caption";
+    cap.textContent = `die ${i + 1}: ${m.poly.normals.length} planes, ${m.poly.faces.length} faces left`;
+    host.append(row, cap);
   });
 }
 
-function rollMany(n) {
-  let last = null;
-  for (let i = 0; i < n; i++) {
-    const res = rollSet(dice);
-    if (!res) { $("last").textContent = "the picture has no ink — paint something."; return; }
-    const k = res.r * N + res.c;
+// ---- evolution <-> the dice in the tray ----
+function adopt(ind) {
+  if (!ind.models) return;
+  models = ind.models;
+  bodies = models.map((m) => { const b = makeBody(m.poly); b.labels = m.vals; return b; });
+  phase = "idle";
+  adoptedFit = ind.fit; adoptedAt = performance.now();
+  renderStrips();
+  drawExpected();
+  resetTally(); // old tallies belong to old dice
+  $("fit").textContent = (ind.fit * 100).toFixed(1) + "%";
+  $("sum").textContent = "dice ready: throw them.";
+}
+
+function restartEvolution() {
+  ev = createEvolver(targetPmf(pic));
+  bestFitSeen = 0; lastGain = 0;
+  setEvolving(true);
+  adopt(ev.best);
+}
+
+function setEvolving(on) {
+  evolving = on;
+  $("evolve").textContent = on ? "⏸ evolving" : "▶ evolve";
+  $("evolve").classList.toggle("on", on);
+}
+
+function evolveFrame(now) {
+  const t0 = performance.now();
+  while (performance.now() - t0 < 8) ev.step();
+  $("gen").textContent = ev.generation;
+  const best = ev.best;
+  if (best.fit > bestFitSeen + 1e-4) { bestFitSeen = best.fit; lastGain = ev.generation; }
+  $("fit").textContent = (best.fit * 100).toFixed(1) + "%";
+  // converged: no gain in 500 generations
+  const stalled = ev.generation - lastGain > 500;
+  // show the improved dice (never swap them out from under a throw in flight)
+  if ((best.fit > adoptedFit + 1e-4 && now - adoptedAt > 300 || (stalled && best.fit > adoptedFit)) && phase !== "rolling") adopt(best);
+  if (stalled) { setEvolving(false); $("sum").textContent = "converged. throw the dice."; }
+}
+
+// Rolling means the dice have to hold still: freeze the best set so far
+// (otherwise the next improvement would swap the dice and wipe the tally).
+function settleEvolution() {
+  if (!evolving || !ev) return;
+  if (ev.best.fit > adoptedFit && phase !== "rolling") adopt(ev.best);
+  setEvolving(false);
+}
+
+// ---- throwing ----
+function throwNow() {
+  if (phase === "rolling" || !bodies.length) return;
+  settleEvolution();
+  throwDice(bodies);
+  phase = "rolling";
+  rollStart = performance.now();
+  $("sum").textContent = "tumbling…";
+}
+
+function forceSettle() {
+  for (const b of bodies) if (!b.settled) {
+    const inv = qConj(b.q);
+    b.settled = true; b.top = topFaceUp(b.poly, (v) => qRot(inv, v));
+  }
+}
+
+function record(sum) {
+  rolls++;
+  if (sum < CELLS) {
+    const k = CELL_OF_SUM[sum];
     if (++tally[k] > maxCount) maxCount = tally[k];
-    rolls++;
-    last = res;
-  }
-  if (last) {
-    // Only the final roll of a batch is shown on the dice; the rest are just tallied.
-    renderDie($("rowDie"), dice.rowDie, last.r);
-    renderDie($("colDie"), dice.colDice[last.r], last.c);
-    $("colCaption").textContent = `column die #${last.r + 1} — face size = ink in that cell`;
-    $("last").textContent = `row die → ${last.r + 1}, column die #${last.r + 1} → ${last.c + 1}`;
-  }
-  drawGrid();
+    lastCell = k;
+  } else { misses++; }
+}
+
+function finishThrow() {
+  phase = "rested";
+  const vals = bodies.map((b, i) => models[i].vals[b.top]);
+  const sum = vals.reduce((a, b) => a + b, 0);
+  record(sum);
+  const where = sum < CELLS ? `cell ${(CELL_OF_SUM[sum] % N) + 1},${Math.floor(CELL_OF_SUM[sum] / N) + 1}` : "off the grid";
+  $("sum").textContent = `${vals.join(" + ")} = ${sum} → ${where}`;
+  drawTally();
+  stats();
+  if (auto) setTimeout(() => { if (auto) throwNow(); }, 900);
+}
+
+function rollMany(n) {
+  if (!models.length) return;
+  settleEvolution();
+  let last = null;
+  for (let i = 0; i < n; i++) { last = rollFast(models); record(last.sum); }
+  if (n === 1 || last) $("sum").textContent = `from the odds: ${last.faces.map((f, i) => models[i].vals[f]).join(" + ")} = ${last.sum}`;
+  drawTally();
   stats();
 }
 
-function loop() {
-  if (!auto) return;
-  rollMany(Number($("speed").value));
-  requestAnimationFrame(loop);
-}
-
-function setAuto(on) {
-  auto = on;
-  $("auto").textContent = on ? "⏸ pause" : "▶ auto";
-  $("auto").classList.toggle("on", on);
-  if (on) requestAnimationFrame(loop);
+// ---- main loop ----
+let prev = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - prev) / 1000);
+  prev = now;
+  if (picDirty && now - picDirtyAt > 250) { picDirty = false; restartEvolution(); }
+  if (evolving && ev) evolveFrame(now);
+  if (phase === "rolling") {
+    const done = stepWorld(bodies, dt);
+    if (!done && now - rollStart > 10000) forceSettle();
+    if (done || bodies.every((b) => b.settled)) finishThrow();
+  } else if (phase === "idle") {
+    const t = now / 1000;
+    bodies.forEach((b, i) => {
+      b.settled = false;
+      b.pos = [(i - (bodies.length - 1) / 2) * 2.3, 1.9 + 0.15 * Math.sin(t * 1.3 + i), 0.2];
+      b.q = qAxis([1, 0.6 + i * 0.25, 0.3], t * 0.8 + i);
+    });
+  }
+  if (fastAuto && !picDirty) rollMany(100);
+  drawScene(tctx, bodies, (b) => (v) => qRot(b.q, v), tray.width, tray.height);
+  requestAnimationFrame(frame);
 }
 
 // ---- painting the target ----
-function paintAt(ev) {
+function paintAt(ev2) {
   const rect = target.getBoundingClientRect();
-  const c = Math.floor(((ev.clientX - rect.left) / rect.width) * N);
-  const r = Math.floor(((ev.clientY - rect.top) / rect.height) * N);
+  const c = Math.floor(((ev2.clientX - rect.left) / rect.width) * N);
+  const r = Math.floor(((ev2.clientY - rect.top) / rect.height) * N);
   if (r < 0 || c < 0 || r >= N || c >= N || pic[r][c] === brush) return;
   pic[r][c] = brush;
-  dice = buildDice(pic);
   drawTarget();
-  renderDie($("rowDie"), dice.rowDie, -1);
-  resetTally();
+  picDirty = true; picDirtyAt = performance.now(); // restart evolution once the brush pauses
 }
 let painting = false;
 target.addEventListener("pointerdown", (e) => { painting = true; target.setPointerCapture(e.pointerId); paintAt(e); });
@@ -133,11 +236,41 @@ for (const name of [...Object.keys(PICTURES), "blank"]) {
   o.value = o.textContent = name;
   preset.appendChild(o);
 }
+function setPicture(p) {
+  pic = p;
+  drawTarget();
+  if (pic.flat().every((v) => v <= 0)) {
+    // nothing to draw: leave the dice as they are and wait for some ink
+    evolving = false; ev = null; picDirty = false; setEvolving(false);
+    $("sum").textContent = "the picture has no ink: paint something.";
+    resetTally();
+    return;
+  }
+  restartEvolution();
+}
 preset.onchange = () => setPicture(preset.value === "blank" ? blank() : PICTURES[preset.value]());
 
-$("roll1").onclick = () => rollMany(1);
-$("roll100").onclick = () => rollMany(100);
-$("auto").onclick = () => setAuto(!auto);
-$("reset").onclick = () => resetTally();
+// ---- buttons ----
+$("throw").onclick = throwNow;
+$("auto").onclick = () => {
+  auto = !auto;
+  $("auto").textContent = auto ? "⏸ stop throwing" : "▶ auto-throw";
+  $("auto").classList.toggle("on", auto);
+  if (auto) throwNow();
+};
+$("fast").onclick = () => rollMany(100);
+$("fastAuto").onclick = () => {
+  fastAuto = !fastAuto;
+  $("fastAuto").textContent = fastAuto ? "⏸ stop" : "▶ fast auto";
+  $("fastAuto").classList.toggle("on", fastAuto);
+};
+$("reset").onclick = () => { resetTally(); };
+$("evolve").onclick = () => {
+  if (!ev) return;
+  if (!evolving) lastGain = ev.generation; // give it another stretch before it can call itself converged
+  setEvolving(!evolving);
+};
+$("scramble").onclick = () => { if (ev) restartEvolution(); };
 
 setPicture(PICTURES.heart());
+requestAnimationFrame(frame);

@@ -3,31 +3,33 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>loadeddice — lopsided dice that draw a picture</title>
-<meta name="description" content="21 lopsided icosahedral dice. Roll them over and over, tally the results on a grid, and the picture appears." />
-<meta property="og:title" content="loadeddice — lopsided dice that draw a picture" />
-<meta property="og:description" content="21 lopsided d20s with weighted faces. Roll them thousands of times and the tally draws a target picture." />
+<title>loadeddice — evolved dice that draw a picture</title>
+<meta name="description" content="Lumpy 7-sided and 20-sided dice with faces of different sizes, rolled with real 3D physics. Their top faces add up to a number that lands on a grid, and the dice evolve until the tally draws your picture." />
+<meta property="og:title" content="loadeddice — evolved dice that draw a picture" />
+<meta property="og:description" content="Lumpy d7s and d20s with faces of different sizes, rolled in a 3D physics tray. Top faces add up, the shapes evolve, and the tally draws a picture." />
 <meta property="og:url" content="https://loadeddice.bisks.net/" />
 <meta property="og:type" content="website" />
 <meta property="og:image" content="https://loadeddice.bisks.net/og.png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
-<meta property="og:image:alt" content="A grid of dice-roll tallies forming a heart, next to a lopsided d20 face strip." />
+<meta property="og:image:alt" content="A grid of dice-sum tallies forming a heart, next to the words loadeddice." />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="loadeddice — lopsided dice that draw a picture" />
-<meta name="twitter:description" content="21 lopsided d20s with weighted faces. Roll them thousands of times and the tally draws a target picture." />
+<meta name="twitter:title" content="loadeddice — evolved dice that draw a picture" />
+<meta name="twitter:description" content="Lumpy d7s and d20s with faces of different sizes, rolled in a 3D physics tray. Top faces add up, the shapes evolve, and the tally draws a picture." />
 <meta name="twitter:image" content="https://loadeddice.bisks.net/og.png" />
 <style>
   :root { color-scheme: dark; --bg:#12100f; --panel:#1b1816; --border:#3a322c; --fg:#f2ebe4; --dim:#a59a90; --accent:#ffb347; --ink:#ffd9a0; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg); font-family: ui-monospace, Menlo, Consolas, monospace; line-height:1.45; }
-  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 40px; }
+  main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 40px; }
   h1 { margin: 0 0 4px; font-size: 28px; }
-  .sub { color: var(--dim); margin: 0 0 20px; max-width: 62ch; }
-  .layout { display:grid; grid-template-columns: minmax(280px, 480px) 1fr; gap: 20px; align-items:start; }
-  @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } }
-  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; }
-  canvas { display:block; width:100%; aspect-ratio:1; image-rendering: pixelated; background:#0a0908; border-radius:6px; }
+  .sub { color: var(--dim); margin: 0 0 20px; max-width: 70ch; }
+  .layout { display:grid; grid-template-columns: minmax(300px, 1.5fr) minmax(260px, 1fr); gap: 20px; align-items:start; }
+  @media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:16px; }
+  canvas { display:block; width:100%; background:#0a0908; border-radius:6px; }
+  #tray { aspect-ratio: 8 / 5; }
+  .pix { aspect-ratio:1; image-rendering: pixelated; }
   #target { cursor: crosshair; touch-action: none; }
   .stats { display:flex; gap:18px; flex-wrap:wrap; margin-top:10px; color:var(--dim); }
   .stats b { color:var(--accent); font-size:18px; }
@@ -36,13 +38,15 @@
   button:hover, select:hover { border-color: var(--accent); }
   button.on { background: var(--accent); color:#1b1206; border-color:var(--accent); }
   h2 { font-size: 14px; margin: 0 0 8px; color: var(--accent); text-transform: lowercase; }
-  .die { display:flex; height:46px; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:#0a0908; margin-bottom:6px; }
+  .sum { min-height: 1.6em; font-size: 15px; color: var(--ink); }
+  .trio { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; }
+  .trio figcaption { font-size: 11px; color: var(--dim); margin-top: 4px; }
+  .trio figure { margin: 0; }
+  .die { display:flex; height:30px; border:1px solid var(--border); border-radius:6px; overflow:hidden; background:#0a0908; margin-bottom:2px; }
   .face { flex-basis:0; min-width:0; display:flex; align-items:center; justify-content:center; font-size:10px; color:#1b1206; background:#c58a3c; border-right:1px solid #12100f; overflow:hidden; }
   .face:nth-child(odd) { background:#e0a550; }
   .face.zero { flex: 0 0 2px !important; background:#6b2a22; border:0; }
-  .face.hit { background:#fff; box-shadow: inset 0 0 0 2px var(--accent); }
-  .caption { color:var(--dim); font-size:12px; margin: 0 0 12px; }
-  .last { min-height: 1.5em; margin: 6px 0 14px; }
+  .caption { color:var(--dim); font-size:11px; margin: 0 0 8px; }
   .brush button { padding: 4px 10px; }
   footer { margin-top: 28px; color:var(--dim); font-size:12px; display:flex; gap:14px; flex-wrap:wrap; }
   footer a { color: var(--dim); }
@@ -51,65 +55,68 @@
 <body>
 <main>
   <h1>loaded<span style="color:var(--accent)">dice</span></h1>
-  <p class="sub">A set of 21 lopsided icosahedra. Each die's faces are different sizes, so some come up far more often than others. Roll the set over and over, tally each result on the grid, and the target picture slowly shows itself.</p>
+  <p class="sub">Five lumpy polyhedra: two 7-sided, one 12-sided, two 20-sided, every face a different size. Throw them in the tray and the numbers on their top faces add up to a sum; the sum picks a cell on the grid (walking a Hilbert curve). Then let them evolve: face sizes and numbers mutate until the odds of each sum match the ink in the target picture.</p>
 
   <div class="layout">
-    <section class="panel">
-      <canvas id="grid" width="400" height="400" aria-label="tally grid"></canvas>
-      <div class="stats">
-        <span>rolls <b id="rolls">0</b></span>
-        <span>match <b id="match">0%</b></span>
-      </div>
-      <div class="row">
-        <button id="roll1">roll 1</button>
-        <button id="roll100">roll 100</button>
-        <button id="auto">▶ auto</button>
-        <button id="reset">reset tally</button>
-      </div>
-      <div class="row">
-        <label>speed <select id="speed">
-          <option value="1">1 / frame</option>
-          <option value="10">10 / frame</option>
-          <option value="100" selected>100 / frame</option>
-          <option value="1000">1000 / frame</option>
-        </select></label>
-      </div>
-    </section>
-
-    <section>
-      <div class="panel" style="margin-bottom:16px">
-        <h2>the dice</h2>
-        <div class="last" id="last">roll to see which faces land.</div>
-        <div class="caption">row die — d20, face size = how much ink is in that row</div>
-        <div class="die" id="rowDie"></div>
-        <div class="caption" id="colCaption">column die for the row you last landed on — face size = ink in that cell</div>
-        <div class="die" id="colDie"></div>
-        <div class="caption">(there's one column die per row: 1 + 20 = 21 dice. A face with no ink is a red sliver and never lands.)</div>
-      </div>
-
-      <div class="panel">
-        <h2>target picture <span style="color:var(--dim)">— paint it yourself</span></h2>
+    <div>
+      <section class="panel">
+        <canvas id="tray" width="800" height="500" aria-label="3D dice tray"></canvas>
+        <div class="sum" id="sum">evolving the dice&hellip;</div>
         <div class="row">
-          <label>preset <select id="preset"></select></label>
+          <button id="throw">&#127922; throw</button>
+          <button id="auto">&#9654; auto-throw</button>
+          <button id="fast">roll 100 from the odds</button>
+          <button id="fastAuto">&#9654; fast auto</button>
+          <button id="reset">reset tally</button>
+        </div>
+        <div class="caption">A throw is real physics: the dice tumble in the tray and the face pointing up when they stop counts. "From the odds" skips the physics and samples each die's estimated landing odds, so thousands of rolls take a second.</div>
+      </section>
+
+      <section class="panel">
+        <h2>evolution</h2>
+        <div class="row">
+          <button id="evolve" class="on">&#9208; evolving</button>
+          <button id="scramble">scramble the dice</button>
+          <span class="stats" style="margin:0"><span>generation <b id="gen">0</b></span><span>overlap with target <b id="fit">0%</b></span></span>
+        </div>
+        <div class="caption">Each die is a set of planes; moving a plane in grows its face, pushing it out shrinks it until the face vanishes. Fitness is how much the exact distribution of sums overlaps the target. Every generation: mutate planes, tilt normals, renumber faces, keep the fittest.</div>
+        <div id="dieStrips"></div>
+        <div class="caption">Each strip is one die: width = chance that face ends up on top, number = its value. Red slivers never come up.</div>
+      </section>
+    </div>
+
+    <div>
+      <section class="panel">
+        <div class="trio">
+          <figure><canvas id="target" class="pix" width="320" height="320" aria-label="target picture, click to paint"></canvas><figcaption>target (paint it)</figcaption></figure>
+          <figure><canvas id="expected" class="pix" width="320" height="320" aria-label="exact odds of the evolved dice"></canvas><figcaption>exact odds</figcaption></figure>
+          <figure><canvas id="grid" class="pix" width="320" height="320" aria-label="tally grid"></canvas><figcaption>tally</figcaption></figure>
+        </div>
+        <div class="stats">
+          <span>rolls <b id="rolls">0</b></span>
+          <span>off-grid <b id="misses">0</b></span>
+          <span>match <b id="match">0%</b></span>
+        </div>
+        <div class="row">
+          <label>picture <select id="preset"></select></label>
           <span class="brush">
             <button id="brushInk" class="on">ink</button>
             <button id="brushLight">light ink</button>
             <button id="brushErase">erase</button>
           </span>
         </div>
-        <canvas id="target" width="400" height="400" style="max-width:240px" aria-label="target picture, click to paint"></canvas>
+        <div class="caption">Sums past the last cell land off the grid. The 8&times;8 grid is walked along a Hilbert curve, so nearby sums are nearby cells.</div>
+      </section>
+      <div class="row">
+        <a id="share" target="_blank" rel="noopener"><button type="button">share on bluesky</button></a>
       </div>
-    </section>
-  </div>
-
-  <div class="row" style="margin-top:18px">
-    <a id="share" target="_blank" rel="noopener"><button type="button">share on bluesky</button></a>
+    </div>
   </div>
 
   <footer>
-    <a href="https://rateyourbuild.bisks.net/site/loadeddice">rate this on rateyourbuild →</a>
-    <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a>
-    <span>asked for by @baddub.net · polyhedra week</span>
+    <a href="https://rateyourbuild.bisks.net/site/loadeddice">rate this on rateyourbuild &rarr;</a>
+    <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom &rarr;</a>
+    <span>asked for by @baddub.net &middot; polyhedra week</span>
   </footer>
 </main>
 <script type="module" src="app.js"></script>

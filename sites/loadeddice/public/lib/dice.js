@@ -1,62 +1,134 @@
-// Pure logic: turn a target picture into a set of weighted dice, and roll them.
-// No DOM in here so it can be tested under node.
+// Pure logic: a set of lumpy polyhedral dice, their landing odds, and the grid
+// their summed top faces draw on. No DOM in here so it can be tested under node.
 //
-// Picture = N x N array of ink levels in 0..1. The set is N+1 dice:
-//   * one "row die" with N faces, face r weighted by the ink in row r
-//   * one "column die" per row, face c weighted by the ink at (row, c)
-// Roll the row die, then that row's column die, tally the cell. Probability of
-// cell (r,c) is ink(r,c)/totalInk, so the tally converges on the picture.
+// A roll throws every die in the set; each shows a top face carrying an integer;
+// the integers add up to s. Cell s of the grid (walked along a Hilbert curve so
+// neighbouring sums are neighbouring cells) gets a tally. A sum past the last
+// cell is a miss. The dice are *evolved* so the distribution of s matches the
+// ink in the target picture.
 
-export const N = 20; // icosahedron: the d20 has exactly 20 faces
+import { fibNormals, buildPoly, topProbs } from "./geometry.js";
 
-export function buildDice(pic) {
-  const colDice = pic.map((row) => cumulative(row));
-  const rowDie = cumulative(pic.map((row) => row.reduce((a, b) => a + b, 0)));
-  return { rowDie, colDice };
-}
+export const N = 8;            // grid is N x N
+export const CELLS = N * N;     // sums 0..CELLS-1 land on the grid
+export const SET = [7, 20, 7, 20, 12]; // faces per die: weird d7s next to lumpy d20s and a d12
+export const MAX_VAL = 40;      // face values are integers 0..MAX_VAL; sums past CELLS-1 are misses
 
-function cumulative(weights) {
-  const total = weights.reduce((a, b) => a + b, 0);
-  let run = 0;
-  const cum = weights.map((w) => (run += w));
-  return { weights, cum, total };
-}
-
-// Pick a face index from a die given u in [0,1). Zero-weight faces never win.
-export function rollFace(die, u) {
-  if (die.total <= 0) return -1;
-  const x = u * die.total;
-  let lo = 0, hi = die.cum.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (die.cum[mid] > x) hi = mid; else lo = mid + 1;
+// Hilbert curve index -> [col,row] on an N x N grid (N a power of two)
+export function hilbert(d) {
+  let x = 0, y = 0, t = d;
+  for (let s = 1; s < N; s *= 2) {
+    const rx = 1 & (t >> 1), ry = 1 & (t ^ rx);
+    if (ry === 0) { if (rx === 1) { x = s - 1 - x; y = s - 1 - y; } [x, y] = [y, x]; }
+    x += s * rx; y += s * ry;
+    t >>= 2;
   }
-  return lo;
+  return [x, y];
+}
+export const CELL_OF_SUM = Array.from({ length: CELLS }, (_, s) => { const [c, r] = hilbert(s); return r * N + c; });
+
+// ---- a set of dice ----
+// gene: { normals:[[x,y,z]], logd:[..], vals:[int..] } ; model adds poly + top-face odds
+export function randomGene(n, rand = Math.random) {
+  return {
+    normals: fibNormals(n),
+    logd: Array.from({ length: n }, () => (rand() - 0.5) * 0.5),
+    vals: Array.from({ length: n }, () => Math.floor(rand() * (CELLS / SET.length))),
+  };
 }
 
-export function rollSet(dice, rand = Math.random) {
-  const r = rollFace(dice.rowDie, rand());
-  if (r < 0) return null;
-  const c = rollFace(dice.colDice[r], rand());
-  return { r, c };
+// memoised per gene object: the evolver clones a die before changing it, so a
+// cached model never goes stale, and untouched dice cost nothing to re-score
+const cache = new WeakMap();
+export function modelOf(gene) {
+  if (cache.has(gene)) return cache.get(gene);
+  const m = buildModel(gene);
+  cache.set(gene, m);
+  return m;
 }
 
-// 1 - total variation distance between the empirical tally and the target,
-// as 0..1. 1 means the tally is exactly the picture.
+function buildModel(gene) {
+  const poly = buildPoly(gene.normals, gene.logd.map(Math.exp));
+  if (!poly) return null;
+  const p = topProbs(poly);
+  return { poly, p, vals: poly.faces.map((f) => gene.vals[f.k]) };
+}
+
+// pmf of the sum over cells 0..CELLS-1 (+ miss mass in the last slot)
+export function sumPmf(models) {
+  let pmf = new Float64Array(CELLS + 1);
+  pmf[0] = 1;
+  for (const m of models) {
+    const next = new Float64Array(CELLS + 1);
+    for (let s = 0; s <= CELLS; s++) {
+      const ps = pmf[s];
+      if (!ps) continue;
+      if (s === CELLS) { next[CELLS] += ps; continue; }
+      for (let i = 0; i < m.p.length; i++) {
+        if (!m.p[i]) continue;
+        const t = s + m.vals[i];
+        next[t >= CELLS ? CELLS : t] += ps * m.p[i];
+      }
+    }
+    pmf = next;
+  }
+  return pmf;
+}
+
+// target pmf over sums: the ink at each sum's cell, normalised
+export function targetPmf(pic) {
+  const t = new Float64Array(CELLS);
+  let ink = 0;
+  for (let s = 0; s < CELLS; s++) { const k = CELL_OF_SUM[s]; t[s] = pic[Math.floor(k / N)][k % N]; ink += t[s]; }
+  if (ink > 0) for (let s = 0; s < CELLS; s++) t[s] /= ink;
+  return t;
+}
+
+// 1 - total variation distance between two pmfs (1 = identical). Miss mass counts against.
+export function overlap(pmf, target) {
+  let o = 0;
+  for (let s = 0; s < CELLS; s++) o += Math.min(pmf[s], target[s]);
+  return o;
+}
+
+export function fitness(genes, target) {
+  const models = [];
+  for (const g of genes) { const m = modelOf(g); if (!m) return { fit: 0, models: null }; models.push(m); }
+  return { fit: overlap(sumPmf(models), target), models };
+}
+
+// ---- rolling ----
+function pick(p, u) {
+  let acc = 0;
+  for (let i = 0; i < p.length; i++) { acc += p[i]; if (u < acc) return i; }
+  return p.length - 1;
+}
+
+// A fast roll straight from the odds: no physics, one number per die.
+export function rollFast(models, rand = Math.random) {
+  let s = 0;
+  const faces = models.map((m) => { const i = pick(m.p, rand()); s += m.vals[i]; return i; });
+  return { sum: s, faces };
+}
+
+// 1 - total variation distance between the empirical tally (per cell) and the target picture
 export function match(pic, tally, rolls) {
   if (!rolls) return 0;
   let ink = 0;
   for (const row of pic) for (const v of row) ink += v;
   if (ink <= 0) return 0;
   let tv = 0;
-  for (let r = 0; r < pic.length; r++)
-    for (let c = 0; c < pic[r].length; c++)
-      tv += Math.abs(tally[r * pic.length + c] / rolls - pic[r][c] / ink);
-  return 1 - tv / 2;
+  for (let r = 0; r < N; r++)
+    for (let c = 0; c < N; c++) tv += Math.abs(tally[r * N + c] / rolls - pic[r][c] / ink);
+  // misses land nowhere: their share of rolls is error too
+  let hits = 0;
+  for (const v of tally) hits += v;
+  tv += Math.abs(1 - hits / rolls);
+  return Math.max(0, 1 - tv / 2);
 }
 
 // ---- pictures: sampled from shape functions so any N works ----
-const S = 4; // supersamples per axis for soft edges (antialiasing, not a cap)
+const S = 4; // supersamples per axis for soft edges (antialiasing, not a limit)
 
 function sample(fn) {
   const pic = [];
