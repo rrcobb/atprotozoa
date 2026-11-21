@@ -13,6 +13,18 @@ function render() {
   $("twist").textContent = e.twist;
   $("verdict").textContent = e.verdict;
   $("credence").textContent = e.credence + "%";
+  $("failures").textContent = e.failures.join(", ") + ". This makes it abundantly clear.";
+  const see = $("see");
+  see.textContent = "";
+  for (const n of e.seeAlso) {
+    const li = document.createElement("li");
+    const a = document.createElement("a");
+    a.href = `?s=${n}`;
+    a.textContent = generate(n).name;
+    a.addEventListener("click", (ev) => { ev.preventDefault(); seed = n; render(); scrollTo(0, 0); });
+    li.append(a);
+    see.append(li);
+  }
   const tags = $("tags");
   tags.textContent = "";
   for (const t of e.tags) {

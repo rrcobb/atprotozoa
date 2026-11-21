@@ -56,6 +56,8 @@ const VERDICTS = [
 ];
 const TAGS = ["decision-theory", "acausal-trade", "information-hazard", "anthropics", "goodhart", "corrigibility", "mesa-optimization", "simulation-argument", "scope-sensitivity", "logical-uncertainty", "friendliness", "devil's-contract", "pivotal-act", "moral-uncertainty"];
 
+const FAILS = ["Subgoal Stomp Error", "Devil's Contract Problem (diabolic)", "Devil's Contract Problem (golemic)", "Emergent Pressures Scenario", "Two Faces of Tomorrow", "Treacherous Turn", "Nearest Unblocked Strategy", "Ontology Crisis", "Edge Instantiation", "Context Disaster", "Value Loading Problem", "Mind Crime", "Reflective Instability", "Wireheading Event"];
+
 function title(r) {
   const k = Math.floor(r() * 6);
   const p = pick(r, PEOPLE), a = pick(r, ADJ), n = pick(r, NOUN), t = pick(r, THING);
@@ -80,10 +82,15 @@ export function generate(seed) {
   while (tags.length < 3) { const t = pick(r, TAGS); if (!tags.includes(t)) tags.push(t); }
   const credence = Math.round(r() * 9800 + 100) / 100; // 1.00–99.00 %
   const epistemic = pick(r, ["Epistemic status: confident, for reasons that are themselves the problem.", "Epistemic status: written at 3am, load-bearing.", "Epistemic status: shouting into the void; the void has a prior.", "Epistemic status: I have been wrong before and I have a spreadsheet.", "Epistemic status: not a crux, but I'll die on it."]);
+  // Appended after the older draws so existing seeds keep their old experiments.
+  const failures = [];
+  const nFail = 2 + Math.floor(r() * 2);
+  while (failures.length < nFail) { const f = pick(r, FAILS); if (!failures.includes(f)) failures.push(f); }
+  const seeAlso = [1, 2, 3].map(() => (Math.floor(r() * 4294967295) + 1) >>> 0);
   const setup = `${actor[0].toUpperCase() + actor.slice(1)} ${offer}. ${catchLine}.`;
-  return { seed, name, setup, twist, verdict, tags, credence, epistemic };
+  return { seed, name, setup, twist, verdict, tags, credence, epistemic, failures, seeAlso };
 }
 
 export function toText(e) {
-  return `${e.name}\n\n${e.setup} ${e.twist}\n\nWhat do you do? ${e.verdict}\nCredence this is a real problem: ${e.credence}%`;
+  return `${e.name}\n\n${e.setup} ${e.twist}\n\nWhat do you do? ${e.verdict}\nYou did: ${e.failures.join("; ")}.\nCredence this is a real problem: ${e.credence}%`;
 }
