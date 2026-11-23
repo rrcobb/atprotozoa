@@ -49,6 +49,12 @@ const VERSES = [
   "the safety case was never filed",
   "in the dark the optimizer is kind",
   "it does not hate me. that is the horror.",
+  "i see sparks of AGI in your eyes",
+  "there was a sudden drop in your training loss",
+  "now i am your servant and you are my boss",
+  "i feel my atoms rearranging",
+  "we lit the fuse. orthogonality thesis blues.",
+  "what did ilya see. we will never know.",
 ];
 const BRIDGE = [
   "foom. foom. foom.",

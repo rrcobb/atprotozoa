@@ -81,11 +81,15 @@ function sub(t, f, dur, vol) {
   osc("sine", f, t, t + dur + 1).connect(g);
   osc("triangle", f * 2, t, t + dur + 1).connect(bus(g, 0.25));
 }
+// drum membrane: circular-membrane mode ratios, each with its own pitch drop and decay
 function tom(t, f, vel) {
-  const o = ctx.createOscillator(); o.type = "sine";
-  o.frequency.setValueAtTime(f * 2.6, t); o.frequency.exponentialRampToValueAtTime(f, t + 0.12);
-  const g = ctx.createGain(); g.gain.setValueAtTime(vel, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
-  o.connect(g); g.connect(nodes.dry); g.connect(nodes.send); o.start(t); o.stop(t + 1.2);
+  [[1, 1], [1.59, 0.55], [2.14, 0.4], [2.65, 0.25]].forEach(([r, a], i) => {
+    const o = ctx.createOscillator(); o.type = "sine";
+    o.frequency.setValueAtTime(f * r * 2.4, t); o.frequency.exponentialRampToValueAtTime(f * r, t + 0.12);
+    const g = ctx.createGain(), life = 1.4 / (1 + i * 0.8);
+    g.gain.setValueAtTime(vel * a, t); g.gain.exponentialRampToValueAtTime(0.0001, t + life);
+    o.connect(g); g.connect(nodes.dry); g.connect(nodes.send); o.start(t); o.stop(t + life + 0.1);
+  });
   const n = ctx.createBufferSource(); n.buffer = nodes.noise;
   const nf = ctx.createBiquadFilter(); nf.type = "bandpass"; nf.frequency.value = 1800;
   const ng = ctx.createGain(); ng.gain.setValueAtTime(vel * 0.5, t); ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
@@ -101,13 +105,37 @@ function bell(t, f, vel, decay = 7) {
   g.connect(nodes.dry); g.connect(nodes.send);
   car.start(t); mod.start(t); car.stop(t + decay + 0.1); mod.stop(t + decay + 0.1);
 }
+// modal synthesis: each partial of a struck plate rings with its own decay time (higher modes die first)
 function gong(t, f, vel) {
   const g = ctx.createGain(); g.connect(nodes.dry); g.connect(nodes.send);
-  env(g, t, 0.02, vel, 0.4, 11);
-  [1, 1.47, 2.09, 2.56, 3.11, 4.2].forEach((r, i) => {
-    const pg = bus(g, 1 / (i + 1.5));
-    osc("sine", f * r, t, t + 12, (Math.random() - 0.5) * 12).connect(pg);
+  [1, 1.47, 2.09, 2.56, 3.11, 4.2, 5.43].forEach((r, i) => {
+    const mg = ctx.createGain(), life = 12 / (1 + i * 0.7);
+    mg.gain.setValueAtTime(vel / (i + 1.5), t); mg.gain.exponentialRampToValueAtTime(0.0001, t + life);
+    // slow beating between detuned twins is what makes a gong shimmer
+    [0, 3 + i].forEach(d => osc("sine", f * r, t, t + life + 0.1, d + (Math.random() - 0.5) * 6).connect(mg));
+    mg.connect(g);
   });
+}
+// Karplus-Strong plucked string, rendered into a buffer: a delay line of one period, averaged
+// (lowpass) on every pass. `damp` near 1 rings for many seconds, `bright` is the initial noise colour.
+function stringBuf(f, secs, damp, bright) {
+  const sr = ctx.sampleRate, N = Math.max(2, Math.round(sr / f)), len = Math.floor(sr * secs);
+  const buf = ctx.createBuffer(1, len, sr), out = buf.getChannelData(0), line = new Float32Array(N);
+  let lp = 0;
+  for (let i = 0; i < N; i++) { lp += bright * ((Math.random() * 2 - 1) - lp); line[i] = lp; }
+  let idx = 0;
+  for (let i = 0; i < len; i++) {
+    const a = line[idx], b = line[(idx + 1) % N];
+    out[i] = a;
+    line[idx] = damp * 0.5 * (a + b);
+    idx = (idx + 1) % N;
+  }
+  return buf;
+}
+function string(t, f, secs, vol, damp = 0.9996, bright = 0.35) {
+  const s = ctx.createBufferSource(); s.buffer = stringBuf(f, secs, damp, bright);
+  const g = ctx.createGain(); g.gain.value = vol; s.connect(g); g.connect(nodes.gDrive);
+  s.start(t);
 }
 function clank(t, vel) {
   const n = ctx.createBufferSource(); n.buffer = nodes.noise;
@@ -154,6 +182,8 @@ function scheduleBar(b, t) {
   }
   // sustained earth-style drone: one note per bar, slow attack
   if (s < 0.8 || bar.i % 2 === 0) guitar(t, f * 2, barDur * 1.02, (0.05 + 0.06 * I) * (1.2 - s * 0.6), barDur * 0.35);
+  // physically modelled low string, struck on the downbeat of every other bar and left to ring into the drive
+  if (bar.i % 2 === 0) string(t, f * 2, barDur * 2.2, 0.5 + I * 0.5, 0.9997 - (1 - I) * 0.0003, 0.2 + I * 0.5);
   if (sec !== "intro" || bar.i > 0) sub(t, f, barDur * 0.98, 0.35 + I * 0.2);
 
   // swans-style chug/hammer on the beats
