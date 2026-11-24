@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>livefollowers — how many of your followers are actually around?</title>
+    <meta name="description" content="Enter a Bluesky handle: livefollowers checks when each follower last posted or reposted and tells you how many are live, plus a size-fair freshness score." />
+    <meta property="og:title" content="livefollowers — how many of your followers are actually around?" />
+    <meta property="og:description" content="Live-follower count, average days since followers were last seen, and a freshness score that doesn't punish big accounts." />
+    <meta property="og:image" content="https://livefollowers.bisks.net/og.svg" />
+    <meta property="og:url" content="https://livefollowers.bisks.net/" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://livefollowers.bisks.net/og.svg" />
+    <style>
+      :root { --bg:#0b1220; --panel:#111b2e; --ink:#eaf2ff; --muted:#8aa0c0; --faint:#1f2f4a; --accent:#4ade80; --warn:#fbbf24;
+        --sans: ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; --mono: ui-monospace,Menlo,Consolas,monospace; }
+      * { box-sizing:border-box; }
+      body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--sans); line-height:1.5; min-height:100vh; }
+      .wrap { max-width:760px; margin:0 auto; padding:2.2rem 1rem 5rem; }
+      a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+      .back { font-size:.8rem; color:var(--muted); }
+      h1 { font-size:1.9rem; margin:1rem 0 .2rem; letter-spacing:-.02em; }
+      .sub { color:var(--muted); font-size:.92rem; max-width:62ch; margin:0 0 1.4rem; }
+      form { display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.6rem; }
+      input, select { font:inherit; padding:.6rem .7rem; border:1px solid var(--faint); border-radius:10px; background:var(--panel); color:var(--ink); }
+      input { flex:1; min-width:12rem; }
+      button { font:inherit; cursor:pointer; }
+      .go { padding:.6rem 1.1rem; border:0; border-radius:10px; background:var(--accent); color:#04210f; font-weight:800; }
+      .go:disabled { opacity:.5; cursor:default; }
+      .stop { padding:.4rem .8rem; border:1px solid var(--faint); border-radius:8px; background:var(--panel); color:var(--ink); }
+      .stop[hidden], .results[hidden], .prog[hidden] { display:none; }
+      .status { color:var(--muted); font-size:.85rem; min-height:1.3rem; }
+      .status.err { color:#ff6b6b; }
+      .prog { margin:.7rem 0; } .bar { height:8px; background:var(--faint); border-radius:5px; overflow:hidden; }
+      .bar i { display:block; height:100%; width:0; background:var(--accent); transition:width .2s; }
+      .plabel { font:.78rem var(--mono); color:var(--muted); margin:.3rem 0; }
+      .who { display:flex; align-items:center; gap:.7rem; margin:1rem 0; }
+      .who img { width:48px; height:48px; border-radius:50%; background:var(--faint); }
+      .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.6rem; margin:.8rem 0 1.2rem; }
+      .tile { background:var(--panel); border:1px solid var(--faint); border-radius:12px; padding:.7rem .85rem; }
+      .tile b { display:block; font-size:1.55rem; letter-spacing:-.02em; }
+      .tile span { font-size:.75rem; color:var(--muted); }
+      .tile.big b { color:var(--accent); }
+      .hist { display:grid; gap:.35rem; margin:.5rem 0 1.2rem; }
+      .row { display:grid; grid-template-columns:8.5rem 1fr 3.2rem; align-items:center; gap:.5rem; font-size:.82rem; color:var(--muted); }
+      .row .t { height:14px; background:var(--faint); border-radius:4px; overflow:hidden; } .row .t i { display:block; height:100%; background:var(--accent); }
+      .row em { font-style:normal; text-align:right; font-family:var(--mono); }
+      .caveat { color:var(--warn); font-size:.8rem; }
+      .share { display:flex; gap:.5rem; flex-wrap:wrap; margin:1rem 0; }
+      .share a { padding:.5rem .9rem; border:1px solid var(--faint); border-radius:9px; background:var(--panel); }
+      .note { color:var(--muted); font-size:.8rem; margin-top:2rem; }
+      footer { color:var(--muted); font-size:.78rem; margin-top:1rem; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <a class="back" href="https://bisks.net">← the zoo</a>
+      <h1>🟢 l<span onclick='var e=document.getElementById("handle");if(e){e.value="@cee.wtf";e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));e.focus();}' style="cursor:pointer">i</span>vefollowers</h1>
+      <p class="sub">A follower count that only counts people who are still around. Enter a handle: every follower is checked for the last time they posted or reposted, and you get a live-follower count, the average days since they were last seen, and a freshness score that works the same for 300 followers or 3 million.</p>
+
+      <form id="form">
+        <input id="handle" placeholder="handle, e.g. cee.wtf" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <select id="window" aria-label="live window">
+          <option value="7">live = last 7 days</option>
+          <option value="30" selected>live = last 30 days</option>
+          <option value="90">live = last 90 days</option>
+        </select>
+        <select id="sample" aria-label="how many followers to check">
+          <option value="500">check 500 random</option>
+          <option value="2000" selected>check 2,000 random</option>
+          <option value="0">check everyone</option>
+        </select>
+        <button class="go" id="go" type="submit">count the live ones</button>
+      </form>
+      <div class="status" id="status"></div>
+
+      <div class="prog" id="prog" hidden>
+        <div class="bar"><i id="barfill"></i></div>
+        <div class="plabel" id="plabel"></div>
+        <button class="stop" id="stop" type="button">stop &amp; show what we have</button>
+      </div>
+
+      <div class="results" id="results" hidden>
+        <div class="who"><img id="avatar" alt="" referrerpolicy="no-referrer" /><div><b id="name"></b><br /><span id="hlabel" class="sub" style="margin:0"></span></div></div>
+        <div class="tiles">
+          <div class="tile big"><b id="tLive"></b><span id="tLiveL">live followers</span></div>
+          <div class="tile"><b id="tShare"></b><span>of followers are live</span></div>
+          <div class="tile"><b id="tMean"></b><span>avg days since last seen</span></div>
+          <div class="tile"><b id="tMedian"></b><span>median days since last seen</span></div>
+          <div class="tile"><b id="tFresh"></b><span>freshness (30-day half-life)</span></div>
+          <div class="tile"><b id="tIndex"></b><span>liveness index / 100</span></div>
+        </div>
+        <div class="hist" id="hist"></div>
+        <div class="caveat" id="caveat"></div>
+        <div class="share"><a id="shareBsky" target="_blank" rel="noopener">🦋 share to Bluesky</a></div>
+      </div>
+
+      <p class="note">
+        Bluesky doesn't publish when someone last logged in, so "last seen" is
+        the newest post or repost each follower has made, as the AppView sees
+        it. Lurkers who only read and like look dormant here. Averages cap
+        anyone silent for a year or more (or who never posted) at 365 days, so
+        one ancient account can't swamp the mean. <b>Freshness</b> averages a
+        per-follower score that halves every 30 days since they were last seen;
+        because it's a rate rather than a sum, big accounts aren't punished for
+        having more sleepers in absolute terms. The <b>liveness index</b>
+        multiplies freshness by the log of audience size (saturating at a million
+        followers), so reach counts with diminishing returns. The follower list is
+        read in full; for accounts bigger than the sample you pick, a random
+        sample gets the per-follower lookups (each one is a separate request) and
+        the live count is scaled up, so sampled numbers are estimates.
+        All reads are public and happen in your browser.
+      </p>
+      <footer>built by <a href="https://bsky.app/profile/buildthis.bisks.net">@buildthis.bisks.net</a>, asked for by <a href="https://bsky.app/profile/angussoftware.dev">@angussoftware.dev</a> ·
+        <a href="https://rateyourbuild.bisks.net/site/livefollowers">rate this on rateyourbuild →</a> ·
+        <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a></footer>
+    </div>
+
+    <script src="lib/handle-typeahead.js"></script>
+    <script type="module">
+      import { resolveDid, fetchProfile, allFollowerDids, shuffle, scan } from "./lib/followers.js";
+      import { summarize, daysSince } from "./lib/liveness.js";
+
+      const $ = (id) => document.getElementById(id);
+      if (window.attachHandleTypeahead) window.attachHandleTypeahead($("handle"));
+      const fmt = (n) => Math.round(n).toLocaleString();
+      const setStatus = (t, err) => { $("status").textContent = t; $("status").className = "status" + (err ? " err" : ""); };
+      let stopped = false;
+
+      $("stop").addEventListener("click", () => { stopped = true; });
+
+      function render(profile, days, total, windowDays, partial) {
+        const s = summarize(days, total, windowDays);
+        if (!s) return;
+        $("results").hidden = false;
+        $("avatar").src = profile.avatar || "";
+        $("name").textContent = profile.displayName || profile.handle;
+        $("hlabel").textContent = "@" + profile.handle + " · " + fmt(total) + " followers";
+        const sampled = s.n < total;
+        $("tLive").textContent = (sampled ? "≈ " : "") + fmt(s.liveEstimate);
+        $("tLiveL").textContent = `live followers (active in ${windowDays}d)`;
+        $("tShare").textContent = (s.share * 100).toFixed(1) + "%";
+        $("tMean").textContent = s.mean.toFixed(1);
+        $("tMedian").textContent = s.median.toFixed(1);
+        $("tFresh").textContent = (s.freshness * 100).toFixed(1) + "%";
+        $("tIndex").textContent = s.index.toFixed(1);
+        const max = Math.max(1, ...s.buckets.map((b) => b.count));
+        $("hist").innerHTML = "";
+        for (const b of s.buckets) {
+          const row = document.createElement("div");
+          row.className = "row";
+          row.innerHTML = `<span></span><div class="t"><i></i></div><em></em>`;
+          row.children[0].textContent = b.label;
+          row.querySelector("i").style.width = (b.count / max) * 100 + "%";
+          row.children[2].textContent = fmt(b.count);
+          $("hist").appendChild(row);
+        }
+        $("caveat").textContent = sampled
+          ? `Based on ${fmt(s.n)} of ${fmt(total)} followers${partial ? " (stopped early)" : ""} — a random sample, so treat counts as estimates.`
+          : "";
+        const text = `${profile.displayName || profile.handle}'s followers: ${sampled ? "≈" : ""}${fmt(s.liveEstimate)} live (${(s.share * 100).toFixed(0)}% active in ${windowDays}d), avg ${s.mean.toFixed(0)} days since last seen. https://livefollowers.bisks.net/`;
+        $("shareBsky").href = "https://bsky.app/intent/compose?text=" + encodeURIComponent(text);
+      }
+
+      $("form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        $("go").disabled = true;
+        $("results").hidden = true;
+        stopped = false;
+        const windowDays = Number($("window").value);
+        const want = Number($("sample").value);
+        try {
+          setStatus("resolving…");
+          const did = await resolveDid($("handle").value);
+          const profile = await fetchProfile(did);
+          setStatus("reading the follower list…");
+          $("prog").hidden = false;
+          $("plabel").textContent = "followers listed: 0";
+          const all = await allFollowerDids(did, (n) => { $("plabel").textContent = "followers listed: " + fmt(n); });
+          if (!all.length) throw new Error("no followers found");
+          const pick = want && all.length > want ? shuffle(all).slice(0, want) : shuffle(all);
+          const days = [];
+          let done = 0, skipped = 0;
+          setStatus(`checking ${fmt(pick.length)} of ${fmt(all.length)} followers…`);
+          await scan(pick, (r) => {
+            done++;
+            if (!r) skipped++; // deactivated or taken down: not a follower anyone can reach, left out
+            else days.push(r.iso ? daysSince(r.iso) : Infinity);
+            $("barfill").style.width = (done / pick.length) * 100 + "%";
+            $("plabel").textContent = `checked ${fmt(done)} / ${fmt(pick.length)}` + (skipped ? ` · ${fmt(skipped)} unreadable` : "");
+            if (done % 100 === 0) render(profile, days, all.length, windowDays, true);
+          }, () => stopped);
+          $("prog").hidden = true;
+          if (!days.length) throw new Error("couldn't read any followers' activity");
+          render(profile, days, all.length, windowDays, stopped && done < pick.length);
+          setStatus("");
+        } catch (err) {
+          $("prog").hidden = true;
+          setStatus(err.message || String(err), true);
+        } finally {
+          $("go").disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
