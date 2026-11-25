@@ -303,8 +303,8 @@ export function advise(city) {
   else if ((city.lastIncome ?? 0) < 0 && projected < 0) out.push({ level: "bad", text: `losing ${-city.lastIncome}/month and the funds run out within 3 months. cut upkeep or add houses and shops.` });
   if (!houses.length) out.push({ level: "warn", text: "no houses yet. start with a ♕ power plant, then ♙ houses on its rank, file or diagonal." });
   else if (!count("queen")) out.push({ level: "bad", text: "no power plant: no house can grow. place a ♕ in line with your houses." });
-  if (dark.length && count("queen")) out.push({ level: "bad", text: `${dark.length} house${dark.length === 1 ? " is" : "s are"} unpowered (shown as "no power"). a ♕ must share a rank, file or diagonal with each.` });
-  if (smoggy.length) out.push({ level: "warn", text: `${smoggy.length} house${smoggy.length === 1 ? " is" : "s are"} choked by 2+ factories. bulldoze one or add parks.` });
+  if (dark.length && count("queen")) out.push({ level: "bad", text: `${dark.length} house${dark.length === 1 ? " is" : "s are"} unpowered (shown as "no power"). a ♕ must share a rank, file or diagonal with each.`, squares: dark });
+  if (smoggy.length) out.push({ level: "warn", text: `${smoggy.length} house${smoggy.length === 1 ? " is" : "s are"} choked by 2+ factories. bulldoze one or add parks.`, squares: smoggy });
   if (houses.length >= 4 && !count("bishop") && pop >= 80) out.push({ level: "warn", text: "no parks. a ♗ on a house's diagonal raises how many people fit." });
   if (houses.length >= 4 && !count("knight") && pop >= 80) out.push({ level: "warn", text: "no shops. a ♘ a knight-jump from houses lifts happiness and pays 5 per house." });
   if (houses.length >= 5 && !count("rook") && (city.lastIncome ?? 0) < 25) out.push({ level: "warn", text: "income is thin. a ♖ factory pays 30+ a month (more on ◆ ore) but crowds nearby houses." });
@@ -314,6 +314,43 @@ export function advise(city) {
   if (city.lastLost && city.lastLost.length) out.push({ level: "bad", text: `last rampage flattened ${city.lastLost.length}. rebuild, and put a ♔ near what matters.` });
   if (city.contract) out.push({ level: "good", text: `contract: ${city.contract.text} by month ${city.contract.due} for +${city.contract.pay}.` });
   if ((city.lastIncome ?? 0) > 0 && pop > 0) out.push({ level: "good", text: `earning +${city.lastIncome}/month. ${pop >= GOAL * 0.5 ? "over halfway" : GOAL - pop + " people to go"}.` });
+  const idle = Object.keys(idleBuildings(city));
+  if (idle.length) out.push({ level: "warn", text: `${idle.length} building${idle.length === 1 ? " is" : "s are"} idle (marked ⚠ on the board): they cost upkeep and help nobody. hover the ⚠ to see why.`, squares: idle.map(Number) });
   const order = { bad: 0, warn: 1, good: 2 };
   return out.sort((a, b) => order[a.level] - order[b.level]);
+}
+
+// Buildings that cost upkeep (or do nothing) because no house is in their reach. Returns {idx: reason}.
+export function idleBuildings(city) {
+  const out = {};
+  city.cells.forEach((b, i) => {
+    if (!b || b.type === "pawn" || b.type === "king") return;
+    const r = Math.floor(i / N), c = i % N;
+    const homes = reach(b.type, r, c).filter(([rr, cc]) => city.cells[rr * N + cc] && city.cells[rr * N + cc].type === "pawn");
+    if (b.type === "queen" && !homes.length) out[i] = "this power plant reaches no houses but still costs 12/month. put houses on its rank, file or diagonal.";
+    else if (b.type === "bishop" && !homes.length) out[i] = "this park has no houses on its diagonals, so it helps nobody.";
+    else if (b.type === "knight" && !homes.length) out[i] = "this shop has no houses a knight-jump away, so it sells nothing.";
+    else if (b.type === "rook" && !homes.length && !(city.terrain && city.terrain[i] === 2)) out[i] = "this factory has no houses on its rank or file to employ (it still pays the 30 base).";
+  });
+  return out;
+}
+
+// Per-square colour for the board overlays. mode "power": lit vs dark houses; "mood": house happiness.
+export function overlayFor(city, mode, inf = analyze(city)) {
+  const out = {};
+  if (mode !== "power" && mode !== "mood") return out;
+  city.cells.forEach((b, i) => {
+    if (mode === "power") out[i] = inf[i].power ? "rgba(232,211,106,.35)" : "rgba(40,30,60,.55)";
+    else if (b && b.type === "pawn") {
+      const s = inf[i].power ? houseScore(inf[i]) : 0;
+      out[i] = !inf[i].power ? "rgba(40,30,60,.55)" : s >= 1.4 ? "rgba(143,191,106,.55)" : s >= 0.9 ? "rgba(232,176,74,.45)" : "rgba(216,88,74,.55)";
+    }
+  });
+  return out;
+}
+
+// One-line summary of a month for the report toast.
+export function monthReport(before, city) {
+  const dp = totalPop(city) - before.pop, dm = city.money - before.money;
+  return `month ${city.month}: ${dp >= 0 ? "+" : ""}${dp} people, ${dm >= 0 ? "+" : ""}${dm} funds`;
 }

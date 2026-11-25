@@ -148,3 +148,13 @@ test("crossing a population tier is announced once", async () => {
   assert.ok(houseMood(c, i, at(0, 0)).why.length > 0);
   assert.equal(houseMood(c, analyze(newCity())[0], 0).face, "🌑");
 });
+
+import { idleBuildings, newCity as _nc, place as _pl, overlayFor } from "../public/city-logic.js";
+import { test as _t } from "node:test";
+import _assert from "node:assert";
+_t("idle buildings are flagged and overlays colour houses", () => {
+  const c = _nc(0); c.money = 5000;
+  _pl(c, "knight", 0); _pl(c, "pawn", 50);
+  _assert.ok(idleBuildings(c)[0]);
+  _assert.ok(Object.keys(overlayFor(c, "power")).length > 0);
+});

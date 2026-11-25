@@ -1,4 +1,4 @@
-import { N, GOAL, RAMPAGE_EVERY, BUILD, TAX, reach, newCity, place, bulldoze, tick, totalPop, analyze, houseCap, houseScore, omenSquares, omenName, cityScore, preview, advise, houseMood, TIERS } from "./city-logic.js";
+import { N, GOAL, RAMPAGE_EVERY, BUILD, TAX, reach, newCity, place, bulldoze, tick, totalPop, analyze, houseCap, houseScore, omenSquares, omenName, cityScore, preview, advise, houseMood, TIERS, idleBuildings, overlayFor, monthReport, GOAL as GOAL_POP } from "./city-logic.js";
 
 const $ = (id) => document.getElementById(id);
 const cv = $("cc"), ctx = cv.getContext("2d");
@@ -16,7 +16,7 @@ const randSeed = () => 1 + Math.floor(Math.random() * 99999);
 const bar = document.createElement("div");
 bar.className = "ctl";
 bar.innerHTML = `<label class="dim">map <input id="cSeed" size="7" inputmode="numeric"></label>
-  <button id="cSeedGo">load</button><button id="cTax">tax: normal</button><span class="dim" id="cBest"></span>`;
+  <button id="cSeedGo">load</button><button id="cTax">tax: normal</button><button id="cView">view: normal</button><span class="dim" id="cBest"></span>`;
 cv.before(bar);
 const info = document.createElement("p");
 info.id = "cInfo"; info.className = "dim";
@@ -32,13 +32,22 @@ money.id = "cIncome"; $("cMoney").after(money);
 const log = document.createElement("ul");
 log.id = "cLog"; log.style.cssText = "list-style:none;padding:0;margin:8px 0;font-size:.82em;opacity:.8";
 adv.after(log);
-let hov = -1, pv = null, history = [];
+const prog = document.createElement("div");
+prog.style.cssText = "height:10px;background:rgba(26,18,9,.5);border-radius:5px;margin:6px 0;position:relative;overflow:hidden";
+prog.innerHTML = '<div id="cProg" style="height:100%;width:0;background:#8fbf6a;transition:width .3s"></div>';
+prog.title = "progress to the goal population";
+cv.before(prog);
+const trend = document.createElement("p");
+trend.id = "cTrend"; trend.className = "dim"; trend.style.margin = "2px 0";
+cv.after(trend);
+let hov = -1, pv = null, history = [], view = 0, hiAdv = null, popHist = [];
+const VIEWS = ["normal", "power", "mood"];
 const tierName = () => TIERS[city.tier || 0].name;
 function note(t) { history.unshift(`month ${city.month}: ${t}`); history.length = Math.min(history.length, 6); renderLog(); }
 function renderLog() { log.innerHTML = ""; for (const t of history) { const li = document.createElement("li"); li.textContent = t; log.append(li); } }
 
 function reset(seed) {
-  city = newCity(seed || randSeed()); history = []; renderLog(); running = false; acc = 0; sel = -1; flash = null; fx = [];
+  city = newCity(seed || randSeed()); history = []; popHist = []; renderLog(); running = false; acc = 0; sel = -1; flash = null; fx = [];
   $("cSeed").value = city.seed; hov = -1; pv = null;
   $("cShare").hidden = true;
   setMsg("pick a piece, tap a square. houses need a ♕ power plant on their rank, file or diagonal. blue squares are lakes, ◆ is ore.");
@@ -60,9 +69,15 @@ function ui() {
   money.textContent = city.lastIncome === undefined ? "" : ` (${city.lastIncome >= 0 ? "+" : ""}${city.lastIncome}/mo)`;
   money.style.color = (city.lastIncome ?? 0) < 0 ? "#d8584a" : "#8fbf6a";
   money.title = bd ? `houses +${bd.homes}, shops +${bd.shops}, factories +${bd.factories}, upkeep -${bd.upkeep}` : "";
+  $("cProg").style.width = Math.min(100, pop / GOAL_POP * 100) + "%";
+  $("cView").textContent = "view: " + VIEWS[view];
+  const rec = popHist.slice(-6);
+  trend.textContent = rec.length >= 2 ? `growth: ${rec[rec.length - 1] - rec[0] >= 0 ? "+" : ""}${rec[rec.length - 1] - rec[0]} people over the last ${rec.length - 1} months` + (view ? ` · ${view === 1 ? "yellow = powered, dark = no power" : "green happy, amber ok, red unhappy"}` : "") : (view ? (view === 1 ? "yellow = powered, dark = no power" : "green happy, amber ok, red unhappy") : "");
   adv.innerHTML = "";
   for (const a of advise(city).slice(0, 5)) {
     const li = document.createElement("li");
+    li.style.cursor = a.squares ? "pointer" : "default";
+    if (a.squares) { li.title = "hover to highlight on the board"; li.addEventListener("mouseenter", () => { hiAdv = a.squares; }); li.addEventListener("mouseleave", () => { hiAdv = null; }); }
     li.textContent = (a.level === "bad" ? "✖ " : a.level === "warn" ? "▲ " : "✔ ") + a.text;
     li.style.color = a.level === "bad" ? "#e5806f" : a.level === "warn" ? "#e8b04a" : "#8fbf6a";
     adv.append(li);
@@ -84,6 +99,8 @@ $("cTools").addEventListener("click", (e) => {
 
 function refreshHint() {
   pv = hov >= 0 && tool !== "bulldoze" && !city.cells[hov] ? preview(city, tool, hov) : null;
+  const idle = idleBuildings(city)[hov];
+  if (idle && !pv && tool !== "bulldoze") { hint.textContent = "⚠ " + idle; hint.style.color = "#e8b04a"; return; }
   if (pv) { hint.textContent = pv.text; hint.style.color = pv.ok ? "" : "#e5806f"; }
   else if (hov >= 0 && city.cells[hov]) { hint.textContent = tool === "bulldoze" ? "click to bulldoze this." : describe(hov); hint.style.color = ""; }
   else { hint.textContent = "hover a square to preview what a building would do there."; hint.style.color = ""; }
@@ -95,6 +112,8 @@ cv.addEventListener("mousemove", (e) => {
   if (h !== hov) { hov = h; refreshHint(); }
 });
 cv.addEventListener("mouseleave", () => { hov = -1; refreshHint(); });
+
+function totalCapNow() { const inf = analyze(city); return city.cells.reduce((s, b, i) => s + (b && b.type === "pawn" ? houseCap(inf[i], city.tax) : 0), 0); }
 
 function describe(idx) {
   const b = city.cells[idx];
@@ -116,13 +135,16 @@ cv.addEventListener("click", (e) => {
   hov = idx;
   if (tool === "bulldoze") { if (city.cells[idx]) sparkle(idx, "#9a8f80", 8); setMsg(bulldoze(city, idx) ? "cleared." : "nothing there."); sel = -1; ui(); return; }
   if (city.cells[idx]) { sel = sel === idx ? -1 : idx; setMsg(describe(idx)); return; }
+  const capBefore = totalCapNow();
   if (!place(city, tool, idx)) { setMsg(city.terrain[idx] === 1 ? "that's a lake — you can't build there." : city.money < BUILD[tool].cost ? "not enough funds." : "occupied."); return; }
   sel = idx; setMsg(describe(idx)); sparkle(idx, "#fff8e8", 8);
   floatText(idx, "-" + BUILD[tool].cost, "#e5806f");
+  { const d = totalCapNow() - capBefore; if (tool !== "pawn" && d !== 0) floatText(idx, (d > 0 ? "+" : "") + d + " room", d > 0 ? "#8fbf6a" : "#e8b04a"); }
   if (tool === "pawn") { const p = analyze(city)[idx]; floatText(idx, p.power ? "powered ✔" : "no power!", p.power ? "#8fbf6a" : "#e5806f"); }
   else if (tool === "queen") { const n = reach("queen", Math.floor(idx / N), idx % N).filter((j) => city.cells[j[0] * N + j[1]] && city.cells[j[0] * N + j[1]].type === "pawn").length; floatText(idx, n ? `powers ${n}` : "powers 0 homes", n ? "#8fbf6a" : "#e8b04a"); } refreshHint(); ui();
 });
 
+$("cView").addEventListener("click", () => { view = (view + 1) % VIEWS.length; ui(); });
 $("cPause").addEventListener("click", () => { running = !running; ui(); });
 $("cFast").addEventListener("click", () => { fast = !fast; ui(); });
 $("cRestart").addEventListener("click", () => reset());
@@ -148,7 +170,12 @@ function finish() {
 }
 
 function advance() {
+  const before = { pop: totalPop(city), money: city.money };
   const ev = tick(city);
+  popHist.push(totalPop(city));
+  if (!ev.length && city.month % 6 === 0) note(monthReport(before, city));
+  const pn = totalPop(city) - before.pop;
+  if (pn !== 0 && city.cells.some((b) => b && b.type === "pawn")) { const hs = city.cells.findIndex((b) => b && b.type === "pawn" && b.pop > 0); if (hs >= 0 && city.month % 2 === 0) floatText(hs, (pn > 0 ? "+" : "") + pn + " pop", pn > 0 ? "#8fbf6a" : "#e5806f"); }
   if (ev.length) { setMsg(ev.join(" ")); for (const e of ev) note(e); }
   if (city.tierUp) { fx.push({ k: "b", text: "🏙 " + city.tierUp + "!", ttl: 2.2, max: 2.2 }); for (let i = 0; i < 30; i++) sparkle(Math.floor(Math.random() * N * N), "#e8d36a", 4); }
   if (ev.some((e) => e.startsWith("contract done"))) fx.push({ k: "b", text: "contract complete 💰", ttl: 1.6, max: 1.6 });
@@ -167,6 +194,8 @@ function draw() {
     ctx.fillRect(c * S, r * S, S, S);
     if (tr === 2) { ctx.fillStyle = "#3a2a20"; ctx.font = `${S * 0.3}px system-ui`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("◆", c * S + S * 0.8, r * S + S * 0.2); }
   }
+  if (view) { const ov = overlayFor(city, VIEWS[view], inf); for (const k in ov) { ctx.fillStyle = ov[k]; ctx.fillRect((k % N) * S, Math.floor(k / N) * S, S, S); } }
+  if (hiAdv) { const t = performance.now() / 200; ctx.strokeStyle = "#fff8e8"; ctx.lineWidth = 3 + Math.sin(t); for (const i of hiAdv) ctx.strokeRect((i % N) * S + 2, Math.floor(i / N) * S + 2, S - 4, S - 4); }
   if (city.omen) {
     const pulse = 0.25 + 0.2 * Math.sin(performance.now() / 150);
     ctx.fillStyle = `rgba(216,88,74,${pulse})`;
@@ -202,6 +231,8 @@ function draw() {
       }
     }
   });
+  const idleB = idleBuildings(city);
+  for (const k in idleB) { ctx.font = `${S * 0.28}px system-ui`; ctx.fillStyle = "#e8b04a"; ctx.strokeStyle = "#1a1209"; ctx.lineWidth = 3; const x = (k % N) * S + S * 0.8, y = Math.floor(k / N) * S + S * 0.2; ctx.strokeText("⚠", x, y); ctx.fillText("⚠", x, y); }
   if (sel >= 0) { ctx.strokeStyle = "#e8b04a"; ctx.lineWidth = 3; ctx.strokeRect((sel % N) * S + 2, Math.floor(sel / N) * S + 2, S - 4, S - 4); }
   for (const f of fx) {
     ctx.globalAlpha = Math.max(0, Math.min(1, f.ttl / f.max * 2));
