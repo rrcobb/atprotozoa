@@ -170,20 +170,23 @@ export function tick(city, rng = Math.random) {
   const inf = analyze(city);
   const tax = TAX[city.tax ?? 1];
   let income = 0;
+  const bd = { homes: 0, shops: 0, factories: 0, upkeep: 0 };
   city.cells.forEach((b, i) => {
     if (!b) return;
-    income -= BUILD[b.type].upkeep;
+    income -= BUILD[b.type].upkeep; bd.upkeep += BUILD[b.type].upkeep;
     if (b.type === "pawn") {
       const cap = houseCap(inf[i], city.tax ?? 1);
       b.pop = b.pop < cap ? Math.min(cap, b.pop + 3) : Math.max(cap, b.pop - 4);
-      income += 0.12 * b.pop * tax.income;
+      income += 0.12 * b.pop * tax.income; bd.homes += 0.12 * b.pop * tax.income;
     } else if (b.type === "knight" || b.type === "rook") {
       const homes = reach(b.type, Math.floor(i / N), i % N)
         .filter(([r, c]) => city.cells[r * N + c] && city.cells[r * N + c].type === "pawn" && city.cells[r * N + c].pop > 0).length;
-      income += b.type === "knight" ? 5 * homes : 30 + 3 * homes + (city.terrain && city.terrain[i] === 2 ? 40 : 0); // shops sell to homes, factories employ them
+      const earn = b.type === "knight" ? 5 * homes : 30 + 3 * homes + (city.terrain && city.terrain[i] === 2 ? 40 : 0); // shops sell to homes, factories employ them
+      income += earn; bd[b.type === "knight" ? "shops" : "factories"] += earn;
     }
   });
   city.lastIncome = Math.round(income);
+  city.lastBreakdown = { homes: Math.round(bd.homes), shops: Math.round(bd.shops), factories: Math.round(bd.factories), upkeep: bd.upkeep };
   city.money += city.lastIncome;
   // Disasters strike every RAMPAGE_EVERY months; the target is announced a month before.
   if (city.month % RAMPAGE_EVERY === RAMPAGE_EVERY - 1) {
@@ -214,4 +217,79 @@ export function tick(city, rng = Math.random) {
   if (totalPop(city) >= GOAL) city.status = "won";
   else if (city.money < BANKRUPT) city.status = "lost";
   return events;
+}
+
+// --- feedback for the player: what a build would do, and what's going wrong ---
+const totalCap = (city) => { const inf = analyze(city); return city.cells.reduce((s, b, i) => s + (b && b.type === "pawn" ? houseCap(inf[i], city.tax ?? 1) : 0), 0); };
+const inReach = (type, idx) => reach(type, Math.floor(idx / N), idx % N).map(([r, c]) => r * N + c);
+
+// Preview of putting `type` on empty square idx: how many people the city can hold afterwards, and the monthly bill.
+export function preview(city, type, idx) {
+  const def = BUILD[type];
+  if (!def || idx < 0 || city.cells[idx]) return null;
+  if (city.terrain && city.terrain[idx] === 1) return { ok: false, text: "a lake: you can't build here.", reach: [], good: [], bad: [] };
+  const before = totalCap(city);
+  const trial = { ...city, cells: city.cells.slice() };
+  trial.cells[idx] = { type, pop: 0 };
+  const dCap = totalCap(trial) - before;
+  const homes = (t) => inReach(t, idx).filter((j) => city.cells[j] && city.cells[j].type === "pawn");
+  const rr = type === "pawn" || type === "king" ? [] : reach(type, Math.floor(idx / N), idx % N);
+  const good = [], bad = [];
+  let text;
+  if (type === "pawn") {
+    const p = analyze(city)[idx], cap = houseCap(p, city.tax ?? 1);
+    text = cap ? `house here would hold up to ${cap} people (happiness ×${houseScore(p).toFixed(2)}).` : "house here has no power: nobody would move in. build a ♕ on its rank, file or diagonal first.";
+    (cap ? good : bad).push(idx);
+  } else if (type === "queen") {
+    const h = homes("queen"), fresh = h.filter((j) => !analyze(city)[j].power);
+    text = `power plant here reaches ${h.length} house${h.length === 1 ? "" : "s"}, ${fresh.length} newly powered (+${dCap} capacity). costs ${def.upkeep}/month.`;
+    for (const j of h) (fresh.includes(j) ? good : []).push(j);
+  } else if (type === "bishop" || type === "knight") {
+    const h = homes(type), word = type === "bishop" ? "parks" : "shops";
+    text = h.length ? `${def.label} here lifts ${h.length} house${h.length === 1 ? "" : "s"} (${dCap >= 0 ? "+" : ""}${dCap} capacity)${type === "knight" ? ", and sells ~" + 5 * h.length + "/month to them" : ""}. upkeep ${def.upkeep}/month.`
+      : `no houses in reach: this ${def.label} would just cost ${def.upkeep}/month. ${word} need houses on their ${type === "bishop" ? "diagonals" : "knight jumps"}.`;
+    (h.length ? good : bad).push(...h);
+  } else if (type === "rook") {
+    const h = homes("rook"), ore = city.terrain && city.terrain[idx] === 2;
+    text = `factory here pays ~${30 + 3 * h.length + (ore ? 40 : 0)}/month${ore ? " (ore!)" : ""} but crowds ${h.length} house${h.length === 1 ? "" : "s"} on its rank and file (${dCap} capacity).`;
+    bad.push(...h);
+  } else {
+    const around = [idx - 1, idx + 1, idx - N, idx + N, idx - N - 1, idx - N + 1, idx + N - 1, idx + N + 1].filter((j) => j >= 0 && j < N * N && Math.abs((j % N) - (idx % N)) <= 1 && city.cells[j]);
+    text = `fire station here shields ${around.length} neighbouring building${around.length === 1 ? "" : "s"} from rampages. upkeep ${def.upkeep}/month.`;
+    good.push(...around);
+  }
+  const afford = city.money >= def.cost;
+  return { ok: afford, text: afford ? text : `can't afford (${def.cost}). ` + text, reach: rr, good, bad, dCap };
+}
+
+// What's working and what isn't, most urgent first. Each: {level: "bad"|"warn"|"good", text}.
+export function advise(city) {
+  const out = [], inf = analyze(city), tax = city.tax ?? 1;
+  const houses = [];
+  city.cells.forEach((b, i) => { if (b && b.type === "pawn") houses.push(i); });
+  const count = (t) => countType(city, t);
+  const dark = houses.filter((i) => !inf[i].power);
+  const maxed = houses.filter((i) => inf[i].power && city.cells[i].pop >= houseCap(inf[i], tax));
+  const smoggy = houses.filter((i) => inf[i].factories >= 2);
+  const pop = totalPop(city);
+  if (city.status !== "playing") return out;
+  if (city.omen) out.push({ level: "bad", text: `${omenName(city.omen)} next month. fire stations (♔) protect their neighbours; the red squares are the target.` });
+  const projected = city.money + (city.lastIncome || 0) * 3;
+  if (city.money < 0) out.push({ level: "bad", text: `in debt (${city.money}). at ${BANKRUPT} the city folds. bulldoze money-losers or raise taxes.` });
+  else if ((city.lastIncome ?? 0) < 0 && projected < 0) out.push({ level: "bad", text: `losing ${-city.lastIncome}/month and the funds run out within 3 months. cut upkeep or add houses and shops.` });
+  if (!houses.length) out.push({ level: "warn", text: "no houses yet. start with a ♕ power plant, then ♙ houses on its rank, file or diagonal." });
+  else if (!count("queen")) out.push({ level: "bad", text: "no power plant: no house can grow. place a ♕ in line with your houses." });
+  if (dark.length && count("queen")) out.push({ level: "bad", text: `${dark.length} house${dark.length === 1 ? " is" : "s are"} unpowered (shown as "no power"). a ♕ must share a rank, file or diagonal with each.` });
+  if (smoggy.length) out.push({ level: "warn", text: `${smoggy.length} house${smoggy.length === 1 ? " is" : "s are"} choked by 2+ factories. bulldoze one or add parks.` });
+  if (houses.length >= 4 && !count("bishop") && pop >= 80) out.push({ level: "warn", text: "no parks. a ♗ on a house's diagonal raises how many people fit." });
+  if (houses.length >= 4 && !count("knight") && pop >= 80) out.push({ level: "warn", text: "no shops. a ♘ a knight-jump from houses lifts happiness and pays 5 per house." });
+  if (houses.length >= 5 && !count("rook") && (city.lastIncome ?? 0) < 25) out.push({ level: "warn", text: "income is thin. a ♖ factory pays 30+ a month (more on ◆ ore) but crowds nearby houses." });
+  if (count("queen") && houses.length && houses.length < count("queen") * 3) out.push({ level: "warn", text: "power plants cost 12/month each and you have few houses to feed. build more houses in their lines." });
+  if (maxed.length >= 2 && maxed.length === houses.filter((i) => inf[i].power).length) out.push({ level: "warn", text: "every powered house is full. add houses, or parks and shops to raise the cap." });
+  if (!count("king") && city.month >= 10) out.push({ level: "warn", text: "no fire stations. rampages hit every " + RAMPAGE_EVERY + " months and flatten half of what they touch." });
+  if (city.lastLost && city.lastLost.length) out.push({ level: "bad", text: `last rampage flattened ${city.lastLost.length}. rebuild, and put a ♔ near what matters.` });
+  if (city.contract) out.push({ level: "good", text: `contract: ${city.contract.text} by month ${city.contract.due} for +${city.contract.pay}.` });
+  if ((city.lastIncome ?? 0) > 0 && pop > 0) out.push({ level: "good", text: `earning +${city.lastIncome}/month. ${pop >= GOAL * 0.5 ? "over halfway" : GOAL - pop + " people to go"}.` });
+  const order = { bad: 0, warn: 1, good: 2 };
+  return out.sort((a, b) => order[a.level] - order[b.level]);
 }

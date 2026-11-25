@@ -1,4 +1,4 @@
-import { N, GOAL, RAMPAGE_EVERY, BUILD, TAX, reach, newCity, place, bulldoze, tick, totalPop, analyze, houseCap, houseScore, omenSquares, omenName, cityScore } from "./city-logic.js";
+import { N, GOAL, RAMPAGE_EVERY, BUILD, TAX, reach, newCity, place, bulldoze, tick, totalPop, analyze, houseCap, houseScore, omenSquares, omenName, cityScore, preview, advise } from "./city-logic.js";
 
 const $ = (id) => document.getElementById(id);
 const cv = $("cc"), ctx = cv.getContext("2d");
@@ -21,10 +21,19 @@ cv.before(bar);
 const info = document.createElement("p");
 info.id = "cInfo"; info.className = "dim";
 cv.after(info);
+const hint = document.createElement("p");
+hint.id = "cHint"; hint.className = "dim"; hint.style.minHeight = "2.8em";
+cv.before(hint);
+const adv = document.createElement("ul");
+adv.id = "cAdvice"; adv.style.cssText = "list-style:none;padding:0;margin:8px 0;font-size:.9em";
+info.after(adv);
+const money = document.createElement("span");
+money.id = "cIncome"; $("cMoney").after(money);
+let hov = -1, pv = null;
 
 function reset(seed) {
   city = newCity(seed || randSeed()); running = false; acc = 0; sel = -1; flash = null; fx = [];
-  $("cSeed").value = city.seed;
+  $("cSeed").value = city.seed; hov = -1; pv = null;
   $("cShare").hidden = true;
   setMsg("pick a piece, tap a square. houses need a ♕ power plant on their rank, file or diagonal. blue squares are lakes, ◆ is ore.");
   ui();
@@ -41,6 +50,18 @@ function ui() {
   $("cTax").textContent = "tax: " + TAX[city.tax].label;
   $("cBest").textContent = `best score ${getBest()} · score ${cityScore(city)}`;
   const k = city.contract;
+  const bd = city.lastBreakdown;
+  money.textContent = city.lastIncome === undefined ? "" : ` (${city.lastIncome >= 0 ? "+" : ""}${city.lastIncome}/mo)`;
+  money.style.color = (city.lastIncome ?? 0) < 0 ? "#d8584a" : "#8fbf6a";
+  money.title = bd ? `houses +${bd.homes}, shops +${bd.shops}, factories +${bd.factories}, upkeep -${bd.upkeep}` : "";
+  adv.innerHTML = "";
+  for (const a of advise(city).slice(0, 5)) {
+    const li = document.createElement("li");
+    li.textContent = (a.level === "bad" ? "✖ " : a.level === "warn" ? "▲ " : "✔ ") + a.text;
+    li.style.color = a.level === "bad" ? "#e5806f" : a.level === "warn" ? "#e8b04a" : "#8fbf6a";
+    adv.append(li);
+  }
+  if (bd) adv.title = `last month: houses +${bd.homes}, shops +${bd.shops}, factories +${bd.factories}, upkeep -${bd.upkeep}`;
   info.textContent = (k ? `contract: ${k.text} by month ${k.due} for +${k.pay}. ` : "") + (city.omen ? `WARNING: ${omenName(city.omen)} next month.` : "");
   const sig = tool + Object.values(BUILD).map((b) => city.money < b.cost).join();
   if (sig === toolSig) return;
@@ -52,8 +73,22 @@ function ui() {
 
 $("cTools").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-k]"); if (!b) return;
-  tool = b.dataset.k; toolSig = ""; ui();
+  tool = b.dataset.k; toolSig = ""; refreshHint(); ui();
 });
+
+function refreshHint() {
+  pv = hov >= 0 && tool !== "bulldoze" && !city.cells[hov] ? preview(city, tool, hov) : null;
+  if (pv) { hint.textContent = pv.text; hint.style.color = pv.ok ? "" : "#e5806f"; }
+  else if (hov >= 0 && city.cells[hov]) { hint.textContent = tool === "bulldoze" ? "click to bulldoze this." : describe(hov); hint.style.color = ""; }
+  else { hint.textContent = "hover a square to preview what a building would do there."; hint.style.color = ""; }
+}
+cv.addEventListener("mousemove", (e) => {
+  const r = cv.getBoundingClientRect();
+  const c = Math.floor((e.clientX - r.left) / r.width * N), row = Math.floor((e.clientY - r.top) / r.height * N);
+  const h = c >= 0 && c < N && row >= 0 && row < N ? row * N + c : -1;
+  if (h !== hov) { hov = h; refreshHint(); }
+});
+cv.addEventListener("mouseleave", () => { hov = -1; refreshHint(); });
 
 function describe(idx) {
   const b = city.cells[idx];
@@ -71,10 +106,11 @@ cv.addEventListener("click", (e) => {
   const r = cv.getBoundingClientRect();
   const c = Math.floor((e.clientX - r.left) / r.width * N), row = Math.floor((e.clientY - r.top) / r.height * N);
   const idx = row * N + c;
+  hov = idx;
   if (tool === "bulldoze") { if (city.cells[idx]) sparkle(idx, "#9a8f80", 8); setMsg(bulldoze(city, idx) ? "cleared." : "nothing there."); sel = -1; ui(); return; }
   if (city.cells[idx]) { sel = sel === idx ? -1 : idx; setMsg(describe(idx)); return; }
   if (!place(city, tool, idx)) { setMsg(city.terrain[idx] === 1 ? "that's a lake — you can't build there." : city.money < BUILD[tool].cost ? "not enough funds." : "occupied."); return; }
-  sel = idx; setMsg(describe(idx)); sparkle(idx, "#fff8e8", 8); ui();
+  sel = idx; setMsg(describe(idx)); sparkle(idx, "#fff8e8", 8); refreshHint(); ui();
 });
 
 $("cPause").addEventListener("click", () => { running = !running; ui(); });
@@ -104,6 +140,7 @@ function finish() {
 function advance() {
   const ev = tick(city);
   if (ev.length) setMsg(ev.join(" "));
+  refreshHint();
   if (city.lastLost.length) { flash = 1; for (const i of city.lastLost) sparkle(i, "#d8584a", 14); }
   city.cells.forEach((b, i) => { if (b && b.type === "pawn" && b.pop > 0 && city.month % 3 === 0) floatText(i, "+" + Math.round(0.12 * b.pop * TAX[city.tax].income), "#e8d36a"); });
   if (city.status !== "playing") finish();
@@ -123,10 +160,17 @@ function draw() {
     ctx.fillStyle = `rgba(216,88,74,${pulse})`;
     for (const i of omenSquares(city.omen)) ctx.fillRect((i % N) * S, Math.floor(i / N) * S, S, S);
   }
-  const hov = sel >= 0 && city.cells[sel] ? city.cells[sel] : null;
-  if (hov && hov.type !== "pawn") {
+  if (pv) {
+    for (const [r, c] of pv.reach) { ctx.fillStyle = "rgba(232,176,74,.22)"; ctx.fillRect(c * S, r * S, S, S); }
+    for (const i of pv.good) { ctx.strokeStyle = "#8fbf6a"; ctx.lineWidth = 4; ctx.strokeRect((i % N) * S + 3, Math.floor(i / N) * S + 3, S - 6, S - 6); }
+    for (const i of pv.bad) { ctx.strokeStyle = "#d8584a"; ctx.lineWidth = 4; ctx.strokeRect((i % N) * S + 3, Math.floor(i / N) * S + 3, S - 6, S - 6); }
+    ctx.globalAlpha = 0.5; ctx.font = `${S * 0.72}px serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff8e8";
+    ctx.fillText(BUILD[tool].glyph, (hov % N) * S + S / 2, Math.floor(hov / N) * S + S / 2 + 2); ctx.globalAlpha = 1;
+  }
+  const selB = sel >= 0 && city.cells[sel] ? city.cells[sel] : null;
+  if (selB && selB.type !== "pawn") {
     ctx.fillStyle = "rgba(232,176,74,.4)";
-    for (const [r, c] of reach(hov.type, Math.floor(sel / N), sel % N)) ctx.fillRect(c * S, r * S, S, S);
+    for (const [r, c] of reach(selB.type, Math.floor(sel / N), sel % N)) ctx.fillRect(c * S, r * S, S, S);
   }
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   city.cells.forEach((b, i) => {

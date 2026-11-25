@@ -119,3 +119,19 @@ test("contracts pay out once, taxes trade income for room, score rewards speed",
   const fast = { ...c, status: "won", month: 100 }, slow = { ...c, status: "won", month: 300 };
   assert.ok(cityScore(fast) > cityScore(slow));
 });
+
+test("preview and advise give feedback", async () => {
+  const { preview, advise } = await import("../public/city-logic.js");
+  const c = newCity();
+  c.money = 5000;
+  place(c, "pawn", at(0, 0));
+  assert.match(preview(c, "pawn", at(1, 1)).text, /no power/);
+  assert.ok(advise(c).some((a) => a.level === "bad" && /no power plant/.test(a.text)));
+  const p = preview(c, "queen", at(0, 5));
+  assert.equal(p.good.length, 1);
+  assert.ok(p.dCap > 0);
+  place(c, "queen", at(0, 5));
+  tick(c, () => 0.99);
+  assert.ok(c.lastBreakdown && c.lastBreakdown.upkeep === 12);
+  assert.equal(preview(c, "pawn", at(0, 0)), null);
+});
