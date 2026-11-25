@@ -75,7 +75,41 @@
   .person .hearts { color:#e0607e; letter-spacing:1px; }
   .person small { color:var(--dim); }
   #hLog.end { color:var(--fg); font-weight:600; }
+  .bbox { background:#1c1612; border:1px solid #6b4f8a; border-radius:8px; padding:10px; margin:8px 0; text-align:center; cursor:pointer; }
+  .bbox .tbl { font-size:34px; letter-spacing:4px; min-height:42px; }
+  .bbox .tally { font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .bbox .tally .c { color:#6fb3ff; } .bbox .tally .m { color:#ff7a6b; }
+  .bbox .lbl { color:var(--dim); min-height:1.3em; }
+  .bbox .tot { font-size:22px; color:var(--accent); font-weight:700; }
+  .bbox .pop { animation:bpop .25s; }
+  @keyframes bpop { 0% { transform:scale(1.5); } 100% { transform:scale(1); } }
+  .joker .jb { margin-top:4px; display:flex; gap:4px; }
+  .joker .jb button { background:#33281b; color:var(--fg); border:1px solid #3a302a; border-radius:4px; font:inherit; font-size:12px; cursor:pointer; padding:1px 6px; }
+  button.joker.item { border-color:#3f8a6b; cursor:pointer; }
+  button.joker.item.on { background:#1d3a2e; }
+  #bRef { margin:8px 0; } #bSeed { background:#241e1a; color:var(--fg); border:1px solid #3a302a; border-radius:6px; padding:5px 8px; font:inherit; }
+  #iMeta details { margin:8px 0; } #iMeta summary { cursor:pointer; }
+  #iMeta button, #iYes, #iNo { background:#241e1a; color:var(--fg); border:1px solid #3a302a; border-radius:6px; padding:5px 9px; font:inherit; cursor:pointer; }
+  #iMeta button:disabled { opacity:.4; cursor:default; }
+  #iMeta .go { background:var(--accent); color:#1a1209; border-color:var(--accent); font-weight:600; }
+  #iMeta .ach { color:var(--dim); } #iMeta .ach.on { color:var(--fg); }
+  #iOffer { background:#241e1a; border:1px solid var(--accent); border-radius:6px; padding:8px 10px; }
+  .line .buy .fm { font-size:12px; }
+  .camp { display:grid; gap:8px; margin:8px 0; }
+  .camp .unit, .camp .offer { background:#1c1612; border:1px solid #3a302a; border-radius:6px; padding:8px 10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .camp .unit.dead { opacity:.6; border-style:dashed; }
+  .camp .gl { font-size:30px; width:36px; text-align:center; }
+  .camp .grow { flex:1; min-width:160px; }
+  .camp button { background:#241e1a; color:var(--fg); border:1px solid #3a302a; border-radius:6px; padding:5px 9px; font:inherit; cursor:pointer; }
+  .camp button:disabled { opacity:.4; cursor:default; }
+  .camp button.go { background:var(--accent); color:#1a1209; border-color:var(--accent); font-weight:600; }
+  #tDanger.sel, #tAbility.sel { border-color:var(--accent); color:var(--accent); }
   [hidden] { display:none !important; }
+  .fcard { flex:1 1 200px; text-align:left; line-height:1.35; }
+  .fcard small { color:var(--dim); }
+  .shop button small { color:var(--dim); }
+  @keyframes flashbad { 0% { box-shadow:0 0 0 0 rgba(216,88,74,.9); } 100% { box-shadow:0 0 0 14px rgba(216,88,74,0); } }
+  canvas.flash { animation:flashbad .45s ease-out; }
 </style>
 </head>
 <body>
@@ -143,9 +177,13 @@
       <span>score <b id="bScore">0</b>/<b id="bTarget">0</b></span>
       <span>hands <b id="bHands">4</b></span>
       <span>discards <b id="bDiscards">3</b></span>
+      <span>$<b id="bMoney">4</b></span>
+      <span>deck <b id="bDeck">32</b></span>
     </div>
     <p class="boss" id="bBoss"></p>
     <div class="jokers" id="bJokers"></div>
+    <div class="jokers" id="bItems"></div>
+    <div class="bbox" id="bScoreBox" hidden></div>
     <div class="hand" id="bHand"></div>
     <div class="ctl" id="bActions">
       <button id="bPlay" class="go" disabled>play hand</button>
@@ -155,11 +193,12 @@
     <div id="bPick" hidden>
       <p id="bPickTitle"></p>
       <div class="jokers" id="bChoices"></div>
-      <div class="ctl"><button id="bSkip">skip</button></div>
+      <div class="ctl"><button id="bReroll">reroll jokers</button> <button id="bSkip" class="go">next blind</button></div>
     </div>
-    <div class="ctl"><button id="bRestart">new run</button></div>
+    <details id="bRef"><summary>hand values and levels</summary><div id="bRefBody" class="dim"></div></details>
+    <div class="ctl"><input id="bSeed" placeholder="seed (optional)" size="14" maxlength="24" aria-label="run seed"> <button id="bDaily">daily seed</button> <button id="bRestart">new run</button></div>
     <p id="bMsg"></p>
-    <p class="dim">pairs, trips, a full house, five of a kind (pawns), a flush (5 same color), or a back rank (knight, bishop, rook, queen, king). beat the blinds, pick jokers, survive five antes.</p>
+    <p class="dim">play up to 5 pieces: pairs, trips, a full house, five pawns, a flush (5 of one colour) or a back rank (knight, bishop, rook, queen, king). beat each blind to earn money (plus interest), then shop: jokers fire left to right, so order them. level up hand types, promote, recruit, purge or flip pieces in your deck. eight antes, then endless. the same seed gives the same run.</p>
     <p id="bShare" hidden><a id="bShareLink" target="_blank" rel="noopener">post this result to bluesky →</a></p>
   </section>
   <section id="tactics" hidden>
@@ -168,17 +207,23 @@
       <span>battle <b id="tStage"></b></span>
       <span>party <b id="tParty"></b></span>
       <span>foes <b id="tFoes">0</b></span>
+      <span>gold <b id="tGold">0</b></span>
     </div>
+    <p id="tObj" class="dim"></p>
+    <div id="tCamp" hidden></div>
     <canvas id="tc" width="640" height="640"></canvas>
     <p class="dim" id="tInfo"></p>
-    <div class="ctl">
+    <div class="ctl" id="tCtl">
+      <button id="tAbility" disabled>ability</button>
       <button id="tWait" disabled>wait (end this unit)</button>
+      <button id="tDanger">danger zones</button>
       <button id="tEnd" class="go">end turn</button>
-      <button id="tNext" class="go" hidden>next battle</button>
-      <button id="tRestart">restart</button>
+      <button id="tNext" class="go" hidden>to camp</button>
+      <button id="tRetry" hidden>retry battle</button>
+      <button id="tRestart">new campaign</button>
     </div>
     <p id="tLog" style="white-space:pre-line;min-height:5em"></p>
-    <p class="dim">each unit gets one walk (its chess move) and then one strike on anything it could attack from where it stands. lose your king and it's over. there are two battles: a pawn militia, then the dragon.</p>
+    <p class="dim">each unit gets one walk (its chess move), then one action: a strike on anything it could capture, or its special ability. pawns march forward and become queens on the last rank. walls block lines, cover (♣) softens hits, lava burns, chapels (✚) heal. lose your king and the battle is lost; fallen pieces stay down until you pay to revive them at camp. seven battles, ending with the chess dragon.</p>
     <p id="tShare" hidden><a id="tShareLink" target="_blank" rel="noopener">post this result to bluesky →</a></p>
   </section>
   <section id="stealth" hidden>
@@ -194,7 +239,7 @@
       <button id="sRestart">restart floor</button>
     </div>
     <p id="sLog" style="white-space:pre-line;min-height:4em"></p>
-    <p class="dim">you are the ♔. tap a blue square to step one square. red squares will be watched after the guards' next step (ghosts show where they go). a guard sees whatever it could capture, blocked by walls and other guards. stand on a ▣ crate and nobody sees you. get spotted and they hunt you with real chess moves until you stay unseen for three turns.</p>
+    <p class="dim">you are the ♔ in an endless descent. tap a blue square to step one square. red squares will be watched after the guards' next step (ghosts show where they go). a guard sees whatever it could capture, blocked by walls and other guards; sentries never move. hide on a ▣ crate, grab the ◆ keycard when the exit is locked, and use gadgets: 🪙 coins make a guard stare at the noise, 💉 darts put the first guard on a line to sleep, 📦 the box hides you for a turn. get spotted and they hunt you with real chess moves until you stay unseen for three turns. floors are ranked against par; clean runs earn gadgets, and a caught run costs a continue.</p>
     <p id="sShare" hidden><a id="sShareLink" target="_blank" rel="noopener">post this result to bluesky →</a></p>
   </section>
   <section id="grand" hidden>
@@ -210,7 +255,7 @@
       <button id="gRestart">new game</button>
     </div>
     <p id="gLog" style="white-space:pre-line;min-height:4em"></p>
-    <p class="dim">you start on foot. step onto a parked piece to carjack it and move like it. grab the $ jobs. flattening pedestrians pays $20 but every crime adds a wanted star, and the cops chase with real chess moves (rookie ♟, then ♞ ♝ ♜ ♛). the SPRAY garage clears your stars. reach $1000.</p>
+    <p class="dim">you start on foot in a city that is different every game. step onto a parked piece to carjack it and move like it. step onto a glowing marker to take a job: 🚕 taxi fares, 🏁 street races, ☠ contracts on a runner, and 🏦 heists you have to bank at a safehouse. the river has two bridges, but knights jump it. lie low on a property for sale to buy it: 🏠 safehouses pay rent, 🔧 the garage swaps your ride, 🛡 the body shop plates it. crimes add wanted stars; cops chase with real chess moves (♟ ♞ ♝ ♜ ♛) and throw up 🚧 roadblocks. the SPRAY shop clears your stars. you have three lives; reach $2000 to retire.</p>
     <p id="gShare" hidden><a id="gShareLink" target="_blank" rel="noopener">post this result to bluesky →</a></p>
   </section>
   <section id="idle" hidden>
@@ -219,6 +264,8 @@
       <span><b id="iGps">0</b>/s</span>
       <span>🐉 <b id="iDragon">0</b>/s</span>
       <span>guild <b id="iGuildMult">×1.00</b></span>
+      <span>♚ crowns <b id="iCrowns">0</b></span>
+      <span id="iBuffWrap" hidden>⚡ <b id="iBuff"></b></span>
     </div>
     <canvas id="iFloor" width="640" height="210" style="aspect-ratio:640/210"></canvas>
     <div class="ctl" style="margin:10px 0">
@@ -229,10 +276,12 @@
     <p id="iCrow" hidden>
       <span id="iCrowTxt"></span> <button id="iScare">scarecrow</button>
     </p>
+    <p id="iOffer" hidden><span id="iOfferTxt"></span> <button id="iYes">yes</button> <button id="iNo">no</button></p>
     <div id="iLines"></div>
+    <div id="iMeta"></div>
     <p id="iGoal" class="dim"></p>
     <p id="iMsg" class="dim"></p>
-    <p class="dim">stamp pawns by hand, then buy machines that make them for you. every piece you finish sells automatically; spend the gold on faster machines and on the next kind of piece, all the way up to the chess dragon. your factory keeps running while you're away.</p>
+    <p class="dim">stamp pawns by hand, then buy machines that make them for you. every piece you finish sells automatically; spend the gold on faster machines and on the next kind of piece, all the way up to the chess dragon. each line gets 1% faster per machine in the line above it, so building ahead pays. hire foremen to buy machines for you, tap golden pieces for frenzies, weigh the offers that wander in, and ascend to trade a whole factory for crowns, decrees and a permanent bonus. your factory keeps running while you're away.</p>
     <div class="ctl"><button id="iMode">long corvid hard mode</button> <button id="iReset">scrap the factory</button></div>
     <p class="dim">long corvid: a flock raids the vault every 40 seconds, machines get dearer faster, and the dragon target is 5000 a second. scarecrows cut the theft. it keeps its own save.</p>
     <p id="iShare" hidden><a id="iShareLink" target="_blank" rel="noopener">post this result to bluesky →</a></p>
@@ -250,7 +299,7 @@
       <button id="fRestart">new flight</button>
     </div>
     <p id="fLog" style="white-space:pre-line;min-height:4em"></p>
-    <p class="dim">tap a lit square to fly there with your aircraft's chess move; the number is the fuel it burns. mountains block sliders (the helicopter hops them). ⛈ storms drift each turn, the pale squares show where they'll be next, and ending a turn in one costs hull and fuel. ⛽ pads refill the tank. land on the green airport.</p>
+    <p class="dim">you are a charter pilot. pick a contract (passengers, freight, express mail, medical) and an aircraft, then tap a lit square to fly there with its chess move; the number is the fuel it burns. mountains block sliders (the helicopter hops them). ⛈ storms drift each turn, pale squares show where they will be next, and ending a turn in one costs hull and fuel; fog hides them and a gale moves them twice as fast. airports refuel you for $3 a unit and shelter you from storms, and are the only cure for a mayday. deliver every stop, spend the pay on upgrades and bigger aircraft, and retire with $3000. quick hop is the corner-to-corner flight with free fuel.</p>
     <p id="fShare" hidden><a id="fShareLink" target="_blank" rel="noopener">post this result to bluesky →</a></p>
   </section>
   <section id="rhythm" hidden>
@@ -264,24 +313,24 @@
       <button id="rStart" class="go">start the game</button>
     </div>
     <p id="rLog" style="white-space:pre-line;min-height:3em"></p>
-    <p class="dim">every move of Morphy's Opera Game falls down the board as a note, in the lane of the piece that moved: ♟ pawns (D), ♞♝ minor pieces (F), ♜ rooks and castling (J), ♛♚ royals (K). arrow keys work too, and you can tap the lanes. captures are chords with the neighbouring lane. hit each note as it crosses the line, keep the combo alive, and finish with checkmate on beat 33.</p>
+    <p class="dim">every move of a real game falls down the board as a note, in the lane of the piece that moved: ♟ pawns (D), ♞♝ minor pieces (F), ♜ rooks and castling (J), ♛♚ royals (K). arrow keys work too, and you can tap the lanes. captures are chords with the neighbouring lane, checks are hold notes (keep the key down to the end of the tail), and checkmate is a four-lane finale. pick a famous game and a difficulty, chase combo multipliers, and keep your composure bar up or you resign. calibrate latency if the beat feels off, or paste any game (or roll a random legal one) in freeplay.</p>
     <p id="rShare" hidden><a id="rShareLink" target="_blank" rel="noopener">post this result to bluesky →</a></p>
   </section>
   <section id="bullet" hidden>
     <div class="hud">
-      <span>lives <b id="bLives">♔♔♔</b></span>
-      <span>castles <b id="bBombs">2</b></span>
-      <span>score <b id="bScore">0</b></span>
-      <span>grazes <b id="bGraze">0</b></span>
+      <span>lives <b id="uLives">♔♔♔</b></span>
+      <span>castles <b id="uBombs">2</b></span>
+      <span>score <b id="uScore">0</b></span>
+      <span>grazes <b id="uGraze">0</b></span>
     </div>
-    <canvas id="bc" width="480" height="640" style="max-width:480px;aspect-ratio:3/4"></canvas>
+    <canvas id="uc" width="480" height="640" style="max-width:480px;aspect-ratio:3/4"></canvas>
     <div class="ctl" style="margin-top:10px">
-      <button id="bStart" class="go">start the game</button>
-      <button id="bBomb">castle (clear bullets)</button>
+      <button id="uStart" class="go">start the game</button>
+      <button id="uBomb">castle (clear bullets)</button>
     </div>
-    <p id="bLog" style="white-space:pre-line;min-height:2em"></p>
-    <p class="dim">you are a lone king; only the blue dot in his chest can be hit. he fires on his own. move with arrow keys or WASD (hold shift to slow down), or drag on the board. space or X castles, wiping the screen of bullets. pawns aim, knights hop and fan out, bishops fire diagonals, rooks rain straight lines, and the giant queen waits at the end. squeaking past bullets scores grazes.</p>
-    <p id="bShare" hidden><a id="bShareLink" target="_blank" rel="noopener">post this result to bluesky →</a></p>
+    <p id="uLog" style="white-space:pre-line;min-height:2em"></p>
+    <p class="dim">you are a lone king; only the blue dot in his chest can be hit. he fires on his own. move with arrow keys or WASD (hold shift to slow down and focus your fire), or drag on the board. space or X castles: it wipes the screen of bullets, and pressing it in the instant after a hit saves the life. pawns aim, knights hop and fan out, bishops fire diagonals, rooks rain straight lines. grazing bullets builds a score multiplier. grab ♟ power-ups for more bolts, ♖ for spare castles, ◆ gems for points. three stages, each with a mid-boss and a boss whose named spell cards (Back-Rank Rain, Skewer, Zugzwang...) end after a time limit or when you break them; beat one without a hit or castle for a spell bonus.</p>
+    <p id="uShare" hidden><a id="uShareLink" target="_blank" rel="noopener">post this result to bluesky →</a></p>
   </section>
   <section id="dating" hidden>
     <div class="hud">
@@ -298,11 +347,12 @@
     </div>
     <p id="hLog" style="min-height:3em"></p>
     <div class="ctl"><button id="hRestart">new game</button></div>
-    <p class="dim">you are a pawn with ten days. each day, pick one piece and one way to approach them (named for how a piece moves). each loves exactly one approach, likes another, and is put off by something else; the emoji beside a name remember what you tried. everyone you ignore cools off a little. on the last night, confess to someone, or walk away.</p>
+    <p class="dim">you are a pawn with ten days and six of ten pieces to meet. each day, choose one piece, one of three places on offer, an optional gift, and a way to approach them (named for how a piece moves): each loves one approach, likes another, and is put off by something else, and has favourite and hated places and one perfect gift. the emoji beside a name remember what you tried. or skip the date to work a shift for coins, or practise charm. everyone you ignore cools off. random events interrupt, and anyone who trusts you will test you with a scene. on the last night, confess to one person, to everyone (risky), or walk away. there are 26 endings; the list at the bottom remembers the ones you found.</p>
     <p id="hShare" hidden><a id="hShareLink" target="_blank" rel="noopener">post this result to bluesky →</a></p>
   </section>
   <footer>
     <a href="https://rateyourbuild.bisks.net/site/chessgenres">rate this on rateyourbuild →</a>
+    · <a href="https://nanofomo.bisks.net/">November is #NaNoFoMo: pledge not to foom →</a>
     <script src="lib/visits.js" data-site="chessgenres" data-into="footer"></script>
   </footer>
 </main>

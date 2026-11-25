@@ -77,3 +77,65 @@ test("hiding in a crate beats the rook", () => {
   assert.equal(s.alert, 0);
   assert.equal(dangerNext(s).has("1,4"), true); // the square is watched, but the crate hides you
 });
+
+import { genSpec, newRun, floorLevel, completeFloor, failFloor, throwCoin, shoot, useBox, rankOf, SET_PIECES } from "../public/stealth-logic.js";
+
+test("generated floors are legal and provably clearable for many seeds", () => {
+  for (let seed = 1; seed <= 12; seed++) for (let floor = 1; floor < 14; floor++) {
+    if (SET_PIECES[floor] !== undefined) continue;
+    const run = newRun(seed); run.floor = floor;
+    const s = floorLevel(run);
+    assert.ok(s.par !== null && s.par >= 7, `seed ${seed} floor ${floor} solvable`);
+    const walls = new Set(s.walls.map((w) => w.x + "," + w.y));
+    for (const g of s.guards) g.route.forEach((p, j) => {
+      assert.ok(!walls.has(p + ""));
+      if (j) assert.ok(legalStep(g.t, g.route[j - 1], p), `seed ${seed} floor ${floor} ${g.name}`);
+    });
+  }
+});
+
+test("same seed, same floor", () => {
+  assert.deepEqual(genSpec(3, 77), genSpec(3, 77));
+  assert.notDeepEqual(genSpec(3, 77), genSpec(3, 78));
+});
+
+test("a locked exit needs the keycard", () => {
+  const s = newLevel(0);
+  s.guards = []; s.king = { x: 6, y: 0 }; s.keycard = { x: 5, y: 0 };
+  moveKing(s, 7, 0);
+  assert.equal(s.status, "playing");
+  moveKing(s, 6, 0); moveKing(s, 5, 0);
+  assert.ok(s.hasKey);
+  moveKing(s, 6, 0); moveKing(s, 7, 0);
+  assert.equal(s.status, "won");
+});
+
+test("darts, coins and the box", () => {
+  const s = newLevel(0);
+  s.king = { x: 0, y: 1 };
+  s.guards = [{ ...s.guards[0], x: 3, y: 1, i: 0, route: [[3, 1], [4, 1]] }];
+  assert.ok(shoot(s, 3, 1));
+  assert.ok(s.guards[0].asleep > 0);
+  assert.equal(visionOf(s, s.guards[0]).size, 0);
+  assert.equal(shoot(s, 3, 1), false); // already asleep
+  const t = newLevel(0);
+  t.king = { x: 4, y: 4 };
+  assert.ok(throwCoin(t, 5, 4));
+  assert.ok(t.guards.some((x) => x.freeze > 0));
+  const u = newLevel(0);
+  u.king = { x: 2, y: 2 }; u.guards[0].i = 1; u.guards[0].x = 1; u.guards[0].y = 1;
+  assert.ok(useBox(u));
+  assert.equal(u.alert, 0);
+  assert.equal(u.gear.box, 0);
+});
+
+test("runs rank floors, bank gear, and end when continues run out", () => {
+  const run = newRun(3);
+  const s = floorLevel(run);
+  s.status = "won"; s.seen = 0; s.turn = s.par;
+  assert.equal(rankOf(s), "S");
+  const r = completeFloor(run, s);
+  assert.ok(r.points > 300 && run.floor === 1 && run.gear.coin > 3);
+  for (let i = 0; i < 3; i++) assert.equal(failFloor(run), "retry");
+  assert.equal(failFloor(run), "over");
+});

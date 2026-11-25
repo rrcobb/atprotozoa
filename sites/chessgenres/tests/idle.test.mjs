@@ -83,3 +83,50 @@ test("long corvid: crows raid on a timer and scarecrows blunt them", async () =>
   assert.ok(m.machineCost("pawn", 10, true) > m.machineCost("pawn", 10));
   const h = m.load(m.save(g)); assert.equal(h.hard, true); assert.equal(h.scare, 1);
 });
+
+test("synergy, foremen and frenzy change production", async () => {
+  const m = await import("../public/idle-logic.js");
+  const g = m.newGame(); g.owned.pawn = 10;
+  const base = m.lineRate(g, "pawn");
+  g.owned.knight = 10;
+  assert.ok(m.lineRate(g, "pawn") > base);
+  g.gold = 1e9; g.owned.pawn = 5;
+  assert.ok(m.hireForeman(g, "pawn")); assert.ok(!m.hireForeman(g, "pawn"));
+  const before = g.owned.pawn; assert.ok(m.automate(g) > 0); assert.ok(g.owned.pawn > before);
+  assert.equal(m.toggleForeman(g, "pawn"), false); assert.equal(m.automate(g), 0);
+  const f = m.newGame(); f.owned.pawn = 10; const gps = m.goldPerSec(f);
+  m.claimGolden(f, "knight");
+  assert.equal(f.frenzy, 20); assert.equal(m.liveGps(f), gps * m.FRENZY_MULT);
+  m.tick(f, 100); assert.equal(f.frenzy, 0);
+  assert.ok(f.total < gps * 100 * m.FRENZY_MULT && f.total > gps * 100);
+  for (let i = 0; i < 10; i++) m.claimGolden(f, "knight"); assert.equal(f.frenzy, m.MAX_FRENZY);
+});
+test("ascending keeps crowns, decrees and achievements, resets the factory", async () => {
+  const m = await import("../public/idle-logic.js");
+  const g = m.newGame(); g.total = 4e12; g.gold = 5; g.owned.rook = 9; g.clicks = 400;
+  assert.ok(m.checkAchievements(g).length > 0);
+  const gain = m.ascend(g);
+  assert.equal(gain, m.crownsFor(4e12)); assert.ok(gain >= 5);
+  assert.equal(g.owned.rook, 0); assert.equal(g.total, 0); assert.equal(g.crowns, gain); assert.equal(g.prestiges, 1);
+  assert.ok(g.ach.click300);
+  assert.equal(m.ascend(g), null);
+  assert.ok(m.goldMult(g) > 1 + m.CROWN_BONUS * gain - 1e-9);
+  assert.ok(m.buyDecree(g, "start")); assert.equal(g.decree.start, 1);
+  g.total = 4e12; assert.ok(m.ascend(g)); assert.equal(g.owned.pawn, 10);
+  const h = m.load(m.save(g)); assert.equal(h.crowns, g.crowns); assert.equal(h.decree.start, 1); assert.ok(h.ach.click300);
+  const t = m.newGame(); t.decree.thrift = 3; assert.ok(m.costOf(t, "pawn") === 15); t.owned.pawn = 50; assert.ok(m.costOf(t, "pawn") < m.machineCost("pawn", 50));
+});
+test("offers resolve and a second run is faster with crowns", async () => {
+  const m = await import("../public/idle-logic.js");
+  const g = m.newGame(); g.gold = 1000; g.owned.pawn = 10;
+  const kinds = new Set(); for (let i = 0; i < 50; i++) kinds.add(m.pickOffer(g));
+  assert.ok(kinds.has("merchant") && kinds.has("gambit") && kinds.has("inspector"));
+  g.gold = 1000; m.resolveOffer(g, "inspector", true); assert.equal(g.gold, 900);
+  m.resolveOffer(g, "inspector", false); assert.equal(g.slow, 30);
+  g.gold = 100; m.resolveOffer(g, "gambit", true, () => 0.1); assert.equal(g.gold, 120);
+  m.resolveOffer(g, "gambit", true, () => 0.9); assert.equal(g.gold, 120 - 24);
+  const g2 = m.newGame(); g2.gold = 100; g2.owned.pawn = 5; m.resolveOffer(g2, "merchant", true); assert.ok(g2.gold > 100);
+  const a = m.fastForward(m.newGame(true), 3600); assert.ok(a >= 89);
+  const c = m.newGame(); c.crowns = 50; c.owned.pawn = 10; const d = m.newGame(); d.owned.pawn = 10;
+  assert.ok(m.goldPerSec(c) > m.goldPerSec(d) * 3);
+});
