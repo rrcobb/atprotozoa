@@ -1,4 +1,4 @@
-import { N, GOAL, RAMPAGE_EVERY, BUILD, TAX, reach, newCity, place, bulldoze, tick, totalPop, analyze, houseCap, houseScore, omenSquares, omenName, cityScore, preview, advise } from "./city-logic.js";
+import { N, GOAL, RAMPAGE_EVERY, BUILD, TAX, reach, newCity, place, bulldoze, tick, totalPop, analyze, houseCap, houseScore, omenSquares, omenName, cityScore, preview, advise, houseMood, TIERS } from "./city-logic.js";
 
 const $ = (id) => document.getElementById(id);
 const cv = $("cc"), ctx = cv.getContext("2d");
@@ -29,10 +29,16 @@ adv.id = "cAdvice"; adv.style.cssText = "list-style:none;padding:0;margin:8px 0;
 info.after(adv);
 const money = document.createElement("span");
 money.id = "cIncome"; $("cMoney").after(money);
-let hov = -1, pv = null;
+const log = document.createElement("ul");
+log.id = "cLog"; log.style.cssText = "list-style:none;padding:0;margin:8px 0;font-size:.82em;opacity:.8";
+adv.after(log);
+let hov = -1, pv = null, history = [];
+const tierName = () => TIERS[city.tier || 0].name;
+function note(t) { history.unshift(`month ${city.month}: ${t}`); history.length = Math.min(history.length, 6); renderLog(); }
+function renderLog() { log.innerHTML = ""; for (const t of history) { const li = document.createElement("li"); li.textContent = t; log.append(li); } }
 
 function reset(seed) {
-  city = newCity(seed || randSeed()); running = false; acc = 0; sel = -1; flash = null; fx = [];
+  city = newCity(seed || randSeed()); history = []; renderLog(); running = false; acc = 0; sel = -1; flash = null; fx = [];
   $("cSeed").value = city.seed; hov = -1; pv = null;
   $("cShare").hidden = true;
   setMsg("pick a piece, tap a square. houses need a ♕ power plant on their rank, file or diagonal. blue squares are lakes, ◆ is ore.");
@@ -62,7 +68,7 @@ function ui() {
     adv.append(li);
   }
   if (bd) adv.title = `last month: houses +${bd.homes}, shops +${bd.shops}, factories +${bd.factories}, upkeep -${bd.upkeep}`;
-  info.textContent = (k ? `contract: ${k.text} by month ${k.due} for +${k.pay}. ` : "") + (city.omen ? `WARNING: ${omenName(city.omen)} next month.` : "");
+  info.textContent = `${tierName()} · ` + (k ? `contract: ${k.text} by month ${k.due} for +${k.pay}. ` : "") + (city.omen ? `WARNING: ${omenName(city.omen)} next month.` : "");
   const sig = tool + Object.values(BUILD).map((b) => city.money < b.cost).join();
   if (sig === toolSig) return;
   toolSig = sig;
@@ -98,7 +104,8 @@ function describe(idx) {
   if (b.type === "rook" && city.terrain[idx] === 2) return "factory on ore: +40 funds a month, plus its usual output.";
   if (b.type !== "pawn") return `${def.label}: affects ${reach(b.type, Math.floor(idx / N), idx % N).length} squares.`;
   if (!i.power) return "house: no power — nobody moves in. put a ♕ on its rank, file or diagonal.";
-  return `house: ${b.pop}/${houseCap(i, city.tax)} people${i.lake ? " (lakeside +)" : ""}. parks ${i.parks}, shops ${i.shops}, factories ${i.factories} (happiness ×${houseScore(i).toFixed(2)}).`;
+  const m = houseMood(city, i, idx);
+  return `house ${m.face} ${b.pop}/${houseCap(i, city.tax)} people${i.lake ? " (lakeside +)" : ""}. parks ${i.parks}, shops ${i.shops}, factories ${i.factories} (happiness ×${houseScore(i).toFixed(2)}). ${m.why}`;
 }
 
 cv.addEventListener("click", (e) => {
@@ -110,7 +117,10 @@ cv.addEventListener("click", (e) => {
   if (tool === "bulldoze") { if (city.cells[idx]) sparkle(idx, "#9a8f80", 8); setMsg(bulldoze(city, idx) ? "cleared." : "nothing there."); sel = -1; ui(); return; }
   if (city.cells[idx]) { sel = sel === idx ? -1 : idx; setMsg(describe(idx)); return; }
   if (!place(city, tool, idx)) { setMsg(city.terrain[idx] === 1 ? "that's a lake — you can't build there." : city.money < BUILD[tool].cost ? "not enough funds." : "occupied."); return; }
-  sel = idx; setMsg(describe(idx)); sparkle(idx, "#fff8e8", 8); refreshHint(); ui();
+  sel = idx; setMsg(describe(idx)); sparkle(idx, "#fff8e8", 8);
+  floatText(idx, "-" + BUILD[tool].cost, "#e5806f");
+  if (tool === "pawn") { const p = analyze(city)[idx]; floatText(idx, p.power ? "powered ✔" : "no power!", p.power ? "#8fbf6a" : "#e5806f"); }
+  else if (tool === "queen") { const n = reach("queen", Math.floor(idx / N), idx % N).filter((j) => city.cells[j[0] * N + j[1]] && city.cells[j[0] * N + j[1]].type === "pawn").length; floatText(idx, n ? `powers ${n}` : "powers 0 homes", n ? "#8fbf6a" : "#e8b04a"); } refreshHint(); ui();
 });
 
 $("cPause").addEventListener("click", () => { running = !running; ui(); });
@@ -139,7 +149,9 @@ function finish() {
 
 function advance() {
   const ev = tick(city);
-  if (ev.length) setMsg(ev.join(" "));
+  if (ev.length) { setMsg(ev.join(" ")); for (const e of ev) note(e); }
+  if (city.tierUp) { fx.push({ k: "b", text: "🏙 " + city.tierUp + "!", ttl: 2.2, max: 2.2 }); for (let i = 0; i < 30; i++) sparkle(Math.floor(Math.random() * N * N), "#e8d36a", 4); }
+  if (ev.some((e) => e.startsWith("contract done"))) fx.push({ k: "b", text: "contract complete 💰", ttl: 1.6, max: 1.6 });
   refreshHint();
   if (city.lastLost.length) { flash = 1; for (const i of city.lastLost) sparkle(i, "#d8584a", 14); }
   city.cells.forEach((b, i) => { if (b && b.type === "pawn" && b.pop > 0 && city.month % 3 === 0) floatText(i, "+" + Math.round(0.12 * b.pop * TAX[city.tax].income), "#e8d36a"); });
@@ -182,12 +194,19 @@ function draw() {
     if (b.type === "pawn") {
       ctx.font = `${S * 0.2}px system-ui`; ctx.fillStyle = inf[i].power ? "#1a1209" : "#d8584a";
       ctx.fillText(inf[i].power ? b.pop : "no power", x, y + S * 0.38);
+      if (inf[i].power) {
+        const cap = houseCap(inf[i], city.tax), w = S - 10, fill = Math.min(1, b.pop / Math.max(1, cap));
+        ctx.fillStyle = "rgba(26,18,9,.45)"; ctx.fillRect((i % N) * S + 5, (Math.floor(i / N) + 1) * S - 5, w, 3);
+        ctx.fillStyle = fill >= 1 ? "#e8b04a" : "#8fbf6a"; ctx.fillRect((i % N) * S + 5, (Math.floor(i / N) + 1) * S - 5, w * fill, 3);
+        ctx.font = `${S * 0.24}px system-ui`; ctx.fillText(houseMood(city, inf[i], i).face, (i % N) * S + S * 0.2, Math.floor(i / N) * S + S * 0.2);
+      }
     }
   });
   if (sel >= 0) { ctx.strokeStyle = "#e8b04a"; ctx.lineWidth = 3; ctx.strokeRect((sel % N) * S + 2, Math.floor(sel / N) * S + 2, S - 4, S - 4); }
   for (const f of fx) {
-    ctx.globalAlpha = Math.max(0, f.ttl / f.max);
-    if (f.k === "p") { ctx.fillStyle = f.color; ctx.fillRect(f.x - 2, f.y - 2, 4, 4); }
+    ctx.globalAlpha = Math.max(0, Math.min(1, f.ttl / f.max * 2));
+    if (f.k === "b") { ctx.font = `bold ${S * 0.8}px system-ui`; ctx.textAlign = "center"; ctx.fillStyle = "#fff8e8"; ctx.strokeStyle = "#1a1209"; ctx.lineWidth = 6; const y = cv.height * 0.45 - (1 - f.ttl / f.max) * 20; ctx.strokeText(f.text, cv.width / 2, y); ctx.fillText(f.text, cv.width / 2, y); }
+    else if (f.k === "p") { ctx.fillStyle = f.color; ctx.fillRect(f.x - 2, f.y - 2, 4, 4); }
     else { ctx.fillStyle = f.color; ctx.strokeStyle = "#000"; ctx.lineWidth = 3; ctx.font = `bold ${S * 0.25}px system-ui`; ctx.strokeText(f.text, f.x, f.y); ctx.fillText(f.text, f.x, f.y); }
   }
   ctx.globalAlpha = 1;
@@ -197,7 +216,7 @@ function draw() {
 function frame(ts) {
   const dt = Math.min(250, ts - last || 0); last = ts;
   if (flash > 0) flash = Math.max(0, flash - dt / 600);
-  for (const f of fx) { f.ttl -= dt / 1000; if (f.k === "p") { f.x += f.vx * dt / 1000; f.y += f.vy * dt / 1000; } else f.y -= 24 * dt / 1000; }
+  for (const f of fx) { f.ttl -= dt / 1000; if (f.k === "p") { f.x += f.vx * dt / 1000; f.y += f.vy * dt / 1000; } else if (f.k === "t") f.y -= 24 * dt / 1000; }
   fx = fx.filter((f) => f.ttl > 0);
   // Only simulate while the city genre is on screen.
   if (running && !$("city").hidden && city.status === "playing") {

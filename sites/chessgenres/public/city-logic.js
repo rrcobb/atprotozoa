@@ -70,8 +70,15 @@ export function makeTerrain(seed) {
   return t;
 }
 
+// Named city sizes: crossing one is a moment worth announcing.
+export const TIERS = [
+  { pop: 0, name: "empty field" }, { pop: 1, name: "hamlet" }, { pop: 100, name: "village" }, { pop: 300, name: "town" },
+  { pop: 700, name: "city" }, { pop: 1200, name: "metropolis" }, { pop: 1700, name: "megalopolis" },
+];
+export const tierOf = (pop) => TIERS.reduce((t, x, i) => (pop >= x.pop ? i : t), 0);
+
 export function newCity(seed = 0) {
-  return { money: 800, month: 0, cells: Array(N * N).fill(null), status: "playing", seed, terrain: makeTerrain(seed), tax: 1, omen: null, contract: null, done: 0 };
+  return { tier: 0, money: 800, month: 0, cells: Array(N * N).fill(null), status: "playing", seed, terrain: makeTerrain(seed), tax: 1, omen: null, contract: null, done: 0 };
 }
 
 export const totalPop = (city) => city.cells.reduce((s, x) => s + (x ? x.pop || 0 : 0), 0);
@@ -214,9 +221,26 @@ export function tick(city, rng = Math.random) {
     city.contract = null;
   }
   if (!city.contract && city.month >= 6) city.contract = newContract(city, rng);
+  const tier = tierOf(totalPop(city));
+  city.tierUp = tier > (city.tier || 0) ? TIERS[tier].name : null;
+  if (city.tierUp) events.push(`your ${TIERS[tier - 1].name} grew into a ${city.tierUp}!`);
+  city.tier = Math.max(city.tier || 0, tier);
   if (totalPop(city) >= GOAL) city.status = "won";
   else if (city.money < BANKRUPT) city.status = "lost";
   return events;
+}
+
+// How a house feels and the single most useful thing to change. Returns {face, why}.
+export function houseMood(city, i, idx) {
+  const b = city.cells[idx];
+  if (!i.power) return { face: "🌑", why: "no power: put a ♕ on its rank, file or diagonal." };
+  const tax = city.tax ?? 1, score = houseScore(i);
+  if (i.factories >= 2) return { face: "😷", why: `smog from ${i.factories} factories. bulldoze one, or add a park.` };
+  if (score < 0.8) return { face: "😠", why: "unhappy: add a park (♗) or shop (♘) in reach, and keep factories (♖) away." };
+  if (tax === 2 && score < 1.4) return { face: "😒", why: "high taxes are squeezing this house. add parks or lower taxes." };
+  const tip = !i.parks ? "a park (♗) on its diagonal would raise the cap." : !i.shops ? "a shop (♘) a knight-jump away would raise the cap." : "";
+  if (b.pop >= houseCap(i, tax)) return { face: score >= 1.5 ? "😄" : "🙂", why: "full. " + (tip || "add more houses, or lower taxes.") };
+  return { face: "🙂", why: "growing. " + tip };
 }
 
 // --- feedback for the player: what a build would do, and what's going wrong ---

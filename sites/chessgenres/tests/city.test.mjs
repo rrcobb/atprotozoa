@@ -135,3 +135,16 @@ test("preview and advise give feedback", async () => {
   assert.ok(c.lastBreakdown && c.lastBreakdown.upkeep === 12);
   assert.equal(preview(c, "pawn", at(0, 0)), null);
 });
+
+test("crossing a population tier is announced once", async () => {
+  const { tierOf, TIERS, houseMood } = await import("../public/city-logic.js");
+  assert.equal(tierOf(0), 0);
+  assert.equal(TIERS[tierOf(350)].name, "town");
+  const c = newCity();
+  place(c, "pawn", at(0, 0)); place(c, "queen", at(0, 5));
+  for (let i = 0; i < 40; i++) tick(c, () => 0.99);
+  assert.ok(c.tier >= 1);
+  const i = analyze(c)[at(0, 0)];
+  assert.ok(houseMood(c, i, at(0, 0)).why.length > 0);
+  assert.equal(houseMood(c, analyze(newCity())[0], 0).face, "🌑");
+});
